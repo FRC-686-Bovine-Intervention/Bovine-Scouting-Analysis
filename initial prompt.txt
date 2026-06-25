@@ -1,5 +1,4 @@
 TODO:
-Look at RUSH photos
 Look at WAFFLES analysis
 Look at CheifDelphi plots -- 254 box&whisker, ???? colorful blocks.
 Look at 4414 tools -- REACT & ???
@@ -9,6 +8,12 @@ Look at 4414 tools -- REACT & ???
 We are making an analysis tool for FRC robotics scouting data.  
 
 This analysis tool should be adaptable for use over any FRC season.  
+
+This tool is web-based (though possibly self-hosted) in a framework that works well for any size device such as REACT.  It will support multiple simultaneous users.
+
+The landing page for the app requires the user to login if they haven't already done so.  Login consists of a user name, but no password.  No user profile is saved.  When logging in, the already existing user list is presented to select from.  The user can also add a new user if they it is not on the existing list.
+
+After logging in, the user is presented with the analysis options below.
 
 Input format: give example google spreadsheets
 
@@ -20,7 +25,8 @@ Evaluation Sources:
 - CCWM
 - pRidge - give link to paper, R code?
 
-Evaulation Criteria: Many of the evaluation sources can be broken into components parts.  For example, in 2025, the total EPA had component parts for coral, algae, and climb scoring.  The evalution criteria can be changed to either the total score from the evaluation source, or any combination of those components.  
+Evaulation Criteria: 
+Many of the evaluation sources can be broken into components parts.  For example, in 2025, the total EPA had component parts for coral, algae, and climb scoring.  The evalution criteria can be changed to either the total score from the evaluation source, or any combination of those components.  
 
 Analysis Options:
 - Box & whisker comparison of all teams at event
@@ -28,9 +34,17 @@ Analysis Options:
 - Is the robot broken?
 - Consistency / improvement grading.  Prefer robots that don't have many low scoring matches and are not showing signs of reduced performance over time.  Caveat: forgive robots that play defense during a certain match.  They shouldn't be expected to contribute offensively when playing a defensive roll.
 - Alliance vs. Alliance matchup plots
-- Find good defensive bots in the data?  Does it appear they reduced the opposing alliance's score.
+- Find good defensive bots in the data?  Does it appear they reduced the opposing alliance's score when scouters decleared they were playing defense?
 - Data check: Alert user to the presence of suspect data.  Outliers may be due to errors in scouting data that should be double-checked.
+- Alliance Selection
+
+Pick Lists:
+The user is presented with a list of the saved pick-list for that event (initially empty).  A button is available to Create a new pick list.  When selected, the user is prompted to name the pick list.  Initially, the user creates the pick list by tweaking the evaluation critera.  A Save button is available to store the current list at any time.  As the evaluation criteria is changed, a vertical stack of drag-and-droppable tiles reflects the sorted ranking of the teams present at that event -- best robots at the top of the list.  There are two modes for list manipulation -- changing the evaluation criteria, and dragging-and-dropping.  There should be a selector for changing between these modes.  The mode starts by using the evaluation criteria.  When switching from drag-and-drop to sorted evaluation criteria, the user is warned that any previous list manipulation will be lost.
+
+A user can back out of manipulating a list and return to the main pick list page, which shows a list of the previously saved lists and the Create new list button.
 
 
+Alliance Selection:
+During Alliance Selection, the user is able to load several already-saved pick lists.  Each pick list shows up as a column on the page, in the same tile format as the pick list manipulation, but reordering the lists is not possible here.  On the left hand side of the screen the current alliance selection status is shown with positions for 8 captains, 1st picks, 2nd picks (and additionally 3rd picks at World Champs).   Teams can be dragged and dropped into the alliance selection grid.  Or the user can click into the grid and manuually type the team number.  When a team has been placed into the alliance selection grid, their team number in all displayed pick lists is colored with a dark gray background and the team number is struck-thru.  The pick list tiles should be sized such that at least 24 teams can be displayed vertically at a time.
 
-During alliance selection, add indications of sub-par robot to all plots and lists  Ex. inconsistent scoring, possibly broken at end of qualifications, pit scouting indicates non-swerve drivetrain, or is on our Do-Not-Pick list.
+During pick list viewing (including alliance selection), add indications of sub-par robot to all plots and lists  Ex. inconsistent scoring, possibly broken at end of qualifications, pit scouting indicates non-swerve drivetrain, or is on our Do-Not-Pick list.
