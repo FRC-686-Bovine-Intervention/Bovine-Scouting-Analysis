@@ -1,0 +1,20 @@
+We are making an analysis tool for FRC robotics scouting data.  
+
+
+Input format: give example google spreadsheet
+
+Evaluation Criteria:
+- Scouter data
+- EPA - give Statbotics API
+- OPR - give Blue Alliance API
+- DPR
+- CCWM
+- pRidge - give paper, R code?
+
+Analysis Options:
+- Box & whisker comparison of all teams at event
+- Evaluation criteria vs match (incl. prev events)
+- Is the robot broken?
+- Consistency / improvement grading.  Prefer robots that don't have many low scoring matches and are not showing signs of reduced performance over time
+- Alliance vs. Alliance matchup plots
+
