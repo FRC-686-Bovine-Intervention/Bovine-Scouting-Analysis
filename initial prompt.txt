@@ -1,20 +1,36 @@
+TODO:
+Look at RUSH photos
+Look at WAFFLES analysis
+Look at CheifDelphi plots -- 254 box&whisker, ???? colorful blocks.
+Look at 4414 tools -- REACT & ???
+
+
+
 We are making an analysis tool for FRC robotics scouting data.  
 
+This analysis tool should be adaptable for use over any FRC season.  
 
-Input format: give example google spreadsheet
+Input format: give example google spreadsheets
 
-Evaluation Criteria:
+Evaluation Sources:
 - Scouter data
 - EPA - give Statbotics API
 - OPR - give Blue Alliance API
 - DPR
 - CCWM
-- pRidge - give paper, R code?
+- pRidge - give link to paper, R code?
+
+Evaulation Criteria: Many of the evaluation sources can be broken into components parts.  For example, in 2025, the total EPA had component parts for coral, algae, and climb scoring.  The evalution criteria can be changed to either the total score from the evaluation source, or any combination of those components.  
 
 Analysis Options:
 - Box & whisker comparison of all teams at event
 - Evaluation criteria vs match (incl. prev events)
 - Is the robot broken?
-- Consistency / improvement grading.  Prefer robots that don't have many low scoring matches and are not showing signs of reduced performance over time
+- Consistency / improvement grading.  Prefer robots that don't have many low scoring matches and are not showing signs of reduced performance over time.  Caveat: forgive robots that play defense during a certain match.  They shouldn't be expected to contribute offensively when playing a defensive roll.
 - Alliance vs. Alliance matchup plots
+- Find good defensive bots in the data?  Does it appear they reduced the opposing alliance's score.
+- Data check: Alert user to the presence of suspect data.  Outliers may be due to errors in scouting data that should be double-checked.
 
+
+
+During alliance selection, add indications of sub-par robot to all plots and lists  Ex. inconsistent scoring, possibly broken at end of qualifications, pit scouting indicates non-swerve drivetrain, or is on our Do-Not-Pick list.
