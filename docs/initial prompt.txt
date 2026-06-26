@@ -14,14 +14,15 @@ Input format: give example google spreadsheets
 
 Evaluation Sources:
 - Scouter data
-- EPA - TODO: give Statbotics API
-- OPR - TODO: give Blue Alliance API
-- DPR
-- CCWM
-- pRidge - TODO: give link to paper, R code?
+- EPA - (https://www.statbotics.io/docs/rest)
+- OPR/DPR/CCWM - https://www.thebluealliance.com/apidocs
+- pRidge - pRidge is introduced here (https://www.chiefdelphi.com/t/introducing-prior-ridge-regularization-for-frc-rating/519531) which has a link to the scoutR library.
 
 Evaulation Criteria: 
 Many of the evaluation sources can be broken into components parts.  For example, in 2025, the total EPA had component parts for coral, algae, and climb scoring.  The evalution criteria can be changed to either the total score from the evaluation source, or any combination of those components.  
+
+Weighted sums of the source data may be defined to generate evaluation criteria.
+
 
 Analysis Options:
 - Teams.  Find scouted data for each team at the event.  Take inspiration from https://scouting.wafflesrobotics.com/teams.  Teams are in numerical order, with a thumbnail image taken from their TBA page or from a pit scouting photo, if available.  licking on a team brings up their team summary page.
