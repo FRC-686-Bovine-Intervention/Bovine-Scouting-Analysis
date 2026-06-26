@@ -326,6 +326,33 @@ const matches = [
   { number: 41, red: [2056, 1323, 7426], blue: [2910, 4414, 6328] },
 ];
 
+const dataSources = [
+  {
+    name: "Scouting Spreadsheet",
+    status: "Mocked import",
+    updated: "Demo seed loaded",
+    notes: "CSV/XLSX import contract is represented, but files are not parsed yet.",
+  },
+  {
+    name: "The Blue Alliance",
+    status: "Mocked sync",
+    updated: "Event shell loaded",
+    notes: "Event teams, rankings, and schedule are demo data shaped like TBA inputs.",
+  },
+  {
+    name: "Statbotics EPA",
+    status: "Mocked sync",
+    updated: "EPA values seeded",
+    notes: "EPA is stored per team and used by rankings, analysis, and picklist criteria.",
+  },
+  {
+    name: "pRidge",
+    status: "Mocked sync",
+    updated: "pRidge values seeded",
+    notes: "pRidge is available as a metric source and weighted-sum component.",
+  },
+];
+
 const gameComponentRatios = [
   { id: "total", label: "Total", ratio: 1 },
   { id: "auto", label: "Auto", ratio: 0.18 },
@@ -1366,17 +1393,50 @@ function renderBoardContextMenu() {
 
 function renderAdmin() {
   return `
-    <div class="grid cols-2">
+    <div class="grid">
       <article class="card">
-        <h2>Imports</h2>
-        <p class="muted">Scouter spreadsheet import contract is ready for CSV/XLSX parsing.</p>
-        <button>Import scouting data</button>
+        <div class="section-heading">
+          <div>
+            <h2>Data Sources</h2>
+            <p class="muted">This demo shows the intended source boundaries while using seeded local data.</p>
+          </div>
+          <button>Refresh demo data</button>
+        </div>
+        <div class="data-source-list">
+          ${dataSources
+            .map(
+              (source) => `
+            <div class="data-source-row">
+              <div>
+                <strong>${source.name}</strong>
+                <span class="muted">${source.notes}</span>
+              </div>
+              <span class="source-status">${source.status}</span>
+              <span class="muted">${source.updated}</span>
+            </div>
+          `,
+            )
+            .join("")}
+        </div>
       </article>
-      <article class="card">
-        <h2>External Sync</h2>
-        <p class="muted">Statbotics, TBA, and pRidge are modeled as refreshable metric sources.</p>
-        <button>Refresh metrics</button>
-      </article>
+      <div class="stat-grid">
+        <div class="stat"><span>Teams</span><strong>${teams.length}</strong></div>
+        <div class="stat"><span>Matches</span><strong>${matches.length}</strong></div>
+        <div class="stat"><span>Picklists</span><strong>${state.picklists.length}</strong></div>
+        <div class="stat"><span>Admin Users</span><strong>${adminUsers.length}</strong></div>
+      </div>
+      <div class="grid cols-2">
+        <article class="card">
+          <h2>Import Contract</h2>
+          <p class="muted">Scouting rows should include event, match, team, scout, raw scoring fields, defense indicators, robot status, and notes.</p>
+          <button>Import scouting data</button>
+        </article>
+        <article class="card">
+          <h2>External Sync</h2>
+          <p class="muted">TBA, Statbotics, and pRidge are modeled as refreshable sources for the eventual backend.</p>
+          <button>Refresh metrics</button>
+        </article>
+      </div>
     </div>
   `;
 }
