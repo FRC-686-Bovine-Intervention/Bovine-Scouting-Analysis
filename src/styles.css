@@ -85,6 +85,33 @@ button.primary {
   font-size: 0.88rem;
 }
 
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.action-button svg,
+.theme-toggle svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.user-role {
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .danger-button {
   border-color: var(--danger);
   color: var(--danger);
@@ -694,6 +721,13 @@ select {
   gap: 8px;
   padding: 12px;
   cursor: pointer;
+}
+
+.data-row {
+  width: 100%;
+  min-height: 0;
+  color: var(--text);
+  text-align: left;
 }
 
 .match-row {

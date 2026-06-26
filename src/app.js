@@ -472,6 +472,18 @@ function isAdmin() {
   return adminUsers.includes(state.user);
 }
 
+function userLabel(user) {
+  return adminUsers.includes(user) ? `${user} (Admin)` : user;
+}
+
+function canView(view) {
+  return view !== "admin" || isAdmin();
+}
+
+function visibleNavItems() {
+  return navItems.filter((item) => canView(item.view));
+}
+
 function normalizePicklists(lists) {
   const source = Array.isArray(lists) && lists.length ? lists : seedPicklists;
   return source.map((list) => {
@@ -596,7 +608,12 @@ function setTheme(theme) {
   render();
 }
 
+function toggleTheme() {
+  setTheme(state.theme === "light" ? "dark" : "light");
+}
+
 function setView(view) {
+  if (!canView(view)) view = "teams";
   state.activeView = view;
   saveState();
   render();
@@ -606,6 +623,10 @@ function render() {
   if (!state.user) {
     renderLogin();
     return;
+  }
+  if (!canView(state.activeView)) {
+    state.activeView = "teams";
+    saveState();
   }
 
   app.innerHTML = `
@@ -626,7 +647,7 @@ function render() {
           <span class="muted">${event.matchesComplete} matches imported</span>
         </div>
         <nav class="nav-list">
-          ${navItems.map((item) => navButton(item)).join("")}
+          ${visibleNavItems().map((item) => navButton(item)).join("")}
         </nav>
       </aside>
       <main class="main">
@@ -636,11 +657,12 @@ function render() {
             <h1>${viewTitle(state.activeView)}</h1>
           </div>
           <div class="split-row">
-            <select aria-label="Theme" id="themeSelect">
-              <option value="light" ${state.theme === "light" ? "selected" : ""}>Light</option>
-              <option value="dark" ${state.theme === "dark" ? "selected" : ""}>Dark</option>
-            </select>
-            <button id="logoutButton">Sign out ${state.user}</button>
+            ${renderThemeToggle()}
+            <button class="action-button" id="logoutButton" title="Sign out ${state.user}" aria-label="Sign out ${state.user}">
+              ${icon("user")}
+              <span>${state.user}</span>
+              ${isAdmin() ? `<span class="user-role">Admin</span>` : ""}
+            </button>
           </div>
         </header>
         <section class="content">${renderView()}</section>
@@ -660,17 +682,14 @@ function renderLogin() {
             <p class="eyebrow">FRC Event Strategy</p>
             <h1>Scouting Analysis</h1>
           </div>
-          <select aria-label="Theme" id="themeSelect">
-            <option value="light" ${state.theme === "light" ? "selected" : ""}>Light</option>
-            <option value="dark" ${state.theme === "dark" ? "selected" : ""}>Dark</option>
-          </select>
+          ${renderThemeToggle()}
         </div>
         <div class="login-actions">
           <label>
             Existing user
             <select id="existingUser">
               <option value="">Select user</option>
-              ${state.users.map((user) => `<option value="${user}">${user}</option>`).join("")}
+              ${state.users.map((user) => `<option value="${user}">${userLabel(user)}</option>`).join("")}
             </select>
           </label>
           <button class="primary" id="loginButton">Continue</button>
@@ -684,7 +703,7 @@ function renderLogin() {
     </main>
   `;
 
-  document.querySelector("#themeSelect").addEventListener("change", (event) => setTheme(event.target.value));
+  document.querySelector("#themeToggle")?.addEventListener("click", toggleTheme);
   document.querySelector("#loginButton").addEventListener("click", () => {
     const selected = document.querySelector("#existingUser").value;
     if (!selected) return;
@@ -703,9 +722,22 @@ function renderLogin() {
   });
 }
 
+function renderThemeToggle() {
+  const nextTheme = state.theme === "light" ? "dark" : "light";
+  const label = `Switch to ${nextTheme} mode`;
+  return `
+    <button class="icon-button theme-toggle" id="themeToggle" title="${label}" aria-label="${label}">
+      ${icon(state.theme === "light" ? "sun" : "moon")}
+    </button>
+  `;
+}
+
 function icon(name) {
   const paths = {
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+    user: '<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
+    moon: '<path d="M21 14.8A8.5 8.5 0 0 1 9.2 3 7 7 0 1 0 21 14.8Z"/>',
     teams: '<path d="M8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/><path d="M2 21a6 6 0 0 1 12 0"/><path d="M17 11a3 3 0 1 0 0-6"/><path d="M22 21a5 5 0 0 0-6-5"/>',
     rankings: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
     analysis: '<path d="M4 19h16"/><path d="M6 15h10"/><path d="M8 11h12"/><path d="M5 7h7"/><path d="M14 7h4"/>',
@@ -748,7 +780,7 @@ function bindShellEvents() {
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
   });
-  document.querySelector("#themeSelect").addEventListener("change", (event) => setTheme(event.target.value));
+  document.querySelector("#themeToggle")?.addEventListener("click", toggleTheme);
   document.querySelector("#menuToggle").addEventListener("click", () => {
     state.menuExpanded = !state.menuExpanded;
     saveState();
@@ -1106,13 +1138,13 @@ function renderQuality() {
       ${flagged
         .map(
           (team) => `
-        <article class="data-row">
+        <button class="data-row" data-team="${team.number}">
           <div class="split-row">
             <strong>${team.number} ${team.name}</strong>
             ${renderTeamBadges(team)}
           </div>
           ${team.flags.map((flag) => `<span class="flag-evidence">${flag.evidence}</span>`).join("")}
-        </article>
+        </button>
       `,
         )
         .join("")}
