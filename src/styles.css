@@ -14,6 +14,12 @@
   --info: #2563eb;
   --good: #15803d;
   --shadow: 0 8px 24px rgba(23, 32, 42, 0.08);
+  --picklist-tile-font-size: 0.82rem;
+  --picklist-tile-min-height: 22px;
+  --picklist-tile-padding-y: 2px;
+  --picklist-tile-padding-x: 6px;
+  --picklist-tile-gap: 4px;
+  --picklist-tile-row-size: 24px;
 }
 
 [data-theme="dark"] {
@@ -822,13 +828,69 @@ button.pill {
   gap: 14px;
 }
 
-.picklist-editor-layout {
-  grid-template-columns: minmax(260px, 0.75fr) minmax(480px, 1.25fr);
+.sort-builder-layout {
+  grid-template-columns: minmax(220px, 0.58fr) minmax(260px, 0.72fr) minmax(420px, 1.2fr);
 }
 
-.mode-toggle {
-  display: flex;
+.picklist-builder-layout {
+  grid-template-columns: minmax(220px, 0.52fr) minmax(220px, 0.58fr) minmax(520px, 1.3fr);
+}
+
+.builder-list-card {
+  min-width: 0;
+}
+
+.builder-list {
+  display: grid;
   gap: 8px;
+}
+
+.builder-list:focus {
+  outline: none;
+}
+
+.builder-list-item {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  cursor: pointer;
+  user-select: none;
+}
+
+.builder-list-item svg {
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: text-bottom;
+}
+
+.builder-list-item.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.builder-list-item.locked {
+  background: color-mix(in srgb, var(--panel-soft) 88%, var(--bg));
+}
+
+.builder-list-item[draggable="true"] {
+  cursor: grab;
+}
+
+.inline-rename-input {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0 8px;
+  background: var(--panel);
+  color: var(--text);
 }
 
 .criteria-builder {
@@ -857,14 +919,86 @@ button.pill {
   min-width: 48px;
 }
 
-.picklist-edit-list {
+.builder-team-list {
   max-height: 62vh;
   overflow-y: auto;
   padding-right: 6px;
 }
 
+.sort-preview-card,
+.sort-builder-editor-card {
+  min-width: 0;
+}
+
+.current-picklist-card {
+  min-width: 0;
+}
+
+.picklist-list-offset {
+  min-height: 58px;
+}
+
+.current-picklist-list:focus {
+  outline: none;
+}
+
+.read-only-source-card {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 12px;
+  background: var(--panel-soft);
+}
+
+.read-only-source-card strong {
+  display: inline-flex;
+  align-items: center;
+}
+
+.read-only-source-card svg {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+}
+
+.builder-grid-columns {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.grid-column {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.grid-column-select {
+  display: grid;
+  gap: 4px;
+}
+
+.grid-column-list {
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.compact-empty {
+  padding: 12px;
+  font-size: 0.82rem;
+}
+
 .alliance-layout {
   grid-template-columns: minmax(260px, 0.7fr) minmax(520px, 1.3fr);
+}
+
+.alliance-sources-card {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
 }
 
 .alliance-picklists {
@@ -872,13 +1006,15 @@ button.pill {
   gap: 8px;
   justify-content: start;
   margin-top: 0;
+  height: 100%;
+  align-items: stretch;
 }
 
 .alliance-picklists section {
-  max-height: 66vh;
-  overflow-y: auto;
-  padding-right: 8px;
-  scrollbar-gutter: stable;
+  display: grid;
+  grid-template-rows: minmax(calc(var(--alliance-header-lines, 1) * 1.2em), auto) 1fr;
+  min-height: 0;
+  height: 100%;
 }
 
 .alliance-picklists h3 {
@@ -887,10 +1023,27 @@ button.pill {
   line-height: 1.2;
 }
 
+.alliance-source-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 8px;
+  scrollbar-gutter: stable;
+}
+
 .picklist-loader {
   display: grid;
   gap: 8px;
   margin-top: 14px;
+}
+
+.picklist-loader-group {
+  display: grid;
+  gap: 8px;
+}
+
+.picklist-loader-group h3 {
+  margin: 0;
+  font-size: 0.85rem;
 }
 
 .check-row {
@@ -913,18 +1066,22 @@ button.pill {
 .picklist-tile {
   display: grid;
   grid-template-columns: 42px 1fr auto;
-  gap: 10px;
+  gap: var(--picklist-tile-gap);
   align-items: center;
-  padding: 9px 10px;
-  margin-bottom: 8px;
+  min-height: var(--picklist-tile-min-height);
+  padding: var(--picklist-tile-padding-y) var(--picklist-tile-padding-x);
+  margin-bottom: 2px;
+  font-size: var(--picklist-tile-font-size);
+  position: relative;
+  overflow: hidden;
 }
 
 .picklist-tile.compact {
-  grid-template-columns: 26px minmax(48px, 1fr) auto;
-  gap: 4px;
-  min-height: 32px;
-  padding: 6px;
-  font-size: 0.86rem;
+  grid-template-columns: 26px minmax(0, 1fr) 4ch;
+  gap: var(--picklist-tile-gap);
+  min-height: var(--picklist-tile-min-height);
+  padding: var(--picklist-tile-padding-y) var(--picklist-tile-padding-x);
+  font-size: var(--picklist-tile-font-size);
 }
 
 .picklist-tile[draggable="true"] {
@@ -933,6 +1090,52 @@ button.pill {
 
 .picklist-tile[draggable="true"]:active {
   cursor: grabbing;
+}
+
+.picklist-tile .tile-rank {
+  min-width: 2ch;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 999px;
+}
+
+.picklist-tile .tile-label,
+.picklist-tile .tile-score {
+  line-height: 1;
+}
+
+.picklist-tile.compare-selected {
+  box-shadow:
+    inset 0 0 0 999px color-mix(in srgb, var(--compare-accent) 100%, white),
+    inset 0 0 0 2px color-mix(in srgb, var(--compare-accent) 86%, black);
+  color: #ffffff;
+}
+
+.picklist-tile.compare-selected .tile-label,
+.picklist-tile.compare-selected .tile-score {
+  color: inherit;
+}
+
+.picklist-tile.compare-selected .tile-rank {
+  background: color-mix(in srgb, white 18%, transparent);
+  color: #ffffff;
+}
+
+.picklist-tile.team-focused {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.picklist-tile .tile-score,
+.picklist-tile .tile-spacer {
+  width: 4ch;
+  justify-self: end;
+  text-align: right;
+}
+
+.tile-spacer {
+  min-width: 4ch;
 }
 
 .picked {
@@ -1036,7 +1239,9 @@ button.pill {
   .grid.cols-3,
   .stat-grid,
   .picklist-columns,
-  .picklist-editor-layout {
+  .sort-builder-layout,
+  .picklist-builder-layout,
+  .builder-grid-columns {
     grid-template-columns: 1fr;
   }
 

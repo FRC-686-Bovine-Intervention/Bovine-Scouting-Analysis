@@ -11,6 +11,10 @@ const storageKeys = {
   allianceBoard: "frc-scouting-alliance-board",
   picklists: "frc-scouting-picklists",
   activePicklist: "frc-scouting-active-picklist",
+  sortEquations: "frc-scouting-sort-equations",
+  activeSortEquation: "frc-scouting-active-sort-equation",
+  picklistColumns: "frc-scouting-picklist-columns",
+  picklistCompareTeams: "frc-scouting-picklist-compare-teams",
 };
 
 const seedUsers = ["Avery", "Jordan", "Morgan"];
@@ -24,7 +28,6 @@ const event = {
 };
 
 const metrics = [
-  { id: "weighted", label: "Weighted Pick Score", unit: "pts", components: { scouterTotal: 0.45, epa: 0.25, pridge: 0.2, consistency: 0.1 } },
   { id: "scouterTotal", label: "Scouter Total", unit: "pts" },
   { id: "epa", label: "EPA", unit: "pts" },
   { id: "pridge", label: "pRidge", unit: "pts" },
@@ -39,7 +42,8 @@ const navItems = [
   { view: "matchup", label: "Matchup", icon: "matchup" },
   { view: "quality", label: "Data Quality", icon: "quality" },
   { view: "analysis", label: "Analysis", icon: "analysis" },
-  { view: "picklists", label: "Picklists", icon: "picklists" },
+  { view: "sortBuilder", label: "Sort Builder", icon: "sortEquation" },
+  { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
   { view: "alliance", label: "Alliance Selection", icon: "alliance" },
   { view: "admin", label: "Admin", icon: "admin" },
 ];
@@ -402,48 +406,74 @@ const criteriaSources = [
 
 const defaultCriteriaTerms = [{ operator: "+", weight: 1, source: "epa", component: "total" }];
 
-const seedPicklists = [
+const picklistColumnCount = 4;
+const picklistCompareLimit = 4;
+const protectedEpaSortId = "sort-epa";
+const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
+
+const seedSortEquations = [
   {
-    name: "First Pick",
-    mode: "criteria",
-    terms: defaultCriteriaTerms,
-    teams: [1678, 254, 1323, 2910, 971, 2056, 4414, 6328, 118, 3005, 6800, 7426],
-  },
-  {
-    name: "Defense / Backup",
-    mode: "criteria",
+    id: "sort-defense-backup",
+    name: "Defense / Backup Formula",
     terms: [
       { operator: "+", weight: 0.05, source: "scouter", component: "total" },
       { operator: "+", weight: 0.75, source: "derived", component: "defenseImpact" },
       { operator: "+", weight: 0.2, source: "derived", component: "consistency" },
     ],
+  },
+];
+
+const seedPicklists = [
+  {
+    id: "pick-first-pick",
+    name: "First Pick",
+    teams: [1678, 254, 1323, 2910, 971, 2056, 4414, 6328, 118, 3005, 6800, 7426],
+  },
+  {
+    id: "pick-defense-backup",
+    name: "Defense / Backup",
     teams: [6800, 118, 3005, 971, 1323, 2056, 2910, 6328, 4414, 1678, 254, 7426],
   },
 ];
 
 const defaultAllianceBoard = [1678, 254, 1323, 2910, 971, 118, 2056, 4414, ...Array(16).fill(null)];
+const eventTeamNumbers = [...teams].map((team) => team.number).sort((a, b) => a - b);
+const protectedEpaSortEquation = {
+  id: protectedEpaSortId,
+  name: "EPA",
+  metricId: "epa",
+  locked: true,
+};
 
 const state = {
   user: localStorage.getItem(storageKeys.user) || "",
   users: readJson(storageKeys.users, seedUsers),
   theme: localStorage.getItem(storageKeys.theme) || "light",
   activeView: normalizeView(localStorage.getItem(storageKeys.activeView)),
-  metric: localStorage.getItem(storageKeys.metric) || "weighted",
+  metric: normalizeAnalysisSelection(localStorage.getItem(storageKeys.metric)),
   selectedTeam: Number(localStorage.getItem(storageKeys.selectedTeam)) || teams[0].number,
   selectedMatch: Number(localStorage.getItem(storageKeys.selectedMatch)) || matches[0].number,
   menuExpanded: localStorage.getItem(storageKeys.menuExpanded) === "true",
   picklists: normalizePicklists(readJson(storageKeys.picklists, seedPicklists)),
-  loadedPicklists: readJson(storageKeys.loadedPicklists, [seedPicklists[0].name]),
-  activePicklist: localStorage.getItem(storageKeys.activePicklist) || seedPicklists[0].name,
+  sortEquations: normalizeSortEquations(readJson(storageKeys.sortEquations, seedSortEquations)),
+  loadedSources: [],
+  activePicklist: "",
+  activeSortEquation: "",
+  picklistColumns: [],
   allianceBoard: normalizeBoard(readJson(storageKeys.allianceBoard, defaultAllianceBoard)),
   contextMenu: null,
+  inlineRename: null,
+  picklistSelectedTeam: null,
+  picklistCompareTeams: normalizePicklistCompareTeams(readJson(storageKeys.picklistCompareTeams, [])),
+  builderFocus: { sortBuilder: "list", picklistBuilder: "list" },
 };
 
-if (!state.picklists.find((picklist) => picklist.name === state.activePicklist)) {
-  state.activePicklist = state.picklists[0].name;
-}
-state.loadedPicklists = state.loadedPicklists.filter((name) => state.picklists.some((picklist) => picklist.name === name));
-if (!state.loadedPicklists.length) state.loadedPicklists = [state.picklists[0].name];
+state.activePicklist = resolvePicklistId(localStorage.getItem(storageKeys.activePicklist), state.picklists) || state.picklists[0]?.id || "";
+state.activeSortEquation =
+  resolveSortEquationId(localStorage.getItem(storageKeys.activeSortEquation), state.sortEquations) || state.sortEquations[0]?.id || "";
+state.loadedSources = normalizeLoadedSources(readJson(storageKeys.loadedPicklists, [`picklist:${seedPicklists[0].id}`]));
+state.picklistColumns = normalizePicklistColumns(readJson(storageKeys.picklistColumns, Array(picklistColumnCount).fill("")));
+if (!state.loadedSources.length && state.picklists.length) state.loadedSources = [`picklist:${state.picklists[0].id}`];
 
 document.documentElement.dataset.theme = state.theme;
 
@@ -456,6 +486,10 @@ function readJson(key, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function createId(prefix) {
+  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function escapeAttribute(value) {
@@ -476,9 +510,13 @@ function saveState() {
   localStorage.setItem(storageKeys.selectedMatch, String(state.selectedMatch));
   localStorage.setItem(storageKeys.menuExpanded, String(state.menuExpanded));
   localStorage.setItem(storageKeys.picklists, JSON.stringify(state.picklists));
-  localStorage.setItem(storageKeys.loadedPicklists, JSON.stringify(state.loadedPicklists));
+  localStorage.setItem(storageKeys.sortEquations, JSON.stringify(state.sortEquations));
+  localStorage.setItem(storageKeys.loadedPicklists, JSON.stringify(state.loadedSources));
   localStorage.setItem(storageKeys.activePicklist, state.activePicklist);
+  localStorage.setItem(storageKeys.activeSortEquation, state.activeSortEquation);
+  localStorage.setItem(storageKeys.picklistColumns, JSON.stringify(state.picklistColumns));
   localStorage.setItem(storageKeys.allianceBoard, JSON.stringify(state.allianceBoard));
+  localStorage.setItem(storageKeys.picklistCompareTeams, JSON.stringify(state.picklistCompareTeams));
 }
 
 function normalizeView(view) {
@@ -489,6 +527,14 @@ function normalizeBoard(board) {
   const next = Array.isArray(board) ? board.slice(0, 24) : [];
   while (next.length < 24) next.push(null);
   return next.map((value) => (Number.isFinite(Number(value)) && value !== "" ? Number(value) : null));
+}
+
+function normalizeAnalysisSelection(value) {
+  if (typeof value !== "string" || !value) return "epa";
+  if (value.startsWith("sort:")) {
+    return value;
+  }
+  return metrics.some((metric) => metric.id === value) ? value : "epa";
 }
 
 function pickedTeams() {
@@ -511,26 +557,120 @@ function visibleNavItems() {
   return navItems.filter((item) => canView(item.view));
 }
 
+function resolvePicklistId(value, picklists = state.picklists) {
+  if (!value) return "";
+  const stringValue = String(value);
+  const match = picklists.find((picklist) => picklist.id === stringValue || picklist.name === stringValue);
+  return match?.id || "";
+}
+
+function resolveSortEquationId(value, sortEquations = state.sortEquations) {
+  if (!value) return "";
+  const stringValue = String(value);
+  const match = sortEquations.find((equation) => equation.id === stringValue || equation.name === stringValue);
+  return match?.id || "";
+}
+
+function normalizeSortEquations(equations) {
+  const source = Array.isArray(equations) ? equations : [];
+  const hasPersistedValues = Array.isArray(equations);
+  const normalized = source
+    .filter((equation) => equation && equation.id !== protectedEpaSortId)
+    .map((equation) => ({
+      id: equation.id || createId("sort"),
+      name: equation.name || "Sort Equation",
+      terms: normalizeCriteriaTerms(equation.terms || termsFromLegacyWeights(equation.weights)),
+      locked: false,
+    }));
+  const fallback = normalized.length || hasPersistedValues ? normalized : seedSortEquations.map((equation) => ({
+    id: equation.id || createId("sort"),
+    name: equation.name || "Sort Equation",
+    terms: normalizeCriteriaTerms(equation.terms || termsFromLegacyWeights(equation.weights)),
+    locked: false,
+  }));
+  return [protectedEpaSortEquation, ...fallback];
+}
+
 function normalizePicklists(lists) {
   const source = Array.isArray(lists) && lists.length ? lists : seedPicklists;
-  return source.map((list) => {
-    const terms = normalizeCriteriaTerms(list.terms || termsFromLegacyWeights(list.weights));
-    const normalized = {
-      name: list.name || "Untitled Picklist",
-      mode: list.mode === "manual" ? "manual" : "criteria",
-      terms,
-      teams: Array.isArray(list.teams) && list.teams.length ? list.teams.map(Number) : teams.map((team) => team.number),
-    };
-    return normalized.mode === "criteria" ? { ...normalized, teams: rankTeamsByTerms(terms) } : normalized;
+  return source.map((list) => ({
+    id: list.id || createId("pick"),
+    name: list.name || "Picklist",
+    teams: normalizePicklistTeams(list.teams),
+  }));
+}
+
+function normalizePicklistTeams(values) {
+  const ranked = Array.isArray(values) ? values.map(Number).filter((value, index, array) => teamByNumber(value) && array.indexOf(value) === index) : [];
+  const missing = eventTeamNumbers.filter((number) => !ranked.includes(number));
+  return [...ranked, ...missing];
+}
+
+function normalizeLoadedSources(values) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((entry) => normalizeSourceEntry(entry))
+    .filter((entry, index, array) => entry && array.indexOf(entry) === index);
+}
+
+function normalizePicklistCompareTeams(values) {
+  const next = Array.isArray(values) ? values.slice(0, picklistCompareLimit) : [];
+  while (next.length < picklistCompareLimit) next.push(null);
+  const seen = new Set();
+  return next.map((value) => {
+    const teamNumber = Number(value);
+    if (!teamByNumber(teamNumber)) return null;
+    if (seen.has(teamNumber)) return null;
+    seen.add(teamNumber);
+    return teamNumber;
   });
 }
 
-function activePicklist() {
-  return state.picklists.find((picklist) => picklist.name === state.activePicklist) || state.picklists[0];
+function normalizePicklistColumns(columns) {
+  const next = Array.isArray(columns) ? columns.slice(0, picklistColumnCount) : [];
+  while (next.length < picklistColumnCount) next.push("");
+  return next.map((entry) => {
+    if (!entry) return "";
+    if (typeof entry !== "string") return "";
+    return normalizeSourceEntry(entry);
+  });
 }
 
-function updatePicklist(name, updater) {
-  state.picklists = state.picklists.map((picklist) => (picklist.name === name ? updater(picklist) : picklist));
+function normalizeSourceEntry(entry) {
+  if (!entry || typeof entry !== "string") return "";
+  if (entry.startsWith("sort:")) {
+    const id = resolveSortEquationId(entry.slice(5));
+    return id ? `sort:${id}` : "";
+  }
+  if (entry.startsWith("picklist:")) {
+    const id = resolvePicklistId(entry.slice(9));
+    return id ? `picklist:${id}` : "";
+  }
+  const legacyPicklistId = resolvePicklistId(entry);
+  return legacyPicklistId ? `picklist:${legacyPicklistId}` : "";
+}
+
+function activePicklist() {
+  return state.picklists.find((picklist) => picklist.id === state.activePicklist) || state.picklists[0];
+}
+
+function activeSortEquation() {
+  return state.sortEquations.find((equation) => equation.id === state.activeSortEquation) || state.sortEquations[0];
+}
+
+function isProtectedSortEquation(equation) {
+  return Boolean(equation?.locked);
+}
+
+function updatePicklist(id, updater) {
+  state.picklists = state.picklists.map((picklist) => (picklist.id === id ? updater(picklist) : picklist));
+  saveState();
+  render();
+}
+
+function updateSortEquation(id, updater) {
+  if (id === protectedEpaSortId) return;
+  state.sortEquations = state.sortEquations.map((equation) => (equation.id === id ? updater(equation) : equation));
   saveState();
   render();
 }
@@ -580,6 +720,17 @@ function rankTeamsByTerms(terms) {
   return [...teams].sort((a, b) => scoreTeamByTerms(b, terms) - scoreTeamByTerms(a, terms)).map((team) => team.number);
 }
 
+function scoreTeamByEquation(team, equation) {
+  if (equation.metricId) return Number(team[equation.metricId] || 0);
+  return scoreTeamByTerms(team, equation.terms);
+}
+
+function rankTeamsByEquation(equation) {
+  return [...teams]
+    .sort((a, b) => scoreTeamByEquation(b, equation) - scoreTeamByEquation(a, equation) || a.number - b.number)
+    .map((team) => team.number);
+}
+
 function colorForScore(score, min, max) {
   if (max === min) return "transparent";
   const ratio = (score - min) / (max - min);
@@ -596,15 +747,9 @@ function colorForScore(score, min, max) {
 
 function enrichTeam(team) {
   const scouterTotal = average(team.matches);
-  const weighted =
-    scouterTotal * 0.45 +
-    team.epa * 0.25 +
-    team.pridge * 0.2 +
-    team.consistency * 0.1;
   return {
     ...team,
     scouterTotal,
-    weighted,
   };
 }
 
@@ -621,7 +766,41 @@ function quantile(values, q) {
 }
 
 function metricById(id) {
-  return metrics.find((metric) => metric.id === id) || metrics[0];
+  return metrics.find((metric) => metric.id === id) || metrics.find((metric) => metric.id === "epa") || metrics[0];
+}
+
+function analysisSortEquations() {
+  return state.sortEquations.filter((equation) => !isProtectedSortEquation(equation));
+}
+
+function analysisSelectionModel() {
+  if (typeof state.metric === "string" && state.metric.startsWith("sort:")) {
+    const equation = state.sortEquations.find((item) => item.id === state.metric.slice(5));
+    if (equation) return { type: "sortEquation", id: equation.id, label: equation.name, unit: "pts", equation };
+  }
+  const metric = metricById(state.metric);
+  return { type: "metric", id: metric.id, label: metric.label, unit: metric.unit, metric };
+}
+
+function compareSlotIndexForTeam(teamNumber) {
+  return state.picklistCompareTeams.indexOf(teamNumber);
+}
+
+function compareAccent(teamNumber) {
+  const index = compareSlotIndexForTeam(teamNumber);
+  return index < 0 ? null : compareTeamPalette[index];
+}
+
+function togglePicklistCompareTeam(teamNumber) {
+  const existingIndex = compareSlotIndexForTeam(teamNumber);
+  if (existingIndex >= 0) {
+    state.picklistCompareTeams[existingIndex] = null;
+    return true;
+  }
+  const emptyIndex = state.picklistCompareTeams.indexOf(null);
+  if (emptyIndex < 0) return false;
+  state.picklistCompareTeams[emptyIndex] = teamNumber;
+  return true;
 }
 
 function teamByNumber(number) {
@@ -642,6 +821,8 @@ function toggleTheme() {
 function setView(view) {
   if (!canView(view)) view = "teams";
   state.activeView = view;
+  state.contextMenu = null;
+  state.inlineRename = null;
   saveState();
   render();
 }
@@ -762,6 +943,7 @@ function renderThemeToggle() {
 function icon(name) {
   const paths = {
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+    lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 1 1 8 0v3"/>',
     user: '<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
     moon: '<path d="M21 14.8A8.5 8.5 0 0 1 9.2 3 7 7 0 1 0 21 14.8Z"/>',
@@ -772,6 +954,8 @@ function icon(name) {
     matchup: '<path d="M7 7h10"/><path d="M7 17h10"/><path d="M9 7a3 3 0 1 1 0 6"/><path d="M15 17a3 3 0 1 1 0-6"/>',
     quality: '<path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5"/><path d="M12 17h.01"/>',
     picklists: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
+    sortEquation:
+      '<text x="12" y="17" text-anchor="middle" font-size="18" font-weight="700" fill="currentColor" stroke="none">Σ</text>',
     alliance: '<path d="M4 5h7v6H4z"/><path d="M13 5h7v6h-7z"/><path d="M4 13h7v6H4z"/><path d="M13 13h7v6h-7z"/>',
     admin: '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2 3.4-.1-.1a1.7 1.7 0 0 0-2-.3 1.7 1.7 0 0 0-1 1.5V22h-4v-.5a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-2 .3l-.1.1-2-3.4.1-.1A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14H2v-4h1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 2-3.4.1.1a1.7 1.7 0 0 0 2 .3 1.7 1.7 0 0 0 1-1.5V2h4v.5a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 2-.3l.1-.1 2 3.4-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1H22v4h-1a1.7 1.7 0 0 0-1.6 1Z"/>',
   };
@@ -797,7 +981,8 @@ function viewTitle(view) {
     schedule: "Match Schedule",
     matchup: "Matchup",
     quality: "Data Quality",
-    picklists: "Picklists",
+    sortBuilder: "Sort Builder",
+    picklistBuilder: "Picklist Builder",
     alliance: "Alliance Selection",
     admin: "Admin",
   }[view];
@@ -830,7 +1015,8 @@ function renderView() {
     schedule: renderSchedule,
     matchup: renderMatchup,
     quality: renderQuality,
-    picklists: renderPicklists,
+    sortBuilder: renderSortBuilder,
+    picklistBuilder: renderPicklistBuilder,
     alliance: renderAlliance,
     admin: renderAdmin,
   }[state.activeView]();
@@ -838,7 +1024,7 @@ function renderView() {
 
 function renderRankings() {
   const ranked = [...teams]
-    .sort((a, b) => b.weighted - a.weighted)
+    .sort((a, b) => b.epa - a.epa)
     .map((team, index) => ({ ...team, rank: index + 1, rp: rankingPoints(team), record: recordForTeam(team) }));
   return `
     <article class="card">
@@ -846,7 +1032,7 @@ function renderRankings() {
         <div>
           <h2>Current Event Rankings</h2>
         </div>
-        <span class="muted">Sorted by ranking score, then weighted score</span>
+        <span class="muted">Sorted by ranking score, then EPA</span>
       </div>
       <div class="ranking-table" role="table" aria-label="Current event rankings">
         <div class="ranking-row ranking-header" role="row">
@@ -864,7 +1050,7 @@ function renderRankings() {
           <button class="ranking-row" data-team="${team.number}" role="row">
             <strong>${team.rank}</strong>
             <span>${team.number} ${team.name}</span>
-            <span>${team.weighted.toFixed(2)}</span>
+            <span>${team.epa.toFixed(2)}</span>
             <span>${team.record}</span>
             <span>${team.rp}</span>
             <span>${team.epa.toFixed(1)}</span>
@@ -879,11 +1065,11 @@ function renderRankings() {
 }
 
 function rankingPoints(team) {
-  return Math.max(8, Math.round(team.weighted / 4));
+  return Math.max(8, Math.round(team.epa / 4));
 }
 
 function recordForTeam(team) {
-  const wins = Math.max(1, Math.min(8, Math.round(team.weighted / 9)));
+  const wins = Math.max(1, Math.min(8, Math.round(team.epa / 9)));
   const losses = Math.max(0, 8 - wins);
   return `${wins}-${losses}-0`;
 }
@@ -905,7 +1091,7 @@ function renderTeams() {
           <span class="avatar">${team.number}</span>
           <span class="team-meta">
             <strong>${team.name}</strong>
-            <span class="muted">${team.weighted.toFixed(1)} weighted / ${team.consistency}% consistency</span>
+            <span class="muted">${team.epa.toFixed(1)} EPA / ${team.consistency}% consistency</span>
             ${renderTeamBadges(team)}
           </span>
         </button>
@@ -982,25 +1168,47 @@ function renderSparkline(values) {
 }
 
 function renderAnalysis() {
-  const metric = metricById(state.metric);
-  const ranked = [...teams].sort((a, b) => b[state.metric] - a[state.metric]);
-  const distributions = ranked.map((team) => distributionForMetric(team, state.metric));
+  const selection = analysisSelectionModel();
+  const ranked =
+    selection.type === "sortEquation"
+      ? rankTeamsByEquation(selection.equation).map((number) => teamByNumber(number)).filter(Boolean)
+      : [...teams].sort((a, b) => b[selection.metric.id] - a[selection.metric.id]);
+  const scoreForTeam =
+    selection.type === "sortEquation"
+      ? (team) => scoreTeamByEquation(team, selection.equation)
+      : (team) => Number(team[selection.metric.id] || 0);
+  const allScores = ranked.map((team) => scoreForTeam(team));
+  const scoreRange = {
+    min: Math.min(...allScores),
+    max: Math.max(...allScores),
+  };
+  const distributions = ranked.map((team) =>
+    selection.type === "sortEquation"
+      ? distributionForEquationScore(scoreForTeam(team), scoreRange.min, scoreRange.max)
+      : distributionForMetric(team, selection.metric.id),
+  );
   const globalMin = Math.min(...distributions.map((item) => item.min));
   const globalMax = Math.max(...distributions.map((item) => item.max));
-  const eventAverage = average(ranked.map((team) => team[state.metric]));
+  const eventAverage = average(allScores);
   return `
     <div class="toolbar">
       <label>
         Metric
         <select id="metricSelect">
-          ${metrics.map((item) => `<option value="${item.id}" ${item.id === state.metric ? "selected" : ""}>${item.label}</option>`).join("")}
+          <optgroup label="Metrics">
+            ${metrics.map((item) => `<option value="${item.id}" ${item.id === state.metric ? "selected" : ""}>${item.label}</option>`).join("")}
+          </optgroup>
+          <optgroup label="Sort Equations">
+            ${analysisSortEquations().map((item) => `<option value="sort:${item.id}" ${state.metric === `sort:${item.id}` ? "selected" : ""}>${item.name}</option>`).join("")}
+          </optgroup>
         </select>
       </label>
-      <div class="stat"><span>Event Average</span><strong>${eventAverage.toFixed(1)} ${metric.unit}</strong></div>
+      <div class="stat"><span>Event Average</span><strong>${eventAverage.toFixed(1)} ${selection.unit}</strong></div>
+      ${selection.type === "sortEquation" ? '<div class="stat"><span>Source</span><strong>Sort Equation</strong></div>' : ""}
       ${renderBoxPlotLegend()}
     </div>
     <div class="analysis-chart" style="margin-top: 8px;">
-      ${ranked.map((team) => renderChartRow(team, metric, distributionForMetric(team, state.metric), globalMin, globalMax, eventAverage)).join("")}
+      ${ranked.map((team, index) => renderChartRow(team, selection, distributions[index], globalMin, globalMax, eventAverage, scoreForTeam(team))).join("")}
     </div>
   `;
 }
@@ -1018,8 +1226,8 @@ function renderBoxPlotLegend() {
 }
 
 function distributionForMetric(team, metricId) {
-  if (metricId === "scouterTotal" || metricId === "weighted") {
-    const values = metricId === "weighted" ? team.matches.map((value) => value * 0.45 + team.epa * 0.25 + team.pridge * 0.2 + team.consistency * 0.1) : team.matches;
+  if (metricId === "scouterTotal") {
+    const values = team.matches;
     return {
       min: Math.min(...values),
       q1: quantile(values, 0.25),
@@ -1041,7 +1249,19 @@ function distributionForMetric(team, metricId) {
   };
 }
 
-function renderChartRow(team, metric, dist, globalMin, globalMax, eventAverage) {
+function distributionForEquationScore(score, minScore, maxScore) {
+  const spread = Math.max((maxScore - minScore) * 0.05, 1);
+  return {
+    min: score - spread,
+    q1: score - spread * 0.45,
+    median: score,
+    q3: score + spread * 0.45,
+    max: score + spread,
+    mean: score,
+  };
+}
+
+function renderChartRow(team, selection, dist, globalMin, globalMax, eventAverage, teamScore) {
   const scale = (value) => {
     const pct = ((value - globalMin) / (globalMax - globalMin || 1)) * 100;
     return Math.max(0, Math.min(100, pct));
@@ -1055,12 +1275,12 @@ function renderChartRow(team, metric, dist, globalMin, globalMax, eventAverage) 
   const avg = scale(eventAverage);
   const plotTitle = [
     `${team.number} ${team.name}`,
-    `Min: ${dist.min.toFixed(1)} ${metric.unit}`,
-    `Q1: ${dist.q1.toFixed(1)} ${metric.unit}`,
-    `Median: ${dist.median.toFixed(1)} ${metric.unit}`,
-    `Mean: ${dist.mean.toFixed(1)} ${metric.unit}`,
-    `Q3: ${dist.q3.toFixed(1)} ${metric.unit}`,
-    `Max: ${dist.max.toFixed(1)} ${metric.unit}`,
+    `Min: ${dist.min.toFixed(1)} ${selection.unit}`,
+    `Q1: ${dist.q1.toFixed(1)} ${selection.unit}`,
+    `Median: ${dist.median.toFixed(1)} ${selection.unit}`,
+    `Mean: ${dist.mean.toFixed(1)} ${selection.unit}`,
+    `Q3: ${dist.q3.toFixed(1)} ${selection.unit}`,
+    `Max: ${dist.max.toFixed(1)} ${selection.unit}`,
   ].join("\n");
   return `
     <div class="chart-row">
@@ -1075,7 +1295,7 @@ function renderChartRow(team, metric, dist, globalMin, globalMax, eventAverage) 
         <span class="median" style="left: ${median}%"></span>
         <span class="mean" style="left: ${mean}%"></span>
       </div>
-      <div class="chart-value">${team[state.metric].toFixed(1)}</div>
+      <div class="chart-value">${teamScore.toFixed(1)}</div>
     </div>
   `;
 }
@@ -1146,7 +1366,7 @@ function renderAllianceCard(title, teamNumbers) {
                 <span class="avatar">${team.number}</span>
                 <span class="team-meta">
                   <strong>${team.name}</strong>
-                  <span class="muted">${team.weighted.toFixed(1)} weighted / ${team.consistency}% consistency</span>
+                  <span class="muted">${team.epa.toFixed(1)} EPA / ${team.consistency}% consistency</span>
                   ${renderTeamBadges(team)}
                 </span>
               </button>
@@ -1179,78 +1399,112 @@ function renderQuality() {
   `;
 }
 
-function renderPicklists() {
-  const picklist = activePicklist();
-  const sortedTeams = picklist.teams.map((number) => teamByNumber(number)).filter(Boolean);
-  const rowScores = sortedTeams.map((team) => scoreTeamByTerms(team, picklist.terms));
+function renderSortBuilder() {
+  const equation = activeSortEquation();
+  const rankedTeams = rankTeamsByEquation(equation).map((number) => teamByNumber(number)).filter(Boolean);
+  const rowScores = rankedTeams.map((team) => scoreTeamByEquation(team, equation));
   const minScore = Math.min(...rowScores);
   const maxScore = Math.max(...rowScores);
   return `
-    <div class="grid picklist-editor-layout">
-      <article class="card">
+    <div class="grid sort-builder-layout">
+      <article class="card builder-list-card">
+        <div class="section-heading">
+          <div>
+            <h2>Sort Equations</h2>
+          </div>
+          <button class="icon-button" id="addSortEquationButton" title="Add sort equation" aria-label="Add sort equation">+</button>
+        </div>
+        <div class="builder-list" data-entity-list="sortEquation" tabindex="0">
+          ${state.sortEquations.map((item, index) => renderEntityListItem("sortEquation", item, index, item.id === equation.id)).join("")}
+        </div>
+        ${renderContextMenu()}
+      </article>
+      <article class="card sort-preview-card">
+        <div class="section-heading">
+          <div>
+            <h2>Ranked Teams</h2>
+            <p class="muted">Scores update as the selected equation changes.</p>
+          </div>
+        </div>
+        <div class="builder-team-list">
+          ${rankedTeams
+            .map((team, index) => {
+              const score = scoreTeamByEquation(team, equation);
+              return renderTeamTile(team, index, {
+                score,
+                minScore,
+                maxScore,
+                showScore: true,
+                showName: true,
+              });
+            })
+            .join("")}
+        </div>
+      </article>
+      <article class="card sort-builder-editor-card">
+        <div class="section-heading">
+          <div>
+            <h2>${equation.name}</h2>
+            <p class="muted">${isProtectedSortEquation(equation) ? "Source: EPA" : "Edits update the ranked preview immediately."}</p>
+          </div>
+        </div>
+        ${
+          isProtectedSortEquation(equation)
+            ? `
+          <div class="card read-only-source-card">
+            <strong>${icon("lock")} EPA</strong>
+            <span class="muted">Source: EPA</span>
+          </div>
+        `
+            : `
+          <div class="criteria-builder">
+            ${equation.terms.map((term, index) => renderCriteriaTerm(term, index, equation.terms.length)).join("")}
+          </div>
+        `
+        }
+      </article>
+    </div>
+  `;
+}
+
+function renderPicklistBuilder() {
+  const picklist = activePicklist();
+  const currentTeams = picklist.teams.map((number) => teamByNumber(number)).filter(Boolean);
+  return `
+    <div class="grid picklist-builder-layout">
+      <article class="card builder-list-card">
         <div class="section-heading">
           <div>
             <h2>Picklists</h2>
           </div>
+          <button class="icon-button" id="addPicklistButton" title="Add picklist" aria-label="Add picklist">+</button>
         </div>
-        <div class="form-grid">
-          <label>
-            Active picklist
-            <select id="activePicklistSelect">
-              ${state.picklists.map((item) => `<option value="${item.name}" ${item.name === picklist.name ? "selected" : ""}>${item.name}</option>`).join("")}
-            </select>
-          </label>
-          <label>
-            New picklist name
-            <input id="newPicklistName" placeholder="Ex. Second Pick" autocomplete="off" />
-          </label>
-          <button id="createPicklistButton">Create new list</button>
-          <label>
-            Rename selected list
-            <input id="renamePicklistName" value="${picklist.name}" autocomplete="off" />
-          </label>
-          <button id="renamePicklistButton">Rename selected list</button>
-          ${
-            isAdmin()
-              ? `<button id="deletePicklistButton" class="danger-button" ${state.picklists.length <= 1 ? "disabled" : ""}>Remove selected list</button>`
-              : `<p class="muted">Only admins can remove picklists.</p>`
-          }
+        <div class="builder-list" data-entity-list="picklist" tabindex="0">
+          ${state.picklists.map((item, index) => renderEntityListItem("picklist", item, index, item.id === picklist.id)).join("")}
+        </div>
+        ${renderContextMenu()}
+      </article>
+      <article class="card current-picklist-card">
+        <div class="section-heading">
+          <div>
+            <h2>${picklist.name}</h2>
+            <p class="muted">Drag to reorder, or use arrow keys with Shift for one-slot moves.</p>
+          </div>
+        </div>
+        <div class="picklist-list-offset" aria-hidden="true"></div>
+        <div class="builder-team-list current-picklist-list" data-current-picklist tabindex="0">
+          ${currentTeams.map((team, index) => renderBuilderTeamTile(team, index, { draggable: true })).join("")}
         </div>
       </article>
       <article class="card">
         <div class="section-heading">
           <div>
-            <h2>${picklist.name}</h2>
-          </div>
-          <div class="mode-toggle">
-            <button class="${picklist.mode === "criteria" ? "primary" : ""}" data-picklist-mode="criteria">Sorted</button>
-            <button class="${picklist.mode === "manual" ? "primary" : ""}" data-picklist-mode="manual">Manual</button>
+            <h2>Comparison Grid</h2>
+            <p class="muted">Pick sort equations or saved picklists to compare side by side.</p>
           </div>
         </div>
-        ${
-          picklist.mode === "criteria"
-            ? `
-          <div class="criteria-builder">
-            ${picklist.terms.map((term, index) => renderCriteriaTerm(term, index, picklist.terms.length)).join("")}
-          </div>
-        `
-            : `<p class="muted">Drag teams within the list to save a manual order.</p>`
-        }
-        <div class="picklist-edit-list">
-          ${sortedTeams
-            .map(
-              (team, index) => {
-                const score = scoreTeamByTerms(team, picklist.terms);
-                return `
-            <button class="picklist-tile" data-reorder-team="${team.number}" draggable="${picklist.mode === "manual" ? "true" : "false"}" style="background: ${colorForScore(score, minScore, maxScore)}">
-              <strong>${index + 1}</strong>
-              <span>${team.number} ${team.name}</span>
-              <span>${score.toFixed(1)}</span>
-            </button>
-          `;
-              },
-            )
-            .join("")}
+        <div class="builder-grid-columns">
+          ${state.picklistColumns.map((entry, index) => renderPicklistGridColumn(entry, index)).join("")}
         </div>
       </article>
     </div>
@@ -1284,27 +1538,213 @@ function renderCriteriaTerm(term, index, count) {
           ${source.components.map((component) => `<option value="${component.id}" ${component.id === term.component ? "selected" : ""}>${component.label}</option>`).join("")}
         </select>
       </label>
-      ${index === count - 1 && count < 5 ? `<button class="icon-button add-term-button" id="addCriteriaTerm" title="Add weighted component" aria-label="Add weighted component">+</button>` : `<span class="operator-spacer"></span>`}
+      ${index === count - 1 && count < 5 ? `<button class="icon-button add-term-button" id="addCriteriaTerm" title="Add component" aria-label="Add component">+</button>` : `<span class="operator-spacer"></span>`}
     </div>
   `;
 }
 
-function renderPicklistTile(number, index, picklist = activePicklist(), options = {}) {
-  const team = teamByNumber(number);
-  const picked = pickedTeams().includes(number) ? "picked" : "";
-  const scores = picklist.teams.map((teamNumber) => scoreTeamByTerms(teamByNumber(teamNumber), picklist.terms));
-  const score = scoreTeamByTerms(team, picklist.terms);
+function renderEntityListItem(kind, item, index, selected) {
+  const rename = state.inlineRename?.kind === kind && state.inlineRename?.id === item.id;
+  const protectedItem = kind === "sortEquation" && isProtectedSortEquation(item);
   return `
-    <button class="picklist-tile ${options.compact ? "compact" : ""} ${picked}" data-team="${team.number}" data-drag-team="${team.number}" draggable="${picked ? "false" : "true"}" style="background: ${colorForScore(score, Math.min(...scores), Math.max(...scores))}">
-      <strong>${index + 1}</strong>
-      <span>${options.compact ? team.number : `${team.number} ${team.name}`}</span>
-      <span>${score.toFixed(1)}</span>
+    <div
+      class="builder-list-item ${selected ? "active" : ""} ${protectedItem ? "locked" : ""}"
+      data-entity-row="${kind}:${item.id}"
+      data-entity-kind="${kind}"
+      data-entity-id="${item.id}"
+      data-entity-index="${index}"
+      draggable="${protectedItem ? "false" : "true"}"
+      tabindex="-1"
+    >
+      ${
+        rename
+          ? `<input class="inline-rename-input" data-inline-rename="${kind}:${item.id}" value="${escapeAttribute(state.inlineRename.value)}" autocomplete="off" />`
+          : `<span>${protectedItem ? `${icon("lock")} ${item.name}` : item.name}</span>`
+      }
+    </div>
+  `;
+}
+
+function renderTeamTile(team, index, options = {}) {
+  const classes = ["picklist-tile"];
+  if (options.compact) classes.push("compact");
+  if (options.focused) classes.push("team-focused");
+  if (options.compareIndex >= 0) classes.push("compare-selected");
+  if (options.extraClass) classes.push(options.extraClass);
+  const scoreMarkup = options.showScore ? `<span class="tile-score">${Number(options.score || 0).toFixed(1)}</span>` : `<span class="tile-spacer"></span>`;
+  const background = options.showScore ? colorForScore(Number(options.score || 0), Number(options.minScore || 0), Number(options.maxScore || 0)) : "transparent";
+  const compareColor = options.compareIndex >= 0 ? compareTeamPalette[options.compareIndex] : "";
+  const style = [`background: ${background}`];
+  if (compareColor) style.push(`--compare-accent: ${compareColor}`);
+  return `
+    <button
+      class="${classes.join(" ")}"
+      ${options.dataAttribute || ""}
+      ${options.dragData ? `data-drag-team="${options.dragData}"` : ""}
+      ${options.builderTeam ? `data-builder-team="${team.number}"` : ""}
+      ${options.reorderTeam ? `data-reorder-team="${team.number}"` : ""}
+      draggable="${options.draggable ? "true" : "false"}"
+      style="${style.join("; ")}"
+    >
+      <strong class="tile-rank">${index + 1}</strong>
+      <span class="tile-label">${options.showName === false ? team.number : `${team.number} ${team.name}`}</span>
+      ${scoreMarkup}
     </button>
   `;
 }
 
+function renderBuilderTeamTile(team, index, options = {}) {
+  const focused = state.picklistSelectedTeam === team.number;
+  return renderTeamTile(team, index, {
+    compact: true,
+    showName: false,
+    showScore: false,
+    focused,
+    compareIndex: compareSlotIndexForTeam(team.number),
+    builderTeam: true,
+    reorderTeam: options.draggable,
+    draggable: Boolean(options.draggable),
+    dragData: options.draggable ? String(team.number) : "",
+  });
+}
+
+function gridColumnModel(entry) {
+  if (!entry) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
+  const [type, id] = entry.split(":");
+  if (type === "sort") {
+    const equation = state.sortEquations.find((item) => item.id === id);
+    if (!equation) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
+    const rankedTeams = rankTeamsByEquation(equation).map((number) => teamByNumber(number)).filter(Boolean);
+    const scores = rankedTeams.map((team) => scoreTeamByEquation(team, equation));
+    return {
+      type,
+      id,
+      label: equation.name,
+      teams: rankedTeams,
+      scores,
+      minScore: Math.min(...scores),
+      maxScore: Math.max(...scores),
+    };
+  }
+  if (type === "picklist") {
+    const picklist = state.picklists.find((item) => item.id === id);
+    if (!picklist) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
+    return {
+      type,
+      id,
+      label: picklist.name,
+      teams: picklist.teams.map((number) => teamByNumber(number)).filter(Boolean),
+      minScore: 0,
+      maxScore: 0,
+    };
+  }
+  return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
+}
+
+function renderPicklistGridColumn(entry, index) {
+  const column = gridColumnModel(entry);
+  const minHeight = `calc(${teams.length} * var(--picklist-tile-row-size))`;
+  return `
+    <section class="grid-column ${column.type ? "" : "empty"}" ${column.type ? `data-grid-column="${index}"` : ""}>
+      <label class="grid-column-select">
+        <span>Column ${index + 1}</span>
+        <select data-picklist-column="${index}">
+          <option value="" ${entry ? "" : "selected"}>---</option>
+          <optgroup label="Sort Equations">
+            ${state.sortEquations.map((item) => `<option value="sort:${item.id}" ${entry === `sort:${item.id}` ? "selected" : ""}>${item.name}</option>`).join("")}
+          </optgroup>
+          <optgroup label="Picklists">
+            ${state.picklists.map((item) => `<option value="picklist:${item.id}" ${entry === `picklist:${item.id}` ? "selected" : ""}>${item.name}</option>`).join("")}
+          </optgroup>
+        </select>
+      </label>
+      <div class="grid-column-list" style="min-height: ${minHeight}">
+        ${
+          column.teams.length
+            ? column.teams
+                .map((team, teamIndex) => {
+                  const compareIndex = compareSlotIndexForTeam(team.number);
+                  return column.type === "sort"
+                    ? renderTeamTile(team, teamIndex, {
+                        compact: true,
+                        showName: false,
+                        showScore: true,
+                        score: column.scores[teamIndex],
+                        minScore: column.minScore,
+                        maxScore: column.maxScore,
+                        compareIndex,
+                        builderTeam: true,
+                      })
+                    : renderTeamTile(team, teamIndex, {
+                        compact: true,
+                        showName: false,
+                        showScore: false,
+                        compareIndex,
+                      });
+                })
+                .join("")
+            : `<div class="empty-state compact-empty">Column is empty.</div>`
+        }
+      </div>
+    </section>
+  `;
+}
+
+function renderContextMenu() {
+  if (!state.contextMenu || state.contextMenu.type === "board") return "";
+  if (state.contextMenu.type === "grid-column") {
+    return `
+      <div class="context-menu" style="left: ${state.contextMenu.x}px; top: ${state.contextMenu.y}px;">
+        <button data-copy-grid-column="${state.contextMenu.columnIndex}">Copy to current picklist</button>
+      </div>
+    `;
+  }
+  if (state.contextMenu.type !== "entity") return "";
+  const collection = state.contextMenu.entityKind === "sortEquation" ? state.sortEquations : state.picklists;
+  const item = collection.find((entry) => entry.id === state.contextMenu.id);
+  const locked = state.contextMenu.entityKind === "sortEquation" && isProtectedSortEquation(item);
+  const canDelete = !locked && isAdmin() && collection.length > 1;
+  return `
+    <div class="context-menu" style="left: ${state.contextMenu.x}px; top: ${state.contextMenu.y}px;">
+      ${state.contextMenu.entityKind === "sortEquation" ? `<button data-context-duplicate="${state.contextMenu.id}">Duplicate</button>` : ""}
+      <button data-context-rename="${state.contextMenu.entityKind}:${state.contextMenu.id}" ${locked ? "disabled" : ""}>Rename</button>
+      <button data-context-delete="${state.contextMenu.entityKind}:${state.contextMenu.id}" ${canDelete ? "" : "disabled"}>Delete</button>
+    </div>
+  `;
+}
+
+function renderPicklistTile(number, index, picklist, options = {}) {
+  const team = teamByNumber(number);
+  if (!team) return "";
+  const picked = pickedTeams().includes(number) ? "picked" : "";
+  const content = options.static && !options.showScore
+    ? renderTeamTile(team, index, {
+        compact: true,
+        showName: false,
+        showScore: false,
+        extraClass: picked,
+        draggable: !picked,
+        dragData: picked ? "" : String(team.number),
+        dataAttribute: options.navigation ? `data-team="${team.number}"` : "",
+      })
+    : renderTeamTile(team, index, {
+        compact: true,
+        showName: false,
+        showScore: Boolean(options.showScore),
+        score: options.score,
+        minScore: options.minScore,
+        maxScore: options.maxScore,
+        extraClass: picked,
+        draggable: !picked,
+        dragData: picked ? "" : String(team.number),
+        dataAttribute: options.navigation ? `data-team="${team.number}"` : "",
+      });
+  return content;
+}
+
 function renderAlliance() {
-  const loaded = state.picklists.filter((picklist) => state.loadedPicklists.includes(picklist.name));
+  const loaded = state.loadedSources.map((entry) => gridColumnModel(entry)).filter((column) => column.teams.length);
+  const headerLines = Math.max(1, ...loaded.map((column) => Math.ceil(column.label.length / 14)));
   return `
     <div class="grid alliance-layout">
       <article class="card">
@@ -1323,39 +1763,69 @@ function renderAlliance() {
           </div>
         </div>
         <div class="picklist-loader">
-          ${state.picklists
-            .map(
-              (picklist) => `
+          <div class="picklist-loader-group">
+            <h3>Sort Equations</h3>
+            ${state.sortEquations
+              .map(
+                (equation) => `
             <label class="check-row">
-              <input type="checkbox" class="picklist-check" value="${picklist.name}" ${state.loadedPicklists.includes(picklist.name) ? "checked" : ""} />
-              <span>${picklist.name}</span>
-              <span class="muted">${picklist.mode === "manual" ? "Manual order" : "Sorted order"}</span>
+              <input type="checkbox" class="picklist-check" value="sort:${equation.id}" ${state.loadedSources.includes(`sort:${equation.id}`) ? "checked" : ""} />
+              <span>${equation.name}</span>
+              <span class="muted">${isProtectedSortEquation(equation) ? "Protected source" : "Scored source"}</span>
             </label>
           `,
-            )
-            .join("")}
-        </div>
-      </article>
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Displayed Picklists</h2>
+              )
+              .join("")}
+          </div>
+          <div class="picklist-loader-group">
+            <h3>Picklists</h3>
+            ${state.picklists
+              .map(
+                (picklist) => `
+              <label class="check-row">
+                <input type="checkbox" class="picklist-check" value="picklist:${picklist.id}" ${state.loadedSources.includes(`picklist:${picklist.id}`) ? "checked" : ""} />
+                <span>${picklist.name}</span>
+                <span class="muted">Manual order</span>
+              </label>
+            `,
+              )
+              .join("")}
           </div>
         </div>
-        <div class="picklist-columns alliance-picklists">
+      </article>
+      <article class="card alliance-sources-card">
+        <div class="section-heading">
+          <div>
+            <h2>Displayed Sources</h2>
+          </div>
+        </div>
+        <div class="picklist-columns alliance-picklists" style="--alliance-header-lines: ${headerLines}">
           ${
             loaded.length
               ? loaded
                   .map(
-                    (picklist) => `
+                    (column) => `
               <section>
-                <h3>${picklist.name}</h3>
-                ${picklist.teams.map((number, index) => renderPicklistTile(number, index, picklist, { compact: true })).join("")}
+                <h3>${column.label}</h3>
+                <div class="alliance-source-list">
+                  ${column.teams
+                    .map((team, teamIndex) =>
+                      renderPicklistTile(team.number, teamIndex, null, {
+                        static: true,
+                        navigation: false,
+                        showScore: column.type === "sort",
+                        score: column.scores?.[teamIndex],
+                        minScore: column.minScore,
+                        maxScore: column.maxScore,
+                      }),
+                    )
+                    .join("")}
+                </div>
               </section>
             `,
                   )
                   .join("")
-              : `<div class="empty-state">Select one or more saved picklists to load them here.</div>`
+              : `<div class="empty-state">Select one or more sources to load them here.</div>`
           }
         </div>
       </article>
@@ -1381,7 +1851,7 @@ function renderBoardCell(teamNumber, index) {
 }
 
 function renderBoardContextMenu() {
-  if (!state.contextMenu) return "";
+  if (!state.contextMenu || state.contextMenu.type !== "board") return "";
   const teamNumber = state.allianceBoard[state.contextMenu.cell];
   if (!teamNumber) return "";
   return `
@@ -1468,48 +1938,189 @@ function removeTeamFromBoard(cellIndex) {
   render();
 }
 
-function uniquePicklistName(baseName) {
-  const base = baseName.trim() || "New Picklist";
-  const names = new Set(state.picklists.map((picklist) => picklist.name));
+function uniqueEntityName(baseName, items, fallback) {
+  const base = (baseName || "").trim() || fallback;
+  const names = new Set(items.map((item) => item.name));
   if (!names.has(base)) return base;
   let suffix = 2;
   while (names.has(`${base} ${suffix}`)) suffix += 1;
   return `${base} ${suffix}`;
 }
 
-function moveTeamInPicklist(picklist, draggedTeam, targetTeam) {
-  const nextTeams = picklist.teams.filter((number) => number !== draggedTeam);
-  const targetIndex = nextTeams.indexOf(targetTeam);
-  nextTeams.splice(targetIndex < 0 ? nextTeams.length : targetIndex, 0, draggedTeam);
-  return { ...picklist, mode: "manual", teams: nextTeams };
+function moveItemBefore(values, draggedValue, targetValue) {
+  const next = values.filter((value) => value !== draggedValue);
+  const targetIndex = next.indexOf(targetValue);
+  next.splice(targetIndex < 0 ? next.length : targetIndex, 0, draggedValue);
+  return next;
 }
 
-function removePicklist(name) {
+function moveItemByStep(values, value, step) {
+  const index = values.indexOf(value);
+  if (index < 0) return values;
+  const targetIndex = Math.max(0, Math.min(values.length - 1, index + step));
+  if (targetIndex === index) return values;
+  const next = [...values];
+  next.splice(index, 1);
+  next.splice(targetIndex, 0, value);
+  return next;
+}
+
+function firstVisibleGridColumn() {
+  return state.picklistColumns.map((entry, index) => ({ entry, index })).find((item) => item.entry);
+}
+
+function defaultTeamsForNewPicklist() {
+  const firstColumn = firstVisibleGridColumn();
+  if (!firstColumn) return rankTeamsByEquation(state.sortEquations[0]);
+  return gridColumnModel(firstColumn.entry).teams.map((team) => team.number);
+}
+
+function removePicklist(id) {
   if (state.picklists.length <= 1) return;
-  const nextPicklists = state.picklists.filter((picklist) => picklist.name !== name);
+  const nextPicklists = state.picklists.filter((picklist) => picklist.id !== id);
   state.picklists = nextPicklists;
-  state.activePicklist = nextPicklists[0].name;
-  state.loadedPicklists = state.loadedPicklists.filter((loadedName) => loadedName !== name && nextPicklists.some((picklist) => picklist.name === loadedName));
-  if (!state.loadedPicklists.length) state.loadedPicklists = [nextPicklists[0].name];
+  state.activePicklist = nextPicklists[Math.min(nextPicklists.length - 1, nextPicklists.findIndex((picklist) => picklist.id === state.activePicklist))]?.id || nextPicklists[0].id;
+  state.loadedSources = state.loadedSources.filter((entry) => entry !== `picklist:${id}`);
+  if (!state.loadedSources.length) state.loadedSources = [`picklist:${nextPicklists[0].id}`];
+  state.picklistColumns = state.picklistColumns.map((entry) => (entry === `picklist:${id}` ? "" : entry));
+  if (state.contextMenu?.id === id) state.contextMenu = null;
   saveState();
   render();
 }
 
-function renamePicklist(oldName, requestedName) {
-  const trimmed = requestedName.trim();
-  if (!trimmed || trimmed === oldName) return;
-  const existingNames = new Set(state.picklists.filter((picklist) => picklist.name !== oldName).map((picklist) => picklist.name));
-  let newName = trimmed;
-  if (existingNames.has(newName)) {
-    let suffix = 2;
-    while (existingNames.has(`${trimmed} ${suffix}`)) suffix += 1;
-    newName = `${trimmed} ${suffix}`;
-  }
-  state.picklists = state.picklists.map((picklist) => (picklist.name === oldName ? { ...picklist, name: newName } : picklist));
-  if (state.activePicklist === oldName) state.activePicklist = newName;
-  state.loadedPicklists = state.loadedPicklists.map((name) => (name === oldName ? newName : name));
+function removeSortEquation(id) {
+  if (id === protectedEpaSortId || state.sortEquations.length <= 1) return;
+  const nextEquations = state.sortEquations.filter((equation) => equation.id !== id);
+  state.sortEquations = nextEquations;
+  state.activeSortEquation = nextEquations[Math.min(nextEquations.length - 1, nextEquations.findIndex((equation) => equation.id === state.activeSortEquation))]?.id || nextEquations[0].id;
+  state.metric = state.metric === `sort:${id}` ? "epa" : state.metric;
+  state.loadedSources = state.loadedSources.filter((entry) => entry !== `sort:${id}`);
+  state.picklistColumns = state.picklistColumns.map((entry) => (entry === `sort:${id}` ? "" : entry));
+  if (state.contextMenu?.id === id) state.contextMenu = null;
   saveState();
   render();
+}
+
+function renamePicklist(id, requestedName) {
+  const picklist = state.picklists.find((item) => item.id === id);
+  if (!picklist) return;
+  const trimmed = requestedName.trim();
+  if (!trimmed || trimmed === picklist.name) return;
+  const name = uniqueEntityName(trimmed, state.picklists.filter((item) => item.id !== id), trimmed);
+  state.picklists = state.picklists.map((item) => (item.id === id ? { ...item, name } : item));
+  saveState();
+  render();
+}
+
+function renameSortEquation(id, requestedName) {
+  const equation = state.sortEquations.find((item) => item.id === id);
+  if (!equation || isProtectedSortEquation(equation)) return;
+  const trimmed = requestedName.trim();
+  if (!trimmed || trimmed === equation.name) return;
+  const name = uniqueEntityName(trimmed, state.sortEquations.filter((item) => item.id !== id), trimmed);
+  state.sortEquations = state.sortEquations.map((item) => (item.id === id ? { ...item, name } : item));
+  saveState();
+  render();
+}
+
+function duplicateSortEquation(id) {
+  const equation = state.sortEquations.find((item) => item.id === id);
+  if (!equation) return;
+  const baseName = isProtectedSortEquation(equation) ? "EPA Copy" : `${equation.name} Copy`;
+  const name = uniqueEntityName(baseName, state.sortEquations, baseName);
+  const duplicate = {
+    id: createId("sort"),
+    name,
+    terms: normalizeCriteriaTerms(equation.metricId ? defaultCriteriaTerms : equation.terms),
+    locked: false,
+  };
+  state.sortEquations = [...state.sortEquations, duplicate];
+  state.activeSortEquation = duplicate.id;
+  state.builderFocus.sortBuilder = "list";
+  saveState();
+  render();
+}
+
+function startInlineRename(kind, id) {
+  const collection = kind === "sortEquation" ? state.sortEquations : state.picklists;
+  const item = collection.find((entry) => entry.id === id);
+  if (!item || (kind === "sortEquation" && isProtectedSortEquation(item))) return;
+  state.inlineRename = { kind, id, value: item.name };
+  render();
+}
+
+function commitInlineRename() {
+  if (!state.inlineRename) return;
+  const { kind, id, value } = state.inlineRename;
+  state.inlineRename = null;
+  if (kind === "sortEquation") renameSortEquation(id, value);
+  else renamePicklist(id, value);
+}
+
+function cancelInlineRename() {
+  if (!state.inlineRename) return;
+  state.inlineRename = null;
+  render();
+}
+
+function handleBuilderKeyboard(event) {
+  if (state.inlineRename) return;
+  const target = event.target;
+  if (target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) return;
+
+  if (event.key === "F2") {
+    if (state.activeView === "sortBuilder" && state.activeSortEquation && !isProtectedSortEquation(activeSortEquation())) {
+      event.preventDefault();
+      startInlineRename("sortEquation", state.activeSortEquation);
+    }
+    if (state.activeView === "picklistBuilder" && state.activePicklist) {
+      event.preventDefault();
+      startInlineRename("picklist", state.activePicklist);
+    }
+    return;
+  }
+
+  if (state.activeView === "sortBuilder") {
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      const direction = event.key === "ArrowUp" ? -1 : 1;
+      const index = state.sortEquations.findIndex((item) => item.id === state.activeSortEquation);
+      const next = state.sortEquations[Math.max(0, Math.min(state.sortEquations.length - 1, index + direction))];
+      if (!next) return;
+      state.activeSortEquation = next.id;
+      saveState();
+      render();
+    }
+    return;
+  }
+
+  if (state.activeView !== "picklistBuilder") return;
+
+  const currentPicklist = activePicklist();
+  if (event.shiftKey && (event.key === "ArrowUp" || event.key === "ArrowDown") && state.picklistSelectedTeam) {
+    event.preventDefault();
+    const nextTeams = moveItemByStep(currentPicklist.teams, state.picklistSelectedTeam, event.key === "ArrowUp" ? -1 : 1);
+    updatePicklist(currentPicklist.id, (picklist) => ({ ...picklist, teams: nextTeams }));
+    return;
+  }
+
+  if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+    event.preventDefault();
+    if (state.builderFocus.picklistBuilder === "teams" && state.picklistSelectedTeam) {
+      const index = currentPicklist.teams.indexOf(state.picklistSelectedTeam);
+      const nextIndex = Math.max(0, Math.min(currentPicklist.teams.length - 1, index + (event.key === "ArrowUp" ? -1 : 1)));
+      state.picklistSelectedTeam = currentPicklist.teams[nextIndex] || null;
+      render();
+      return;
+    }
+    const index = state.picklists.findIndex((item) => item.id === state.activePicklist);
+    const next = state.picklists[Math.max(0, Math.min(state.picklists.length - 1, index + (event.key === "ArrowUp" ? -1 : 1)))];
+    if (!next) return;
+    state.activePicklist = next.id;
+    state.builderFocus.picklistBuilder = "list";
+    saveState();
+    render();
+  }
 }
 
 function bindViewEvents() {
@@ -1584,7 +2195,7 @@ function bindViewEvents() {
     cell.addEventListener("contextmenu", (event) => {
       if (!state.allianceBoard[cellIndex]) return;
       event.preventDefault();
-      state.contextMenu = { cell: cellIndex, x: event.clientX, y: event.clientY };
+      state.contextMenu = { type: "board", cell: cellIndex, x: event.clientX, y: event.clientY };
       render();
     });
   });
@@ -1602,72 +2213,131 @@ function bindViewEvents() {
   document.querySelectorAll("[data-remove-cell]").forEach((button) => {
     button.addEventListener("click", () => removeTeamFromBoard(Number(button.dataset.removeCell)));
   });
-  document.addEventListener("click", () => {
-    if (!state.contextMenu) return;
-    state.contextMenu = null;
-    render();
-  }, { once: true });
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (event.target.closest(".context-menu")) return;
+      if (!state.contextMenu) return;
+      state.contextMenu = null;
+      render();
+    },
+    { once: true },
+  );
   document.querySelectorAll(".picklist-check").forEach((checkbox) => {
     checkbox.addEventListener("change", () => {
-      state.loadedPicklists = Array.from(document.querySelectorAll(".picklist-check:checked")).map((input) => input.value);
+      state.loadedSources = Array.from(document.querySelectorAll(".picklist-check:checked"))
+        .map((input) => normalizeSourceEntry(input.value))
+        .filter(Boolean);
       saveState();
       render();
     });
   });
-  document.querySelector("#activePicklistSelect")?.addEventListener("change", (event) => {
-    state.activePicklist = event.target.value;
+  document.querySelector("#addPicklistButton")?.addEventListener("click", () => {
+    const name = uniqueEntityName("Picklist", state.picklists, "Picklist");
+    const picklist = { id: createId("pick"), name, teams: defaultTeamsForNewPicklist() };
+    state.picklists = [...state.picklists, picklist];
+    state.activePicklist = picklist.id;
+    state.builderFocus.picklistBuilder = "list";
     saveState();
     render();
   });
-  document.querySelector("#createPicklistButton")?.addEventListener("click", () => {
-    const input = document.querySelector("#newPicklistName");
-    const name = uniquePicklistName(input.value);
-    const terms = normalizeCriteriaTerms(defaultCriteriaTerms);
-    state.picklists = [...state.picklists, { name, mode: "criteria", terms, teams: rankTeamsByTerms(terms) }];
-    state.activePicklist = name;
+  document.querySelector("#addSortEquationButton")?.addEventListener("click", () => {
+    const name = uniqueEntityName("Sort Equation", state.sortEquations, "Sort Equation");
+    const equation = { id: createId("sort"), name, terms: normalizeCriteriaTerms(defaultCriteriaTerms) };
+    state.sortEquations = [...state.sortEquations, equation];
+    state.activeSortEquation = equation.id;
+    state.builderFocus.sortBuilder = "list";
     saveState();
     render();
   });
-  document.querySelector("#renamePicklistButton")?.addEventListener("click", () => {
-    renamePicklist(activePicklist().name, document.querySelector("#renamePicklistName").value);
+  document.querySelectorAll("[data-entity-row]").forEach((row) => {
+    row.addEventListener("click", () => {
+      const kind = row.dataset.entityKind;
+      const id = row.dataset.entityId;
+      if (kind === "sortEquation") {
+        state.activeSortEquation = id;
+        state.builderFocus.sortBuilder = "list";
+      } else {
+        state.activePicklist = id;
+        state.builderFocus.picklistBuilder = "list";
+      }
+      saveState();
+      render();
+    });
+    row.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      state.contextMenu = {
+        type: "entity",
+        entityKind: row.dataset.entityKind,
+        id: row.dataset.entityId,
+        x: event.clientX,
+        y: event.clientY,
+      };
+      render();
+    });
+    row.addEventListener("dragstart", (event) => {
+      event.dataTransfer.setData("application/x-entity-row", row.dataset.entityRow);
+      event.dataTransfer.effectAllowed = "move";
+    });
+    row.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+    });
+    row.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const payload = event.dataTransfer.getData("application/x-entity-row");
+      const [kind, draggedId] = payload.split(":");
+      if (!draggedId || kind !== row.dataset.entityKind || draggedId === row.dataset.entityId) return;
+      if (kind === "sortEquation") {
+        if (draggedId === protectedEpaSortId || row.dataset.entityId === protectedEpaSortId) return;
+        state.sortEquations = moveItemBefore(state.sortEquations, state.sortEquations.find((item) => item.id === draggedId), state.sortEquations.find((item) => item.id === row.dataset.entityId));
+      } else {
+        state.picklists = moveItemBefore(state.picklists, state.picklists.find((item) => item.id === draggedId), state.picklists.find((item) => item.id === row.dataset.entityId));
+      }
+      saveState();
+      render();
+    });
   });
-  document.querySelector("#renamePicklistName")?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") renamePicklist(activePicklist().name, event.target.value);
-  });
-  document.querySelector("#deletePicklistButton")?.addEventListener("click", () => {
-    if (!isAdmin()) return;
-    const picklist = activePicklist();
-    if (!confirm(`Remove picklist "${picklist.name}"? This cannot be undone.`)) return;
-    removePicklist(picklist.name);
-  });
-  document.querySelectorAll("[data-picklist-mode]").forEach((button) => {
+  document.querySelectorAll("[data-context-rename]").forEach((button) => {
     button.addEventListener("click", () => {
-      const mode = button.dataset.picklistMode;
-      const picklist = activePicklist();
-      if (mode === picklist.mode) return;
-      if (mode === "criteria" && picklist.mode === "manual" && !confirm("Switching to criteria mode will replace the manual order. Continue?")) return;
-      updatePicklist(picklist.name, (current) => {
-        if (mode === "criteria") return { ...current, mode, teams: rankTeamsByTerms(current.terms) };
-        return { ...current, mode };
-      });
+      const [kind, id] = button.dataset.contextRename.split(":");
+      startInlineRename(kind, id);
+    });
+  });
+  document.querySelectorAll("[data-context-duplicate]").forEach((button) => {
+    button.addEventListener("click", () => duplicateSortEquation(button.dataset.contextDuplicate));
+  });
+  document.querySelectorAll("[data-context-delete]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!isAdmin()) return;
+      const [kind, id] = button.dataset.contextDelete.split(":");
+      const collection = kind === "sortEquation" ? state.sortEquations : state.picklists;
+      const item = collection.find((entry) => entry.id === id);
+      if (!item) return;
+      const label = kind === "sortEquation" ? "sort equation" : "picklist";
+      if (!confirm(`Remove ${label} "${item.name}"? This cannot be undone.`)) return;
+      if (kind === "sortEquation") removeSortEquation(id);
+      else removePicklist(id);
     });
   });
   document.querySelector("#addCriteriaTerm")?.addEventListener("click", () => {
-    const picklist = activePicklist();
-    if (picklist.terms.length >= 5) return;
-    const terms = normalizeCriteriaTerms([...picklist.terms, { operator: "+", weight: 1, source: "epa", component: "total" }]);
-    updatePicklist(picklist.name, (current) => ({ ...current, mode: "criteria", terms, teams: rankTeamsByTerms(terms) }));
+    const equation = activeSortEquation();
+    if (isProtectedSortEquation(equation)) return;
+    if (equation.terms.length >= 5) return;
+    const terms = normalizeCriteriaTerms([...equation.terms, { operator: "+", weight: 1, source: "epa", component: "total" }]);
+    updateSortEquation(equation.id, (current) => ({ ...current, terms }));
   });
   document.querySelectorAll(".term-weight, .term-operator, .term-source, .term-component").forEach((control) => {
     const updateTerm = () => {
-      const picklist = activePicklist();
+      const equation = activeSortEquation();
+      if (isProtectedSortEquation(equation)) return;
       const termIndex = Number(control.dataset.termIndex);
       if (control.classList.contains("term-operator") && control.value === "remove") {
-        const terms = normalizeCriteriaTerms(picklist.terms).slice(0, termIndex);
-        updatePicklist(picklist.name, (current) => ({ ...current, mode: "criteria", terms, teams: rankTeamsByTerms(terms) }));
+        const terms = normalizeCriteriaTerms(equation.terms).filter((_, index) => index !== termIndex);
+        updateSortEquation(equation.id, (current) => ({ ...current, terms }));
         return;
       }
-      const terms = normalizeCriteriaTerms(picklist.terms).map((term, index) => {
+      const terms = normalizeCriteriaTerms(equation.terms).map((term, index) => {
         if (index !== termIndex) return term;
         if (control.classList.contains("term-weight")) return { ...term, weight: Number(control.value) || 0 };
         if (control.classList.contains("term-operator")) return { ...term, operator: control.value };
@@ -1677,25 +2347,68 @@ function bindViewEvents() {
         }
         return { ...term, component: control.value };
       });
-      updatePicklist(picklist.name, (current) => ({ ...current, mode: "criteria", terms, teams: rankTeamsByTerms(terms) }));
+      updateSortEquation(equation.id, (current) => ({ ...current, terms }));
     };
     control.addEventListener("change", updateTerm);
     if (control.classList.contains("term-weight")) control.addEventListener("input", updateTerm);
   });
+  document.querySelectorAll("[data-inline-rename]").forEach((input) => {
+    input.focus();
+    input.select();
+    input.addEventListener("input", () => {
+      if (!state.inlineRename) return;
+      state.inlineRename.value = input.value;
+    });
+    input.addEventListener("blur", commitInlineRename);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") commitInlineRename();
+      if (event.key === "Escape") cancelInlineRename();
+      event.stopPropagation();
+    });
+  });
+  document.querySelectorAll("[data-picklist-column]").forEach((select) => {
+    select.addEventListener("change", () => {
+      state.picklistColumns[Number(select.dataset.picklistColumn)] = select.value;
+      saveState();
+      render();
+    });
+  });
+  document.querySelectorAll("[data-grid-column]").forEach((column) => {
+    column.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      state.contextMenu = { type: "grid-column", columnIndex: Number(column.dataset.gridColumn), x: event.clientX, y: event.clientY };
+      render();
+    });
+  });
+  document.querySelectorAll("[data-copy-grid-column]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const column = gridColumnModel(state.picklistColumns[Number(button.dataset.copyGridColumn)]);
+      const picklist = activePicklist();
+      if (!column.teams.length) return;
+      if (!confirm(`Replace "${picklist.name}" with "${column.label}"?`)) return;
+      updatePicklist(picklist.id, (current) => ({ ...current, teams: column.teams.map((team) => team.number) }));
+    });
+  });
+  document.querySelectorAll("[data-builder-team]").forEach((tile) => {
+    tile.addEventListener("click", () => {
+      const teamNumber = Number(tile.dataset.builderTeam);
+      const wasCompared = compareSlotIndexForTeam(teamNumber) >= 0;
+      const changed = togglePicklistCompareTeam(teamNumber);
+      if (!changed) return;
+      state.builderFocus.picklistBuilder = "teams";
+      state.picklistSelectedTeam = wasCompared && state.picklistSelectedTeam === teamNumber ? null : teamNumber;
+      saveState();
+      render();
+    });
+  });
   document.querySelectorAll("[data-reorder-team]").forEach((tile) => {
     tile.addEventListener("dragstart", (event) => {
-      if (activePicklist().mode !== "manual") {
-        event.preventDefault();
-        return;
-      }
       event.dataTransfer.setData("application/x-picklist-team", tile.dataset.reorderTeam);
       event.dataTransfer.effectAllowed = "move";
     });
     tile.addEventListener("dragover", (event) => {
-      if (activePicklist().mode === "manual") {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
     });
     tile.addEventListener("drop", (event) => {
       event.preventDefault();
@@ -1703,7 +2416,8 @@ function bindViewEvents() {
       const targetTeam = Number(tile.dataset.reorderTeam);
       if (!draggedTeam || draggedTeam === targetTeam) return;
       const picklist = activePicklist();
-      updatePicklist(picklist.name, (current) => moveTeamInPicklist(current, draggedTeam, targetTeam));
+      updatePicklist(picklist.id, (current) => ({ ...current, teams: moveItemBefore(current.teams, draggedTeam, targetTeam) }));
     });
   });
+  document.onkeydown = handleBuilderKeyboard;
 }
