@@ -1936,8 +1936,10 @@ function renderAlliance() {
               ? loaded
                   .map(
                     (column) => `
-              <section>
-                <h3>${column.label}</h3>
+              <section
+                data-loaded-source="${column.type}:${column.id}"
+              >
+                <h3 data-loaded-source-handle="${column.type}:${column.id}" draggable="true">${column.label}</h3>
                 <div class="alliance-source-list">
                   ${column.teams
                     .map((team, teamIndex) =>
@@ -2369,6 +2371,27 @@ function bindViewEvents() {
       state.loadedSources = Array.from(document.querySelectorAll(".picklist-check:checked"))
         .map((input) => normalizeSourceEntry(input.value))
         .filter(Boolean);
+      saveState();
+      render();
+    });
+  });
+  document.querySelectorAll("[data-loaded-source-handle]").forEach((handle) => {
+    handle.addEventListener("dragstart", (event) => {
+      event.dataTransfer.setData("application/x-loaded-source", handle.dataset.loadedSourceHandle);
+      event.dataTransfer.effectAllowed = "move";
+    });
+  });
+  document.querySelectorAll("[data-loaded-source]").forEach((section) => {
+    section.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+    });
+    section.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const draggedSource = event.dataTransfer.getData("application/x-loaded-source");
+      const targetSource = section.dataset.loadedSource;
+      if (!draggedSource || !targetSource || draggedSource === targetSource) return;
+      state.loadedSources = moveItemBefore(state.loadedSources, draggedSource, targetSource);
       saveState();
       render();
     });

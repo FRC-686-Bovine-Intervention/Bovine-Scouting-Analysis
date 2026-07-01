@@ -1131,6 +1131,15 @@ button.pill {
   height: 100%;
 }
 
+.alliance-picklists h3[draggable="true"] {
+  cursor: grab;
+  user-select: none;
+}
+
+.alliance-picklists h3[draggable="true"]:active {
+  cursor: grabbing;
+}
+
 .alliance-picklists h3 {
   margin: 0 0 8px;
   font-size: 0.9rem;
