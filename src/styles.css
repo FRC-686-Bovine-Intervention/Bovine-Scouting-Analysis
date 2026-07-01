@@ -374,9 +374,19 @@ select {
 
 .team-detail-grid {
   display: grid;
-  grid-template-columns: minmax(420px, 1.8fr) minmax(220px, 0.7fr);
+  grid-template-columns: minmax(0, 3fr) minmax(220px, 1fr);
   gap: 14px;
   margin-top: 14px;
+}
+
+.team-detail-grid > :first-child {
+  min-width: 0;
+}
+
+.team-trend-metric {
+  display: grid;
+  gap: 4px;
+  min-width: 190px;
 }
 
 .compact-flags p {
@@ -384,7 +394,9 @@ select {
 }
 
 .trend-chart {
+  width: 100%;
   min-height: 260px;
+  display: block;
 }
 
 .trend-chart text {
@@ -752,6 +764,49 @@ select {
   font-size: 0.82rem;
 }
 
+.analysis-axis-row {
+  min-width: 720px;
+  display: grid;
+  grid-template-columns: 218px minmax(300px, 1fr) 52px;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.analysis-axis-meta {
+  display: grid;
+  gap: 3px;
+}
+
+.analysis-axis-label {
+  display: inline-flex;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.analysis-axis-ticks {
+  position: relative;
+  height: 1em;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.analysis-axis-ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.analysis-axis-ticks span:first-child {
+  transform: translateX(0);
+}
+
+.analysis-axis-ticks span:last-child {
+  transform: translateX(-100%);
+}
+
 .data-row,
 .match-row {
   display: grid;
@@ -834,6 +889,11 @@ button.pill {
 
 .picklist-builder-layout {
   grid-template-columns: minmax(220px, 0.52fr) minmax(220px, 0.58fr) minmax(520px, 1.3fr);
+}
+
+.picklist-compare-chart-card {
+  grid-column: 1 / -1;
+  min-width: 0;
 }
 
 .builder-list-card {
@@ -966,6 +1026,60 @@ button.pill {
   grid-template-columns: repeat(4, minmax(120px, 1fr));
   gap: 10px;
   align-items: start;
+}
+
+.picklist-compare-chart-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 16px;
+  align-items: start;
+}
+
+.picklist-compare-empty {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+}
+
+.compare-trend-chart {
+  min-height: 280px;
+}
+
+.compare-trend-grid line {
+  stroke: var(--line);
+  stroke-width: 1;
+  opacity: 0.7;
+}
+
+.picklist-compare-legend {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.compare-team-chip {
+  width: 100%;
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 0 12px;
+  text-align: left;
+  border-color: color-mix(in srgb, var(--compare-accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--compare-accent) 12%, var(--panel));
+}
+
+.compare-team-swatch {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--compare-accent);
+  color: #ffffff;
+  font-size: 0.74rem;
+  font-weight: 800;
 }
 
 .grid-column {
@@ -1242,6 +1356,10 @@ button.pill {
   .sort-builder-layout,
   .picklist-builder-layout,
   .builder-grid-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .picklist-compare-chart-shell {
     grid-template-columns: 1fr;
   }
 

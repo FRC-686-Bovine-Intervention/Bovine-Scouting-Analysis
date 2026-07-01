@@ -4,6 +4,8 @@ const storageKeys = {
   theme: "frc-scouting-theme",
   activeView: "frc-scouting-view",
   metric: "frc-scouting-metric",
+  teamDetailMetric: "frc-scouting-team-detail-metric",
+  picklistCompareMetric: "frc-scouting-picklist-compare-metric",
   selectedTeam: "frc-scouting-selected-team",
   selectedMatch: "frc-scouting-selected-match",
   menuExpanded: "frc-scouting-menu-expanded",
@@ -451,6 +453,8 @@ const state = {
   theme: localStorage.getItem(storageKeys.theme) || "light",
   activeView: normalizeView(localStorage.getItem(storageKeys.activeView)),
   metric: normalizeAnalysisSelection(localStorage.getItem(storageKeys.metric)),
+  teamDetailMetric: normalizeTeamDetailMetric(localStorage.getItem(storageKeys.teamDetailMetric)),
+  picklistCompareMetric: normalizeTeamDetailMetric(localStorage.getItem(storageKeys.picklistCompareMetric)),
   selectedTeam: Number(localStorage.getItem(storageKeys.selectedTeam)) || teams[0].number,
   selectedMatch: Number(localStorage.getItem(storageKeys.selectedMatch)) || matches[0].number,
   menuExpanded: localStorage.getItem(storageKeys.menuExpanded) === "true",
@@ -506,6 +510,8 @@ function saveState() {
   localStorage.setItem(storageKeys.theme, state.theme);
   localStorage.setItem(storageKeys.activeView, state.activeView);
   localStorage.setItem(storageKeys.metric, state.metric);
+  localStorage.setItem(storageKeys.teamDetailMetric, state.teamDetailMetric);
+  localStorage.setItem(storageKeys.picklistCompareMetric, state.picklistCompareMetric);
   localStorage.setItem(storageKeys.selectedTeam, String(state.selectedTeam));
   localStorage.setItem(storageKeys.selectedMatch, String(state.selectedMatch));
   localStorage.setItem(storageKeys.menuExpanded, String(state.menuExpanded));
@@ -535,6 +541,11 @@ function normalizeAnalysisSelection(value) {
     return value;
   }
   return metrics.some((metric) => metric.id === value) ? value : "epa";
+}
+
+function normalizeTeamDetailMetric(value) {
+  if (typeof value !== "string" || !value) return "scouterTotal";
+  return metrics.some((metric) => metric.id === value) ? value : "scouterTotal";
 }
 
 function pickedTeams() {
@@ -767,6 +778,14 @@ function quantile(values, q) {
 
 function metricById(id) {
   return metrics.find((metric) => metric.id === id) || metrics.find((metric) => metric.id === "epa") || metrics[0];
+}
+
+function teamDetailMetric() {
+  return metrics.find((metric) => metric.id === state.teamDetailMetric) || metrics[0];
+}
+
+function picklistCompareMetric() {
+  return metrics.find((metric) => metric.id === state.picklistCompareMetric) || metrics[0];
 }
 
 function analysisSortEquations() {
@@ -1103,6 +1122,7 @@ function renderTeams() {
 }
 
 function renderTeamDetail(team) {
+  const selectedMetric = teamDetailMetric();
   return `
     <article class="card">
       <div class="section-heading">
@@ -1124,8 +1144,18 @@ function renderTeamDetail(team) {
       </div>
       <div class="team-detail-grid">
         <div>
-          <h3>Match Trend</h3>
-          ${renderSparkline(team.matches)}
+          <div class="section-heading">
+            <div>
+              <h3>Match Trend</h3>
+            </div>
+            <label class="team-trend-metric">
+              <span class="muted">Metric</span>
+              <select id="teamDetailMetricSelect" aria-label="Team detail metric">
+                ${metrics.map((item) => `<option value="${item.id}" ${item.id === selectedMetric.id ? "selected" : ""}>${item.label}</option>`).join("")}
+              </select>
+            </label>
+          </div>
+          ${renderSparkline(team, selectedMetric)}
         </div>
         <div class="compact-flags">
           <h3>Flags</h3>
@@ -1136,31 +1166,38 @@ function renderTeamDetail(team) {
   `;
 }
 
-function renderSparkline(values) {
+function metricTrendValues(team, metric) {
+  if (metric.id === "scouterTotal") return team.matches;
+  const baseline = average(team.matches) || 1;
+  return team.matches.map((value) => (value / baseline) * Number(team[metric.id] || 0));
+}
+
+function renderSparkline(team, metric) {
+  const values = metricTrendValues(team, metric);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
   const points = values
     .map((value, index) => {
-      const x = 14 + (index / (values.length - 1)) * 80;
+      const x = 16 + (index / Math.max(1, values.length - 1)) * 196;
       const y = 82 - ((value - min) / range) * 64;
       return `${x},${y}`;
     })
     .join(" ");
   return `
-    <svg class="trend-chart" viewBox="0 0 100 100" role="img" aria-label="Match trend" width="100%" height="260">
-      <line x1="14" y1="82" x2="94" y2="82" stroke="var(--line)" stroke-width="1"></line>
-      <line x1="14" y1="18" x2="14" y2="82" stroke="var(--line)" stroke-width="1"></line>
-      <text x="54" y="97" text-anchor="middle">Match Number</text>
-      <text x="4" y="50" text-anchor="middle" transform="rotate(-90 4 50)">Metric Value</text>
-      <text x="12" y="20" text-anchor="end">${Math.round(max)}</text>
-      <text x="12" y="84" text-anchor="end">${Math.round(min)}</text>
+    <svg class="trend-chart" viewBox="0 0 220 100" role="img" aria-label="${escapeAttribute(`${metric.label} by match number`)}" width="100%" height="260">
+      <line x1="16" y1="82" x2="212" y2="82" stroke="var(--line)" stroke-width="1"></line>
+      <line x1="16" y1="18" x2="16" y2="82" stroke="var(--line)" stroke-width="1"></line>
+      <text x="114" y="97" text-anchor="middle">Match Number</text>
+      <text x="4" y="50" text-anchor="middle" transform="rotate(-90 4 50)">${metric.label} (${metric.unit})</text>
+      <text x="14" y="20" text-anchor="end">${max.toFixed(metric.unit === "%" ? 0 : 1)}</text>
+      <text x="14" y="84" text-anchor="end">${min.toFixed(metric.unit === "%" ? 0 : 1)}</text>
       <polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="3" vector-effect="non-scaling-stroke"></polyline>
       ${values
         .map((value, index) => {
-          const x = 14 + (index / (values.length - 1)) * 80;
+          const x = 16 + (index / Math.max(1, values.length - 1)) * 196;
           const y = 82 - ((value - min) / range) * 64;
-          return `<circle cx="${x}" cy="${y}" r="2.6" fill="var(--accent-strong)"><title>Match ${index + 1}: ${value}</title></circle>`;
+          return `<circle cx="${x}" cy="${y}" r="2.6" fill="var(--accent-strong)"><title>Match ${index + 1}: ${value.toFixed(metric.unit === "%" ? 0 : 1)} ${metric.unit}</title></circle>`;
         })
         .join("")}
     </svg>
@@ -1190,6 +1227,7 @@ function renderAnalysis() {
   const globalMin = Math.min(...distributions.map((item) => item.min));
   const globalMax = Math.max(...distributions.map((item) => item.max));
   const eventAverage = average(allScores);
+  const axisTicks = Array.from({ length: 5 }, (_, index) => globalMin + ((globalMax - globalMin) * index) / 4);
   return `
     <div class="toolbar">
       <label>
@@ -1209,6 +1247,16 @@ function renderAnalysis() {
     </div>
     <div class="analysis-chart" style="margin-top: 8px;">
       ${ranked.map((team, index) => renderChartRow(team, selection, distributions[index], globalMin, globalMax, eventAverage, scoreForTeam(team))).join("")}
+    </div>
+    <div class="analysis-axis-row" aria-hidden="true">
+      <span></span>
+      <div class="analysis-axis-meta">
+        <div class="analysis-axis-ticks">
+          ${axisTicks.map((value, index) => `<span style="left: ${(index / (axisTicks.length - 1)) * 100}%">${value.toFixed(1)}</span>`).join("")}
+        </div>
+        <span class="analysis-axis-label">${selection.label} (${selection.unit})</span>
+      </div>
+      <span></span>
     </div>
   `;
 }
@@ -1470,6 +1518,8 @@ function renderSortBuilder() {
 function renderPicklistBuilder() {
   const picklist = activePicklist();
   const currentTeams = picklist.teams.map((number) => teamByNumber(number)).filter(Boolean);
+  const compareTeams = state.picklistCompareTeams.map((number) => teamByNumber(number)).filter(Boolean);
+  const comparisonMetric = picklistCompareMetric();
   return `
     <div class="grid picklist-builder-layout">
       <article class="card builder-list-card">
@@ -1507,6 +1557,87 @@ function renderPicklistBuilder() {
           ${state.picklistColumns.map((entry, index) => renderPicklistGridColumn(entry, index)).join("")}
         </div>
       </article>
+      <article class="card picklist-compare-chart-card">
+        <div class="section-heading">
+          <div>
+            <h2>Team Trend Comparison</h2>
+            <p class="muted">Overlay up to 4 selected teams using the same comparison colors as the picklist.</p>
+          </div>
+          <label class="team-trend-metric">
+            <span class="muted">Metric</span>
+            <select id="picklistCompareMetricSelect" aria-label="Picklist comparison metric">
+              ${metrics.map((item) => `<option value="${item.id}" ${item.id === comparisonMetric.id ? "selected" : ""}>${item.label}</option>`).join("")}
+            </select>
+          </label>
+        </div>
+        ${renderPicklistCompareChart(compareTeams, comparisonMetric)}
+      </article>
+    </div>
+  `;
+}
+
+function renderPicklistCompareChart(selectedTeams, metric) {
+  if (!selectedTeams.length) {
+    return `<div class="empty-state picklist-compare-empty">Select up to 4 teams in the current picklist to compare their trends here.</div>`;
+  }
+  const series = selectedTeams.map((team) => ({
+    team,
+    values: metricTrendValues(team, metric),
+    color: compareAccent(team.number) || "var(--accent)",
+  }));
+  const allValues = series.flatMap((entry) => entry.values);
+  const min = Math.min(...allValues);
+  const max = Math.max(...allValues);
+  const range = max - min || 1;
+  const scaleX = (index, count) => 16 + (index / Math.max(1, count - 1)) * 196;
+  const scaleY = (value) => 82 - ((value - min) / range) * 64;
+  return `
+    <div class="picklist-compare-chart-shell">
+      <svg class="trend-chart compare-trend-chart" viewBox="0 0 220 100" role="img" aria-label="${escapeAttribute(`${metric.label} comparison by match number`)}" width="100%" height="280">
+        <line x1="16" y1="82" x2="212" y2="82" stroke="var(--line)" stroke-width="1"></line>
+        <line x1="16" y1="18" x2="16" y2="82" stroke="var(--line)" stroke-width="1"></line>
+        <g class="compare-trend-grid">
+          ${Array.from({ length: 5 }, (_, index) => {
+            const x = 16 + (index / 4) * 196;
+            return `<line x1="${x}" y1="18" x2="${x}" y2="82"></line>`;
+          }).join("")}
+        </g>
+        <text x="114" y="97" text-anchor="middle">Match Number</text>
+        <text x="4" y="50" text-anchor="middle" transform="rotate(-90 4 50)">${metric.label} (${metric.unit})</text>
+        <text x="14" y="20" text-anchor="end">${max.toFixed(metric.unit === "%" ? 0 : 1)}</text>
+        <text x="14" y="84" text-anchor="end">${min.toFixed(metric.unit === "%" ? 0 : 1)}</text>
+        ${series
+          .map((entry) => {
+            const points = entry.values.map((value, index) => `${scaleX(index, entry.values.length)},${scaleY(value)}`).join(" ");
+            return `<polyline points="${points}" fill="none" stroke="${entry.color}" stroke-width="2.6" vector-effect="non-scaling-stroke"></polyline>`;
+          })
+          .join("")}
+        ${series
+          .map((entry) =>
+            entry.values
+              .map((value, index) => {
+                const x = scaleX(index, entry.values.length);
+                const y = scaleY(value);
+                return `<circle cx="${x}" cy="${y}" r="2.5" fill="${entry.color}"><title>Team ${entry.team.number}, Match ${index + 1}: ${value.toFixed(metric.unit === "%" ? 0 : 1)} ${metric.unit}</title></circle>`;
+              })
+              .join(""),
+          )
+          .join("")}
+      </svg>
+      <div class="picklist-compare-legend">
+        ${selectedTeams
+          .map((team) => {
+            const slot = compareSlotIndexForTeam(team.number);
+            const accent = compareAccent(team.number) || "var(--accent)";
+            return `
+              <button class="compare-team-chip" data-remove-compare-team="${team.number}" style="--compare-accent: ${accent}">
+                <span class="compare-team-swatch">${slot + 1}</span>
+                <span>${team.number} ${team.name}</span>
+              </button>
+            `;
+          })
+          .join("")}
+      </div>
     </div>
   `;
 }
@@ -2129,6 +2260,16 @@ function bindViewEvents() {
     saveState();
     render();
   });
+  document.querySelector("#teamDetailMetricSelect")?.addEventListener("change", (event) => {
+    state.teamDetailMetric = normalizeTeamDetailMetric(event.target.value);
+    saveState();
+    render();
+  });
+  document.querySelector("#picklistCompareMetricSelect")?.addEventListener("change", (event) => {
+    state.picklistCompareMetric = normalizeTeamDetailMetric(event.target.value);
+    saveState();
+    render();
+  });
   document.querySelector("#teamSelect")?.addEventListener("change", (event) => {
     state.selectedTeam = Number(event.target.value);
     state.activeView = "teamDetail";
@@ -2397,6 +2538,16 @@ function bindViewEvents() {
       if (!changed) return;
       state.builderFocus.picklistBuilder = "teams";
       state.picklistSelectedTeam = wasCompared && state.picklistSelectedTeam === teamNumber ? null : teamNumber;
+      saveState();
+      render();
+    });
+  });
+  document.querySelectorAll("[data-remove-compare-team]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const teamNumber = Number(button.dataset.removeCompareTeam);
+      const changed = togglePicklistCompareTeam(teamNumber);
+      if (!changed) return;
+      if (state.picklistSelectedTeam === teamNumber) state.picklistSelectedTeam = null;
       saveState();
       render();
     });
