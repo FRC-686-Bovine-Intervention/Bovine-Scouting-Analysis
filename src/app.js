@@ -1,7 +1,14 @@
+const globalEventCatalog = globalThis.eventCatalog || [];
+const importFoundation = globalThis.ImportFoundation || {};
+const commitScoutingImport = importFoundation.commitScoutingImport;
+const buildSampleCsv = importFoundation.buildSampleCsv;
+const previewScoutingImport = importFoundation.previewScoutingImport;
+
 const storageKeys = {
   user: "frc-scouting-user",
   users: "frc-scouting-users",
   theme: "frc-scouting-theme",
+  activeEvent: "frc-scouting-active-event",
   activeView: "frc-scouting-view",
   metric: "frc-scouting-metric",
   teamDetailMetric: "frc-scouting-team-detail-metric",
@@ -17,24 +24,17 @@ const storageKeys = {
   activeSortEquation: "frc-scouting-active-sort-equation",
   picklistColumns: "frc-scouting-picklist-columns",
   picklistCompareTeams: "frc-scouting-picklist-compare-teams",
+  scoutingSubmissions: "frc-scouting-submissions",
+  activityLog: "frc-scouting-activity-log",
 };
 
+const globalStorageKeys = new Set([storageKeys.user, storageKeys.users, storageKeys.theme, storageKeys.activeEvent, storageKeys.menuExpanded]);
 const seedUsers = ["Avery", "Jordan", "Morgan"];
 const adminUsers = ["Avery"];
-
-const event = {
-  key: "2026miket",
-  name: "Lake Superior Regional",
-  season: 2026,
-  matchesComplete: 42,
-};
-
-const metrics = [
-  { id: "scouterTotal", label: "Scouter Total", unit: "pts" },
-  { id: "epa", label: "EPA", unit: "pts" },
-  { id: "pridge", label: "pRidge", unit: "pts" },
-  { id: "defenseImpact", label: "Defense Impact", unit: "pts" },
-  { id: "consistency", label: "Consistency", unit: "%" },
+const importProfileOptions = [
+  { id: "", label: "Auto-detect profile" },
+  { id: "match-current-v2", label: "Current Match Template" },
+  { id: "match-legacy-v1", label: "Legacy Match Template" },
 ];
 
 const navItems = [
@@ -52,441 +52,114 @@ const navItems = [
 
 const appViews = [...navItems, { view: "teamDetail", label: "Team Detail", icon: "teams" }];
 
-const teams = [
-  {
-    number: 118,
-    name: "Robonauts",
-    drivetrain: "swerve",
-    flags: [{ type: "defense_specialist", label: "Defense", severity: "good", evidence: "Reduced opponent scoring in 3 marked defense matches." }],
-    matches: [42, 50, 47, 54, 61, 38, 57, 62],
-    epa: 49.1,
-    pridge: 51.4,
-    defenseImpact: 10.8,
-    consistency: 82,
-  },
-  {
-    number: 1678,
-    name: "Citrus Circuits",
-    drivetrain: "swerve",
-    flags: [],
-    matches: [58, 63, 61, 65, 67, 62, 64, 69],
-    epa: 61.8,
-    pridge: 63.2,
-    defenseImpact: 2.1,
-    consistency: 94,
-  },
-  {
-    number: 254,
-    name: "Cheesy Poofs",
-    drivetrain: "swerve",
-    flags: [],
-    matches: [55, 57, 62, 60, 66, 64, 68, 70],
-    epa: 60.4,
-    pridge: 62.5,
-    defenseImpact: 1.7,
-    consistency: 92,
-  },
-  {
-    number: 2056,
-    name: "OP Robotics",
-    drivetrain: "swerve",
-    flags: [{ type: "inconsistent", label: "Inconsistent", severity: "warn", evidence: "Large scoring spread across qualification matches." }],
-    matches: [38, 59, 41, 63, 46, 66, 44, 70],
-    epa: 53.7,
-    pridge: 55.9,
-    defenseImpact: 4.2,
-    consistency: 61,
-  },
-  {
-    number: 2910,
-    name: "Jack in the Bot",
-    drivetrain: "swerve",
-    flags: [],
-    matches: [47, 51, 55, 58, 60, 61, 64, 66],
-    epa: 56.5,
-    pridge: 57.1,
-    defenseImpact: 3.8,
-    consistency: 88,
-  },
-  {
-    number: 4414,
-    name: "HighTide",
-    drivetrain: "swerve",
-    flags: [{ type: "declining", label: "Declining", severity: "warn", evidence: "Last 3 matches are 14% below event average for this team." }],
-    matches: [64, 62, 59, 56, 51, 47, 43, 41],
-    epa: 52.2,
-    pridge: 50.8,
-    defenseImpact: 2.9,
-    consistency: 72,
-  },
-  {
-    number: 6328,
-    name: "Mechanical Advantage",
-    drivetrain: "swerve",
-    flags: [{ type: "data_suspect", label: "Suspect Data", severity: "warn", evidence: "One scout entry conflicts with alliance score by 28 points." }],
-    matches: [45, 49, 77, 50, 52, 53, 55, 54],
-    epa: 51.0,
-    pridge: 50.1,
-    defenseImpact: 3.2,
-    consistency: 76,
-  },
-  {
-    number: 7426,
-    name: "Pair of Dice",
-    drivetrain: "tank",
-    flags: [
-      { type: "do_not_pick", label: "DNP", severity: "danger", evidence: "Pit scouting notes drivetrain damage and repeated disconnects." },
-      { type: "broken", label: "Broken", severity: "danger", evidence: "No mobility in final two observed matches." },
-    ],
-    matches: [31, 35, 33, 29, 24, 18, 4, 0],
-    epa: 22.4,
-    pridge: 20.5,
-    defenseImpact: 1.1,
-    consistency: 38,
-  },
-  {
-    number: 971,
-    name: "Spartan Robotics",
-    drivetrain: "swerve",
-    flags: [],
-    matches: [46, 49, 52, 55, 57, 58, 60, 63],
-    epa: 53.4,
-    pridge: 54.2,
-    defenseImpact: 4.8,
-    consistency: 86,
-  },
-  {
-    number: 1323,
-    name: "MadTown Robotics",
-    drivetrain: "swerve",
-    flags: [],
-    matches: [51, 53, 55, 58, 61, 63, 60, 66],
-    epa: 57.8,
-    pridge: 58.6,
-    defenseImpact: 4.4,
-    consistency: 89,
-  },
-  {
-    number: 3005,
-    name: "RoboChargers",
-    drivetrain: "swerve",
-    flags: [{ type: "data_suspect", label: "Sparse", severity: "warn", evidence: "Only 4 scouted matches imported." }],
-    matches: [39, 43, 48, 51],
-    epa: 44.9,
-    pridge: 45.1,
-    defenseImpact: 5.7,
-    consistency: 70,
-  },
-  {
-    number: 6800,
-    name: "Valor",
-    drivetrain: "tank",
-    flags: [{ type: "defense_specialist", label: "Defense", severity: "good", evidence: "Scouters marked effective defense in 4 matches." }],
-    matches: [26, 28, 30, 29, 31, 27, 32, 30],
-    epa: 30.2,
-    pridge: 31.4,
-    defenseImpact: 12.6,
-    consistency: 91,
-  },
-  {
-    number: 27,
-    name: "RUSH",
-    drivetrain: "swerve",
-    flags: [],
-    matches: [43, 45, 47, 49, 52, 54, 53, 56],
-    epa: 48.6,
-    pridge: 49.3,
-    defenseImpact: 5.1,
-    consistency: 84,
-  },
-  {
-    number: 33,
-    name: "Killer Bees",
-    drivetrain: "swerve",
-    flags: [{ type: "defense_specialist", label: "Defense", severity: "good", evidence: "Strong pin timing and protected-zone awareness in recent matches." }],
-    matches: [40, 42, 45, 46, 48, 49, 51, 50],
-    epa: 46.8,
-    pridge: 47.4,
-    defenseImpact: 9.3,
-    consistency: 86,
-  },
-  {
-    number: 67,
-    name: "HOT Team",
-    drivetrain: "swerve",
-    flags: [],
-    matches: [49, 52, 50, 55, 57, 56, 58, 60],
-    epa: 54.6,
-    pridge: 55.2,
-    defenseImpact: 4.7,
-    consistency: 87,
-  },
-  {
-    number: 148,
-    name: "Robowranglers",
-    drivetrain: "swerve",
-    flags: [{ type: "climber", label: "Climb+", severity: "good", evidence: "Reliable endgame contribution in all imported matches." }],
-    matches: [53, 56, 58, 59, 62, 64, 63, 65],
-    epa: 58.9,
-    pridge: 59.7,
-    defenseImpact: 3.1,
-    consistency: 90,
-  },
-  {
-    number: 217,
-    name: "ThunderChickens",
-    drivetrain: "swerve",
-    flags: [],
-    matches: [44, 47, 49, 50, 48, 52, 54, 55],
-    epa: 49.9,
-    pridge: 50.6,
-    defenseImpact: 6.2,
-    consistency: 83,
-  },
-  {
-    number: 359,
-    name: "Hawaiian Kids",
-    drivetrain: "tank",
-    flags: [{ type: "inconsistent", label: "Inconsistent", severity: "warn", evidence: "Fast scoring cycles, but several dead-time stretches were observed." }],
-    matches: [36, 44, 39, 52, 41, 55, 46, 57],
-    epa: 45.3,
-    pridge: 46.0,
-    defenseImpact: 7.4,
-    consistency: 64,
-  },
-  {
-    number: 604,
-    name: "Quixilver",
-    drivetrain: "swerve",
-    flags: [],
-    matches: [41, 43, 45, 47, 46, 48, 50, 51],
-    epa: 46.1,
-    pridge: 46.8,
-    defenseImpact: 4.9,
-    consistency: 85,
-  },
-  {
-    number: 1114,
-    name: "Simbotics",
-    drivetrain: "swerve",
-    flags: [],
-    matches: [56, 59, 61, 60, 64, 66, 65, 68],
-    epa: 60.7,
-    pridge: 61.6,
-    defenseImpact: 3.9,
-    consistency: 93,
-  },
-  {
-    number: 1690,
-    name: "Orbit",
-    drivetrain: "swerve",
-    flags: [],
-    matches: [54, 57, 59, 62, 63, 61, 66, 67],
-    epa: 59.4,
-    pridge: 60.1,
-    defenseImpact: 3.4,
-    consistency: 91,
-  },
-  {
-    number: 1796,
-    name: "RoboTigers",
-    drivetrain: "tank",
-    flags: [{ type: "data_suspect", label: "Sparse", severity: "warn", evidence: "Only partial pit and match scouting is available." }],
-    matches: [28, 34, 31, 36, 33, 38],
-    epa: 34.8,
-    pridge: 35.6,
-    defenseImpact: 8.9,
-    consistency: 67,
-  },
-  {
-    number: 8840,
-    name: "Bay Robotics",
-    drivetrain: "swerve",
-    flags: [{ type: "rising", label: "Rising", severity: "good", evidence: "Last three matches are trending above their event average." }],
-    matches: [32, 36, 39, 42, 45, 48, 50, 53],
-    epa: 42.7,
-    pridge: 44.2,
-    defenseImpact: 5.5,
-    consistency: 79,
-  },
-  {
-    number: 10255,
-    name: "Five Digit Demo",
-    drivetrain: "swerve",
-    flags: [
-      { type: "rising", label: "Rising", severity: "good", evidence: "Cycle times improved steadily over the last four matches." },
-      { type: "data_suspect", label: "Sparse", severity: "warn", evidence: "One autonomous entry is missing from the scouting sheet." },
-    ],
-    matches: [30, 35, 37, 41, 43, 46, 49, 52],
-    epa: 41.6,
-    pridge: 43.1,
-    defenseImpact: 6.6,
-    consistency: 75,
-  },
-].map(enrichTeam);
-
-const matches = [
-  { number: 38, red: [1678, 4414, 6800], blue: [254, 3005, 7426] },
-  { number: 39, red: [118, 2910, 6328], blue: [1323, 971, 2056] },
-  { number: 40, red: [254, 971, 6800], blue: [1678, 118, 3005] },
-  { number: 41, red: [2056, 1323, 7426], blue: [2910, 4414, 6328] },
-];
-
-const dataSources = [
-  {
-    name: "Scouting Spreadsheet",
-    status: "Mocked import",
-    updated: "Demo seed loaded",
-    notes: "CSV/XLSX import contract is represented, but files are not parsed yet.",
-  },
-  {
-    name: "The Blue Alliance",
-    status: "Mocked sync",
-    updated: "Event shell loaded",
-    notes: "Event teams, rankings, and schedule are demo data shaped like TBA inputs.",
-  },
-  {
-    name: "Statbotics EPA",
-    status: "Mocked sync",
-    updated: "EPA values seeded",
-    notes: "EPA is stored per team and used by rankings, analysis, and picklist criteria.",
-  },
-  {
-    name: "pRidge",
-    status: "Mocked sync",
-    updated: "pRidge values seeded",
-    notes: "pRidge is available as a metric source and weighted-sum component.",
-  },
-];
-
-const gameComponentRatios = [
-  { id: "total", label: "Total", ratio: 1 },
-  { id: "auto", label: "Auto", ratio: 0.18 },
-  { id: "coral", label: "Coral", ratio: 0.5 },
-  { id: "algae", label: "Algae", ratio: 0.2 },
-  { id: "climb", label: "Climb", ratio: 0.12 },
-];
-
-function gameComponents(baseValue) {
-  return gameComponentRatios.map((component) => ({
-    id: component.id,
-    label: component.label,
-    value: (team) => baseValue(team) * component.ratio,
-  }));
-}
-
-const criteriaSources = [
-  {
-    id: "epa",
-    label: "EPA",
-    components: gameComponents((team) => team.epa),
-  },
-  {
-    id: "scouter",
-    label: "Scouter Data",
-    components: gameComponents((team) => team.scouterTotal),
-  },
-  {
-    id: "opr",
-    label: "OPR",
-    components: gameComponents((team) => team.scouterTotal * 1.06),
-  },
-  {
-    id: "pridge",
-    label: "pRidge",
-    components: gameComponents((team) => team.pridge),
-  },
-  {
-    id: "derived",
-    label: "Derived",
-    components: [
-      { id: "defenseImpact", label: "Defense Impact", value: (team) => team.defenseImpact },
-      { id: "consistency", label: "Consistency", value: (team) => team.consistency },
-    ],
-  },
-];
-
-const defaultCriteriaTerms = [{ operator: "+", weight: 1, source: "epa", component: "total" }];
+const defaultCriteriaTerms = [{ operator: "+", weight: 1, metricId: "source:epa:total" }];
 
 const picklistColumnCount = 4;
 const picklistCompareLimit = 4;
 const protectedEpaSortId = "sort-epa";
 const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
 
-const seedSortEquations = [
-  {
-    id: "sort-defense-backup",
-    name: "Defense / Backup Formula",
-    terms: [
-      { operator: "+", weight: 0.05, source: "scouter", component: "total" },
-      { operator: "+", weight: 0.75, source: "derived", component: "defenseImpact" },
-      { operator: "+", weight: 0.2, source: "derived", component: "consistency" },
-    ],
-  },
-];
-
-const seedPicklists = [
-  {
-    id: "pick-first-pick",
-    name: "First Pick",
-    teams: [1678, 254, 1323, 2910, 971, 2056, 4414, 6328, 118, 3005, 6800, 7426],
-  },
-  {
-    id: "pick-defense-backup",
-    name: "Defense / Backup",
-    teams: [6800, 118, 3005, 971, 1323, 2056, 2910, 6328, 4414, 1678, 254, 7426],
-  },
-];
-
 const defaultAllianceBoard = [1678, 254, 1323, 2910, 971, 118, 2056, 4414, ...Array(16).fill(null)];
-const eventTeamNumbers = [...teams].map((team) => team.number).sort((a, b) => a - b);
 const protectedEpaSortEquation = {
   id: protectedEpaSortId,
   name: "EPA",
-  metricId: "epa",
+  metricId: "source:epa:total",
   locked: true,
 };
 
+const initialEventKey = resolveEventKey(readStoredItem(storageKeys.activeEvent));
+const initialEvent = eventModelByKey(initialEventKey);
 const state = {
-  user: localStorage.getItem(storageKeys.user) || "",
-  users: readJson(storageKeys.users, seedUsers),
-  theme: localStorage.getItem(storageKeys.theme) || "light",
-  activeView: normalizeView(localStorage.getItem(storageKeys.activeView)),
-  metric: normalizeAnalysisSelection(localStorage.getItem(storageKeys.metric)),
-  teamDetailMetric: normalizeTeamDetailMetric(localStorage.getItem(storageKeys.teamDetailMetric)),
-  picklistCompareMetric: normalizeTeamDetailMetric(localStorage.getItem(storageKeys.picklistCompareMetric)),
-  selectedTeam: Number(localStorage.getItem(storageKeys.selectedTeam)) || teams[0].number,
-  selectedMatch: Number(localStorage.getItem(storageKeys.selectedMatch)) || matches[0].number,
-  menuExpanded: localStorage.getItem(storageKeys.menuExpanded) === "true",
-  picklists: normalizePicklists(readJson(storageKeys.picklists, seedPicklists)),
-  sortEquations: normalizeSortEquations(readJson(storageKeys.sortEquations, seedSortEquations)),
+  activeEventKey: initialEventKey,
+  user: readStoredItem(storageKeys.user) || "",
+  users: readStoredJson(storageKeys.users, seedUsers),
+  theme: readStoredItem(storageKeys.theme) || "light",
+  activeView: "teams",
+  metric: initialEvent.defaultMetricId,
+  teamDetailMetric: initialEvent.defaultTeamDetailMetricId,
+  picklistCompareMetric: initialEvent.defaultTeamDetailMetricId,
+  selectedTeam: initialEvent.teams[0].number,
+  selectedMatch: initialEvent.matches[0].number,
+  menuExpanded: readStoredItem(storageKeys.menuExpanded) === "true",
+  picklists: [],
+  sortEquations: [],
   loadedSources: [],
   activePicklist: "",
   activeSortEquation: "",
   picklistColumns: [],
-  allianceBoard: normalizeBoard(readJson(storageKeys.allianceBoard, defaultAllianceBoard)),
+  allianceBoard: normalizeBoard(defaultAllianceBoard),
   contextMenu: null,
   inlineRename: null,
   picklistSelectedTeam: null,
-  picklistCompareTeams: normalizePicklistCompareTeams(readJson(storageKeys.picklistCompareTeams, [])),
+  picklistCompareTeams: normalizePicklistCompareTeams([], initialEvent),
   builderFocus: { sortBuilder: "list", picklistBuilder: "list" },
+  scoutingSubmissions: [],
+  activityLog: [],
+  importCsvText: "",
+  importSelectedProfileId: "",
+  importResult: null,
 };
+globalThis.__scoutingActiveEventKey = state.activeEventKey;
 
-state.activePicklist = resolvePicklistId(localStorage.getItem(storageKeys.activePicklist), state.picklists) || state.picklists[0]?.id || "";
-state.activeSortEquation =
-  resolveSortEquationId(localStorage.getItem(storageKeys.activeSortEquation), state.sortEquations) || state.sortEquations[0]?.id || "";
-state.loadedSources = normalizeLoadedSources(readJson(storageKeys.loadedPicklists, [`picklist:${seedPicklists[0].id}`]));
-state.picklistColumns = normalizePicklistColumns(readJson(storageKeys.picklistColumns, Array(picklistColumnCount).fill("")));
-if (!state.loadedSources.length && state.picklists.length) state.loadedSources = [`picklist:${state.picklists[0].id}`];
+hydrateEventState(state.activeEventKey);
 
 document.documentElement.dataset.theme = state.theme;
 
 const app = document.querySelector("#app");
 render();
 
-function readJson(key, fallback) {
+function eventModelByKey(key) {
+  return globalEventCatalog.find((eventModel) => eventModel.key === key) || globalEventCatalog[0];
+}
+
+function resolveEventKey(value) {
+  return eventModelByKey(value).key;
+}
+
+function currentEvent() {
+  return eventModelByKey(state?.activeEventKey || initialEventKey);
+}
+
+function currentScoutingSubmissions() {
+  return state.scoutingSubmissions.filter((submission) => submission.eventKey === state.activeEventKey);
+}
+
+function currentTeams() {
+  return currentEvent().teams.map((team) => overlayTeamWithScouting(team));
+}
+
+function currentMatches() {
+  return currentEvent().matches;
+}
+
+function currentMetrics() {
+  return currentEvent().metrics;
+}
+
+function currentDataSources() {
+  return currentEvent().dataSources;
+}
+
+function defaultScopedEventKey(eventKey) {
+  return eventKey || globalThis.__scoutingActiveEventKey || globalEventCatalog[0]?.key;
+}
+
+function eventStorageKey(baseKey, eventKey) {
+  const resolvedEventKey = defaultScopedEventKey(eventKey);
+  return globalStorageKeys.has(baseKey) ? baseKey : `${baseKey}:${resolvedEventKey}`;
+}
+
+function readStoredItem(baseKey, eventKey) {
+  const resolvedEventKey = defaultScopedEventKey(eventKey);
+  const value = localStorage.getItem(eventStorageKey(baseKey, eventKey));
+  if (value !== null) return value;
+  if (globalStorageKeys.has(baseKey)) return localStorage.getItem(`${baseKey}:${resolvedEventKey}`);
+  return null;
+}
+
+function readStoredJson(key, fallback, eventKey) {
   try {
-    return JSON.parse(localStorage.getItem(key)) || fallback;
+    return JSON.parse(readStoredItem(key, eventKey)) || fallback;
   } catch {
     return fallback;
   }
@@ -494,6 +167,14 @@ function readJson(key, fallback) {
 
 function createId(prefix) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function roundValue(value, digits = 1) {
+  return Number(Number(value || 0).toFixed(digits));
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function escapeAttribute(value) {
@@ -505,24 +186,57 @@ function escapeAttribute(value) {
 }
 
 function saveState() {
-  localStorage.setItem(storageKeys.users, JSON.stringify(state.users));
-  localStorage.setItem(storageKeys.user, state.user);
-  localStorage.setItem(storageKeys.theme, state.theme);
-  localStorage.setItem(storageKeys.activeView, state.activeView);
-  localStorage.setItem(storageKeys.metric, state.metric);
-  localStorage.setItem(storageKeys.teamDetailMetric, state.teamDetailMetric);
-  localStorage.setItem(storageKeys.picklistCompareMetric, state.picklistCompareMetric);
-  localStorage.setItem(storageKeys.selectedTeam, String(state.selectedTeam));
-  localStorage.setItem(storageKeys.selectedMatch, String(state.selectedMatch));
-  localStorage.setItem(storageKeys.menuExpanded, String(state.menuExpanded));
-  localStorage.setItem(storageKeys.picklists, JSON.stringify(state.picklists));
-  localStorage.setItem(storageKeys.sortEquations, JSON.stringify(state.sortEquations));
-  localStorage.setItem(storageKeys.loadedPicklists, JSON.stringify(state.loadedSources));
-  localStorage.setItem(storageKeys.activePicklist, state.activePicklist);
-  localStorage.setItem(storageKeys.activeSortEquation, state.activeSortEquation);
-  localStorage.setItem(storageKeys.picklistColumns, JSON.stringify(state.picklistColumns));
-  localStorage.setItem(storageKeys.allianceBoard, JSON.stringify(state.allianceBoard));
-  localStorage.setItem(storageKeys.picklistCompareTeams, JSON.stringify(state.picklistCompareTeams));
+  localStorage.setItem(eventStorageKey(storageKeys.users), JSON.stringify(state.users));
+  localStorage.setItem(eventStorageKey(storageKeys.user), state.user);
+  localStorage.setItem(eventStorageKey(storageKeys.theme), state.theme);
+  localStorage.setItem(eventStorageKey(storageKeys.activeEvent), state.activeEventKey);
+  localStorage.setItem(eventStorageKey(storageKeys.activeView), state.activeView);
+  localStorage.setItem(eventStorageKey(storageKeys.metric), state.metric);
+  localStorage.setItem(eventStorageKey(storageKeys.teamDetailMetric), state.teamDetailMetric);
+  localStorage.setItem(eventStorageKey(storageKeys.picklistCompareMetric), state.picklistCompareMetric);
+  localStorage.setItem(eventStorageKey(storageKeys.selectedTeam), String(state.selectedTeam));
+  localStorage.setItem(eventStorageKey(storageKeys.selectedMatch), String(state.selectedMatch));
+  localStorage.setItem(eventStorageKey(storageKeys.menuExpanded), String(state.menuExpanded));
+  localStorage.setItem(eventStorageKey(storageKeys.picklists), JSON.stringify(state.picklists));
+  localStorage.setItem(eventStorageKey(storageKeys.sortEquations), JSON.stringify(state.sortEquations));
+  localStorage.setItem(eventStorageKey(storageKeys.loadedPicklists), JSON.stringify(state.loadedSources));
+  localStorage.setItem(eventStorageKey(storageKeys.activePicklist), state.activePicklist);
+  localStorage.setItem(eventStorageKey(storageKeys.activeSortEquation), state.activeSortEquation);
+  localStorage.setItem(eventStorageKey(storageKeys.picklistColumns), JSON.stringify(state.picklistColumns));
+  localStorage.setItem(eventStorageKey(storageKeys.allianceBoard), JSON.stringify(state.allianceBoard));
+  localStorage.setItem(eventStorageKey(storageKeys.picklistCompareTeams), JSON.stringify(state.picklistCompareTeams));
+  localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions), JSON.stringify(state.scoutingSubmissions));
+  localStorage.setItem(eventStorageKey(storageKeys.activityLog), JSON.stringify(state.activityLog));
+}
+
+function hydrateEventState(eventKey) {
+  state.activeEventKey = resolveEventKey(eventKey);
+  globalThis.__scoutingActiveEventKey = state.activeEventKey;
+  const eventModel = currentEvent();
+  state.activeView = normalizeView(readStoredItem(storageKeys.activeView, eventKey));
+  state.metric = normalizeAnalysisSelection(readStoredItem(storageKeys.metric, eventKey), eventModel);
+  state.teamDetailMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.teamDetailMetric, eventKey), eventModel);
+  state.picklistCompareMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.picklistCompareMetric, eventKey), eventModel);
+  state.selectedTeam = Number(readStoredItem(storageKeys.selectedTeam, eventKey)) || eventModel.teams[0].number;
+  state.selectedMatch = Number(readStoredItem(storageKeys.selectedMatch, eventKey)) || eventModel.matches[0].number;
+  state.picklists = normalizePicklists(readStoredJson(storageKeys.picklists, eventModel.seedPicklists, eventKey), eventModel);
+  state.sortEquations = normalizeSortEquations(readStoredJson(storageKeys.sortEquations, eventModel.seedSortEquations, eventKey), eventModel);
+  state.activePicklist = resolvePicklistId(readStoredItem(storageKeys.activePicklist, eventKey), state.picklists) || state.picklists[0]?.id || "";
+  state.activeSortEquation =
+    resolveSortEquationId(readStoredItem(storageKeys.activeSortEquation, eventKey), state.sortEquations) || state.sortEquations[0]?.id || "";
+  state.loadedSources = normalizeLoadedSources(readStoredJson(storageKeys.loadedPicklists, [`picklist:${eventModel.seedPicklists[0].id}`], eventKey));
+  state.picklistColumns = normalizePicklistColumns(readStoredJson(storageKeys.picklistColumns, Array(picklistColumnCount).fill(""), eventKey));
+  state.allianceBoard = normalizeBoard(readStoredJson(storageKeys.allianceBoard, defaultAllianceBoard, eventKey));
+  state.picklistCompareTeams = normalizePicklistCompareTeams(readStoredJson(storageKeys.picklistCompareTeams, [], eventKey), eventModel);
+  state.scoutingSubmissions = normalizeScoutingSubmissions(readStoredJson(storageKeys.scoutingSubmissions, [], eventKey), eventModel);
+  state.activityLog = normalizeActivityLog(readStoredJson(storageKeys.activityLog, [], eventKey));
+  if (!state.loadedSources.length && state.picklists.length) state.loadedSources = [`picklist:${state.picklists[0].id}`];
+  state.selectedTeam = teamByNumber(state.selectedTeam)?.number || eventModel.teams[0].number;
+  state.selectedMatch = currentMatches().some((match) => match.number === state.selectedMatch) ? state.selectedMatch : eventModel.matches[0].number;
+  state.contextMenu = null;
+  state.inlineRename = null;
+  state.picklistSelectedTeam = null;
+  state.importResult = null;
 }
 
 function normalizeView(view) {
@@ -535,17 +249,17 @@ function normalizeBoard(board) {
   return next.map((value) => (Number.isFinite(Number(value)) && value !== "" ? Number(value) : null));
 }
 
-function normalizeAnalysisSelection(value) {
-  if (typeof value !== "string" || !value) return "epa";
+function normalizeAnalysisSelection(value, eventModel = currentEvent()) {
+  if (typeof value !== "string" || !value) return eventModel.defaultMetricId;
   if (value.startsWith("sort:")) {
     return value;
   }
-  return metrics.some((metric) => metric.id === value) ? value : "epa";
+  return eventModel.metrics.some((metric) => metric.id === value) ? value : eventModel.defaultMetricId;
 }
 
-function normalizeTeamDetailMetric(value) {
-  if (typeof value !== "string" || !value) return "scouterTotal";
-  return metrics.some((metric) => metric.id === value) ? value : "scouterTotal";
+function normalizeTeamDetailMetric(value, eventModel = currentEvent()) {
+  if (typeof value !== "string" || !value) return eventModel.defaultTeamDetailMetricId;
+  return eventModel.metrics.some((metric) => metric.id === value) ? value : eventModel.defaultTeamDetailMetricId;
 }
 
 function pickedTeams() {
@@ -582,7 +296,7 @@ function resolveSortEquationId(value, sortEquations = state.sortEquations) {
   return match?.id || "";
 }
 
-function normalizeSortEquations(equations) {
+function normalizeSortEquations(equations, eventModel = currentEvent()) {
   const source = Array.isArray(equations) ? equations : [];
   const hasPersistedValues = Array.isArray(equations);
   const normalized = source
@@ -593,7 +307,7 @@ function normalizeSortEquations(equations) {
       terms: normalizeCriteriaTerms(equation.terms || termsFromLegacyWeights(equation.weights)),
       locked: false,
     }));
-  const fallback = normalized.length || hasPersistedValues ? normalized : seedSortEquations.map((equation) => ({
+  const fallback = normalized.length || hasPersistedValues ? normalized : eventModel.seedSortEquations.map((equation) => ({
     id: equation.id || createId("sort"),
     name: equation.name || "Sort Equation",
     terms: normalizeCriteriaTerms(equation.terms || termsFromLegacyWeights(equation.weights)),
@@ -602,18 +316,20 @@ function normalizeSortEquations(equations) {
   return [protectedEpaSortEquation, ...fallback];
 }
 
-function normalizePicklists(lists) {
-  const source = Array.isArray(lists) && lists.length ? lists : seedPicklists;
+function normalizePicklists(lists, eventModel = currentEvent()) {
+  const source = Array.isArray(lists) && lists.length ? lists : eventModel.seedPicklists;
   return source.map((list) => ({
     id: list.id || createId("pick"),
     name: list.name || "Picklist",
-    teams: normalizePicklistTeams(list.teams),
+    teams: normalizePicklistTeams(list.teams, eventModel),
   }));
 }
 
-function normalizePicklistTeams(values) {
-  const ranked = Array.isArray(values) ? values.map(Number).filter((value, index, array) => teamByNumber(value) && array.indexOf(value) === index) : [];
-  const missing = eventTeamNumbers.filter((number) => !ranked.includes(number));
+function normalizePicklistTeams(values, eventModel = currentEvent()) {
+  const ranked = Array.isArray(values)
+    ? values.map(Number).filter((value, index, array) => eventModel.teams.some((team) => team.number === value) && array.indexOf(value) === index)
+    : [];
+  const missing = eventModel.teamNumbers.filter((number) => !ranked.includes(number));
   return [...ranked, ...missing];
 }
 
@@ -624,13 +340,13 @@ function normalizeLoadedSources(values) {
     .filter((entry, index, array) => entry && array.indexOf(entry) === index);
 }
 
-function normalizePicklistCompareTeams(values) {
+function normalizePicklistCompareTeams(values, eventModel = currentEvent()) {
   const next = Array.isArray(values) ? values.slice(0, picklistCompareLimit) : [];
   while (next.length < picklistCompareLimit) next.push(null);
   const seen = new Set();
   return next.map((value) => {
     const teamNumber = Number(value);
-    if (!teamByNumber(teamNumber)) return null;
+    if (!eventModel.teams.some((team) => team.number === teamNumber)) return null;
     if (seen.has(teamNumber)) return null;
     seen.add(teamNumber);
     return teamNumber;
@@ -688,11 +404,18 @@ function updateSortEquation(id, updater) {
 
 function termsFromLegacyWeights(weights = {}) {
   const mappings = {
-    scouterTotal: { source: "scouter", component: "total" },
-    epa: { source: "epa", component: "total" },
-    pridge: { source: "pridge", component: "total" },
-    defenseImpact: { source: "derived", component: "defenseImpact" },
-    consistency: { source: "derived", component: "consistency" },
+    scouterTotal: { metricId: "source:scouter:total" },
+    "source:scouter:total": { metricId: "source:scouter:total" },
+    epa: { metricId: "source:epa:total" },
+    "source:epa:total": { metricId: "source:epa:total" },
+    opr: { metricId: "source:opr:total" },
+    "source:opr:total": { metricId: "source:opr:total" },
+    pridge: { metricId: "source:pridge:total" },
+    "source:pridge:total": { metricId: "source:pridge:total" },
+    defenseImpact: { metricId: "derived:defenseImpact" },
+    "derived:defenseImpact": { metricId: "derived:defenseImpact" },
+    consistency: { metricId: "derived:consistency" },
+    "derived:consistency": { metricId: "derived:consistency" },
   };
   const terms = Object.entries(weights)
     .filter(([, weight]) => Number(weight) !== 0)
@@ -700,24 +423,26 @@ function termsFromLegacyWeights(weights = {}) {
   return terms.length ? terms : defaultCriteriaTerms;
 }
 
+function metricIdFromLegacyTerm(term) {
+  if (typeof term?.metricId === "string" && term.metricId) return term.metricId;
+  if (term?.source && term?.component) return `${term.source === "derived" ? "derived" : "source"}:${term.source}:${term.component}`.replace("derived:derived:", "derived:");
+  return currentEvent().defaultMetricId;
+}
+
 function normalizeCriteriaTerms(terms) {
   const normalized = (Array.isArray(terms) && terms.length ? terms : defaultCriteriaTerms).slice(0, 5).map((term, index) => {
-    const source = criteriaSources.find((item) => item.id === term.source) || criteriaSources[0];
-    const component = source.components.find((item) => item.id === term.component) || source.components[0];
+    const metric = metricById(metricIdFromLegacyTerm(term));
     return {
       operator: index === 0 ? "+" : term.operator === "-" ? "-" : "+",
       weight: Number.isFinite(Number(term.weight)) ? Number(term.weight) : 1,
-      source: source.id,
-      component: component.id,
+      metricId: metric.id,
     };
   });
   return normalized.length ? normalized : defaultCriteriaTerms;
 }
 
 function componentValue(team, term) {
-  const source = criteriaSources.find((item) => item.id === term.source) || criteriaSources[0];
-  const component = source.components.find((item) => item.id === term.component) || source.components[0];
-  return component.value(team);
+  return teamMetricValue(team, metricFromTerm(term));
 }
 
 function scoreTeamByTerms(team, terms) {
@@ -728,16 +453,16 @@ function scoreTeamByTerms(team, terms) {
 }
 
 function rankTeamsByTerms(terms) {
-  return [...teams].sort((a, b) => scoreTeamByTerms(b, terms) - scoreTeamByTerms(a, terms)).map((team) => team.number);
+  return [...currentTeams()].sort((a, b) => scoreTeamByTerms(b, terms) - scoreTeamByTerms(a, terms)).map((team) => team.number);
 }
 
 function scoreTeamByEquation(team, equation) {
-  if (equation.metricId) return Number(team[equation.metricId] || 0);
+  if (equation.metricId) return teamMetricValue(team, metricById(equation.metricId));
   return scoreTeamByTerms(team, equation.terms);
 }
 
 function rankTeamsByEquation(equation) {
-  return [...teams]
+  return [...currentTeams()]
     .sort((a, b) => scoreTeamByEquation(b, equation) - scoreTeamByEquation(a, equation) || a.number - b.number)
     .map((team) => team.number);
 }
@@ -756,14 +481,6 @@ function colorForScore(score, min, max) {
   return "transparent";
 }
 
-function enrichTeam(team) {
-  const scouterTotal = average(team.matches);
-  return {
-    ...team,
-    scouterTotal,
-  };
-}
-
 function average(values) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
@@ -777,15 +494,470 @@ function quantile(values, q) {
 }
 
 function metricById(id) {
-  return metrics.find((metric) => metric.id === id) || metrics.find((metric) => metric.id === "epa") || metrics[0];
+  const metrics = currentMetrics();
+  return metrics.find((metric) => metric.id === id) || metrics.find((metric) => metric.id === currentEvent().defaultMetricId) || metrics[0];
+}
+
+function normalizeScoutingSubmissions(values, eventModel = currentEvent()) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .filter((submission) => submission && Number.isFinite(Number(submission.teamNumber)))
+    .map((submission) => ({
+      ...submission,
+      eventKey: submission.eventKey || eventModel.key,
+      rawMetrics: submission.rawMetrics && typeof submission.rawMetrics === "object" ? submission.rawMetrics : {},
+      confidenceReasons: Array.isArray(submission.confidenceReasons) ? submission.confidenceReasons : [],
+      validity: submission.validity || "valid",
+      confidenceTier: submission.confidenceTier || "high",
+    }));
+}
+
+function normalizeActivityLog(values) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .filter((entry) => entry && entry.id && entry.message)
+    .slice(0, 24);
+}
+
+function importedMatchCount() {
+  return new Set(currentScoutingSubmissions().map((submission) => submission.matchNumber).filter(Boolean)).size;
+}
+
+function importedTeamCount() {
+  return new Set(currentScoutingSubmissions().map((submission) => submission.teamNumber).filter(Boolean)).size;
+}
+
+function formatTimestamp(value) {
+  if (!value) return "Pending";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function confidenceReasonLabel(reason) {
+  return {
+    missing_metric: "Missing mapped metric",
+    schema_gap: "Missing required identity fields",
+    duplicate_submission: "Duplicate team/match submission",
+    sparse_matches: "Sparse scouting coverage",
+    no_scouting_data: "No imported scouting data",
+    seeded_scouting: "Using seeded scouting estimate",
+    external_source: "External source available",
+  }[reason] || reason;
+}
+
+function uniqueValues(values) {
+  return [...new Set(values)];
+}
+
+function duplicateSubmissionKey(submission) {
+  return `${submission.eventKey}:${submission.matchNumber}:${submission.teamNumber}`;
+}
+
+function recalculateSubmissionReview(submission) {
+  const reasons = uniqueValues((submission.confidenceReasons || []).filter(Boolean));
+  if (submission.validity === "excluded" || reasons.includes("schema_gap")) {
+    return { ...submission, confidenceReasons: reasons, validity: "excluded", confidenceTier: "low" };
+  }
+  if (reasons.includes("duplicate_submission")) {
+    return { ...submission, confidenceReasons: reasons, validity: "flagged", confidenceTier: "low" };
+  }
+  if (reasons.length) {
+    return { ...submission, confidenceReasons: reasons, validity: "flagged", confidenceTier: "medium" };
+  }
+  return { ...submission, confidenceReasons: [], validity: "valid", confidenceTier: "high" };
+}
+
+function submissionNeedsReview(submission) {
+  const reasons = submission.confidenceReasons || [];
+  if (submission.validity === "flagged") return true;
+  if (submission.validity === "excluded") return reasons.some((reason) => reason !== "duplicate_submission");
+  return false;
+}
+
+function duplicateGroups() {
+  const grouped = new Map();
+  currentScoutingSubmissions().forEach((submission) => {
+    const key = duplicateSubmissionKey(submission);
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(submission);
+  });
+  return [...grouped.entries()]
+    .map(([key, submissions]) => {
+      const active = submissions.filter((submission) => submission.validity !== "excluded");
+      const hasDuplicateReason = active.some((submission) => (submission.confidenceReasons || []).includes("duplicate_submission"));
+      return { key, submissions, active, hasDuplicateReason };
+    })
+    .filter((group) => group.active.length > 1 && group.hasDuplicateReason)
+    .sort((left, right) => {
+      const leftSubmission = left.submissions[0];
+      const rightSubmission = right.submissions[0];
+      return Number(leftSubmission.matchNumber) - Number(rightSubmission.matchNumber) || Number(leftSubmission.teamNumber) - Number(rightSubmission.teamNumber);
+    });
+}
+
+function flaggedSubmissionGroups() {
+  const duplicate = duplicateGroups();
+  const duplicateKeys = new Set(duplicate.map((group) => group.key));
+  const standalone = currentScoutingSubmissions()
+    .filter((submission) => submissionNeedsReview(submission) && !duplicateKeys.has(duplicateSubmissionKey(submission)))
+    .map((submission) => ({ key: `single:${submission.id}`, submissions: [submission] }));
+  return [...duplicate, ...standalone];
+}
+
+function pushActivity(message) {
+  state.activityLog = normalizeActivityLog([
+    {
+      id: createId("activity"),
+      kind: "review",
+      timestamp: new Date().toISOString(),
+      message,
+    },
+    ...state.activityLog,
+  ]);
+}
+
+function updateSubmissionReview(submissionId, updater, activityMessage) {
+  state.scoutingSubmissions = normalizeScoutingSubmissions(
+    state.scoutingSubmissions.map((submission) => {
+      if (submission.id !== submissionId) return submission;
+      return recalculateSubmissionReview(updater(submission));
+    }),
+    currentEvent(),
+  );
+  if (activityMessage) pushActivity(activityMessage);
+  saveState();
+  render();
+}
+
+function keepSubmission(submissionId) {
+  const submission = state.scoutingSubmissions.find((item) => item.id === submissionId);
+  if (!submission) return;
+  updateSubmissionReview(
+    submissionId,
+    (current) => ({
+      ...current,
+      validity: "valid",
+      confidenceReasons: (current.confidenceReasons || []).filter((reason) => reason !== "duplicate_submission"),
+    }),
+    `Admin kept scouting row for Team ${submission.teamNumber} in Q${submission.matchNumber}.`,
+  );
+}
+
+function excludeSubmission(submissionId) {
+  const submission = state.scoutingSubmissions.find((item) => item.id === submissionId);
+  if (!submission) return;
+  updateSubmissionReview(
+    submissionId,
+    (current) => ({ ...current, validity: "excluded" }),
+    `Admin excluded scouting row for Team ${submission.teamNumber} in Q${submission.matchNumber}.`,
+  );
+}
+
+function resetSubmissionReview(submissionId) {
+  const submission = state.scoutingSubmissions.find((item) => item.id === submissionId);
+  if (!submission) return;
+  updateSubmissionReview(
+    submissionId,
+    (current) => ({
+      ...current,
+      validity: "flagged",
+      confidenceReasons: uniqueValues([...(current.confidenceReasons || []).filter((reason) => reason !== "schema_gap"), "duplicate_submission"]),
+    }),
+    `Admin reset duplicate review for Team ${submission.teamNumber} in Q${submission.matchNumber}.`,
+  );
+}
+
+function clearDuplicateGroup(groupKey) {
+  const group = duplicateGroups().find((entry) => entry.key === groupKey);
+  if (!group) return;
+  state.scoutingSubmissions = normalizeScoutingSubmissions(
+    state.scoutingSubmissions.map((submission) => {
+      if (duplicateSubmissionKey(submission) !== groupKey || submission.validity === "excluded") return submission;
+      return recalculateSubmissionReview({
+        ...submission,
+        validity: "valid",
+        confidenceReasons: (submission.confidenceReasons || []).filter((reason) => reason !== "duplicate_submission"),
+      });
+    }),
+    currentEvent(),
+  );
+  const sample = group.submissions[0];
+  pushActivity(`Admin cleared duplicate flags for Team ${sample.teamNumber} in Q${sample.matchNumber}.`);
+  saveState();
+  render();
+}
+
+function usableSubmission(submission) {
+  return submission.validity !== "excluded";
+}
+
+function aggregateSubmissionMatches(submissions) {
+  const byMatch = new Map();
+  submissions
+    .filter(usableSubmission)
+    .forEach((submission) => {
+      const key = Number(submission.matchNumber);
+      if (!byMatch.has(key)) byMatch.set(key, []);
+      byMatch.get(key).push(submission);
+    });
+
+  return [...byMatch.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map(([matchNumber, rows]) => {
+      const totals = rows.map((row) =>
+        Object.values(row.rawMetrics || {}).reduce((sum, value) => sum + (Number.isFinite(Number(value)) ? Number(value) : 0), 0),
+      );
+      const componentIds = currentEvent().scoringComponents.map((component) => component.id);
+      const components = Object.fromEntries(
+        componentIds.map((componentId) => [
+          componentId,
+          roundValue(
+            average(
+              rows.map((row) => {
+                const value = row.rawMetrics?.[componentId];
+                return Number.isFinite(Number(value)) ? Number(value) : 0;
+              }),
+            ),
+          ),
+        ]),
+      );
+      return {
+        matchNumber,
+        submissions: rows,
+        total: roundValue(average(totals)),
+        components,
+      };
+    });
+}
+
+function standardDeviation(values) {
+  if (!values.length) return 0;
+  const mean = average(values);
+  return Math.sqrt(average(values.map((value) => (value - mean) ** 2)));
+}
+
+function scoutingFlagsForTeam(baseTeam, submissions, aggregatedMatches, consistency) {
+  const flags = [...baseTeam.flags];
+  const duplicateCount = submissions.filter((submission) => submission.confidenceReasons?.includes("duplicate_submission")).length;
+  const flaggedCount = submissions.filter((submission) => submission.validity === "flagged").length;
+  const brokenCount = submissions.filter((submission) => /broken|dead|disabled/i.test(submission.robotStatus || "")).length;
+
+  if (aggregatedMatches.length && aggregatedMatches.length < 4) {
+    flags.push({
+      type: "data_suspect",
+      label: "Sparse",
+      severity: "warn",
+      evidence: `Only ${aggregatedMatches.length} imported matches are currently available.`,
+    });
+  }
+  if (duplicateCount) {
+    flags.push({
+      type: "data_suspect",
+      label: "Duplicates",
+      severity: "warn",
+      evidence: `${duplicateCount} duplicate scouting submission${duplicateCount === 1 ? "" : "s"} flagged for this team.`,
+    });
+  }
+  if (flaggedCount && !duplicateCount) {
+    flags.push({
+      type: "data_suspect",
+      label: "Flagged",
+      severity: "warn",
+      evidence: `${flaggedCount} imported scouting row${flaggedCount === 1 ? "" : "s"} need admin review.`,
+    });
+  }
+  if (brokenCount) {
+    flags.push({
+      type: "broken",
+      label: "Breakdowns",
+      severity: "danger",
+      evidence: `Robot status was marked broken, dead, or disabled in ${brokenCount} imported submission${brokenCount === 1 ? "" : "s"}.`,
+    });
+  }
+  if (aggregatedMatches.length >= 3 && consistency < 70) {
+    flags.push({
+      type: "inconsistent",
+      label: "Inconsistent",
+      severity: "warn",
+      evidence: "Imported scouting totals show large match-to-match variance.",
+    });
+  }
+
+  return flags.filter((flag, index, array) => array.findIndex((item) => item.type === flag.type && item.label === flag.label) === index);
+}
+
+function overlayTeamWithScouting(baseTeam) {
+  const submissions = currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === baseTeam.number);
+  const aggregatedMatches = aggregateSubmissionMatches(submissions);
+  if (!aggregatedMatches.length) {
+    return {
+      ...baseTeam,
+      scouting: {
+        submissionCount: 0,
+        importedMatches: 0,
+        flaggedCount: 0,
+        confidence: { tier: "medium", reasons: ["no_scouting_data", "seeded_scouting"] },
+      },
+    };
+  }
+
+  const totalsTrend = aggregatedMatches.map((match) => match.total);
+  const scouterTotal = roundValue(average(totalsTrend));
+  const componentIds = currentEvent().scoringComponents.map((component) => component.id);
+  const scouterComponents = Object.fromEntries(
+    componentIds.map((componentId) => [
+      componentId,
+      roundValue(average(aggregatedMatches.map((match) => Number(match.components[componentId] || 0)))),
+    ]),
+  );
+  const scouterTrendByComponent = Object.fromEntries(
+    componentIds.map((componentId) => [componentId, aggregatedMatches.map((match) => Number(match.components[componentId] || 0))]),
+  );
+  const mean = average(totalsTrend) || 1;
+  const consistency = clamp(Math.round(100 - (standardDeviation(totalsTrend) / mean) * 100), 25, 99);
+  const defenseRate = submissions.filter((submission) => usableSubmission(submission) && submission.defensePlayed).length / Math.max(1, submissions.filter(usableSubmission).length);
+  const defenseImpact = roundValue(defenseRate * Math.max(1, scouterTotal * 0.25));
+  const flags = scoutingFlagsForTeam(baseTeam, submissions, aggregatedMatches, consistency);
+  const scoutingReasons = uniqueValues([
+    ...(aggregatedMatches.length < 4 ? ["sparse_matches"] : []),
+    ...submissions.flatMap((submission) => submission.confidenceReasons || []),
+  ]);
+  const scoutingConfidenceTier = scoutingReasons.includes("schema_gap") || scoutingReasons.includes("duplicate_submission")
+    ? "low"
+    : scoutingReasons.length
+      ? "medium"
+      : "high";
+
+  return {
+    ...baseTeam,
+    flags,
+    matches: totalsTrend,
+    sources: {
+      ...baseTeam.sources,
+      scouter: {
+        total: scouterTotal,
+        components: scouterComponents,
+        trend: totalsTrend,
+        componentTrend: scouterTrendByComponent,
+      },
+    },
+    derived: {
+      ...baseTeam.derived,
+      defenseImpact,
+      consistency,
+    },
+    scouting: {
+      submissionCount: submissions.length,
+      importedMatches: aggregatedMatches.length,
+      flaggedCount: submissions.filter((submission) => submission.validity === "flagged").length,
+      confidence: {
+        tier: scoutingConfidenceTier,
+        reasons: scoutingReasons,
+      },
+    },
+  };
+}
+
+function confidenceRank(tier) {
+  return { high: 0, medium: 1, low: 2 }[tier] ?? 1;
+}
+
+function confidenceSeverity(tier) {
+  return { high: "good", medium: "warn", low: "danger" }[tier] || "warn";
+}
+
+function confidenceLabel(tier) {
+  return { high: "High", medium: "Medium", low: "Low" }[tier] || "Medium";
+}
+
+function metricConfidenceModel(team, metric) {
+  if (!metric) return { tier: "medium", reasons: [] };
+  if (metric.kind === "source" && ["epa", "opr", "pridge"].includes(metric.sourceId)) {
+    return { tier: "high", reasons: ["external_source"] };
+  }
+  if (metric.kind === "source" && metric.sourceId === "scouter") {
+    return team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
+  }
+  if (metric.kind === "derived") {
+    return team.scouting?.confidence || { tier: "medium", reasons: ["seeded_scouting"] };
+  }
+  return { tier: "medium", reasons: [] };
+}
+
+function equationConfidenceModel(team, equation) {
+  const terms = normalizeCriteriaTerms(equation?.terms || []);
+  if (!terms.length) return { tier: "medium", reasons: [] };
+  const weightedTerms = terms.map((term) => ({ term, weight: Math.abs(Number(term.weight) || 0) })).filter((entry) => entry.weight > 0);
+  const totalWeight = weightedTerms.reduce((sum, entry) => sum + entry.weight, 0) || 1;
+  const contributors = weightedTerms
+    .map((entry) => ({ ...entry, effectiveWeight: entry.weight / totalWeight }))
+    .filter((entry) => entry.effectiveWeight >= 0.1);
+  const inputs = (contributors.length ? contributors : weightedTerms).map((entry) => metricConfidenceModel(team, metricFromTerm(entry.term)));
+  const tier = inputs.reduce((worst, current) => (confidenceRank(current.tier) > confidenceRank(worst) ? current.tier : worst), "high");
+  const reasons = uniqueValues(inputs.flatMap((input) => input.reasons || []));
+  return { tier, reasons };
+}
+
+function renderConfidenceBadge(confidence) {
+  if (!confidence) return "";
+  const reasons = (confidence.reasons || []).map(confidenceReasonLabel).join(", ");
+  const title = reasons ? `Confidence: ${confidenceLabel(confidence.tier)}. ${reasons}.` : `Confidence: ${confidenceLabel(confidence.tier)}.`;
+  return `<span class="flag ${confidenceSeverity(confidence.tier)} confidence-flag" title="${escapeAttribute(title)}">Confidence: ${confidenceLabel(confidence.tier)}</span>`;
+}
+
+function runImportPreview() {
+  state.importResult = previewScoutingImport({
+    csvText: state.importCsvText,
+    eventModel: currentEvent(),
+    activeEventKey: state.activeEventKey,
+    existingSubmissions: state.scoutingSubmissions,
+    templateProfileId: state.importSelectedProfileId,
+  });
+  render();
+}
+
+function commitImportPreview() {
+  if (!state.importResult?.ok || !state.importResult.summary) return;
+  const committed = commitScoutingImport({
+    preview: state.importResult,
+    existingSubmissions: state.scoutingSubmissions,
+    existingActivity: state.activityLog,
+  });
+  state.scoutingSubmissions = normalizeScoutingSubmissions(committed.submissions, currentEvent());
+  state.activityLog = normalizeActivityLog(committed.activity);
+  state.importResult = null;
+  state.importCsvText = "";
+  state.importSelectedProfileId = "";
+  saveState();
+  render();
+}
+
+function switchImportContext(eventKey) {
+  if (!eventKey) return;
+  hydrateEventState(eventKey);
+  saveState();
+  runImportPreview();
 }
 
 function teamDetailMetric() {
-  return metrics.find((metric) => metric.id === state.teamDetailMetric) || metrics[0];
+  return metricById(state.teamDetailMetric);
 }
 
 function picklistCompareMetric() {
-  return metrics.find((metric) => metric.id === state.picklistCompareMetric) || metrics[0];
+  return metricById(state.picklistCompareMetric);
 }
 
 function analysisSortEquations() {
@@ -823,7 +995,18 @@ function togglePicklistCompareTeam(teamNumber) {
 }
 
 function teamByNumber(number) {
-  return teams.find((team) => team.number === Number(number));
+  return currentTeams().find((team) => team.number === Number(number));
+}
+
+function metricFromTerm(term) {
+  return metricById(metricIdFromLegacyTerm(term));
+}
+
+function teamMetricValue(team, metric) {
+  if (!team || !metric) return 0;
+  if (metric.kind === "derived") return Number(team.derived?.[metric.componentId] || 0);
+  if (metric.componentId === "total") return Number(team.sources?.[metric.sourceId]?.total || 0);
+  return Number(team.sources?.[metric.sourceId]?.components?.[metric.componentId] || 0);
 }
 
 function setTheme(theme) {
@@ -847,6 +1030,7 @@ function setView(view) {
 }
 
 function render() {
+  const event = currentEvent();
   if (!state.user) {
     renderLogin();
     return;
@@ -869,9 +1053,9 @@ function render() {
           </button>
         </div>
         <div class="event-chip">
-          <span class="muted">${event.season}</span>
+          <span class="muted">${event.season} ${event.seasonLabel}</span>
           <strong>${event.name}</strong>
-          <span class="muted">${event.matchesComplete} matches imported</span>
+          <span class="muted">${Math.max(event.matchesComplete, importedMatchCount())} matches imported</span>
         </div>
         <nav class="nav-list">
           ${visibleNavItems().map((item) => navButton(item)).join("")}
@@ -884,6 +1068,12 @@ function render() {
             <h1>${viewTitle(state.activeView)}</h1>
           </div>
           <div class="split-row">
+            <label class="event-select">
+              <span class="muted">Event</span>
+              <select id="eventSelect" aria-label="Active event">
+                ${globalEventCatalog.map((item) => `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.season} ${item.name}</option>`).join("")}
+              </select>
+            </label>
             ${renderThemeToggle()}
             <button class="action-button" id="logoutButton" title="Sign out ${state.user}" aria-label="Sign out ${state.user}">
               ${icon("user")}
@@ -1011,6 +1201,11 @@ function bindShellEvents() {
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
   });
+  document.querySelector("#eventSelect")?.addEventListener("change", (event) => {
+    hydrateEventState(event.target.value);
+    saveState();
+    render();
+  });
   document.querySelector("#themeToggle")?.addEventListener("click", toggleTheme);
   document.querySelector("#menuToggle").addEventListener("click", () => {
     state.menuExpanded = !state.menuExpanded;
@@ -1042,8 +1237,9 @@ function renderView() {
 }
 
 function renderRankings() {
-  const ranked = [...teams]
-    .sort((a, b) => b.epa - a.epa)
+  const epaMetric = metricById("source:epa:total");
+  const ranked = [...currentTeams()]
+    .sort((a, b) => teamMetricValue(b, epaMetric) - teamMetricValue(a, epaMetric))
     .map((team, index) => ({ ...team, rank: index + 1, rp: rankingPoints(team), record: recordForTeam(team) }));
   return `
     <article class="card">
@@ -1069,11 +1265,11 @@ function renderRankings() {
           <button class="ranking-row" data-team="${team.number}" role="row">
             <strong>${team.rank}</strong>
             <span>${team.number} ${team.name}</span>
-            <span>${team.epa.toFixed(2)}</span>
+            <span>${teamMetricValue(team, epaMetric).toFixed(2)}</span>
             <span>${team.record}</span>
             <span>${team.rp}</span>
-            <span>${team.epa.toFixed(1)}</span>
-            <span>${renderTeamBadges(team)}</span>
+            <span>${teamMetricValue(team, epaMetric).toFixed(1)}</span>
+            <span>${renderTeamBadges(team, metricConfidenceModel(team, epaMetric))}</span>
           </button>
         `,
           )
@@ -1084,25 +1280,28 @@ function renderRankings() {
 }
 
 function rankingPoints(team) {
-  return Math.max(8, Math.round(team.epa / 4));
+  return Math.max(8, Math.round(teamMetricValue(team, metricById("source:epa:total")) / 4));
 }
 
 function recordForTeam(team) {
-  const wins = Math.max(1, Math.min(8, Math.round(team.epa / 9)));
+  const wins = Math.max(1, Math.min(8, Math.round(teamMetricValue(team, metricById("source:epa:total")) / 9)));
   const losses = Math.max(0, 8 - wins);
   return `${wins}-${losses}-0`;
 }
 
 function renderTeams() {
+  const epaMetric = metricById("source:epa:total");
+  const consistencyMetric = metricById("derived:consistency");
+  const confidenceMetric = metricById("source:scouter:total");
   return `
     <div class="team-title-row">
       <div>
         <h2>Event Teams</h2>
       </div>
-      <span class="muted">${teams.length} teams at ${event.name}</span>
+      <span class="muted">${currentTeams().length} teams at ${currentEvent().name}</span>
     </div>
     <div class="team-grid" style="margin-top: 14px;">
-      ${teams
+      ${currentTeams()
         .sort((a, b) => a.number - b.number)
         .map(
           (team) => `
@@ -1110,8 +1309,8 @@ function renderTeams() {
           <span class="avatar">${team.number}</span>
           <span class="team-meta">
             <strong>${team.name}</strong>
-            <span class="muted">${team.epa.toFixed(1)} EPA / ${team.consistency}% consistency</span>
-            ${renderTeamBadges(team)}
+            <span class="muted">${teamMetricValue(team, epaMetric).toFixed(1)} EPA / ${teamMetricValue(team, consistencyMetric)}% consistency</span>
+            ${renderTeamBadges(team, metricConfidenceModel(team, confidenceMetric))}
           </span>
         </button>
       `,
@@ -1123,6 +1322,10 @@ function renderTeams() {
 
 function renderTeamDetail(team) {
   const selectedMetric = teamDetailMetric();
+  const scouterMetric = metricById("source:scouter:total");
+  const epaMetric = metricById("source:epa:total");
+  const pridgeMetric = metricById("source:pridge:total");
+  const consistencyMetric = metricById("derived:consistency");
   return `
     <article class="card">
       <div class="section-heading">
@@ -1132,15 +1335,15 @@ function renderTeamDetail(team) {
         <div class="detail-actions">
           <button data-view="teams">Back to Teams</button>
           <select id="teamSelect" aria-label="Team">
-            ${teams.map((item) => `<option value="${item.number}" ${item.number === team.number ? "selected" : ""}>${item.number} ${item.name}</option>`).join("")}
+            ${currentTeams().map((item) => `<option value="${item.number}" ${item.number === team.number ? "selected" : ""}>${item.number} ${item.name}</option>`).join("")}
           </select>
         </div>
       </div>
       <div class="stat-grid">
-        <div class="stat"><span>Scouter Total</span><strong>${team.scouterTotal.toFixed(1)}</strong></div>
-        <div class="stat"><span>EPA</span><strong>${team.epa.toFixed(1)}</strong></div>
-        <div class="stat"><span>pRidge</span><strong>${team.pridge.toFixed(1)}</strong></div>
-        <div class="stat"><span>Consistency</span><strong>${team.consistency}%</strong></div>
+        <div class="stat"><span>Scouter Total</span><strong>${teamMetricValue(team, scouterMetric).toFixed(1)}</strong></div>
+        <div class="stat"><span>EPA</span><strong>${teamMetricValue(team, epaMetric).toFixed(1)}</strong></div>
+        <div class="stat"><span>pRidge</span><strong>${teamMetricValue(team, pridgeMetric).toFixed(1)}</strong></div>
+        <div class="stat"><span>Consistency</span><strong>${teamMetricValue(team, consistencyMetric)}%</strong></div>
       </div>
       <div class="team-detail-grid">
         <div>
@@ -1151,14 +1354,15 @@ function renderTeamDetail(team) {
             <label class="team-trend-metric">
               <span class="muted">Metric</span>
               <select id="teamDetailMetricSelect" aria-label="Team detail metric">
-                ${metrics.map((item) => `<option value="${item.id}" ${item.id === selectedMetric.id ? "selected" : ""}>${item.label}</option>`).join("")}
+                ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === selectedMetric.id ? "selected" : ""}>${item.label}</option>`).join("")}
               </select>
             </label>
           </div>
           ${renderSparkline(team, selectedMetric)}
         </div>
         <div class="compact-flags">
-          <h3>Flags</h3>
+          <h3>Flags & Confidence</h3>
+          ${renderFlags([], metricConfidenceModel(team, selectedMetric))}
           ${team.flags.length ? team.flags.map((flag) => `<p><span class="flag ${flag.severity}">${flag.label}</span> <span class="flag-evidence">${flag.evidence}</span></p>`).join("") : `<p class="muted">No active flags.</p>`}
         </div>
       </div>
@@ -1167,9 +1371,19 @@ function renderTeamDetail(team) {
 }
 
 function metricTrendValues(team, metric) {
-  if (metric.id === "scouterTotal") return team.matches;
+  if (metric.kind === "source") {
+    if (metric.sourceId === "scouter" && metric.componentId === "total") return team.matches;
+    if (metric.sourceId === "scouter" && metric.componentId !== "total" && Array.isArray(team.sources?.scouter?.componentTrend?.[metric.componentId])) {
+      return team.sources.scouter.componentTrend[metric.componentId];
+    }
+    const sourceTrend = team.sources?.[metric.sourceId]?.trend || team.matches;
+    if (metric.componentId === "total") return sourceTrend;
+    const total = team.sources?.[metric.sourceId]?.total || 1;
+    const component = team.sources?.[metric.sourceId]?.components?.[metric.componentId] || 0;
+    return sourceTrend.map((value) => (value / total) * component);
+  }
   const baseline = average(team.matches) || 1;
-  return team.matches.map((value) => (value / baseline) * Number(team[metric.id] || 0));
+  return team.matches.map((value) => (value / baseline) * teamMetricValue(team, metric));
 }
 
 function renderSparkline(team, metric) {
@@ -1209,11 +1423,11 @@ function renderAnalysis() {
   const ranked =
     selection.type === "sortEquation"
       ? rankTeamsByEquation(selection.equation).map((number) => teamByNumber(number)).filter(Boolean)
-      : [...teams].sort((a, b) => b[selection.metric.id] - a[selection.metric.id]);
+      : [...currentTeams()].sort((a, b) => teamMetricValue(b, selection.metric) - teamMetricValue(a, selection.metric));
   const scoreForTeam =
     selection.type === "sortEquation"
       ? (team) => scoreTeamByEquation(team, selection.equation)
-      : (team) => Number(team[selection.metric.id] || 0);
+      : (team) => teamMetricValue(team, selection.metric);
   const allScores = ranked.map((team) => scoreForTeam(team));
   const scoreRange = {
     min: Math.min(...allScores),
@@ -1234,7 +1448,7 @@ function renderAnalysis() {
         Metric
         <select id="metricSelect">
           <optgroup label="Metrics">
-            ${metrics.map((item) => `<option value="${item.id}" ${item.id === state.metric ? "selected" : ""}>${item.label}</option>`).join("")}
+            ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === state.metric ? "selected" : ""}>${item.label}</option>`).join("")}
           </optgroup>
           <optgroup label="Sort Equations">
             ${analysisSortEquations().map((item) => `<option value="sort:${item.id}" ${state.metric === `sort:${item.id}` ? "selected" : ""}>${item.name}</option>`).join("")}
@@ -1274,8 +1488,9 @@ function renderBoxPlotLegend() {
 }
 
 function distributionForMetric(team, metricId) {
-  if (metricId === "scouterTotal") {
-    const values = team.matches;
+  const metric = metricById(metricId);
+  const values = metricTrendValues(team, metric);
+  if (values.length > 1) {
     return {
       min: Math.min(...values),
       q1: quantile(values, 0.25),
@@ -1285,8 +1500,8 @@ function distributionForMetric(team, metricId) {
       mean: average(values),
     };
   }
-  const center = team[metricId];
-  const spread = metricId === "consistency" ? 5 : 3;
+  const center = teamMetricValue(team, metric);
+  const spread = metric.unit === "%" ? 5 : 3;
   return {
     min: center - spread,
     q1: center - spread * 0.45,
@@ -1333,7 +1548,7 @@ function renderChartRow(team, selection, dist, globalMin, globalMax, eventAverag
   return `
     <div class="chart-row">
       <div class="chart-team">
-        <span class="chart-badges">${renderTeamBadges(team)}</span>
+        <span class="chart-badges">${renderTeamBadges(team, selection.type === "sortEquation" ? equationConfidenceModel(team, selection.equation) : metricConfidenceModel(team, selection.metric))}</span>
         <button class="chart-name" data-team-link="${team.number}">${team.number}</button>
       </div>
       <div class="plot" title="${escapeAttribute(plotTitle)}">
@@ -1356,7 +1571,7 @@ function renderSchedule() {
       </div>
     </div>
     <div class="grid">
-      ${matches
+      ${currentMatches()
         .map(
           (match) => `
         <article class="match-row" data-match-row="${match.number}" title="Open Q${match.number} matchup">
@@ -1372,7 +1587,7 @@ function renderSchedule() {
 }
 
 function renderMatchup() {
-  const match = matches.find((item) => item.number === state.selectedMatch) || matches[0];
+  const match = currentMatches().find((item) => item.number === state.selectedMatch) || currentMatches()[0];
   return `
     <div class="section-heading">
       <div>
@@ -1388,6 +1603,7 @@ function renderMatchup() {
 }
 
 function renderMatchNavigator(match, includeBack) {
+  const matches = currentMatches();
   const matchIndex = matches.findIndex((item) => item.number === match.number);
   const prevMatch = matches[matchIndex - 1];
   const nextMatch = matches[matchIndex + 1];
@@ -1402,6 +1618,9 @@ function renderMatchNavigator(match, includeBack) {
 }
 
 function renderAllianceCard(title, teamNumbers) {
+  const epaMetric = metricById("source:epa:total");
+  const consistencyMetric = metricById("derived:consistency");
+  const confidenceMetric = metricById("source:scouter:total");
   return `
     <article class="card">
       <h2>${title}</h2>
@@ -1414,8 +1633,8 @@ function renderAllianceCard(title, teamNumbers) {
                 <span class="avatar">${team.number}</span>
                 <span class="team-meta">
                   <strong>${team.name}</strong>
-                  <span class="muted">${team.epa.toFixed(1)} EPA / ${team.consistency}% consistency</span>
-                  ${renderTeamBadges(team)}
+                  <span class="muted">${teamMetricValue(team, epaMetric).toFixed(1)} EPA / ${teamMetricValue(team, consistencyMetric)}% consistency</span>
+                  ${renderTeamBadges(team, metricConfidenceModel(team, confidenceMetric))}
                 </span>
               </button>
             `;
@@ -1427,9 +1646,31 @@ function renderAllianceCard(title, teamNumbers) {
 }
 
 function renderQuality() {
-  const flagged = teams.filter((team) => team.flags.some((flag) => ["data_suspect", "broken", "declining", "inconsistent"].includes(flag.type)));
+  const flagged = currentTeams().filter((team) => team.flags.some((flag) => ["data_suspect", "broken", "declining", "inconsistent"].includes(flag.type)));
+  const groups = flaggedSubmissionGroups();
   return `
     <div class="grid">
+      ${
+        isAdmin()
+          ? `
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <h2>Submission Review</h2>
+              <p class="muted">Review duplicate and flagged scouting rows, then keep, exclude, or clear them manually.</p>
+            </div>
+          </div>
+          <div class="review-group-list">
+            ${
+              groups.length
+                ? groups.map(renderSubmissionGroup).join("")
+                : `<div class="empty-state">No flagged or duplicate scouting submissions need review right now.</div>`
+            }
+          </div>
+        </article>
+      `
+          : ""
+      }
       ${flagged
         .map(
           (team) => `
@@ -1484,6 +1725,7 @@ function renderSortBuilder() {
                 maxScore,
                 showScore: true,
                 showName: true,
+                confidence: equationConfidenceModel(team, equation),
               });
             })
             .join("")}
@@ -1493,7 +1735,7 @@ function renderSortBuilder() {
         <div class="section-heading">
           <div>
             <h2>${equation.name}</h2>
-            <p class="muted">${isProtectedSortEquation(equation) ? "Source: EPA" : "Edits update the ranked preview immediately."}</p>
+            <p class="muted">${isProtectedSortEquation(equation) ? "Source: EPA" : "Choose weighted metrics and the ranked preview updates immediately."}</p>
           </div>
         </div>
         ${
@@ -1512,6 +1754,47 @@ function renderSortBuilder() {
         }
       </article>
     </div>
+  `;
+}
+
+function renderSubmissionGroup(group) {
+  const sample = group.submissions[0];
+  const reasons = uniqueValues(group.submissions.flatMap((submission) => submission.confidenceReasons || [])).map(confidenceReasonLabel);
+  return `
+    <section class="review-group">
+      <div class="section-heading">
+        <div>
+          <h3>Q${sample.matchNumber} | Team ${sample.teamNumber}</h3>
+          <p class="muted">${group.submissions.length} submission${group.submissions.length === 1 ? "" : "s"} | ${reasons.join(", ") || "Manual review"}</p>
+        </div>
+        ${
+          group.submissions.length > 1
+            ? `<button type="button" data-clear-duplicate-group="${group.key}">Clear Duplicate Flag</button>`
+            : ""
+        }
+      </div>
+      <div class="review-submission-list">
+        ${group.submissions
+          .map((submission) => {
+            const reasonText = (submission.confidenceReasons || []).map(confidenceReasonLabel).join(", ");
+            return `
+              <div class="review-submission-row">
+                <div class="review-submission-meta">
+                  <strong>${submission.scoutUser || "Unknown scout"} | ${submission.alliance || "?"}${submission.station || ""}</strong>
+                  <span class="muted">Status: ${submission.validity} | Confidence: ${submission.confidenceTier}${reasonText ? ` | ${escapeHtml(reasonText)}` : ""}</span>
+                  <span class="muted">${escapeHtml(submission.notes || "No notes provided.")}</span>
+                </div>
+                <div class="admin-actions">
+                  <button type="button" data-review-keep="${submission.id}">Keep</button>
+                  <button type="button" data-review-exclude="${submission.id}">Exclude</button>
+                  <button type="button" data-review-reset="${submission.id}">Reset</button>
+                </div>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+    </section>
   `;
 }
 
@@ -1566,7 +1849,7 @@ function renderPicklistBuilder() {
           <label class="team-trend-metric">
             <span class="muted">Metric</span>
             <select id="picklistCompareMetricSelect" aria-label="Picklist comparison metric">
-              ${metrics.map((item) => `<option value="${item.id}" ${item.id === comparisonMetric.id ? "selected" : ""}>${item.label}</option>`).join("")}
+              ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric.id ? "selected" : ""}>${item.label}</option>`).join("")}
             </select>
           </label>
         </div>
@@ -1643,7 +1926,7 @@ function renderPicklistCompareChart(selectedTeams, metric) {
 }
 
 function renderCriteriaTerm(term, index, count) {
-  const source = criteriaSources.find((item) => item.id === term.source) || criteriaSources[0];
+  const metric = metricById(metricIdFromLegacyTerm(term));
   return `
     <div class="criteria-term">
       ${index === 0 ? `<span class="operator-spacer"></span>` : `
@@ -1658,15 +1941,9 @@ function renderCriteriaTerm(term, index, count) {
         <input class="term-weight" data-term-index="${index}" type="number" min="-99" max="99" step="0.1" value="${Number(term.weight).toFixed(1)}" />
       </label>
       <label>
-        Data source
-        <select class="term-source" data-term-index="${index}">
-          ${criteriaSources.map((item) => `<option value="${item.id}" ${item.id === term.source ? "selected" : ""}>${item.label}</option>`).join("")}
-        </select>
-      </label>
-      <label>
-        Component
-        <select class="term-component" data-term-index="${index}">
-          ${source.components.map((component) => `<option value="${component.id}" ${component.id === term.component ? "selected" : ""}>${component.label}</option>`).join("")}
+        Metric
+        <select class="term-metric" data-term-index="${index}">
+          ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === metric.id ? "selected" : ""}>${item.label}</option>`).join("")}
         </select>
       </label>
       ${index === count - 1 && count < 5 ? `<button class="icon-button add-term-button" id="addCriteriaTerm" title="Add component" aria-label="Add component">+</button>` : `<span class="operator-spacer"></span>`}
@@ -1707,6 +1984,7 @@ function renderTeamTile(team, index, options = {}) {
   const compareColor = options.compareIndex >= 0 ? compareTeamPalette[options.compareIndex] : "";
   const style = [`background: ${background}`];
   if (compareColor) style.push(`--compare-accent: ${compareColor}`);
+  const confidenceMarkup = options.confidence ? `<span class="tile-confidence">${renderConfidenceBadge(options.confidence)}</span>` : "";
   return `
     <button
       class="${classes.join(" ")}"
@@ -1719,6 +1997,7 @@ function renderTeamTile(team, index, options = {}) {
     >
       <strong class="tile-rank">${index + 1}</strong>
       <span class="tile-label">${options.showName === false ? team.number : `${team.number} ${team.name}`}</span>
+      ${confidenceMarkup}
       ${scoreMarkup}
     </button>
   `;
@@ -1736,6 +2015,7 @@ function renderBuilderTeamTile(team, index, options = {}) {
     reorderTeam: options.draggable,
     draggable: Boolean(options.draggable),
     dragData: options.draggable ? String(team.number) : "",
+    confidence: metricConfidenceModel(team, metricById("source:scouter:total")),
   });
 }
 
@@ -1774,7 +2054,7 @@ function gridColumnModel(entry) {
 
 function renderPicklistGridColumn(entry, index) {
   const column = gridColumnModel(entry);
-  const minHeight = `calc(${teams.length} * var(--picklist-tile-row-size))`;
+  const minHeight = `calc(${currentTeams().length} * var(--picklist-tile-row-size))`;
   return `
     <section class="grid-column ${column.type ? "" : "empty"}" ${column.type ? `data-grid-column="${index}"` : ""}>
       <label class="grid-column-select">
@@ -1805,12 +2085,14 @@ function renderPicklistGridColumn(entry, index) {
                         maxScore: column.maxScore,
                         compareIndex,
                         builderTeam: true,
+                        confidence: equationConfidenceModel(team, state.sortEquations.find((item) => item.id === column.id)),
                       })
                     : renderTeamTile(team, teamIndex, {
                         compact: true,
                         showName: false,
                         showScore: false,
                         compareIndex,
+                        confidence: metricConfidenceModel(team, metricById("source:scouter:total")),
                       });
                 })
                 .join("")
@@ -1857,6 +2139,7 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         draggable: !picked,
         dragData: picked ? "" : String(team.number),
         dataAttribute: options.navigation ? `data-team="${team.number}"` : "",
+        confidence: metricConfidenceModel(team, metricById("source:scouter:total")),
       })
     : renderTeamTile(team, index, {
         compact: true,
@@ -1869,6 +2152,7 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         draggable: !picked,
         dragData: picked ? "" : String(team.number),
         dataAttribute: options.navigation ? `data-team="${team.number}"` : "",
+        confidence: options.confidence || metricConfidenceModel(team, metricById("source:scouter:total")),
       });
   return content;
 }
@@ -1995,6 +2279,11 @@ function renderBoardContextMenu() {
 }
 
 function renderAdmin() {
+  const event = currentEvent();
+  const result = state.importResult;
+  const summary = result?.summary;
+  const issues = [...(result?.errors || []), ...(result?.warnings || [])];
+  const reviewGroups = flaggedSubmissionGroups();
   return `
     <div class="grid">
       <article class="card">
@@ -2006,7 +2295,7 @@ function renderAdmin() {
           <button>Refresh demo data</button>
         </div>
         <div class="data-source-list">
-          ${dataSources
+          ${currentDataSources()
             .map(
               (source) => `
             <div class="data-source-row">
@@ -2023,35 +2312,162 @@ function renderAdmin() {
         </div>
       </article>
       <div class="stat-grid">
-        <div class="stat"><span>Teams</span><strong>${teams.length}</strong></div>
-        <div class="stat"><span>Matches</span><strong>${matches.length}</strong></div>
-        <div class="stat"><span>Picklists</span><strong>${state.picklists.length}</strong></div>
-        <div class="stat"><span>Admin Users</span><strong>${adminUsers.length}</strong></div>
+        <div class="stat"><span>Imported Rows</span><strong>${state.scoutingSubmissions.length}</strong></div>
+        <div class="stat"><span>Imported Matches</span><strong>${importedMatchCount()}</strong></div>
+        <div class="stat"><span>Teams Covered</span><strong>${importedTeamCount()}</strong></div>
+        <div class="stat"><span>Activity Entries</span><strong>${state.activityLog.length}</strong></div>
       </div>
       <div class="grid cols-2">
         <article class="card">
-          <h2>Import Contract</h2>
-          <p class="muted">Scouting rows should include event, match, team, scout, raw scoring fields, defense indicators, robot status, and notes.</p>
-          <button>Import scouting data</button>
+          <div class="section-heading">
+            <div>
+              <h2>Scouting Import</h2>
+              <p class="muted">${event.season} imports use metadata + header mapping so future seasons can define new scoring breakdowns without hardcoding per-column assumptions.</p>
+            </div>
+            <div class="admin-actions">
+              <button type="button" data-load-sample="match-current-v2">Load Current Sample</button>
+              <button type="button" data-load-sample="match-legacy-v1">Load Legacy Sample</button>
+            </div>
+          </div>
+          <div class="admin-form-grid">
+            <label>
+              Template profile override
+              <select id="importProfileSelect">
+                ${importProfileOptions.map((option) => `<option value="${option.id}" ${option.id === state.importSelectedProfileId ? "selected" : ""}>${option.label}</option>`).join("")}
+              </select>
+            </label>
+            <label>
+              CSV payload
+              <textarea id="importCsvInput" class="admin-textarea" spellcheck="false" placeholder="Paste CSV with metadata block here.">${escapeHtml(state.importCsvText)}</textarea>
+            </label>
+            <div class="admin-actions">
+              <button type="button" id="dryRunImportButton" class="primary">Dry Run Import</button>
+              <button type="button" id="commitImportButton" ${summary ? "" : "disabled"}>Commit Import</button>
+              <button type="button" id="clearImportButton">Clear</button>
+            </div>
+          </div>
         </article>
         <article class="card">
-          <h2>External Sync</h2>
-          <p class="muted">TBA, Statbotics, and pRidge are modeled as refreshable sources for the eventual backend.</p>
-          <button>Refresh metrics</button>
+          <h2>Import Preview</h2>
+          ${
+            !result
+              ? `<p class="muted">Run a dry-run to validate metadata, detect a template profile, flag duplicates, and preview confidence impacts before anything is committed.</p>`
+              : `
+            <div class="preview-shell">
+              <div class="flag-list">
+                <span class="flag ${result.ok ? "good" : "danger"}">${result.ok ? "Preview Ready" : "Preview Blocked"}</span>
+                ${summary ? `<span class="flag">${summary.profileLabel}</span>` : ""}
+                ${summary ? `<span class="flag">Schema ${summary.schemaVersion}</span>` : ""}
+              </div>
+              ${
+                summary
+                  ? `
+                <div class="preview-stat-grid">
+                  <div class="stat"><span>Rows</span><strong>${summary.rowCount}</strong></div>
+                  <div class="stat"><span>Flagged</span><strong>${summary.flaggedRows}</strong></div>
+                  <div class="stat"><span>Excluded</span><strong>${summary.excludedRows}</strong></div>
+                  <div class="stat"><span>Duplicates</span><strong>${summary.duplicateGroups}</strong></div>
+                </div>
+                <p class="muted">Target: ${summary.metadata.eventKey} | Confidence impacted teams: ${summary.confidenceImpactTeams}</p>
+              `
+                  : ""
+              }
+              ${
+                issues.length
+                  ? `
+                <div class="issue-list">
+                  ${issues
+                    .map((issue, index) => `<div class="issue-row ${index < (result.errors || []).length ? "danger" : "warn"}">${escapeHtml(issue)}</div>`)
+                    .join("")}
+                </div>
+              `
+                  : `<p class="muted">No validation issues found.</p>`
+              }
+              ${
+                result.canSwitchContext && result.suggestedEventKey
+                  ? `<button type="button" id="switchImportContextButton">Switch to ${result.suggestedEventKey} and re-run</button>`
+                  : ""
+              }
+              ${
+                summary?.submissions?.length
+                  ? `
+                <div class="issue-list">
+                  ${summary.submissions
+                    .slice(0, 6)
+                    .map((submission) => {
+                      const reasons = submission.confidenceReasons.map(confidenceReasonLabel).join(", ");
+                      return `<div class="issue-row">
+                        <strong>Q${submission.matchNumber} / Team ${submission.teamNumber}</strong>
+                        <span class="muted">${submission.validity} | ${submission.confidenceTier}${reasons ? ` | ${escapeHtml(reasons)}` : ""}</span>
+                      </div>`;
+                    })
+                    .join("")}
+                </div>
+              `
+                  : ""
+              }
+            </div>
+          `
+          }
         </article>
       </div>
+      <article class="card">
+        <div class="section-heading">
+          <div>
+            <h2>Activity Log</h2>
+            <p class="muted">System-generated event activity stays scoped to the active event and lets admins clear issues manually later.</p>
+          </div>
+        </div>
+        <div class="activity-log">
+          ${
+            state.activityLog.length
+              ? state.activityLog
+                  .map(
+                    (entry) => `
+                <div class="activity-row">
+                  <strong>${formatTimestamp(entry.timestamp)}</strong>
+                  <span>${escapeHtml(entry.message)}</span>
+                </div>
+              `,
+                  )
+                  .join("")
+              : `<div class="empty-state">No activity has been recorded for ${event.name} yet.</div>`
+          }
+        </div>
+      </article>
+      <article class="card">
+        <div class="section-heading">
+          <div>
+            <h2>Duplicate Review</h2>
+            <p class="muted">Flagged scouting rows stay in the system until an admin keeps, excludes, resets, or clears them.</p>
+          </div>
+          <div class="flag-list">
+            <span class="flag ${reviewGroups.length ? "warn" : "good"}">${reviewGroups.length} group${reviewGroups.length === 1 ? "" : "s"} pending</span>
+          </div>
+        </div>
+        <div class="review-group-list">
+          ${
+            reviewGroups.length
+              ? reviewGroups.map(renderSubmissionGroup).join("")
+              : `<div class="empty-state">No duplicate or flagged submissions are waiting for admin action.</div>`
+          }
+        </div>
+      </article>
     </div>
   `;
 }
 
-function renderFlags(flags) {
-  if (!flags.length) return "";
-  return `<span class="flag-list">${flags.map((flag) => `<span class="flag ${flag.severity}">${flag.label}</span>`).join("")}</span>`;
+function renderFlags(flags, confidence = null) {
+  const items = [];
+  if (confidence) items.push(renderConfidenceBadge(confidence));
+  items.push(...flags.map((flag) => `<span class="flag ${flag.severity}" title="${escapeAttribute(flag.evidence || flag.label)}">${flag.label}</span>`));
+  if (!items.length) return "";
+  return `<span class="flag-list">${items.join("")}</span>`;
 }
 
-function renderTeamBadges(team) {
+function renderTeamBadges(team, confidence = null) {
   const drivetrainFlags = team.drivetrain === "swerve" ? [] : [{ label: "Non-Swerve", severity: "danger" }];
-  return renderFlags([...drivetrainFlags, ...team.flags]);
+  return renderFlags([...drivetrainFlags, ...team.flags], confidence);
 }
 
 function placeTeamOnBoard(teamNumber, cellIndex) {
@@ -2488,10 +2904,10 @@ function bindViewEvents() {
     const equation = activeSortEquation();
     if (isProtectedSortEquation(equation)) return;
     if (equation.terms.length >= 5) return;
-    const terms = normalizeCriteriaTerms([...equation.terms, { operator: "+", weight: 1, source: "epa", component: "total" }]);
+    const terms = normalizeCriteriaTerms([...equation.terms, { operator: "+", weight: 1, metricId: currentEvent().defaultMetricId }]);
     updateSortEquation(equation.id, (current) => ({ ...current, terms }));
   });
-  document.querySelectorAll(".term-weight, .term-operator, .term-source, .term-component").forEach((control) => {
+  document.querySelectorAll(".term-weight, .term-operator, .term-metric").forEach((control) => {
     const updateTerm = () => {
       const equation = activeSortEquation();
       if (isProtectedSortEquation(equation)) return;
@@ -2505,11 +2921,7 @@ function bindViewEvents() {
         if (index !== termIndex) return term;
         if (control.classList.contains("term-weight")) return { ...term, weight: Number(control.value) || 0 };
         if (control.classList.contains("term-operator")) return { ...term, operator: control.value };
-        if (control.classList.contains("term-source")) {
-          const source = criteriaSources.find((item) => item.id === control.value) || criteriaSources[0];
-          return { ...term, source: source.id, component: source.components[0].id };
-        }
-        return { ...term, component: control.value };
+        return { ...term, metricId: control.value };
       });
       updateSortEquation(equation.id, (current) => ({ ...current, terms }));
     };
@@ -2591,6 +3003,56 @@ function bindViewEvents() {
       if (!draggedTeam || draggedTeam === targetTeam) return;
       const picklist = activePicklist();
       updatePicklist(picklist.id, (current) => ({ ...current, teams: moveItemBefore(current.teams, draggedTeam, targetTeam) }));
+    });
+  });
+  document.querySelector("#importProfileSelect")?.addEventListener("change", (event) => {
+    state.importSelectedProfileId = event.target.value;
+    if (state.importResult) runImportPreview();
+  });
+  document.querySelector("#importCsvInput")?.addEventListener("input", (event) => {
+    state.importCsvText = event.target.value;
+  });
+  document.querySelector("#dryRunImportButton")?.addEventListener("click", () => {
+    runImportPreview();
+  });
+  document.querySelector("#commitImportButton")?.addEventListener("click", () => {
+    commitImportPreview();
+  });
+  document.querySelector("#clearImportButton")?.addEventListener("click", () => {
+    state.importCsvText = "";
+    state.importSelectedProfileId = "";
+    state.importResult = null;
+    render();
+  });
+  document.querySelectorAll("[data-load-sample]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.importSelectedProfileId = button.dataset.loadSample;
+      state.importCsvText = buildSampleCsv(currentEvent(), button.dataset.loadSample);
+      state.importResult = null;
+      render();
+    });
+  });
+  document.querySelector("#switchImportContextButton")?.addEventListener("click", () => {
+    switchImportContext(state.importResult?.suggestedEventKey);
+  });
+  document.querySelectorAll("[data-review-keep]").forEach((button) => {
+    button.addEventListener("click", () => {
+      keepSubmission(button.dataset.reviewKeep);
+    });
+  });
+  document.querySelectorAll("[data-review-exclude]").forEach((button) => {
+    button.addEventListener("click", () => {
+      excludeSubmission(button.dataset.reviewExclude);
+    });
+  });
+  document.querySelectorAll("[data-review-reset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      resetSubmissionReview(button.dataset.reviewReset);
+    });
+  });
+  document.querySelectorAll("[data-clear-duplicate-group]").forEach((button) => {
+    button.addEventListener("click", () => {
+      clearDuplicateGroup(button.dataset.clearDuplicateGroup);
     });
   });
   document.onkeydown = handleBuilderKeyboard;
