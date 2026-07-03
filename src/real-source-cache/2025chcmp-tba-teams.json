@@ -1,0 +1,506 @@
+[
+  {
+    "city": "Henrico",
+    "country": "USA",
+    "key": "frc10224",
+    "name": "NASA/Gene Haas/Hack Club/Autoolmaq/John Thrower&Douglas S. Freeman High",
+    "nickname": "MAV MECHANICS (NASA)",
+    "state_prov": "Virginia",
+    "team_number": 10224
+  },
+  {
+    "city": "Glen Allen",
+    "country": "USA",
+    "key": "frc1086",
+    "name": "Powertrain Control Solutions / Midas of Richmond / Watson Machine Corp / Showbest Fixture Corp & Deep Run High School",
+    "nickname": "Blue Cheese",
+    "state_prov": "Virginia",
+    "team_number": 1086
+  },
+  {
+    "city": "Edgewater",
+    "country": "USA",
+    "key": "frc1111",
+    "name": "NASA/Anne Arundel County Public Schools/Cornfed George Enterprises, LLC/Gene Haas Foundation/Maryland Space Business Round Table/Custom Software Systems&South River Senior High School",
+    "nickname": "Power Hawks Robotics",
+    "state_prov": "Maryland",
+    "team_number": 1111
+  },
+  {
+    "city": "Herndon",
+    "country": "USA",
+    "key": "frc116",
+    "name": "NASA Headquarters&Herndon High School",
+    "nickname": "Epsilon Delta",
+    "state_prov": "Virginia",
+    "team_number": 116
+  },
+  {
+    "city": "Hampton",
+    "country": "USA",
+    "key": "frc122",
+    "name": "NASA Langley Research Center/Naval Information Warfare Center (NIWC) - Atlantic - DoD STEM&New Horizons Regional Education Center",
+    "nickname": "NASA Knights",
+    "state_prov": "Virginia",
+    "team_number": 122
+  },
+  {
+    "city": "Falls Church",
+    "country": "USA",
+    "key": "frc1418",
+    "name": "HITT Contracting/Next Steps Consulting/Clark Construction/City of Falls Church Public Schools/The Families of TEAM 1418/acg Architects/Gene Haas Foundation&Meridian High School",
+    "nickname": "Vae Victis",
+    "state_prov": "Virginia",
+    "team_number": 1418
+  },
+  {
+    "city": "Accident",
+    "country": "USA",
+    "key": "frc1629",
+    "name": "Garrett County Public Schools / Pillar Innovations / Beitzel Corporation / Wilson Supply & Northern Garrett High School & Southern Garrett High School",
+    "nickname": "Garrett Coalition (GaCo)",
+    "state_prov": "Maryland",
+    "team_number": 1629
+  },
+  {
+    "city": "Lutherville Timonium",
+    "country": "USA",
+    "key": "frc1727",
+    "name": "Nasa/Boeing/Haas Automation/Maryland Space Business Roundtable/Supertech HVAC/Bolt Depot/Lockheed Martin/Rose Manufacturing/Sim Capital Area/Eggspectation/Dulaney High School PTSA&Dulaney High School",
+    "nickname": "REX",
+    "state_prov": "Maryland",
+    "team_number": 1727
+  },
+  {
+    "city": "Warrenton",
+    "country": "USA",
+    "key": "frc1731",
+    "name": "Riverside Research/Altamira Corp/Waltz Family/Shaw Family/TE Connectivity/Bush Foundation/DeWayne Leppke/GH Engineering/Mathnasium - Warrenton/Carmen Rivera State Farm Agency/Platinum Technologies&Family/Community",
+    "nickname": "Fresta Valley Robotics Club",
+    "state_prov": "Virginia",
+    "team_number": 1731
+  },
+  {
+    "city": "Haymarket",
+    "country": "USA",
+    "key": "frc1885",
+    "name": "Prince William County Public Schools/Battlefield Robotics Booster Club/TechStellar/Lockheed Martin/SAIC&Battlefield High School",
+    "nickname": "Comet Robotics",
+    "state_prov": "Virginia",
+    "team_number": 1885
+  },
+  {
+    "city": "Manassas",
+    "country": "USA",
+    "key": "frc1895",
+    "name": "Manassas City Public Schools/Aurora Flight Sciences: A Boeing Company/Gene Haas Foundation/ThunderCat Technology/Micron/Dominion Power&Osbourn High School",
+    "nickname": "Lambda Corps",
+    "state_prov": "Virginia",
+    "team_number": 1895
+  },
+  {
+    "city": "Eastville",
+    "country": "USA",
+    "key": "frc1908",
+    "name": "NASA Wallops Flight Facility/Northampton County Public Schools/Rommel's ACE Hardware/Gene Haas Foundation/Eastern Shore Signs, LLC&Northampton High School",
+    "nickname": "ShoreBots",
+    "state_prov": "Virginia",
+    "team_number": 1908
+  },
+  {
+    "city": "Washington",
+    "country": "USA",
+    "key": "frc1915",
+    "name": "RTX/DC Public Schools/Bezos Family Foundation/Morgan Stanley/Serve Robotics/Waymo/OnlineMetals&Mckinley Tech High School",
+    "nickname": "Firebird Robotics",
+    "state_prov": "District of Columbia",
+    "team_number": 1915
+  },
+  {
+    "city": "Goochland",
+    "country": "USA",
+    "key": "frc2106",
+    "name": "Luck Stone/GroundForceIT/Goochland Rotary Club&Goochland High School",
+    "nickname": "The Junkyard Dogs",
+    "state_prov": "Virginia",
+    "team_number": 2106
+  },
+  {
+    "city": "Chantilly",
+    "country": "USA",
+    "key": "frc2186",
+    "name": "Leidos/Boeing/BAE Systems/Lockheed-Martin/ICF/The Monachello Family/Kenny Raisbeck/Thomas and Linda Ligon&Westfield High School",
+    "nickname": "Dogs of Steel",
+    "state_prov": "Virginia",
+    "team_number": 2186
+  },
+  {
+    "city": "Finksburg",
+    "country": "USA",
+    "key": "frc2199",
+    "name": "The Kahlert Foundation/Maryland State Department of Education/Pratt and Whitney/Gene Haas Foundation/REV Robotics&Family/Community",
+    "nickname": "Robo-Lions",
+    "state_prov": "Maryland",
+    "team_number": 2199
+  },
+  {
+    "city": "Newport News",
+    "country": "USA",
+    "key": "frc2363",
+    "name": "NASA Langley Research Center/DoD STEM/Naval Information Warfare Center Atlantic/The Boeing Company/Lockheed Martin/Community Knights/TE Connectivity/REV Robotics & Intentional Innovation Foundation & Intentional Innovation Foundation",
+    "nickname": "Triple Helix Robotics",
+    "state_prov": "Virginia",
+    "team_number": 2363
+  },
+  {
+    "city": "Baltimore ",
+    "country": "USA",
+    "key": "frc2534",
+    "name": "Boys' Latin Sch of Maryland",
+    "nickname": "Lumberjack Robotics",
+    "state_prov": "Maryland",
+    "team_number": 2534
+  },
+  {
+    "city": "Chesapeake",
+    "country": "USA",
+    "key": "frc2890",
+    "name": "DoD STEM/Naval Information Warfare Center (NIWC) Atlantic/Inside Out Plumbing/Bob & Carolyn Blake/Lloyd + Glagola Family/Lockheed Martin/AERMOR LLC/Sheil Family/Tidewater Community College/Landis Services PLLC/Virginia Asset Group, Inc/KC Tax Group/TM Auto Wholesales/Stellon Family/Cure Coffee/Norva Plastics/Tidewater Woodworkers Guild/The Local PRINT Shoppe/McCorkill Family/Cormier Family/Pardus Family/Nienaber Family/Hickory HS Robotics Foundation, Inc&Hickory High School",
+    "nickname": "The Hawk Collective",
+    "state_prov": "Virginia",
+    "team_number": 2890
+  },
+  {
+    "city": "Ashland",
+    "country": "USA",
+    "key": "frc3136",
+    "name": "Rosemont Industries/Tract Capital/Curbell Plastic/Anton Paar/Hanover County Public Schools/Trio Fasteners&Patrick Henry High School",
+    "nickname": "O.R.C.A.",
+    "state_prov": "Virginia",
+    "team_number": 3136
+  },
+  {
+    "city": "Portsmouth",
+    "country": "USA",
+    "key": "frc3359",
+    "name": "Portsmouth Public Schools/STARBASE Victory Inc./Elizabeth River Crossing/Visions of Truth Community Development Corporation/Booz Allen Hamilton&Churchland High School&I C Norcom High School&Woodrow Wilson High School",
+    "nickname": "Royal Robotics",
+    "state_prov": "Virginia",
+    "team_number": 3359
+  },
+  {
+    "city": "Warrenton",
+    "country": "USA",
+    "key": "frc3373",
+    "name": "Highland School/Ledo Pizza/Booz Allen Hamilton/Lindsay Buick GMC/Country Chevrolet/Fosters Grille&Highland School",
+    "nickname": "Team RoboHawk",
+    "state_prov": "Virginia",
+    "team_number": 3373
+  },
+  {
+    "city": "Stafford",
+    "country": "USA",
+    "key": "frc339",
+    "name": "Amazon & The Community Foundation of the Rappahannock River Region/Lockheed Martin/BAE Systems/Family & Friends of Kilroy Robotics/Safford Kia of Fredericksburg/Stafford County Public Schools&North Stafford High",
+    "nickname": "Kilroy Robotics",
+    "state_prov": "Virginia",
+    "team_number": 339
+  },
+  {
+    "city": "Richmond",
+    "country": "USA",
+    "key": "frc346",
+    "name": "Scott & Michelle Haymans/Dominion Energy/Blueprint Automation/Ryson International/Dupont/The Boffemmyer Family/D&D Mechanical/Chesterfield Power Station/SW Funk Industries/BFPE International/Jewett Automation/HTT ISOMEMBRANE Team/James River Stucco/Owens Family/Richard Lutge/Governor's Academy for Engineering Students at L.C. Bird High School/L.C. Bird High School&Lloyd C Bird High School",
+    "nickname": "RoboHawks",
+    "state_prov": "Virginia",
+    "team_number": 346
+  },
+  {
+    "city": "Ellicott City",
+    "country": "USA",
+    "key": "frc3748",
+    "name": "Motorola Solutions Foundation/Viking Backers/Gene Haas Foundation/Raytheon Technologies&Mt Hebron High School",
+    "nickname": "Ragnarok Robotics",
+    "state_prov": "Maryland",
+    "team_number": 3748
+  },
+  {
+    "city": "Frederick",
+    "country": "USA",
+    "key": "frc3793",
+    "name": "Maryland State Department of Education/Laser Podiatry/Frederick County Public Schools&Tuscarora High School",
+    "nickname": "CyberTitans",
+    "state_prov": "Maryland",
+    "team_number": 3793
+  },
+  {
+    "city": "Blacksburg",
+    "country": "USA",
+    "key": "frc401",
+    "name": "Montgomery County Public Schools/REV Robotics/Gene Haas Foundation/RTX/Corning/TORC Robotics/Blacksburg Eye Associates/American Electric Power/BAE Systems/AUVSI/Intuitive Foundation/PTC&Blacksburg High School",
+    "nickname": "Copperhead Robotics",
+    "state_prov": "Virginia",
+    "team_number": 401
+  },
+  {
+    "city": "Petersburg",
+    "country": "USA",
+    "key": "frc404",
+    "name": "Appomattox Reg Gov School",
+    "nickname": "\u2692\ufe0f   404 ART Not Found  \u2692\ufe0f",
+    "state_prov": "Virginia",
+    "team_number": 404
+  },
+  {
+    "city": "Richmond",
+    "country": "USA",
+    "key": "frc422",
+    "name": "Cobotiq/Afton Chemical-New Market/Ryan Kaplan/Showbest/DuPont/Gene Haas Foundation/Purnima Amin Physics and Design Center/The Intuitive Foundation/The Herndon Foundation/Beacon Forensic/PTC/Tredegar Corporation/PTC&Maggie L Walker Governor's Sch",
+    "nickname": "The Mech Tech Dragons",
+    "state_prov": "Virginia",
+    "team_number": 422
+  },
+  {
+    "city": "Silver Spring",
+    "country": "USA",
+    "key": "frc449",
+    "name": "Blue HALO/MBHS Magnet Foundation/Boeing/Maryland Space Business Roundtable/DoD STEM/BAE System/Basecamp/Lockheed Martin/NVIDIA/Gene Haas&Montgomery Blair High School",
+    "nickname": "The Blair Robot Project",
+    "state_prov": "Maryland",
+    "team_number": 449
+  },
+  {
+    "city": "Owings Mills",
+    "country": "USA",
+    "key": "frc4505",
+    "name": "McDonogh School/Stanley Black and Decker & Mcdonogh School",
+    "nickname": "McDonogh Robotics",
+    "state_prov": "Maryland",
+    "team_number": 4505
+  },
+  {
+    "city": "Severn",
+    "country": "USA",
+    "key": "frc4541",
+    "name": "ClearEdge IT Solutions/Weather Gage Technologies/Ciena/AFCEA/The DeGrange Family&Archbishop Spalding High Sch",
+    "nickname": "CAVineers",
+    "state_prov": "Maryland",
+    "team_number": 4541
+  },
+  {
+    "city": "Germantown",
+    "country": "USA",
+    "key": "frc4638",
+    "name": "Dickinson Wright, PLLC/Gene Haas Foundation/Clopper Robotics Corp - Jagbots Family & Friends/Northwest High School PTSA/Boosters/Mentor (Emeritus) Mac&Northwest High School",
+    "nickname": "Jagbots",
+    "state_prov": "Maryland",
+    "team_number": 4638
+  },
+  {
+    "city": "Washington",
+    "country": "USA",
+    "key": "frc4821",
+    "name": "United Therapeutics/FIRST Chesapeake/ Capital One/Bezos Family Foundation/Google/Annie's ACE Hardware&District of Columbia International School",
+    "nickname": "CyberUs",
+    "state_prov": "District of Columbia",
+    "team_number": 4821
+  },
+  {
+    "city": "Silver Spring",
+    "country": "USA",
+    "key": "frc5115",
+    "name": "Montgomery County Public Schools&Wheaton High School",
+    "nickname": "Knight Riders",
+    "state_prov": "Maryland",
+    "team_number": 5115
+  },
+  {
+    "city": "Leesburg",
+    "country": "USA",
+    "key": "frc5338",
+    "name": "Toyon Research Corp/DoD STEM&Academies of Loudoun",
+    "nickname": "RoboLoCo",
+    "state_prov": "Virginia",
+    "team_number": 5338
+  },
+  {
+    "city": "Richmond",
+    "country": "USA",
+    "key": "frc539",
+    "name": "&Trinity Episcopal School",
+    "nickname": "Titan Robotics",
+    "state_prov": "Virginia",
+    "team_number": 539
+  },
+  {
+    "city": "Henrico",
+    "country": "USA",
+    "key": "frc540",
+    "name": "ShowBest Fixture Inc./Boeing/DuPont Spruance/Onshape by PTC/NASA&Mills Godwin High School",
+    "nickname": "TALON 540 Godwin Robotics",
+    "state_prov": "Virginia",
+    "team_number": 540
+  },
+  {
+    "city": "Richmond",
+    "country": "USA",
+    "key": "frc5804",
+    "name": "Collegiate School",
+    "nickname": "TORCH",
+    "state_prov": "Virginia",
+    "team_number": 5804
+  },
+  {
+    "city": "Mc Lean",
+    "country": "USA",
+    "key": "frc611",
+    "name": "Leidos / Booz Allen Hamilton / South49 Solutions & Langley High School",
+    "nickname": "Saxons",
+    "state_prov": "Virginia",
+    "team_number": 611
+  },
+  {
+    "city": "Alexandria",
+    "country": "USA",
+    "key": "frc614",
+    "name": "Targeted Approach/STR/Boeing/Raytheon/DoD STEM/Gene Haas Foundation&Hayfield Secondary School",
+    "nickname": "Night Hawks",
+    "state_prov": "Virginia",
+    "team_number": 614
+  },
+  {
+    "city": "Vienna",
+    "country": "USA",
+    "key": "frc620",
+    "name": "Datta Advocate/Trident Lightridge Solutions/Kajeet/Optimist Club of Greater Vienna/RPG/Sovereign Intelligence/Lockheed Martin & Madison High School",
+    "nickname": "Warbots",
+    "state_prov": "Virginia",
+    "team_number": 620
+  },
+  {
+    "city": "Lanham",
+    "country": "USA",
+    "key": "frc6213",
+    "name": "Maryland State Department of Education (MSDE)/MASER/Capitol Club AOC/Washington Academy of Sciences/Maryland Space Business Roundtable (MSBR)&Bowie High School&Duval High&Family/Community",
+    "nickname": "Team Quantum",
+    "state_prov": "Maryland",
+    "team_number": 6213
+  },
+  {
+    "city": "Baltimore",
+    "country": "USA",
+    "key": "frc6326",
+    "name": "Baltimore Innovation Center/Abell Foundation/Backbone Mechanical Design&Baltimore City College&Baltimore Poly Tech Inst 403&Perry Hall High&Towson High&Home School",
+    "nickname": "\u26a1 Baltimore Bolts \u26a1",
+    "state_prov": "Maryland",
+    "team_number": 6326
+  },
+  {
+    "city": "Cedar Bluff",
+    "country": "USA",
+    "key": "frc6802",
+    "name": "AEP/Southwest Virginia Community College&Honaker High School&Richlands High School&Tazewell High School&Southwest Virginia Community College Upward Bound",
+    "nickname": "Snot Otters",
+    "state_prov": "Virginia",
+    "team_number": 6802
+  },
+  {
+    "city": "Frederick",
+    "country": "USA",
+    "key": "frc686",
+    "name": "Mount St. Mary's University/Maryland State Department of Education/Mentor Mac/Leonardo DRS/Gene Haas Foundation/Delaplaine Foundation/Phoenix Mecano/INPRO Technologies/BAE Systems/Maryland Robotics Center and the Institute for Systems Research/Sheetz/Estridge Murtagh Coplen of Long & Foster Real Estate/FIRST Chesapeake&Brunswick High&Catoctin High School&Linganore High School&Walkersville High School&Oakdale High School&Family/Community",
+    "nickname": "Bovine Intervention",
+    "state_prov": "Maryland",
+    "team_number": 686
+  },
+  {
+    "city": "Woodbine",
+    "country": "USA",
+    "key": "frc6863",
+    "name": "DoD/NAVSEA/PIE3/NASA&Family/Community",
+    "nickname": "Squirrels",
+    "state_prov": "Maryland",
+    "team_number": 6863
+  },
+  {
+    "city": "Arlington",
+    "country": "USA",
+    "key": "frc8230",
+    "name": "Arlington Career Center/Boeing/Tria/Nakapuna/Capital Technology University&Arlington Career Center",
+    "nickname": "KoiBots",
+    "state_prov": "Virginia",
+    "team_number": 8230
+  },
+  {
+    "city": "Hollywood",
+    "country": "USA",
+    "key": "frc836",
+    "name": "Stachelczyk-Shemeta Team - Century 21 New Millennium /The Patuxent Partnership/BAE Systems/Northrop Gruman/DOD STEM/Naval Air Warfare Center Aircraft Division (NAWCAD)/growingSTEMS&Family/Community",
+    "nickname": "The RoboBees",
+    "state_prov": "Maryland",
+    "team_number": 836
+  },
+  {
+    "city": "Fairfax",
+    "country": "USA",
+    "key": "frc8590",
+    "name": "Colonial Pipeline/Synergy&Woodson High School",
+    "nickname": "Cavbotics",
+    "state_prov": "Virginia",
+    "team_number": 8590
+  },
+  {
+    "city": "Fairfax",
+    "country": "USA",
+    "key": "frc8592",
+    "name": "Axiologic Solutions/Gene Haas Foundation/Booz Allen Hamilton/Novelis & Ball/Onshape&Family/Community",
+    "nickname": "Newton Squared",
+    "state_prov": "Virginia",
+    "team_number": 8592
+  },
+  {
+    "city": "Gambrills",
+    "country": "USA",
+    "key": "frc8622",
+    "name": "Crofton High School",
+    "nickname": "The CyBirds",
+    "state_prov": "Maryland",
+    "team_number": 8622
+  },
+  {
+    "city": "Ijamsville",
+    "country": "USA",
+    "key": "frc8726",
+    "name": "Astra Zeneca&Urbana High School",
+    "nickname": "CryptoHawks",
+    "state_prov": "Maryland",
+    "team_number": 8726
+  },
+  {
+    "city": "Glenelg",
+    "country": "USA",
+    "key": "frc888",
+    "name": "NASA Goddard/Maryland State Dept of Education(MSDE)/Maryland Space Business Roundtable(MSBR)/Gene Haas Foundation/Intuitive Foundation/BAE Systems /J. David Mullinix and Sons/Leidos&Glenelg High School",
+    "nickname": "Robotiators",
+    "state_prov": "Maryland",
+    "team_number": 888
+  },
+  {
+    "city": "Hanover",
+    "country": "USA",
+    "key": "frc9072",
+    "name": "Chesapeake Lighthouse Foundation/NASA Goddard/Capital Technology University/MissionEdge Technologies/Boeing/BAE Systems/Clarity/Clarity Cyber/Anne Arundel County Public Schools/Chesapeake Science Point/Wegmans/Jersey Mikes&Chesapeake Science Point PCS",
+    "nickname": "TigerBots",
+    "state_prov": "Maryland",
+    "team_number": 9072
+  },
+  {
+    "city": "South Boston",
+    "country": "USA",
+    "key": "frc977",
+    "name": "Hitachi Energy South Boston /Bo's Hydraulics Rental and Sales South Boston  &Halifax Co High School",
+    "nickname": "Cometbots",
+    "state_prov": "Virginia",
+    "team_number": 977
+  }
+]

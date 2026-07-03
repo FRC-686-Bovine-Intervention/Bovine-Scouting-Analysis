@@ -1,0 +1,191 @@
+import { chromium } from "playwright";
+
+const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
+
+function text(node) {
+  return node ? node.trim().replace(/\s+/g, " ") : "";
+}
+
+async function waitForBody(page) {
+  await page.waitForLoadState("load");
+  await page.waitForTimeout(1000);
+}
+
+async function login(page) {
+  await page.selectOption("#existingUser", "Avery");
+  await page.click("#loginButton");
+  await page.waitForSelector('[data-view="teams"]');
+}
+
+async function openAdmin(page) {
+  await page.click('[data-view="admin"]');
+  await page.waitForSelector("#adminEventSelect");
+}
+
+async function switchEvent(page, eventKey) {
+  await page.selectOption("#adminEventSelect", eventKey);
+  await page.click("#switchAdminEventButton");
+  await page.waitForTimeout(750);
+}
+
+async function importCurrentSheet(page) {
+  const loadButton = page.locator("#loadSheetSampleInlineButton");
+  await loadButton.waitFor({ state: "visible" });
+  await loadButton.click();
+  await page.waitForTimeout(1200);
+  const previewFlags = await page.locator(".preview-shell .flag").allTextContents();
+  const commitEnabled = await page.locator("#commitImportButton").isEnabled();
+  return { previewFlags, commitEnabled };
+}
+
+async function commitImport(page) {
+  const commitButton = page.locator("#commitImportButton");
+  if (await commitButton.isEnabled()) {
+    await commitButton.click();
+    await page.waitForTimeout(1200);
+  }
+}
+
+async function storageSnapshot(page) {
+  return page.evaluate(() => {
+    const eventKey = localStorage.getItem("frc-scouting-active-event");
+    const submissionsKey = `frc-scouting-submissions:${eventKey}`;
+    const raw = localStorage.getItem(submissionsKey);
+    const submissions = raw ? JSON.parse(raw) : [];
+    return {
+      eventKey,
+      submissionsKey,
+      rowCount: submissions.length,
+      eventKeys: [...new Set(submissions.map((row) => row.eventKey).filter(Boolean))],
+      sample: submissions.slice(0, 3).map((row) => ({
+        teamNumber: row.teamNumber,
+        matchNumber: row.matchNumber,
+        eventKey: row.eventKey,
+        rawMetricKeys: Object.keys(row.rawMetrics || {}),
+        rawMetrics: row.rawMetrics,
+      })),
+    };
+  });
+}
+
+async function simulateLegacyOnlyStorage(page) {
+  return page.evaluate(() => {
+    const eventKey = localStorage.getItem("frc-scouting-active-event");
+    const scopedKey = `frc-scouting-submissions:${eventKey}`;
+    const scopedValue = localStorage.getItem(scopedKey);
+    localStorage.setItem("frc-scouting-submissions", scopedValue || "[]");
+    localStorage.removeItem(scopedKey);
+    return { eventKey, scopedKey, copied: Boolean(scopedValue) };
+  });
+}
+
+async function captureTeamDetail(page, teamNumber) {
+  await page.click('[data-view="teams"]');
+  await page.waitForSelector(".team-card");
+  await page.locator(`[data-team="${teamNumber}"]`).first().click();
+  await page.waitForSelector("#teamSelect");
+  const title = text(await page.locator(".card h2").first().textContent());
+  const stats = await page.locator(".stat-grid .stat").allTextContents();
+  const backLabel = text(await page.locator('[data-history-back]').first().textContent());
+  return { title, stats: stats.map(text), backLabel };
+}
+
+async function captureFirstTeamDetail(page) {
+  await page.click('[data-view="teams"]');
+  await page.waitForSelector(".team-card");
+  const firstTeamNumber = await page.locator(".team-card").first().getAttribute("data-team");
+  await page.locator(".team-card").first().click();
+  await page.waitForSelector("#teamSelect");
+  const title = text(await page.locator(".card h2").first().textContent());
+  const stats = await page.locator(".stat-grid .stat").allTextContents();
+  return { teamNumber: Number(firstTeamNumber), title, stats: stats.map(text) };
+}
+
+async function verifyBack(page) {
+  await page.click('[data-history-back]');
+  await page.waitForTimeout(500);
+  return text(await page.locator(".team-title-row h2").textContent());
+}
+
+async function captureAnalysis(page) {
+  await page.click('[data-view="analysis"]');
+  await page.waitForTimeout(700);
+  return {
+    heading: text(await page.locator(".toolbar label").first().textContent()),
+    rows: await page.locator(".chart-row").count(),
+    firstRow: text(await page.locator(".chart-row").first().textContent()),
+  };
+}
+
+async function verifyBoardClear(page, teamNumber) {
+  await page.click('[data-view="alliance"]');
+  await page.waitForTimeout(700);
+  const firstInput = page.locator('[data-board-input="0"]');
+  await firstInput.fill(String(teamNumber));
+  await firstInput.press("Enter");
+  await page.waitForTimeout(500);
+  const before = text(await page.locator('[data-board-cell="0"]').textContent());
+  await page.click("#clearAllianceBoardButton");
+  await page.waitForTimeout(500);
+  const after = text(await page.locator('[data-board-cell="0"]').textContent());
+  return { before, after };
+}
+
+const browser = await chromium.launch({ headless: true });
+const page = await browser.newPage();
+const pageErrors = [];
+page.on("pageerror", (error) => pageErrors.push(String(error)));
+
+const result = { appUrl, pageErrors };
+
+try {
+  await page.goto(appUrl);
+  await waitForBody(page);
+  result.loginBefore = text(await page.locator("body").textContent()).slice(0, 180);
+
+  await login(page);
+  result.loginAfter = text(await page.locator(".page-title h1").textContent());
+
+  await openAdmin(page);
+  await switchEvent(page, "2026chcmp");
+  result.import2026 = await importCurrentSheet(page);
+  await commitImport(page);
+  result.storage2026 = await storageSnapshot(page);
+
+  result.teamDetail2026 = await captureTeamDetail(page, 346);
+  result.backDestination = await verifyBack(page);
+  result.analysis2026 = await captureAnalysis(page);
+  result.board2026 = await verifyBoardClear(page, 346);
+
+  await page.reload();
+  await waitForBody(page);
+  result.storage2026AfterReload = await storageSnapshot(page);
+  result.teamDetail2026AfterReload = await captureTeamDetail(page, 346);
+  result.analysis2026AfterReload = await captureAnalysis(page);
+
+  await openAdmin(page);
+  await switchEvent(page, "2024mdsev");
+  result.import2024 = await importCurrentSheet(page);
+  await commitImport(page);
+  result.storage2024 = await storageSnapshot(page);
+  result.teamDetail2024 = await captureFirstTeamDetail(page);
+  result.analysis2024 = await captureAnalysis(page);
+
+  await openAdmin(page);
+  await switchEvent(page, "2025chcmp");
+  result.import2025 = await importCurrentSheet(page);
+  await commitImport(page);
+  result.storage2025 = await storageSnapshot(page);
+  result.teamDetail2025 = await captureFirstTeamDetail(page);
+  result.analysis2025 = await captureAnalysis(page);
+  result.legacy2025Setup = await simulateLegacyOnlyStorage(page);
+  await page.reload();
+  await waitForBody(page);
+  result.storage2025LegacyReload = await storageSnapshot(page);
+  result.teamDetail2025LegacyReload = await captureFirstTeamDetail(page);
+  result.analysis2025LegacyReload = await captureAnalysis(page);
+} finally {
+  await browser.close();
+}
+
+console.log(JSON.stringify(result, null, 2));

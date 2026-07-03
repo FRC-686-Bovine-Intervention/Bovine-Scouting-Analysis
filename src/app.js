@@ -59,7 +59,7 @@ const picklistCompareLimit = 4;
 const protectedEpaSortId = "sort-epa";
 const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
 
-const defaultAllianceBoard = [1678, 254, 1323, 2910, 971, 118, 2056, 4414, ...Array(16).fill(null)];
+const defaultAllianceBoard = Array(24).fill(null);
 const protectedEpaSortEquation = {
   id: protectedEpaSortId,
   name: "EPA",
@@ -87,7 +87,7 @@ const state = {
   activePicklist: "",
   activeSortEquation: "",
   picklistColumns: [],
-  allianceBoard: normalizeBoard(defaultAllianceBoard),
+  allianceBoard: normalizeBoard(defaultAllianceBoard, initialEvent),
   contextMenu: null,
   inlineRename: null,
   picklistSelectedTeam: null,
@@ -98,6 +98,7 @@ const state = {
   importCsvText: "",
   importSelectedProfileId: "",
   importResult: null,
+  viewHistory: [],
 };
 globalThis.__scoutingActiveEventKey = state.activeEventKey;
 
@@ -165,6 +166,14 @@ function readStoredJson(key, fallback, eventKey) {
   }
 }
 
+function readLegacyJson(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key)) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function createId(prefix) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -209,6 +218,30 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.activityLog), JSON.stringify(state.activityLog));
 }
 
+function readStoredScoutingSubmissions(eventKey, eventModel = currentEvent()) {
+  const scoped = readStoredJson(storageKeys.scoutingSubmissions, null, eventKey);
+  if (Array.isArray(scoped)) return scoped;
+
+  const legacy = readLegacyJson(storageKeys.scoutingSubmissions, null);
+  if (!Array.isArray(legacy) || !legacy.length) return [];
+
+  const matchingLegacy = legacy.filter((submission) => submission?.eventKey === eventModel.key);
+  if (matchingLegacy.length) {
+    localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions, eventKey), JSON.stringify(matchingLegacy));
+    return matchingLegacy;
+  }
+
+  const hasAnyEventKey = legacy.some((submission) => submission?.eventKey);
+  if (hasAnyEventKey) return [];
+
+  const migrated = legacy.map((submission) => ({
+    ...submission,
+    eventKey: eventModel.key,
+  }));
+  localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions, eventKey), JSON.stringify(migrated));
+  return migrated;
+}
+
 function hydrateEventState(eventKey) {
   state.activeEventKey = resolveEventKey(eventKey);
   globalThis.__scoutingActiveEventKey = state.activeEventKey;
@@ -226,9 +259,9 @@ function hydrateEventState(eventKey) {
     resolveSortEquationId(readStoredItem(storageKeys.activeSortEquation, eventKey), state.sortEquations) || state.sortEquations[0]?.id || "";
   state.loadedSources = normalizeLoadedSources(readStoredJson(storageKeys.loadedPicklists, [`picklist:${eventModel.seedPicklists[0].id}`], eventKey));
   state.picklistColumns = normalizePicklistColumns(readStoredJson(storageKeys.picklistColumns, Array(picklistColumnCount).fill(""), eventKey));
-  state.allianceBoard = normalizeBoard(readStoredJson(storageKeys.allianceBoard, defaultAllianceBoard, eventKey));
+  state.allianceBoard = normalizeBoard(readStoredJson(storageKeys.allianceBoard, defaultAllianceBoard, eventKey), eventModel);
   state.picklistCompareTeams = normalizePicklistCompareTeams(readStoredJson(storageKeys.picklistCompareTeams, [], eventKey), eventModel);
-  state.scoutingSubmissions = normalizeScoutingSubmissions(readStoredJson(storageKeys.scoutingSubmissions, [], eventKey), eventModel);
+  state.scoutingSubmissions = normalizeScoutingSubmissions(readStoredScoutingSubmissions(eventKey, eventModel), eventModel);
   state.activityLog = normalizeActivityLog(readStoredJson(storageKeys.activityLog, [], eventKey));
   if (!state.loadedSources.length && state.picklists.length) state.loadedSources = [`picklist:${state.picklists[0].id}`];
   state.selectedTeam = teamByNumber(state.selectedTeam)?.number || eventModel.teams[0].number;
@@ -243,10 +276,17 @@ function normalizeView(view) {
   return appViews.some((item) => item.view === view) ? view : "teams";
 }
 
-function normalizeBoard(board) {
+function normalizeBoard(board, eventModel = currentEvent()) {
   const next = Array.isArray(board) ? board.slice(0, 24) : [];
   while (next.length < 24) next.push(null);
-  return next.map((value) => (Number.isFinite(Number(value)) && value !== "" ? Number(value) : null));
+  const allowedTeams = new Set((eventModel?.teams || []).map((team) => team.number));
+  const seen = new Set();
+  return next.map((value) => {
+    const teamNumber = Number(value);
+    if (!Number.isFinite(teamNumber) || value === "" || !allowedTeams.has(teamNumber) || seen.has(teamNumber)) return null;
+    seen.add(teamNumber);
+    return teamNumber;
+  });
 }
 
 function normalizeAnalysisSelection(value, eventModel = currentEvent()) {
@@ -498,6 +538,35 @@ function metricById(id) {
   return metrics.find((metric) => metric.id === id) || metrics.find((metric) => metric.id === currentEvent().defaultMetricId) || metrics[0];
 }
 
+function canonicalizeRawMetrics(rawMetrics, eventModel = currentEvent()) {
+  if (!rawMetrics || typeof rawMetrics !== "object") return {};
+  const aliases = new Map();
+  eventModel.scoringComponents.forEach((component) => {
+    const normalizedId = normalizeImportToken(component.id);
+    const normalizedLabel = normalizeImportToken(component.label || component.id);
+    [
+      component.id,
+      normalizedId,
+      `${component.id}Pts`,
+      `${component.label} Score`,
+      `${component.label} pts`,
+      `${component.id} score`,
+      `${normalizedId}pts`,
+      `${normalizedId}score`,
+      `${normalizedLabel}pts`,
+      `${normalizedLabel}score`,
+    ].forEach((alias) => aliases.set(normalizeImportToken(alias), component.id));
+  });
+
+  return Object.entries(rawMetrics).reduce((next, [key, value]) => {
+    const componentId = aliases.get(normalizeImportToken(key));
+    if (!componentId) return next;
+    const numeric = Number(value);
+    next[componentId] = Number.isFinite(numeric) ? numeric : null;
+    return next;
+  }, {});
+}
+
 function normalizeScoutingSubmissions(values, eventModel = currentEvent()) {
   if (!Array.isArray(values)) return [];
   return values
@@ -505,7 +574,7 @@ function normalizeScoutingSubmissions(values, eventModel = currentEvent()) {
     .map((submission) => ({
       ...submission,
       eventKey: submission.eventKey || eventModel.key,
-      rawMetrics: submission.rawMetrics && typeof submission.rawMetrics === "object" ? submission.rawMetrics : {},
+      rawMetrics: canonicalizeRawMetrics(submission.rawMetrics, eventModel),
       confidenceReasons: Array.isArray(submission.confidenceReasons) ? submission.confidenceReasons : [],
       validity: submission.validity || "valid",
       confidenceTier: submission.confidenceTier || "high",
@@ -952,6 +1021,245 @@ function switchImportContext(eventKey) {
   runImportPreview();
 }
 
+function loadEventSheetSample() {
+  const event = currentEvent();
+  const sampleCsvText = event.sheet?.sampleCsvText;
+  if (!sampleCsvText) return;
+  state.importCsvText = adaptEventSheetCsv(event, sampleCsvText);
+  state.importSelectedProfileId = "match-current-v2";
+  state.importResult = null;
+  saveState();
+  runImportPreview();
+}
+
+function parseCsvText(text) {
+  const rows = [];
+  let row = [];
+  let value = "";
+  let inQuotes = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        value += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === "," && !inQuotes) {
+      row.push(value);
+      value = "";
+      continue;
+    }
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(value);
+      rows.push(row);
+      row = [];
+      value = "";
+      continue;
+    }
+    value += char;
+  }
+  if (value.length || row.length) {
+    row.push(value);
+    rows.push(row);
+  }
+  return rows.map((cells) => cells.map((cell) => String(cell ?? "").trim()));
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function toCsvText(rows) {
+  return rows.map((row) => row.map(csvCell).join(",")).join("\n");
+}
+
+function normalizeImportToken(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function numericValue(value) {
+  const numeric = Number(String(value || "").trim());
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function truthyValue(value) {
+  return ["true", "yes", "y", "1"].includes(normalizeImportToken(value));
+}
+
+function categoricalScore(value, mapping = {}) {
+  const normalized = normalizeImportToken(value);
+  return mapping[normalized] ?? 0;
+}
+
+function eventSheetHeaderMap(headers) {
+  const map = new Map();
+  headers.forEach((header, index) => map.set(header, index));
+  return map;
+}
+
+function eventSheetCell(row, headerIndex, header) {
+  const position = headerIndex.get(header);
+  return position === undefined ? "" : String(row[position] ?? "").trim();
+}
+
+function buildCanonicalImportCsv(eventModel, records) {
+  const metadataRow = ["meta", "season", "eventKey", "schemaVersion", "templateProfileId"];
+  const valueRow = ["value", eventModel.season, eventModel.key, "match-v2", "match-current-v2"];
+  const headerRow = [
+    "matchNumber",
+    "teamNumber",
+    "scoutUser",
+    "alliance",
+    "station",
+    "defensePlayed",
+    "robotStatus",
+    "notes",
+    ...eventModel.scoringComponents.map((component) => `${component.id}Pts`),
+  ];
+  const dataRows = records.map((record) => [
+    record.matchNumber,
+    record.teamNumber,
+    record.scoutUser,
+    record.alliance,
+    record.station,
+    record.defensePlayed ? "yes" : "no",
+    record.robotStatus,
+    record.notes,
+    ...eventModel.scoringComponents.map((component) => record.metrics[component.id] ?? 0),
+  ]);
+  return toCsvText([metadataRow, valueRow, [], headerRow, ...dataRows]);
+}
+
+function parse2025TeamDescriptor(value) {
+  const [alliance = "", station = "", teamNumber = "", ...nameParts] = String(value || "").split(",");
+  return {
+    alliance: alliance.trim().toLowerCase(),
+    station: station.trim(),
+    teamNumber: Number(teamNumber),
+    name: nameParts.join(",").trim(),
+  };
+}
+
+function adapt2025SheetCsv(eventModel, csvText) {
+  const rows = parseCsvText(csvText);
+  const headers = rows[0] || [];
+  const headerIndex = eventSheetHeaderMap(headers);
+  const records = rows.slice(1).filter((row) => row.some((cell) => cell)).map((row) => {
+    const team = parse2025TeamDescriptor(eventSheetCell(row, headerIndex, "Team"));
+    const autoCoral = ["Auto-L4Make", "Auto-L3Make", "Auto-L2Make", "Auto-TroughMake"].reduce((sum, header) => sum + numericValue(eventSheetCell(row, headerIndex, header)), 0);
+    const autoAlgae = ["Auto-RemovedAlgaeMake", "Auto-ScoredProcessorMake", "Auto-ScoredBargeMake"].reduce((sum, header) => sum + numericValue(eventSheetCell(row, headerIndex, header)), 0);
+    const teleCoral = ["Tele-Op-L4Make", "Tele-Op-L3Make", "Tele-Op-L2Make", "Tele-Op-TroughMake"].reduce((sum, header) => sum + numericValue(eventSheetCell(row, headerIndex, header)), 0);
+    const teleAlgae = ["Tele-Op-RemovedAlgaeMake", "Tele-Op-ScoredProcessorMake", "Tele-Op-ScoredBargeMake"].reduce((sum, header) => sum + numericValue(eventSheetCell(row, headerIndex, header)), 0);
+    return {
+      matchNumber: numericValue(eventSheetCell(row, headerIndex, "MatchNumber")),
+      teamNumber: team.teamNumber,
+      scoutUser: eventSheetCell(row, headerIndex, "ScouterName") || "Imported Sheet",
+      alliance: team.alliance || "unknown",
+      station: team.station || String(numericValue(eventSheetCell(row, headerIndex, "StartingPosition")) || "sheet"),
+      defensePlayed: numericValue(eventSheetCell(row, headerIndex, "DidTheyPLAYDefense?HowEffective?")) > 0,
+      robotStatus: "ok",
+      notes: eventSheetCell(row, headerIndex, "Notes"),
+      metrics: {
+        auto: autoCoral + autoAlgae,
+        coral: teleCoral,
+        algae: autoAlgae + teleAlgae,
+        climb: numericValue(eventSheetCell(row, headerIndex, "Climbing")),
+      },
+    };
+  });
+  return buildCanonicalImportCsv(eventModel, records);
+}
+
+function adapt2024SheetCsv(eventModel, csvText) {
+  const rows = parseCsvText(csvText);
+  const headers = rows[0] || [];
+  const headerIndex = eventSheetHeaderMap(headers);
+  const records = rows.slice(1).filter((row) => row.some((cell) => cell)).map((row) => {
+    const autoSpeaker = numericValue(eventSheetCell(row, headerIndex, "AUTO scoring \n(uncheck all but final score before continuing) [Speaker score ✅]"));
+    const autoAmp = numericValue(eventSheetCell(row, headerIndex, "AUTO scoring \n(uncheck all but final score before continuing) [Amp score ✅]"));
+    const teleAmp = numericValue(eventSheetCell(row, headerIndex, "Tele-op scoring \n(uncheck all but final score before continuing) [Amp score ✅]"));
+    const teleSpeaker = numericValue(eventSheetCell(row, headerIndex, "Tele-op scoring \n(uncheck all but final score before continuing) [Speaker score ✅]"));
+    return {
+      matchNumber: numericValue(eventSheetCell(row, headerIndex, "Match #?")),
+      teamNumber: numericValue(eventSheetCell(row, headerIndex, "Team #?")),
+      scoutUser: eventSheetCell(row, headerIndex, "Timestamp") || "Imported Sheet",
+      alliance: "unknown",
+      station: eventSheetCell(row, headerIndex, "Starting location?") || "sheet",
+      defensePlayed: !["", "no", "none", "na", "n/a"].includes(normalizeImportToken(eventSheetCell(row, headerIndex, "Did this robot PLAY defence? If so how effectively?"))),
+      robotStatus: normalizeImportToken(eventSheetCell(row, headerIndex, "Did the robot break on the field?")) === "yes" ? "broken" : "ok",
+      notes: eventSheetCell(row, headerIndex, "Other notes?"),
+      metrics: {
+        auto: autoSpeaker + autoAmp + numericValue(eventSheetCell(row, headerIndex, "AUTO [Note passes]")),
+        speaker: teleSpeaker + numericValue(eventSheetCell(row, headerIndex, "Tele-op [Note passes]")),
+        amp: teleAmp,
+        trap:
+          categoricalScore(eventSheetCell(row, headerIndex, "Scored trap?"), { successfulattempt: 1 }) +
+          categoricalScore(eventSheetCell(row, headerIndex, "Harmony? (2 robots on the same chain)"), { successfulattempt: 1 }),
+      },
+    };
+  });
+  return buildCanonicalImportCsv(eventModel, records);
+}
+
+function adapt2026SheetCsv(eventModel, csvText) {
+  const rows = parseCsvText(csvText);
+  const headers = rows[0] || [];
+  const headerIndex = eventSheetHeaderMap(headers);
+  const defenseHeaders = [
+    "Shifts Transition Defense On",
+    "Shifts Shift1 Defense On",
+    "Shifts Shift2 Defense On",
+    "Shifts Shift3 Defense On",
+    "Shifts Shift4 Defense On",
+    "Shifts Endgame Defense On",
+  ];
+  const records = rows.slice(1).filter((row) => row.some((cell) => cell)).map((row) => {
+    const autoFuel = numericValue(eventSheetCell(row, headerIndex, "Shifts Auto Fuel Pct"));
+    const cycleFuel = ["Shifts Transition Fuel Pct", "Shifts Shift1 Fuel Pct", "Shifts Shift2 Fuel Pct", "Shifts Shift3 Fuel Pct", "Shifts Shift4 Fuel Pct"].reduce(
+      (sum, header) => sum + numericValue(eventSheetCell(row, headerIndex, header)),
+      0,
+    );
+    const endgameFuel = numericValue(eventSheetCell(row, headerIndex, "Shifts Endgame Fuel Pct"));
+    const climbScore =
+      categoricalScore(eventSheetCell(row, headerIndex, "Shifts Auto Climb"), { climbed: 15, successfulattempt: 15 }) +
+      categoricalScore(eventSheetCell(row, headerIndex, "Shifts Endgame Climb"), { climbed: 20, successfulattempt: 20, parked: 8 });
+    return {
+      matchNumber: numericValue(eventSheetCell(row, headerIndex, "Match Number")),
+      teamNumber: numericValue(eventSheetCell(row, headerIndex, "Team Number")),
+      scoutUser: eventSheetCell(row, headerIndex, "Scouter") || "Imported Sheet",
+      alliance: eventSheetCell(row, headerIndex, "Alliance").toLowerCase() || "unknown",
+      station: eventSheetCell(row, headerIndex, "Shifts Auto Starting Position") || "sheet",
+      defensePlayed: defenseHeaders.some((header) => !["", "none"].includes(normalizeImportToken(eventSheetCell(row, headerIndex, header)))) || numericValue(eventSheetCell(row, headerIndex, "Overall Defense")) > 0,
+      robotStatus: truthyValue(eventSheetCell(row, headerIndex, "No Show")) ? "no_show" : "ok",
+      notes: eventSheetCell(row, headerIndex, "Overall Notes"),
+      metrics: {
+        auto: autoFuel,
+        cycle: cycleFuel,
+        endgame: endgameFuel + climbScore,
+      },
+    };
+  });
+  return buildCanonicalImportCsv(eventModel, records);
+}
+
+function adaptEventSheetCsv(eventModel, csvText) {
+  if (!csvText) return "";
+  if (eventModel.key === "2024mdsev") return adapt2024SheetCsv(eventModel, csvText);
+  if (eventModel.key === "2025chcmp") return adapt2025SheetCsv(eventModel, csvText);
+  if (eventModel.key === "2026chcmp") return adapt2026SheetCsv(eventModel, csvText);
+  return csvText;
+}
+
 function teamDetailMetric() {
   return metricById(state.teamDetailMetric);
 }
@@ -1016,12 +1324,46 @@ function setTheme(theme) {
   render();
 }
 
+function currentRouteSnapshot() {
+  return {
+    view: state.activeView,
+    selectedTeam: state.selectedTeam,
+    selectedMatch: state.selectedMatch,
+  };
+}
+
+function pushViewHistory() {
+  const snapshot = currentRouteSnapshot();
+  const last = state.viewHistory[state.viewHistory.length - 1];
+  if (last && last.view === snapshot.view && last.selectedTeam === snapshot.selectedTeam && last.selectedMatch === snapshot.selectedMatch) return;
+  state.viewHistory = [...state.viewHistory.slice(-19), snapshot];
+}
+
+function goBack(fallbackView = "teams") {
+  const previous = state.viewHistory.pop();
+  if (previous) {
+    state.activeView = canView(previous.view) ? previous.view : fallbackView;
+    state.selectedTeam = teamByNumber(previous.selectedTeam)?.number || currentEvent().teams[0].number;
+    state.selectedMatch = currentMatches().some((match) => match.number === previous.selectedMatch)
+      ? previous.selectedMatch
+      : currentEvent().matches[0].number;
+  } else {
+    state.activeView = fallbackView;
+  }
+  state.contextMenu = null;
+  state.inlineRename = null;
+  saveState();
+  render();
+}
+
 function toggleTheme() {
   setTheme(state.theme === "light" ? "dark" : "light");
 }
 
-function setView(view) {
+function setView(view, options = {}) {
+  const { recordHistory = true } = options;
   if (!canView(view)) view = "teams";
+  if (recordHistory && state.activeView !== view) pushViewHistory();
   state.activeView = view;
   state.contextMenu = null;
   state.inlineRename = null;
@@ -1068,12 +1410,10 @@ function render() {
             <h1>${viewTitle(state.activeView)}</h1>
           </div>
           <div class="split-row">
-            <label class="event-select">
-              <span class="muted">Event</span>
-              <select id="eventSelect" aria-label="Active event">
-                ${globalEventCatalog.map((item) => `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.season} ${item.name}</option>`).join("")}
-              </select>
-            </label>
+            <div class="event-select" aria-label="Active event">
+              <span class="muted">Active Event</span>
+              <strong>${event.season} ${event.name}</strong>
+            </div>
             ${renderThemeToggle()}
             <button class="action-button" id="logoutButton" title="Sign out ${state.user}" aria-label="Sign out ${state.user}">
               ${icon("user")}
@@ -1201,10 +1541,8 @@ function bindShellEvents() {
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
   });
-  document.querySelector("#eventSelect")?.addEventListener("change", (event) => {
-    hydrateEventState(event.target.value);
-    saveState();
-    render();
+  document.querySelectorAll("[data-history-back]").forEach((button) => {
+    button.addEventListener("click", () => goBack(button.dataset.historyBack || "teams"));
   });
   document.querySelector("#themeToggle")?.addEventListener("click", toggleTheme);
   document.querySelector("#menuToggle").addEventListener("click", () => {
@@ -1239,8 +1577,8 @@ function renderView() {
 function renderRankings() {
   const epaMetric = metricById("source:epa:total");
   const ranked = [...currentTeams()]
-    .sort((a, b) => teamMetricValue(b, epaMetric) - teamMetricValue(a, epaMetric))
-    .map((team, index) => ({ ...team, rank: index + 1, rp: rankingPoints(team), record: recordForTeam(team) }));
+    .sort((a, b) => (a.eventRank || Infinity) - (b.eventRank || Infinity) || teamMetricValue(b, epaMetric) - teamMetricValue(a, epaMetric) || a.number - b.number)
+    .map((team, index) => ({ ...team, rank: team.eventRank || index + 1, rp: rankingPoints(team), record: recordForTeam(team) }));
   return `
     <article class="card">
       <div class="section-heading">
@@ -1269,7 +1607,7 @@ function renderRankings() {
             <span>${team.record}</span>
             <span>${team.rp}</span>
             <span>${teamMetricValue(team, epaMetric).toFixed(1)}</span>
-            <span>${renderTeamBadges(team, metricConfidenceModel(team, epaMetric))}</span>
+            <span>${renderDrivetrainBadge(team)}</span>
           </button>
         `,
           )
@@ -1280,10 +1618,14 @@ function renderRankings() {
 }
 
 function rankingPoints(team) {
-  return Math.max(8, Math.round(teamMetricValue(team, metricById("source:epa:total")) / 4));
+  return team.record?.qual?.rps ?? Math.max(8, Math.round(teamMetricValue(team, metricById("source:epa:total")) / 4));
 }
 
 function recordForTeam(team) {
+  if (team.record?.qual) {
+    const qual = team.record.qual;
+    return `${qual.wins}-${qual.losses}-${qual.ties}`;
+  }
   const wins = Math.max(1, Math.min(8, Math.round(teamMetricValue(team, metricById("source:epa:total")) / 9)));
   const losses = Math.max(0, 8 - wins);
   return `${wins}-${losses}-0`;
@@ -1292,7 +1634,6 @@ function recordForTeam(team) {
 function renderTeams() {
   const epaMetric = metricById("source:epa:total");
   const consistencyMetric = metricById("derived:consistency");
-  const confidenceMetric = metricById("source:scouter:total");
   return `
     <div class="team-title-row">
       <div>
@@ -1310,7 +1651,7 @@ function renderTeams() {
           <span class="team-meta">
             <strong>${team.name}</strong>
             <span class="muted">${teamMetricValue(team, epaMetric).toFixed(1)} EPA / ${teamMetricValue(team, consistencyMetric)}% consistency</span>
-            ${renderTeamBadges(team, metricConfidenceModel(team, confidenceMetric))}
+            ${renderDrivetrainBadge(team)}
           </span>
         </button>
       `,
@@ -1328,12 +1669,12 @@ function renderTeamDetail(team) {
   const consistencyMetric = metricById("derived:consistency");
   return `
     <article class="card">
-      <div class="section-heading">
-        <div>
-          <h2>${team.name}</h2>
-        </div>
-        <div class="detail-actions">
-          <button data-view="teams">Back to Teams</button>
+        <div class="section-heading">
+          <div>
+            <h2>${team.name}</h2>
+          </div>
+          <div class="detail-actions">
+          <button data-history-back="teams">Back</button>
           <select id="teamSelect" aria-label="Team">
             ${currentTeams().map((item) => `<option value="${item.number}" ${item.number === team.number ? "selected" : ""}>${item.number} ${item.name}</option>`).join("")}
           </select>
@@ -1361,8 +1702,7 @@ function renderTeamDetail(team) {
           ${renderSparkline(team, selectedMetric)}
         </div>
         <div class="compact-flags">
-          <h3>Flags & Confidence</h3>
-          ${renderFlags([], metricConfidenceModel(team, selectedMetric))}
+          <h3>Flags</h3>
           ${team.flags.length ? team.flags.map((flag) => `<p><span class="flag ${flag.severity}">${flag.label}</span> <span class="flag-evidence">${flag.evidence}</span></p>`).join("") : `<p class="muted">No active flags.</p>`}
         </div>
       </div>
@@ -1372,7 +1712,9 @@ function renderTeamDetail(team) {
 
 function metricTrendValues(team, metric) {
   if (metric.kind === "source") {
-    if (metric.sourceId === "scouter" && metric.componentId === "total") return team.matches;
+    if (metric.sourceId === "scouter" && metric.componentId === "total") {
+      return Array.isArray(team.sources?.scouter?.trend) ? team.sources.scouter.trend : [];
+    }
     if (metric.sourceId === "scouter" && metric.componentId !== "total" && Array.isArray(team.sources?.scouter?.componentTrend?.[metric.componentId])) {
       return team.sources.scouter.componentTrend[metric.componentId];
     }
@@ -1388,6 +1730,9 @@ function metricTrendValues(team, metric) {
 
 function renderSparkline(team, metric) {
   const values = metricTrendValues(team, metric);
+  if (!values.length || values.every((value) => Number(value || 0) === 0)) {
+    return `<p class="muted">No ${escapeHtml(metric.label)} trend is available for this team yet.</p>`;
+  }
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
@@ -1548,7 +1893,7 @@ function renderChartRow(team, selection, dist, globalMin, globalMax, eventAverag
   return `
     <div class="chart-row">
       <div class="chart-team">
-        <span class="chart-badges">${renderTeamBadges(team, selection.type === "sortEquation" ? equationConfidenceModel(team, selection.equation) : metricConfidenceModel(team, selection.metric))}</span>
+        <span class="chart-badges">${renderDrivetrainBadge(team)}</span>
         <button class="chart-name" data-team-link="${team.number}">${team.number}</button>
       </div>
       <div class="plot" title="${escapeAttribute(plotTitle)}">
@@ -1609,7 +1954,7 @@ function renderMatchNavigator(match, includeBack) {
   const nextMatch = matches[matchIndex + 1];
   return `
     <div class="match-nav">
-      ${includeBack ? `<button data-view="schedule">Back to schedule</button>` : ""}
+      ${includeBack ? `<button data-history-back="schedule">Back</button>` : ""}
       <button class="icon-button" data-match-nav="${prevMatch?.number || ""}" ${prevMatch ? "" : "disabled"} title="Previous match" aria-label="Previous match">&lt;</button>
       <strong>Q${match.number}</strong>
       <button class="icon-button" data-match-nav="${nextMatch?.number || ""}" ${nextMatch ? "" : "disabled"} title="Next match" aria-label="Next match">&gt;</button>
@@ -1620,7 +1965,6 @@ function renderMatchNavigator(match, includeBack) {
 function renderAllianceCard(title, teamNumbers) {
   const epaMetric = metricById("source:epa:total");
   const consistencyMetric = metricById("derived:consistency");
-  const confidenceMetric = metricById("source:scouter:total");
   return `
     <article class="card">
       <h2>${title}</h2>
@@ -1634,7 +1978,7 @@ function renderAllianceCard(title, teamNumbers) {
                 <span class="team-meta">
                   <strong>${team.name}</strong>
                   <span class="muted">${teamMetricValue(team, epaMetric).toFixed(1)} EPA / ${teamMetricValue(team, consistencyMetric)}% consistency</span>
-                  ${renderTeamBadges(team, metricConfidenceModel(team, confidenceMetric))}
+                  ${renderDrivetrainBadge(team)}
                 </span>
               </button>
             `;
@@ -1671,13 +2015,28 @@ function renderQuality() {
       `
           : ""
       }
+      <article class="card">
+        <div class="section-heading">
+          <div>
+            <h2>Confidence Review</h2>
+            <p class="muted">Confidence appears here only. Reasons are shown directly instead of on hover.</p>
+          </div>
+        </div>
+        <div class="confidence-review-list">
+          ${currentTeams()
+            .filter((team) => metricConfidenceModel(team, metricById("source:scouter:total")).tier !== "high")
+            .sort((left, right) => confidenceRank(metricConfidenceModel(right, metricById("source:scouter:total")).tier) - confidenceRank(metricConfidenceModel(left, metricById("source:scouter:total")).tier) || left.number - right.number)
+            .map((team) => renderConfidenceReviewRow(team))
+            .join("") || `<div class="empty-state">All teams currently have high scouting confidence.</div>`}
+        </div>
+      </article>
       ${flagged
         .map(
           (team) => `
         <button class="data-row" data-team="${team.number}">
           <div class="split-row">
             <strong>${team.number} ${team.name}</strong>
-            ${renderTeamBadges(team)}
+            ${renderQualityBadges(team)}
           </div>
           ${team.flags.map((flag) => `<span class="flag-evidence">${flag.evidence}</span>`).join("")}
         </button>
@@ -1725,7 +2084,6 @@ function renderSortBuilder() {
                 maxScore,
                 showScore: true,
                 showName: true,
-                confidence: equationConfidenceModel(team, equation),
               });
             })
             .join("")}
@@ -1753,6 +2111,23 @@ function renderSortBuilder() {
         `
         }
       </article>
+    </div>
+  `;
+}
+
+function renderConfidenceReviewRow(team) {
+  const confidence = metricConfidenceModel(team, metricById("source:scouter:total"));
+  const reasons = uniqueValues((confidence.reasons || []).map(confidenceReasonLabel));
+  return `
+    <div class="review-submission-row confidence-review-row">
+      <div class="review-submission-meta">
+        <strong>${team.number} ${team.name}</strong>
+        <span class="muted">Confidence: ${confidenceLabel(confidence.tier)}</span>
+        <span class="muted">${reasons.length ? reasons.join(", ") : "No concerns recorded."}</span>
+      </div>
+      <div class="flag-list">
+        <span class="flag ${confidenceSeverity(confidence.tier)}">Confidence: ${confidenceLabel(confidence.tier)}</span>
+      </div>
     </div>
   `;
 }
@@ -1984,7 +2359,6 @@ function renderTeamTile(team, index, options = {}) {
   const compareColor = options.compareIndex >= 0 ? compareTeamPalette[options.compareIndex] : "";
   const style = [`background: ${background}`];
   if (compareColor) style.push(`--compare-accent: ${compareColor}`);
-  const confidenceMarkup = options.confidence ? `<span class="tile-confidence">${renderConfidenceBadge(options.confidence)}</span>` : "";
   return `
     <button
       class="${classes.join(" ")}"
@@ -1997,7 +2371,6 @@ function renderTeamTile(team, index, options = {}) {
     >
       <strong class="tile-rank">${index + 1}</strong>
       <span class="tile-label">${options.showName === false ? team.number : `${team.number} ${team.name}`}</span>
-      ${confidenceMarkup}
       ${scoreMarkup}
     </button>
   `;
@@ -2015,7 +2388,6 @@ function renderBuilderTeamTile(team, index, options = {}) {
     reorderTeam: options.draggable,
     draggable: Boolean(options.draggable),
     dragData: options.draggable ? String(team.number) : "",
-    confidence: metricConfidenceModel(team, metricById("source:scouter:total")),
   });
 }
 
@@ -2085,14 +2457,12 @@ function renderPicklistGridColumn(entry, index) {
                         maxScore: column.maxScore,
                         compareIndex,
                         builderTeam: true,
-                        confidence: equationConfidenceModel(team, state.sortEquations.find((item) => item.id === column.id)),
                       })
                     : renderTeamTile(team, teamIndex, {
                         compact: true,
                         showName: false,
                         showScore: false,
                         compareIndex,
-                        confidence: metricConfidenceModel(team, metricById("source:scouter:total")),
                       });
                 })
                 .join("")
@@ -2139,7 +2509,6 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         draggable: !picked,
         dragData: picked ? "" : String(team.number),
         dataAttribute: options.navigation ? `data-team="${team.number}"` : "",
-        confidence: metricConfidenceModel(team, metricById("source:scouter:total")),
       })
     : renderTeamTile(team, index, {
         compact: true,
@@ -2152,7 +2521,6 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         draggable: !picked,
         dragData: picked ? "" : String(team.number),
         dataAttribute: options.navigation ? `data-team="${team.number}"` : "",
-        confidence: options.confidence || metricConfidenceModel(team, metricById("source:scouter:total")),
       });
   return content;
 }
@@ -2166,6 +2534,9 @@ function renderAlliance() {
         <div class="section-heading">
           <div>
             <h2>Selection Board</h2>
+          </div>
+          <div class="admin-actions">
+            <button type="button" id="clearAllianceBoardButton">Clear Board</button>
           </div>
         </div>
         <div class="board">
@@ -2289,10 +2660,39 @@ function renderAdmin() {
       <article class="card">
         <div class="section-heading">
           <div>
-            <h2>Data Sources</h2>
-            <p class="muted">This demo shows the intended source boundaries while using seeded local data.</p>
+            <h2>Event Workspace</h2>
+            <p class="muted">Admins choose the active event here, and the rest of the app follows that event context.</p>
           </div>
-          <button>Refresh demo data</button>
+        </div>
+        <div class="admin-form-grid">
+          <label>
+            Active event
+            <select id="adminEventSelect" aria-label="Admin event selection">
+              ${globalEventCatalog.map((item) => `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.season} ${item.name}</option>`).join("")}
+            </select>
+          </label>
+          <div class="issue-list">
+            <div class="issue-row">
+              <strong>Scouting sheet</strong>
+              <span class="muted">${event.sheet?.tab || "Unknown tab"} | ${event.sheet?.access === "public_csv" ? "Public CSV sample cached" : "Sign-in required for direct export"}</span>
+            </div>
+          </div>
+          <div class="admin-actions">
+            <button type="button" id="switchAdminEventButton" class="primary">Use Selected Event</button>
+            ${
+              event.sheet?.sampleCsvText
+                ? `<button type="button" id="loadSourceSheetButton">Load ${escapeHtml(event.sheet.tab || "sheet")} CSV</button>`
+                : ""
+            }
+          </div>
+        </div>
+      </article>
+      <article class="card">
+        <div class="section-heading">
+          <div>
+            <h2>Data Sources</h2>
+            <p class="muted">These source statuses are based on the real snapshots and sheet access we have for ${event.key}.</p>
+          </div>
         </div>
         <div class="data-source-list">
           ${currentDataSources()
@@ -2322,11 +2722,16 @@ function renderAdmin() {
           <div class="section-heading">
             <div>
               <h2>Scouting Import</h2>
-              <p class="muted">${event.season} imports use metadata + header mapping so future seasons can define new scoring breakdowns without hardcoding per-column assumptions.</p>
+              <p class="muted">${event.season} imports still use metadata + header mapping so future seasons can define new scoring breakdowns without hardcoding per-column assumptions.</p>
             </div>
             <div class="admin-actions">
               <button type="button" data-load-sample="match-current-v2">Load Current Sample</button>
               <button type="button" data-load-sample="match-legacy-v1">Load Legacy Sample</button>
+              ${
+                event.sheet?.sampleCsvText
+                  ? `<button type="button" id="loadSheetSampleInlineButton">Load Real Sheet Sample</button>`
+                  : ""
+              }
             </div>
           </div>
           <div class="admin-form-grid">
@@ -2457,17 +2862,19 @@ function renderAdmin() {
   `;
 }
 
-function renderFlags(flags, confidence = null) {
-  const items = [];
-  if (confidence) items.push(renderConfidenceBadge(confidence));
-  items.push(...flags.map((flag) => `<span class="flag ${flag.severity}" title="${escapeAttribute(flag.evidence || flag.label)}">${flag.label}</span>`));
+function renderFlags(flags) {
+  const items = flags.map((flag) => `<span class="flag ${flag.severity}" title="${escapeAttribute(flag.evidence || flag.label)}">${flag.label}</span>`);
   if (!items.length) return "";
   return `<span class="flag-list">${items.join("")}</span>`;
 }
 
-function renderTeamBadges(team, confidence = null) {
-  const drivetrainFlags = team.drivetrain === "swerve" ? [] : [{ label: "Non-Swerve", severity: "danger" }];
-  return renderFlags([...drivetrainFlags, ...team.flags], confidence);
+function renderDrivetrainBadge(team) {
+  const drivetrainFlags = team.drivetrain && team.drivetrain !== "unknown" && team.drivetrain !== "swerve" ? [{ label: "Non-Swerve", severity: "danger" }] : [];
+  return renderFlags(drivetrainFlags);
+}
+
+function renderQualityBadges(team) {
+  return renderFlags(team.flags || []);
 }
 
 function placeTeamOnBoard(teamNumber, cellIndex) {
@@ -2482,6 +2889,13 @@ function placeTeamOnBoard(teamNumber, cellIndex) {
 
 function removeTeamFromBoard(cellIndex) {
   state.allianceBoard[cellIndex] = null;
+  state.contextMenu = null;
+  saveState();
+  render();
+}
+
+function clearAllianceBoard() {
+  state.allianceBoard = normalizeBoard(defaultAllianceBoard, currentEvent());
   state.contextMenu = null;
   saveState();
   render();
@@ -2694,9 +3108,22 @@ function bindViewEvents() {
     saveState();
     render();
   });
+  document.querySelector("#switchAdminEventButton")?.addEventListener("click", () => {
+    const nextEventKey = document.querySelector("#adminEventSelect")?.value;
+    if (!nextEventKey) return;
+    hydrateEventState(nextEventKey);
+    state.activeView = "admin";
+    state.viewHistory = [];
+    saveState();
+    render();
+  });
+  document.querySelector("#loadSourceSheetButton")?.addEventListener("click", loadEventSheetSample);
+  document.querySelector("#loadSheetSampleInlineButton")?.addEventListener("click", loadEventSheetSample);
+  document.querySelector("#clearAllianceBoardButton")?.addEventListener("click", clearAllianceBoard);
   document.querySelectorAll("[data-team], [data-team-link]").forEach((element) => {
     element.addEventListener("click", (event) => {
       event.stopPropagation();
+      pushViewHistory();
       state.selectedTeam = Number(element.dataset.team || element.dataset.teamLink);
       state.activeView = "teamDetail";
       saveState();
@@ -2705,6 +3132,7 @@ function bindViewEvents() {
   });
   document.querySelectorAll("[data-match]").forEach((element) => {
     element.addEventListener("click", () => {
+      pushViewHistory();
       state.selectedMatch = Number(element.dataset.match);
       state.activeView = "matchup";
       saveState();
@@ -2714,6 +3142,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-match-nav]").forEach((element) => {
     element.addEventListener("click", () => {
       if (!element.dataset.matchNav) return;
+      pushViewHistory();
       state.selectedMatch = Number(element.dataset.matchNav);
       state.activeView = "matchup";
       saveState();
@@ -2722,6 +3151,7 @@ function bindViewEvents() {
   });
   document.querySelectorAll("[data-match-row]").forEach((element) => {
     element.addEventListener("click", () => {
+      pushViewHistory();
       state.selectedMatch = Number(element.dataset.matchRow);
       state.activeView = "matchup";
       saveState();
