@@ -1,0 +1,329 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import vm from "node:vm";
+
+function loadMetricEngine() {
+  const sourcePath = path.resolve("src/metric-engine.js");
+  const source = fs.readFileSync(sourcePath, "utf8");
+  const context = {
+    globalThis: {},
+    console,
+    Set,
+    Map,
+    Math,
+    Number,
+    Array,
+    Object,
+    String,
+  };
+  context.globalThis = context;
+  vm.runInNewContext(source, context, { filename: sourcePath });
+  return context.MetricEngine;
+}
+
+const metricEngine = loadMetricEngine();
+
+function runTest(name, fn) {
+  try {
+    fn();
+    console.log(`PASS ${name}`);
+  } catch (error) {
+    console.error(`FAIL ${name}`);
+    throw error;
+  }
+}
+
+runTest("evaluateDerivedMetricDefinition supports sum, average, and rate formulas", () => {
+  assert.equal(
+    metricEngine.evaluateDerivedMetricDefinition(
+      { formula: "sum", fields: ["auto", "cycle"] },
+      { auto: 12, cycle: 28 },
+    ),
+    40,
+  );
+
+  assert.equal(
+    metricEngine.evaluateDerivedMetricDefinition(
+      { formula: "average", fields: ["driver", "defense"], unit: "rating" },
+      { driver: 3, defense: 4 },
+    ),
+    3.5,
+  );
+
+  assert.equal(
+    metricEngine.evaluateDerivedMetricDefinition(
+      { formula: "rate", madeFields: ["made"], missFields: ["missed"] },
+      { made: 8, missed: 2 },
+    ),
+    80,
+  );
+
+  assert.equal(
+    metricEngine.evaluateDerivedMetricDefinition(
+      { formula: "ratio", numeratorFields: ["driver"], denominatorMode: "match_count", unit: "rating" },
+      {},
+      { aggregatedMatches: [{ components: { driver: 2 } }, { components: { driver: 4 } }] },
+    ),
+    3,
+  );
+});
+
+runTest("aggregateSubmissionMatches sorts by match number and excludes flagged and excluded rows", () => {
+  const matches = metricEngine.aggregateSubmissionMatches(
+    [
+      {
+        matchNumber: 3,
+        validity: "valid",
+        rawMetrics: { auto: 6, cycle: 10 },
+      },
+      {
+        matchNumber: 1,
+        validity: "flagged",
+        rawMetrics: { auto: 20, cycle: 20 },
+      },
+      {
+        matchNumber: 1,
+        validity: "excluded",
+        rawMetrics: { auto: 30, cycle: 30 },
+      },
+      {
+        matchNumber: 2,
+        validity: "valid",
+        rawMetrics: { auto: 5, cycle: 9 },
+      },
+    ],
+    {
+      scoringComponentIds: ["auto", "cycle"],
+      scouterMetricIds: ["auto", "cycle"],
+    },
+  );
+
+  assert.deepEqual(
+    matches.map((match) => ({ matchNumber: match.matchNumber, total: match.total })),
+    [
+      { matchNumber: 2, total: 14 },
+      { matchNumber: 3, total: 16 },
+    ],
+  );
+});
+
+runTest("buildTeamScoutingOverlay computes scouting totals, trends, and confidence", () => {
+  const team = {
+    number: 1234,
+    flags: [],
+    matches: [40, 44, 48],
+    sources: {
+      epa: { total: 45, components: { auto: 10, cycle: 35 }, trend: [42, 45, 48] },
+    },
+    derived: {},
+  };
+
+  const overlay = metricEngine.buildTeamScoutingOverlay(team, {
+    submissions: [
+      {
+        teamNumber: 1234,
+        matchNumber: 1,
+        validity: "valid",
+        defensePlayed: true,
+        confidenceReasons: [],
+        rawMetrics: { auto: 10, cycle: 30, rating: 3, made: 8, missed: 2 },
+      },
+      {
+        teamNumber: 1234,
+        matchNumber: 2,
+        validity: "flagged",
+        defensePlayed: false,
+        confidenceReasons: ["schema_gap"],
+        rawMetrics: { auto: 12, cycle: 28, rating: 4, made: 6, missed: 4 },
+      },
+      {
+        teamNumber: 9999,
+        matchNumber: 1,
+        validity: "valid",
+        defensePlayed: false,
+        confidenceReasons: [],
+        rawMetrics: { auto: 99, cycle: 99, rating: 1, made: 1, missed: 9 },
+      },
+    ],
+    scoringComponents: [{ id: "auto" }, { id: "cycle" }],
+    scouterMetricDefinitions: [{ id: "auto" }, { id: "cycle" }, { id: "rating" }, { id: "made" }, { id: "missed" }],
+    derivedMetricDefinitions: [
+      { id: "accuracy", formula: "rate", madeFields: ["made"], missFields: ["missed"], unit: "%" },
+      { id: "driverAvg", formula: "average", fields: ["rating"], unit: "rating" },
+    ],
+  });
+
+  assert.equal(overlay.sources.scouter.total, 40);
+  assert.deepEqual(overlay.sources.scouter.trend, [40]);
+  assert.deepEqual(overlay.sources.scouter.componentTrend.auto, [10]);
+  assert.equal(overlay.derived.accuracy, 80);
+  assert.equal(overlay.derived.driverAvg, 3);
+  assert.equal(overlay.scouting.importedMatches, 1);
+  assert.equal(overlay.scouting.flaggedCount, 1);
+  assert.equal(overlay.scouting.confidence.tier, "low");
+  assert.ok(overlay.flags.some((flag) => flag.label === "Sparse"));
+  assert.ok(overlay.flags.some((flag) => flag.label === "Flagged"));
+});
+
+runTest("buildTeamScoutingOverlay exposes recent-window scouting aggregates", () => {
+  const overlay = metricEngine.buildTeamScoutingOverlay(
+    {
+      number: 4321,
+      flags: [],
+      matches: [20, 25, 30, 35],
+      sources: {},
+      derived: {},
+    },
+    {
+      recentMatchCount: 2,
+      submissions: [
+        { teamNumber: 4321, matchNumber: 1, validity: "valid", rawMetrics: { auto: 10, cycle: 20, rating: 2 } },
+        { teamNumber: 4321, matchNumber: 2, validity: "valid", rawMetrics: { auto: 20, cycle: 30, rating: 3 } },
+        { teamNumber: 4321, matchNumber: 3, validity: "valid", rawMetrics: { auto: 30, cycle: 40, rating: 4 } },
+      ],
+      scoringComponents: [{ id: "auto" }, { id: "cycle" }],
+      scouterMetricDefinitions: [{ id: "auto" }, { id: "cycle" }, { id: "rating" }],
+      derivedMetricDefinitions: [{ id: "driverAvg", formula: "average", fields: ["rating"], unit: "rating" }],
+    },
+  );
+
+  assert.equal(overlay.sources.scouter.total, 50);
+  assert.equal(overlay.recentWindow.sources.scouter.total, 60);
+  assert.deepEqual(overlay.recentWindow.sources.scouter.trend, [50, 70]);
+  assert.equal(metricEngine.teamMetricValue(overlay, { kind: "source", sourceId: "scouter", componentId: "total" }, { window: "recent" }), 60);
+  assert.equal(metricEngine.teamMetricValue(overlay, { kind: "derived", componentId: "driverAvg" }, { window: "recent" }), 3.5);
+  assert.deepEqual(metricEngine.metricTrendValues(overlay, { kind: "source", sourceId: "scouter", componentId: "auto" }, { window: "recent" }), [20, 30]);
+});
+
+runTest("metricTrendValues returns direct and derived trends", () => {
+  const team = {
+    matches: [20, 40, 60],
+    sources: {
+      scouter: {
+        total: 40,
+        trend: [18, 42, 60],
+        components: { auto: 10 },
+        componentTrend: { auto: [4, 10, 16] },
+      },
+      epa: {
+        total: 50,
+        trend: [40, 50, 60],
+        components: { auto: 15 },
+      },
+    },
+    derived: { consistency: 80 },
+    derivedTrend: { consistency: [70, 80, 90] },
+  };
+
+  assert.deepEqual(
+    metricEngine.metricTrendValues(team, { kind: "source", sourceId: "scouter", componentId: "auto" }),
+    [4, 10, 16],
+  );
+
+  assert.deepEqual(
+    metricEngine.metricTrendValues(team, { kind: "source", sourceId: "epa", componentId: "auto" }),
+    [12, 15, 18],
+  );
+
+  assert.deepEqual(
+    metricEngine.metricTrendValues(team, { kind: "derived", componentId: "consistency" }),
+    [70, 80, 90],
+  );
+});
+
+runTest("buildTeamScoutingOverlay flags duplicates, breakdowns, and inconsistent trends", () => {
+  const overlay = metricEngine.buildTeamScoutingOverlay(
+    {
+      number: 2468,
+      flags: [],
+      matches: [80, 80, 80, 80],
+      sources: {},
+      derived: {},
+    },
+    {
+      submissions: [
+        {
+          teamNumber: 2468,
+          matchNumber: 1,
+          validity: "flagged",
+          defensePlayed: false,
+          robotStatus: "broken",
+          confidenceReasons: ["duplicate_submission"],
+          rawMetrics: { auto: 5, cycle: 50 },
+        },
+        {
+          teamNumber: 2468,
+          matchNumber: 2,
+          validity: "valid",
+          defensePlayed: false,
+          robotStatus: "ok",
+          confidenceReasons: [],
+          rawMetrics: { auto: 30, cycle: 80 },
+        },
+        {
+          teamNumber: 2468,
+          matchNumber: 3,
+          validity: "valid",
+          defensePlayed: false,
+          robotStatus: "disabled",
+          confidenceReasons: [],
+          rawMetrics: { auto: 0, cycle: 5 },
+        },
+        {
+          teamNumber: 2468,
+          matchNumber: 4,
+          validity: "valid",
+          defensePlayed: false,
+          robotStatus: "ok",
+          confidenceReasons: [],
+          rawMetrics: { auto: 55, cycle: 10 },
+        },
+      ],
+      scoringComponents: [{ id: "auto" }, { id: "cycle" }],
+      scouterMetricDefinitions: [{ id: "auto" }, { id: "cycle" }],
+      derivedMetricDefinitions: [],
+    },
+  );
+
+  assert.equal(overlay.scouting.confidence.tier, "low");
+  assert.ok(overlay.flags.some((flag) => flag.label === "Duplicates"));
+  assert.ok(overlay.flags.some((flag) => flag.label === "Breakdowns"));
+  assert.ok(overlay.flags.some((flag) => flag.label === "Inconsistent"));
+});
+
+runTest("buildTeamScoutingOverlay returns seeded confidence when no team submissions exist", () => {
+  const overlay = metricEngine.buildTeamScoutingOverlay(
+    {
+      number: 777,
+      flags: [{ type: "external", label: "Seeded", severity: "good", evidence: "Seed data exists." }],
+      matches: [10, 12],
+      sources: { epa: { total: 11 } },
+      derived: {},
+    },
+    {
+      submissions: [
+        {
+          teamNumber: 888,
+          matchNumber: 1,
+          validity: "valid",
+          defensePlayed: false,
+          confidenceReasons: [],
+          rawMetrics: { auto: 1 },
+        },
+      ],
+      scoringComponents: [{ id: "auto" }],
+      scouterMetricDefinitions: [{ id: "auto" }],
+      derivedMetricDefinitions: [],
+    },
+  );
+
+  assert.equal(overlay.scouting.submissionCount, 0);
+  assert.equal(overlay.scouting.importedMatches, 0);
+  assert.equal(overlay.scouting.confidence.tier, "medium");
+  assert.deepEqual(Array.from(overlay.scouting.confidence.reasons), ["no_scouting_data", "seeded_scouting"]);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(overlay.flags)),
+    [{ type: "external", label: "Seeded", severity: "good", evidence: "Seed data exists." }],
+  );
+});

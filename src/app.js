@@ -1,8 +1,22 @@
 const globalEventCatalog = globalThis.eventCatalog || [];
 const importFoundation = globalThis.ImportFoundation || {};
+const seasonFramework = globalThis.SeasonFramework || {};
+const metricEngine = globalThis.MetricEngine || {};
+const sheetImportAdapters = globalThis.SheetImportAdapters || {};
+const seededDerivedMetricConfig = globalThis.DerivedMetricConfig || { seasons: {}, profiles: {} };
 const commitScoutingImport = importFoundation.commitScoutingImport;
 const buildSampleCsv = importFoundation.buildSampleCsv;
 const previewScoutingImport = importFoundation.previewScoutingImport;
+const seasonBuildMetrics = seasonFramework.buildMetrics || ((eventModel) => eventModel?.metrics || []);
+const seasonScouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((eventModel) => eventModel?.scoringComponents || []);
+const seasonDerivedMetricDefinitions = seasonFramework.derivedMetricDefinitions || (() => []);
+const seasonMetricFieldId = seasonFramework.csvHeaderForMetric || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id));
+const sharedAdaptEventSheetCsv = sheetImportAdapters.adaptEventSheetCsv || ((eventModel, csvText) => csvText);
+const buildTeamScoutingOverlay = metricEngine.buildTeamScoutingOverlay;
+const engineMetricTrendValues = metricEngine.metricTrendValues;
+const engineTeamMetricValue = metricEngine.teamMetricValue;
+const aggregateSubmissionMatches = metricEngine.aggregateSubmissionMatches;
+const evaluateDerivedMetricDefinition = metricEngine.evaluateDerivedMetricDefinition;
 
 const storageKeys = {
   user: "frc-scouting-user",
@@ -27,9 +41,12 @@ const storageKeys = {
   scoutingSubmissions: "frc-scouting-submissions",
   activityLog: "frc-scouting-activity-log",
   importSourceUrl: "frc-scouting-import-source-url",
+  scoutingWindow: "frc-scouting-window",
+  recentMatchCount: "frc-scouting-recent-match-count",
+  customDerivedMetricConfig: "frc-scouting-custom-derived-metric-config",
 };
 
-const globalStorageKeys = new Set([storageKeys.user, storageKeys.users, storageKeys.theme, storageKeys.activeEvent, storageKeys.menuExpanded]);
+const globalStorageKeys = new Set([storageKeys.user, storageKeys.users, storageKeys.theme, storageKeys.activeEvent, storageKeys.menuExpanded, storageKeys.customDerivedMetricConfig]);
 const seedUsers = ["Avery", "Jordan", "Morgan"];
 const adminUsers = ["Avery"];
 const importProfileOptions = [
@@ -45,6 +62,7 @@ const navItems = [
   { view: "matchup", label: "Matchup", icon: "matchup" },
   { view: "quality", label: "Data Quality", icon: "quality" },
   { view: "analysis", label: "Analysis", icon: "analysis" },
+  { view: "derivedBuilder", label: "Derived Builder", icon: "analysis" },
   { view: "sortBuilder", label: "Sort Builder", icon: "sortEquation" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
   { view: "alliance", label: "Alliance Selection", icon: "alliance" },
@@ -100,6 +118,15 @@ const state = {
   importSelectedProfileId: "",
   importSourceUrl: initialEvent.sheet?.url || "",
   importResult: null,
+  scoutingWindow: readStoredItem(storageKeys.scoutingWindow) || "all",
+  recentMatchCount: Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount) || 4)),
+  customDerivedMetricConfig: normalizeCustomDerivedMetricConfig(readStoredJson(storageKeys.customDerivedMetricConfig, seededDerivedMetricConfig)),
+  derivedMetricDraft: createDerivedMetricDraft(initialEvent),
+  derivedMetricPreviewTeam: initialEvent.teams[0].number,
+  derivedMetricEditingKey: "",
+  derivedMetricConfigEditorText: JSON.stringify(normalizeCustomDerivedMetricConfig(readStoredJson(storageKeys.customDerivedMetricConfig, seededDerivedMetricConfig)), null, 2),
+  derivedMetricConfigStatus: "",
+  derivedMetricConfigIssues: [],
   viewHistory: [],
 };
 globalThis.__scoutingActiveEventKey = state.activeEventKey;
@@ -136,11 +163,39 @@ function currentMatches() {
 }
 
 function currentMetrics() {
-  return currentEvent().metrics;
+  return seasonBuildMetrics({
+    ...currentEvent(),
+    derivedMetricDefinitions: currentDerivedMetricDefinitions(),
+  });
 }
 
 function currentDataSources() {
   return currentEvent().dataSources;
+}
+
+function currentScouterMetricDefinitions(eventModel = currentEvent()) {
+  return seasonScouterMetricDefinitions(eventModel);
+}
+
+function currentProfileMetricScopeKey(eventModel = currentEvent()) {
+  return eventModel.sheet?.recommendedProfileId || "match-current-v2";
+}
+
+function currentCustomDerivedMetricDefinitions(eventModel = currentEvent()) {
+  const seasonKey = String(eventModel.season);
+  const profileKey = currentProfileMetricScopeKey(eventModel);
+  return [
+    ...(state.customDerivedMetricConfig?.seasons?.[seasonKey] || []),
+    ...(state.customDerivedMetricConfig?.profiles?.[profileKey] || []),
+  ];
+}
+
+function currentDerivedMetricDefinitions(eventModel = currentEvent()) {
+  return [...seasonDerivedMetricDefinitions(eventModel), ...currentCustomDerivedMetricDefinitions(eventModel)];
+}
+
+function scouterMetricFieldId(metricDefinition) {
+  return seasonMetricFieldId(metricDefinition);
 }
 
 function defaultScopedEventKey(eventKey) {
@@ -219,6 +274,9 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions), JSON.stringify(state.scoutingSubmissions));
   localStorage.setItem(eventStorageKey(storageKeys.activityLog), JSON.stringify(state.activityLog));
   localStorage.setItem(eventStorageKey(storageKeys.importSourceUrl), state.importSourceUrl);
+  localStorage.setItem(eventStorageKey(storageKeys.scoutingWindow), state.scoutingWindow);
+  localStorage.setItem(eventStorageKey(storageKeys.recentMatchCount), String(state.recentMatchCount));
+  localStorage.setItem(eventStorageKey(storageKeys.customDerivedMetricConfig), JSON.stringify(state.customDerivedMetricConfig));
 }
 
 function readStoredScoutingSubmissions(eventKey, eventModel = currentEvent()) {
@@ -267,13 +325,278 @@ function hydrateEventState(eventKey) {
   state.scoutingSubmissions = normalizeScoutingSubmissions(readStoredScoutingSubmissions(eventKey, eventModel), eventModel);
   state.activityLog = normalizeActivityLog(readStoredJson(storageKeys.activityLog, [], eventKey));
   state.importSourceUrl = readStoredItem(storageKeys.importSourceUrl, eventKey) || eventModel.sheet?.url || "";
+  state.scoutingWindow = readStoredItem(storageKeys.scoutingWindow, eventKey) || "all";
+  state.recentMatchCount = Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount, eventKey) || state.recentMatchCount || 4));
+  state.derivedMetricDraft.seasonKey = String(eventModel.season);
+  state.derivedMetricDraft.profileKey = currentProfileMetricScopeKey(eventModel);
   if (!state.loadedSources.length && state.picklists.length) state.loadedSources = [`picklist:${state.picklists[0].id}`];
   state.selectedTeam = teamByNumber(state.selectedTeam)?.number || eventModel.teams[0].number;
   state.selectedMatch = currentMatches().some((match) => match.number === state.selectedMatch) ? state.selectedMatch : eventModel.matches[0].number;
+  state.derivedMetricPreviewTeam = teamByNumber(state.derivedMetricPreviewTeam)?.number || eventModel.teams[0].number;
   state.contextMenu = null;
   state.inlineRename = null;
   state.picklistSelectedTeam = null;
   state.importResult = null;
+}
+
+function createDerivedMetricDraft(eventModel = currentEvent()) {
+  return {
+    scopeType: "season",
+    id: "",
+    label: "",
+    unit: "pts",
+    template: "sum",
+    fields: [],
+    madeFields: [],
+    missedFields: [],
+    numeratorFields: [],
+    denominatorFields: [],
+    denominatorMode: "match_count",
+    presenceFields: [],
+    seasonKey: String(eventModel.season),
+    profileKey: currentProfileMetricScopeKey(eventModel),
+  };
+}
+
+const derivedMetricPresets = [
+  { id: "blank", label: "Blank Draft", template: "sum", unit: "pts", seedId: "", seedLabel: "" },
+  { id: "sum", label: "Scoring Sum", template: "sum", unit: "pts", seedId: "newScoringSum", seedLabel: "New Scoring Sum" },
+  { id: "accuracy", label: "Accuracy (%)", template: "rate", unit: "%", seedId: "newAccuracy", seedLabel: "New Accuracy" },
+  { id: "average_per_match", label: "Average Per Match", template: "average_per_match", unit: "pts", seedId: "newAveragePerMatch", seedLabel: "New Average Per Match" },
+  { id: "average_present", label: "Average When Present", template: "average_present", unit: "pts", seedId: "newAverageWhenPresent", seedLabel: "New Average When Present" },
+  { id: "attempt_average", label: "Average Per Attempt", template: "attempt_average", unit: "pts", seedId: "newAveragePerAttempt", seedLabel: "New Average Per Attempt" },
+];
+
+function normalizeCustomDerivedMetricDefinition(definition) {
+  if (!definition || typeof definition !== "object" || !definition.id || !definition.label) return null;
+  return {
+    id: String(definition.id).trim(),
+    label: String(definition.label).trim(),
+    unit: String(definition.unit || "pts").trim(),
+    formula: String(definition.formula || "sum").trim(),
+    fields: Array.isArray(definition.fields) ? [...new Set(definition.fields.map(String).filter(Boolean))] : [],
+    madeFields: Array.isArray(definition.madeFields) ? [...new Set(definition.madeFields.map(String).filter(Boolean))] : [],
+    missFields: Array.isArray(definition.missFields) ? [...new Set(definition.missFields.map(String).filter(Boolean))] : [],
+    numeratorFields: Array.isArray(definition.numeratorFields) ? [...new Set(definition.numeratorFields.map(String).filter(Boolean))] : [],
+    denominatorFields: Array.isArray(definition.denominatorFields) ? [...new Set(definition.denominatorFields.map(String).filter(Boolean))] : [],
+    denominatorMode: String(definition.denominatorMode || "match_count").trim(),
+    presenceFields: Array.isArray(definition.presenceFields) ? [...new Set(definition.presenceFields.map(String).filter(Boolean))] : [],
+    source: "builder",
+  };
+}
+
+function normalizeCustomDerivedMetricConfig(config) {
+  const normalized = { seasons: {}, profiles: {} };
+  ["seasons", "profiles"].forEach((scopeType) => {
+    const source = config?.[scopeType];
+    if (!source || typeof source !== "object") return;
+    Object.entries(source).forEach(([scopeKey, definitions]) => {
+      const normalizedDefinitions = (definitions || []).map(normalizeCustomDerivedMetricDefinition).filter(Boolean);
+      if (normalizedDefinitions.length) normalized[scopeType][String(scopeKey)] = normalizedDefinitions;
+    });
+  });
+  return normalized;
+}
+
+function knownScouterFieldIds() {
+  return new Set(
+    globalEventCatalog.flatMap((eventModel) => currentScouterMetricDefinitions(eventModel).map((metricDefinition) => metricDefinition.id)),
+  );
+}
+
+function reservedMetricIds() {
+  return new Set(globalEventCatalog.flatMap((eventModel) => (eventModel.metrics || []).map((metric) => metric.id)));
+}
+
+function validateCustomDerivedMetricDefinition(definition, options = {}) {
+  const errors = [];
+  if (!definition?.id) errors.push("Metric ID is required.");
+  if (!definition?.label) errors.push("Metric label is required.");
+  const formula = String(definition?.formula || "");
+  const allowedFormulas = new Set(["sum", "rate", "ratio"]);
+  if (!allowedFormulas.has(formula)) errors.push(`Unsupported formula "${formula || "unknown"}".`);
+
+  const knownFields = options.knownFields || knownScouterFieldIds();
+  const requireFields = (label, fields) => {
+    if (!Array.isArray(fields) || !fields.length) {
+      errors.push(`${label} must include at least one field.`);
+      return;
+    }
+    fields.forEach((fieldId) => {
+      if (!knownFields.has(fieldId)) errors.push(`${label} references unknown field "${fieldId}".`);
+    });
+  };
+
+  if (formula === "sum") requireFields("Sum fields", definition.fields);
+  if (formula === "rate") {
+    requireFields("Made fields", definition.madeFields);
+    requireFields("Missed fields", definition.missFields);
+  }
+  if (formula === "ratio") {
+    requireFields("Numerator fields", definition.numeratorFields);
+    const denominatorMode = String(definition.denominatorMode || "match_count");
+    if (!["match_count", "attempt_sum", "nonzero_numerator_matches"].includes(denominatorMode)) {
+      errors.push(`Unsupported denominator mode "${denominatorMode}".`);
+    }
+    if (denominatorMode === "attempt_sum") requireFields("Denominator fields", definition.denominatorFields);
+    if (denominatorMode === "nonzero_numerator_matches" && Array.isArray(definition.presenceFields) && definition.presenceFields.length) {
+      definition.presenceFields.forEach((fieldId) => {
+        if (!knownFields.has(fieldId)) errors.push(`Presence fields reference unknown field "${fieldId}".`);
+      });
+    }
+  }
+
+  const reservedIds = options.reservedIds || reservedMetricIds();
+  if (definition?.id && reservedIds.has(definition.id)) errors.push(`Metric ID "${definition.id}" conflicts with a built-in metric.`);
+  return errors;
+}
+
+function validateCustomDerivedMetricConfig(config) {
+  const normalized = normalizeCustomDerivedMetricConfig(config);
+  const errors = [];
+  const knownFields = knownScouterFieldIds();
+  const reservedIds = reservedMetricIds();
+
+  ["seasons", "profiles"].forEach((scopeType) => {
+    Object.entries(normalized[scopeType] || {}).forEach(([scopeKey, definitions]) => {
+      const seenIds = new Set();
+      definitions.forEach((definition) => {
+        validateCustomDerivedMetricDefinition(definition, { knownFields, reservedIds }).forEach((error) => {
+          errors.push(`${scopeType}.${scopeKey}.${definition.id || "unknown"}: ${error}`);
+        });
+        if (seenIds.has(definition.id)) {
+          errors.push(`${scopeType}.${scopeKey}.${definition.id}: Duplicate metric ID within this scope.`);
+        }
+        seenIds.add(definition.id);
+      });
+    });
+  });
+
+  return { normalized, errors };
+}
+
+function derivedMetricConfigScopeDefinitions(scopeType, scopeKey) {
+  const bucket = scopeType === "profile" ? state.customDerivedMetricConfig.profiles : state.customDerivedMetricConfig.seasons;
+  return bucket[String(scopeKey)] || [];
+}
+
+function metricDefinitionFromDraft(draft = state.derivedMetricDraft) {
+  const id = String(draft.id || "").trim();
+  const label = String(draft.label || "").trim();
+  if (!id || !label) return null;
+  if (draft.template === "sum") {
+    return normalizeCustomDerivedMetricDefinition({ id, label, unit: draft.unit, formula: "sum", fields: draft.fields });
+  }
+  if (draft.template === "rate") {
+    return normalizeCustomDerivedMetricDefinition({ id, label, unit: "%", formula: "rate", madeFields: draft.madeFields, missFields: draft.missedFields });
+  }
+  if (draft.template === "average_per_match") {
+    return normalizeCustomDerivedMetricDefinition({
+      id,
+      label,
+      unit: draft.unit,
+      formula: "ratio",
+      numeratorFields: draft.numeratorFields,
+      denominatorMode: "match_count",
+    });
+  }
+  if (draft.template === "average_present") {
+    return normalizeCustomDerivedMetricDefinition({
+      id,
+      label,
+      unit: draft.unit,
+      formula: "ratio",
+      numeratorFields: draft.numeratorFields,
+      denominatorMode: "nonzero_numerator_matches",
+      presenceFields: draft.presenceFields.length ? draft.presenceFields : draft.numeratorFields,
+    });
+  }
+  return normalizeCustomDerivedMetricDefinition({
+    id,
+    label,
+    unit: draft.unit,
+    formula: "ratio",
+    numeratorFields: draft.numeratorFields,
+    denominatorMode: "attempt_sum",
+    denominatorFields: draft.denominatorFields,
+  });
+}
+
+function derivedMetricScopeKeyFromDraft(draft = state.derivedMetricDraft) {
+  return draft.scopeType === "profile" ? draft.profileKey : draft.seasonKey;
+}
+
+function derivedMetricEditingRecord() {
+  if (!state.derivedMetricEditingKey) return null;
+  const [scopeType, scopeKey, metricId] = String(state.derivedMetricEditingKey).split(":");
+  const definition = derivedMetricConfigScopeDefinitions(scopeType, scopeKey).find((item) => item.id === metricId);
+  return definition ? { scopeType, scopeKey, definition } : null;
+}
+
+function setDerivedMetricDraftFromDefinition(scopeType, scopeKey, definition) {
+  const draft = createDerivedMetricDraft(currentEvent());
+  draft.scopeType = scopeType;
+  if (scopeType === "profile") draft.profileKey = scopeKey;
+  else draft.seasonKey = scopeKey;
+  draft.id = definition.id;
+  draft.label = definition.label;
+  draft.unit = definition.unit;
+  if (definition.formula === "sum") {
+    draft.template = "sum";
+    draft.fields = [...(definition.fields || [])];
+  } else if (definition.formula === "rate") {
+    draft.template = "rate";
+    draft.madeFields = [...(definition.madeFields || [])];
+    draft.missedFields = [...(definition.missFields || [])];
+    draft.unit = "%";
+  } else if (definition.formula === "ratio" && definition.denominatorMode === "attempt_sum") {
+    draft.template = "attempt_average";
+    draft.numeratorFields = [...(definition.numeratorFields || [])];
+    draft.denominatorFields = [...(definition.denominatorFields || [])];
+  } else if (definition.formula === "ratio" && definition.denominatorMode === "nonzero_numerator_matches") {
+    draft.template = "average_present";
+    draft.numeratorFields = [...(definition.numeratorFields || [])];
+    draft.presenceFields = [...(definition.presenceFields || [])];
+  } else {
+    draft.template = "average_per_match";
+    draft.numeratorFields = [...(definition.numeratorFields || definition.fields || [])];
+  }
+  state.derivedMetricDraft = draft;
+}
+
+function applyDerivedMetricPreset(presetId) {
+  const preset = derivedMetricPresets.find((item) => item.id === presetId);
+  if (!preset) return;
+  const nextDraft = createDerivedMetricDraft(currentEvent());
+  nextDraft.scopeType = state.derivedMetricDraft.scopeType;
+  nextDraft.seasonKey = state.derivedMetricDraft.seasonKey;
+  nextDraft.profileKey = state.derivedMetricDraft.profileKey;
+  nextDraft.template = preset.template;
+  nextDraft.unit = preset.unit;
+  nextDraft.id = preset.seedId;
+  nextDraft.label = preset.seedLabel;
+  let presetStatus = `Preset loaded: ${preset.label}.`;
+  if (preset.id === "accuracy") {
+    const fieldOptions = derivedMetricFieldOptions().map((field) => field.id);
+    const fieldSet = new Set(fieldOptions);
+    const suggestedPairs = fieldOptions
+      .filter((fieldId) => fieldId.endsWith("Made"))
+      .map((madeField) => {
+        const missedField = `${madeField.slice(0, -4)}Missed`;
+        return fieldSet.has(missedField) ? { madeField, missedField } : null;
+      })
+      .filter(Boolean);
+    nextDraft.madeFields = suggestedPairs.map((pair) => pair.madeField);
+    nextDraft.missedFields = suggestedPairs.map((pair) => pair.missedField);
+    presetStatus = suggestedPairs.length
+      ? `Preset loaded: ${preset.label}. Suggested ${suggestedPairs.length} made/missed field pairs.`
+      : `Preset loaded: ${preset.label}. No made/missed field pairs were found for this event.`;
+  }
+  state.derivedMetricEditingKey = "";
+  state.derivedMetricDraft = nextDraft;
+  state.derivedMetricConfigStatus = presetStatus;
+  state.derivedMetricConfigIssues = [];
+  render();
 }
 
 function normalizeView(view) {
@@ -526,7 +849,7 @@ function colorForScore(score, min, max) {
 }
 
 function average(values) {
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 }
 
 function quantile(values, q) {
@@ -545,21 +868,22 @@ function metricById(id) {
 function canonicalizeRawMetrics(rawMetrics, eventModel = currentEvent()) {
   if (!rawMetrics || typeof rawMetrics !== "object") return {};
   const aliases = new Map();
-  eventModel.scoringComponents.forEach((component) => {
-    const normalizedId = normalizeImportToken(component.id);
-    const normalizedLabel = normalizeImportToken(component.label || component.id);
+  currentScouterMetricDefinitions(eventModel).forEach((metricDefinition) => {
+    const normalizedId = normalizeImportToken(metricDefinition.id);
+    const normalizedLabel = normalizeImportToken(metricDefinition.label || metricDefinition.id);
     [
-      component.id,
+      metricDefinition.id,
       normalizedId,
-      `${component.id}Pts`,
-      `${component.label} Score`,
-      `${component.label} pts`,
-      `${component.id} score`,
+      scouterMetricFieldId(metricDefinition),
+      `${metricDefinition.label} Score`,
+      `${metricDefinition.label} pts`,
+      `${metricDefinition.id} score`,
       `${normalizedId}pts`,
       `${normalizedId}score`,
       `${normalizedLabel}pts`,
       `${normalizedLabel}score`,
-    ].forEach((alias) => aliases.set(normalizeImportToken(alias), component.id));
+      ...(Array.isArray(metricDefinition.aliases) ? metricDefinition.aliases : []),
+    ].forEach((alias) => aliases.set(normalizeImportToken(alias), metricDefinition.id));
   });
 
   return Object.entries(rawMetrics).reduce((next, [key, value]) => {
@@ -777,156 +1101,149 @@ function usableSubmission(submission) {
   return submission.validity !== "excluded";
 }
 
-function aggregateSubmissionMatches(submissions) {
-  const componentIds = currentEvent().scoringComponents.map((component) => component.id);
-  return submissions
-    .filter(usableSubmission)
-    .map((submission, index) => {
-      const components = Object.fromEntries(
-        componentIds.map((componentId) => {
-          const value = submission.rawMetrics?.[componentId];
-          return [componentId, Number.isFinite(Number(value)) ? Number(value) : 0];
-        }),
-      );
-      return {
-        matchNumber: Number(submission.matchNumber),
-        submissions: [submission],
-        total: roundValue(Object.values(components).reduce((sum, value) => sum + value, 0)),
-        components,
-        order: index,
-      };
-    })
-    .sort((left, right) => left.matchNumber - right.matchNumber || left.order - right.order)
-    .map(({ order, ...entry }) => entry);
-}
-
-function standardDeviation(values) {
-  if (!values.length) return 0;
-  const mean = average(values);
-  return Math.sqrt(average(values.map((value) => (value - mean) ** 2)));
-}
-
-function scoutingFlagsForTeam(baseTeam, submissions, importedMatchCount, consistency) {
-  const flags = [...baseTeam.flags];
-  const duplicateCount = submissions.filter((submission) => submission.confidenceReasons?.includes("duplicate_submission")).length;
-  const flaggedCount = submissions.filter((submission) => submission.validity === "flagged").length;
-  const brokenCount = submissions.filter((submission) => /broken|dead|disabled/i.test(submission.robotStatus || "")).length;
-
-  if (importedMatchCount && importedMatchCount < 4) {
-    flags.push({
-      type: "data_suspect",
-      label: "Sparse",
-      severity: "warn",
-      evidence: `Only ${importedMatchCount} imported matches are currently available.`,
-    });
-  }
-  if (duplicateCount) {
-    flags.push({
-      type: "data_suspect",
-      label: "Duplicates",
-      severity: "warn",
-      evidence: `${duplicateCount} duplicate scouting submission${duplicateCount === 1 ? "" : "s"} flagged for this team.`,
-    });
-  }
-  if (flaggedCount && !duplicateCount) {
-    flags.push({
-      type: "data_suspect",
-      label: "Flagged",
-      severity: "warn",
-      evidence: `${flaggedCount} imported scouting row${flaggedCount === 1 ? "" : "s"} need admin review.`,
-    });
-  }
-  if (brokenCount) {
-    flags.push({
-      type: "broken",
-      label: "Breakdowns",
-      severity: "danger",
-      evidence: `Robot status was marked broken, dead, or disabled in ${brokenCount} imported submission${brokenCount === 1 ? "" : "s"}.`,
-    });
-  }
-  if (importedMatchCount >= 3 && consistency < 70) {
-    flags.push({
-      type: "inconsistent",
-      label: "Inconsistent",
-      severity: "warn",
-      evidence: "Imported scouting totals show large match-to-match variance.",
-    });
-  }
-
-  return flags.filter((flag, index, array) => array.findIndex((item) => item.type === flag.type && item.label === flag.label) === index);
-}
-
 function overlayTeamWithScouting(baseTeam) {
-  const submissions = currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === baseTeam.number);
-  const aggregatedMatches = aggregateSubmissionMatches(submissions);
-  const uniqueImportedMatches = new Set(aggregatedMatches.map((match) => match.matchNumber)).size;
-  if (!aggregatedMatches.length) {
-    return {
-      ...baseTeam,
-      scouting: {
-        submissionCount: 0,
-        importedMatches: 0,
-        flaggedCount: 0,
-        confidence: { tier: "medium", reasons: ["no_scouting_data", "seeded_scouting"] },
-      },
-    };
-  }
+  if (!buildTeamScoutingOverlay) return baseTeam;
+  return buildTeamScoutingOverlay(baseTeam, {
+    submissions: currentScoutingSubmissions(),
+    scoringComponents: currentEvent().scoringComponents,
+    scouterMetricDefinitions: currentScouterMetricDefinitions(),
+    derivedMetricDefinitions: currentDerivedMetricDefinitions(),
+    recentMatchCount: state.recentMatchCount,
+  });
+}
 
-  const totalsTrend = aggregatedMatches.map((match) => match.total);
-  const scouterTotal = roundValue(average(totalsTrend));
-  const componentIds = currentEvent().scoringComponents.map((component) => component.id);
-  const scouterComponents = Object.fromEntries(
-    componentIds.map((componentId) => [
-      componentId,
-      roundValue(average(aggregatedMatches.map((match) => Number(match.components[componentId] || 0)))),
+function currentScoutingWindow() {
+  return state.scoutingWindow === "recent" ? "recent" : "all";
+}
+
+function currentRecentMatchCount() {
+  return Math.max(1, Number(state.recentMatchCount) || 4);
+}
+
+function scoutingWindowLabel() {
+  return currentScoutingWindow() === "recent" ? `Recent ${currentRecentMatchCount()}` : "All Matches";
+}
+
+function derivedMetricFieldOptions() {
+  return currentScouterMetricDefinitions().map((metricDefinition) => ({
+    id: metricDefinition.id,
+    label: metricDefinition.label,
+    unit: metricDefinition.unit,
+  }));
+}
+
+function derivedMetricScopeSummary() {
+  return {
+    seasonKey: String(currentEvent().season),
+    profileKey: currentProfileMetricScopeKey(),
+    seasonDefinitions: derivedMetricConfigScopeDefinitions("season", String(currentEvent().season)),
+    profileDefinitions: derivedMetricConfigScopeDefinitions("profile", currentProfileMetricScopeKey()),
+  };
+}
+
+function derivedMetricPreviewValue(definition, team, window = "all") {
+  if (!definition || !team || !aggregateSubmissionMatches || !evaluateDerivedMetricDefinition) return 0;
+  const aggregatedMatches = aggregateSubmissionMatches(
+    currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === team.number),
+    {
+      scoringComponentIds: currentEvent().scoringComponents.map((component) => component.id),
+      scouterMetricIds: currentScouterMetricDefinitions().map((metricDefinition) => metricDefinition.id),
+    },
+  );
+  const scopedMatches = window === "recent" ? metricEngine.sliceRecentMatches(aggregatedMatches, currentRecentMatchCount()) : aggregatedMatches;
+  const preciseScouterComponents = Object.fromEntries(
+    currentScouterMetricDefinitions().map((metricDefinition) => [
+      metricDefinition.id,
+      average(scopedMatches.map((match) => Number(match.components?.[metricDefinition.id] || 0))),
     ]),
   );
-  const scouterTrendByComponent = Object.fromEntries(
-    componentIds.map((componentId) => [componentId, aggregatedMatches.map((match) => Number(match.components[componentId] || 0))]),
-  );
-  const mean = average(totalsTrend) || 1;
-  const consistency = clamp(Math.round(100 - (standardDeviation(totalsTrend) / mean) * 100), 25, 99);
-  const defenseRate = submissions.filter((submission) => usableSubmission(submission) && submission.defensePlayed).length / Math.max(1, submissions.filter(usableSubmission).length);
-  const defenseImpact = roundValue(defenseRate * Math.max(1, scouterTotal * 0.25));
-  const flags = scoutingFlagsForTeam(baseTeam, submissions, uniqueImportedMatches, consistency);
-  const scoutingReasons = uniqueValues([
-    ...(uniqueImportedMatches < 4 ? ["sparse_matches"] : []),
-    ...submissions.flatMap((submission) => submission.confidenceReasons || []),
-  ]);
-  const scoutingConfidenceTier = scoutingReasons.includes("schema_gap") || scoutingReasons.includes("duplicate_submission")
-    ? "low"
-    : scoutingReasons.length
-      ? "medium"
-      : "high";
+  return evaluateDerivedMetricDefinition(definition, preciseScouterComponents, { aggregatedMatches: scopedMatches });
+}
 
-  return {
-    ...baseTeam,
-    flags,
-    matches: totalsTrend,
-    sources: {
-      ...baseTeam.sources,
-      scouter: {
-        total: scouterTotal,
-        components: scouterComponents,
-        trend: totalsTrend,
-        componentTrend: scouterTrendByComponent,
-      },
-    },
-    derived: {
-      ...baseTeam.derived,
-      defenseImpact,
-      consistency,
-    },
-    scouting: {
-      submissionCount: submissions.length,
-      importedMatches: uniqueImportedMatches,
-      flaggedCount: submissions.filter((submission) => submission.validity === "flagged").length,
-      confidence: {
-        tier: scoutingConfidenceTier,
-        reasons: scoutingReasons,
-      },
-    },
-  };
+function selectedValues(select) {
+  return Array.from(select?.selectedOptions || []).map((option) => option.value).filter(Boolean);
+}
+
+function derivedMetricConfigJson() {
+  return JSON.stringify(state.customDerivedMetricConfig, null, 2);
+}
+
+function syncDerivedMetricConfigEditor(status = "") {
+  state.derivedMetricConfigEditorText = derivedMetricConfigJson();
+  state.derivedMetricConfigStatus = status;
+  state.derivedMetricConfigIssues = [];
+}
+
+function updateDerivedMetricConfig(scopeType, scopeKey, nextDefinitions) {
+  const bucketKey = scopeType === "profile" ? "profiles" : "seasons";
+  const nextConfig = normalizeCustomDerivedMetricConfig(state.customDerivedMetricConfig);
+  if (nextDefinitions.length) nextConfig[bucketKey][String(scopeKey)] = nextDefinitions.map(normalizeCustomDerivedMetricDefinition).filter(Boolean);
+  else delete nextConfig[bucketKey][String(scopeKey)];
+  state.customDerivedMetricConfig = nextConfig;
+}
+
+function applyDerivedMetricConfigText(rawText) {
+  try {
+    const parsed = JSON.parse(rawText);
+    const { normalized, errors } = validateCustomDerivedMetricConfig(parsed);
+    if (errors.length) {
+      state.derivedMetricConfigStatus = "Config has validation issues.";
+      state.derivedMetricConfigIssues = errors;
+      render();
+      return;
+    }
+    state.customDerivedMetricConfig = normalized;
+    syncDerivedMetricConfigEditor("Config applied.");
+    state.derivedMetricEditingKey = "";
+    state.derivedMetricDraft = createDerivedMetricDraft(currentEvent());
+    saveState();
+    render();
+  } catch {
+    state.derivedMetricConfigStatus = "Config JSON is invalid.";
+    state.derivedMetricConfigIssues = [];
+    render();
+  }
+}
+
+function saveDerivedMetricDraft() {
+  const definition = metricDefinitionFromDraft();
+  if (!definition) return;
+  const validationErrors = validateCustomDerivedMetricDefinition(definition);
+  if (validationErrors.length) {
+    state.derivedMetricConfigStatus = "Metric has validation issues.";
+    state.derivedMetricConfigIssues = validationErrors;
+    render();
+    return;
+  }
+  const scopeType = state.derivedMetricDraft.scopeType;
+  const scopeKey = derivedMetricScopeKeyFromDraft();
+  const existing = derivedMetricConfigScopeDefinitions(scopeType, scopeKey).filter((item) => item.id !== definition.id);
+  if (existing.some((item) => item.id === definition.id)) {
+    state.derivedMetricConfigStatus = `Metric ID "${definition.id}" is duplicated in this scope.`;
+    state.derivedMetricConfigIssues = [`Metric ID "${definition.id}" is duplicated in this scope.`];
+    render();
+    return;
+  }
+  updateDerivedMetricConfig(scopeType, scopeKey, [...existing, definition].sort((left, right) => left.label.localeCompare(right.label)));
+  state.derivedMetricEditingKey = `${scopeType}:${scopeKey}:${definition.id}`;
+  syncDerivedMetricConfigEditor("Metric saved.");
+  saveState();
+  render();
+}
+
+function deleteDerivedMetricDraft() {
+  const editingRecord = derivedMetricEditingRecord();
+  if (!editingRecord) return;
+  updateDerivedMetricConfig(
+    editingRecord.scopeType,
+    editingRecord.scopeKey,
+    derivedMetricConfigScopeDefinitions(editingRecord.scopeType, editingRecord.scopeKey).filter((item) => item.id !== editingRecord.definition.id),
+  );
+  state.derivedMetricEditingKey = "";
+  state.derivedMetricDraft = createDerivedMetricDraft(currentEvent());
+  syncDerivedMetricConfigEditor("Metric deleted.");
+  saveState();
+  render();
 }
 
 function confidenceRank(tier) {
@@ -1062,7 +1379,7 @@ function loadEventSheetSample() {
   const event = currentEvent();
   const sampleCsvText = event.sheet?.sampleCsvText;
   if (!sampleCsvText) return;
-  loadPreparedScoutingCsv(adaptEventSheetCsv(event, sampleCsvText), "");
+  loadPreparedScoutingCsv(sharedAdaptEventSheetCsv(event, sampleCsvText), "");
 }
 
 async function loadScoutingData() {
@@ -1088,7 +1405,7 @@ async function loadScoutingData() {
     const response = await fetch(sheetInfo.csvUrl);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const csvText = await response.text();
-    loadPreparedScoutingCsv(adaptEventSheetCsv(event, csvText), "");
+    loadPreparedScoutingCsv(sharedAdaptEventSheetCsv(event, csvText), "");
   } catch (error) {
     setImportError(`Unable to load scouting data from that sheet right now. ${error?.message || "Try the event's cached sheet or paste CSV manually."}`);
   }
@@ -1163,6 +1480,26 @@ function categoricalScore(value, mapping = {}) {
   return mapping[normalized] ?? 0;
 }
 
+function leadingNumericValue(value) {
+  const match = String(value || "").match(/-?\d+(\.\d+)?/);
+  return match ? Number(match[0]) : 0;
+}
+
+function defenseEffectivenessScore(value) {
+  return categoricalScore(value, {
+    none: 0,
+    na: 0,
+    n: 0,
+    noteffective: 1,
+    somewhateffective: 2,
+    effective: 3,
+    significantlyeffective: 4,
+    light: 1,
+    moderate: 2,
+    heavy: 3,
+  });
+}
+
 function eventSheetHeaderMap(headers) {
   const map = new Map();
   headers.forEach((header, index) => map.set(header, index));
@@ -1177,6 +1514,7 @@ function eventSheetCell(row, headerIndex, header) {
 function buildCanonicalImportCsv(eventModel, records) {
   const metadataRow = ["meta", "season", "eventKey", "schemaVersion", "templateProfileId"];
   const valueRow = ["value", eventModel.season, eventModel.key, "match-v2", "match-current-v2"];
+  const metricDefinitions = currentScouterMetricDefinitions(eventModel);
   const headerRow = [
     "matchNumber",
     "teamNumber",
@@ -1186,7 +1524,7 @@ function buildCanonicalImportCsv(eventModel, records) {
     "defensePlayed",
     "robotStatus",
     "notes",
-    ...eventModel.scoringComponents.map((component) => `${component.id}Pts`),
+    ...metricDefinitions.map((metricDefinition) => scouterMetricFieldId(metricDefinition)),
   ];
   const dataRows = records.map((record) => [
     record.matchNumber,
@@ -1197,7 +1535,7 @@ function buildCanonicalImportCsv(eventModel, records) {
     record.defensePlayed ? "yes" : "no",
     record.robotStatus,
     record.notes,
-    ...eventModel.scoringComponents.map((component) => record.metrics[component.id] ?? 0),
+    ...metricDefinitions.map((metricDefinition) => record.metrics[metricDefinition.id] ?? 0),
   ]);
   return toCsvText([metadataRow, valueRow, [], headerRow, ...dataRows]);
 }
@@ -1263,6 +1601,38 @@ function adapt2025SheetCsv(eventModel, csvText) {
         coral: coralPoints,
         algae: algaePoints,
         climb: climbPoints,
+        autoL4Made: reefscape2025Count(row, headerIndex, "Auto-L4Make"),
+        autoL4Missed: reefscape2025Count(row, headerIndex, "Auto-L4Miss"),
+        autoL3Made: reefscape2025Count(row, headerIndex, "Auto-L3Make"),
+        autoL3Missed: reefscape2025Count(row, headerIndex, "Auto-L3Miss"),
+        autoL2Made: reefscape2025Count(row, headerIndex, "Auto-L2Make"),
+        autoL2Missed: reefscape2025Count(row, headerIndex, "Auto-L2Miss"),
+        autoTroughMade: reefscape2025Count(row, headerIndex, "Auto-TroughMake"),
+        autoTroughMissed: reefscape2025Count(row, headerIndex, "Auto-TroughMiss"),
+        autoRemovedAlgaeMade: reefscape2025Count(row, headerIndex, "Auto-RemovedAlgaeMake"),
+        autoRemovedAlgaeMissed: reefscape2025Count(row, headerIndex, "Auto-RemovedAlgaeMiss"),
+        autoProcessorMade: reefscape2025Count(row, headerIndex, "Auto-ScoredProcessorMake"),
+        autoProcessorMissed: reefscape2025Count(row, headerIndex, "Auto-ScoredProcessorMiss"),
+        autoBargeMade: reefscape2025Count(row, headerIndex, "Auto-ScoredBargeMake"),
+        autoBargeMissed: reefscape2025Count(row, headerIndex, "Auto-ScoredBargeMiss"),
+        teleL4Made: reefscape2025Count(row, headerIndex, "Tele-Op-L4Make"),
+        teleL4Missed: reefscape2025Count(row, headerIndex, "Tele-Op-L4Miss"),
+        teleL3Made: reefscape2025Count(row, headerIndex, "Tele-Op-L3Make"),
+        teleL3Missed: reefscape2025Count(row, headerIndex, "Tele-Op-L3Miss"),
+        teleL2Made: reefscape2025Count(row, headerIndex, "Tele-Op-L2Make"),
+        teleL2Missed: reefscape2025Count(row, headerIndex, "Tele-Op-L2Miss"),
+        teleTroughMade: reefscape2025Count(row, headerIndex, "Tele-Op-TroughMake"),
+        teleTroughMissed: reefscape2025Count(row, headerIndex, "Tele-Op-TroughMiss"),
+        teleRemovedAlgaeMade: reefscape2025Count(row, headerIndex, "Tele-Op-RemovedAlgaeMake"),
+        teleRemovedAlgaeMissed: reefscape2025Count(row, headerIndex, "Tele-Op-RemovedAlgaeMiss"),
+        teleProcessorMade: reefscape2025Count(row, headerIndex, "Tele-Op-ScoredProcessorMake"),
+        teleProcessorMissed: reefscape2025Count(row, headerIndex, "Tele-Op-ScoredProcessorMiss"),
+        teleBargeMade: reefscape2025Count(row, headerIndex, "Tele-Op-ScoredBargeMake"),
+        teleBargeMissed: reefscape2025Count(row, headerIndex, "Tele-Op-ScoredBargeMiss"),
+        climbLevel: numericValue(eventSheetCell(row, headerIndex, "Climbing")),
+        driverPerformance: numericValue(eventSheetCell(row, headerIndex, "DriverPerformance")),
+        playedDefenseRating: numericValue(eventSheetCell(row, headerIndex, "DidTheyPLAYDefense?HowEffective?")),
+        defenseOnThemRating: numericValue(eventSheetCell(row, headerIndex, "WasDefensePlayedONThem?HowEffective?")),
       },
     };
   });
@@ -1294,6 +1664,20 @@ function adapt2024SheetCsv(eventModel, csvText) {
         trap:
           categoricalScore(eventSheetCell(row, headerIndex, "Scored trap?"), { successfulattempt: 1 }) +
           categoricalScore(eventSheetCell(row, headerIndex, "Harmony? (2 robots on the same chain)"), { successfulattempt: 1 }),
+        autoSpeakerMade: autoSpeaker,
+        autoSpeakerMissed: numericValue(eventSheetCell(row, headerIndex, "AUTO scoring \n(uncheck all but final score before continuing) [Speaker miss âŒ]")),
+        autoAmpMade: autoAmp,
+        autoAmpMissed: numericValue(eventSheetCell(row, headerIndex, "AUTO scoring \n(uncheck all but final score before continuing) [Amp miss âŒ]")),
+        teleSpeakerMade: teleSpeaker,
+        teleSpeakerMissed: numericValue(eventSheetCell(row, headerIndex, "Tele-op scoring \n(uncheck all but final score before continuing) [Speaker miss âŒ]")),
+        teleAmpMade: teleAmp,
+        teleAmpMissed: numericValue(eventSheetCell(row, headerIndex, "Tele-op scoring \n(uncheck all but final score before continuing) [Amp miss âŒ]")),
+        driverPerformance: leadingNumericValue(eventSheetCell(row, headerIndex, "Driver skill?")),
+        playedDefenseRating: defenseEffectivenessScore(eventSheetCell(row, headerIndex, "Did this robot PLAY defence? If so how effectively?")),
+        defenseOnThemRating: defenseEffectivenessScore(eventSheetCell(row, headerIndex, "Was defence played ON this robot? If so, how effectively?")),
+        climbSuccess: categoricalScore(eventSheetCell(row, headerIndex, "Climb?"), { successfulattempt: 1 }),
+        trapSuccess: categoricalScore(eventSheetCell(row, headerIndex, "Scored trap?"), { successfulattempt: 1 }),
+        harmonySuccess: categoricalScore(eventSheetCell(row, headerIndex, "Harmony? (2 robots on the same chain)"), { successfulattempt: 1 }),
       },
     };
   });
@@ -1335,6 +1719,20 @@ function adapt2026SheetCsv(eventModel, csvText) {
         auto: autoFuel,
         cycle: cycleFuel,
         endgame: endgameFuel + climbScore,
+        autoFuelPct: autoFuel,
+        transitionFuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Transition Fuel Pct")),
+        shift1FuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Shift1 Fuel Pct")),
+        shift2FuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Shift2 Fuel Pct")),
+        shift3FuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Shift3 Fuel Pct")),
+        shift4FuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Shift4 Fuel Pct")),
+        endgameFuelPct: endgameFuel,
+        overallShooter: numericValue(eventSheetCell(row, headerIndex, "Overall Shooter")),
+        overallPasser: numericValue(eventSheetCell(row, headerIndex, "Overall Passer")),
+        overallIntake: numericValue(eventSheetCell(row, headerIndex, "Overall Intake")),
+        overallDriver: numericValue(eventSheetCell(row, headerIndex, "Overall Driver")),
+        overallDefenseAvoidance: numericValue(eventSheetCell(row, headerIndex, "Overall Defense Avoidance")),
+        overallDefense: numericValue(eventSheetCell(row, headerIndex, "Overall Defense")),
+        noShow: truthyValue(eventSheetCell(row, headerIndex, "No Show")) ? 1 : 0,
       },
     };
   });
@@ -1400,6 +1798,7 @@ function metricFromTerm(term) {
 }
 
 function teamMetricValue(team, metric) {
+  if (engineTeamMetricValue) return engineTeamMetricValue(team, metric, { window: currentScoutingWindow() });
   if (!team || !metric) return 0;
   if (metric.kind === "derived") return Number(team.derived?.[metric.componentId] || 0);
   if (metric.componentId === "total") return Number(team.sources?.[metric.sourceId]?.total || 0);
@@ -1616,6 +2015,7 @@ function viewTitle(view) {
     teamDetail: "Team Detail",
     rankings: "Rankings",
     analysis: "Analysis",
+    derivedBuilder: "Derived Builder",
     schedule: "Match Schedule",
     matchup: "Matchup",
     quality: "Data Quality",
@@ -1653,6 +2053,7 @@ function renderView() {
     teamDetail: () => renderTeamDetail(teamByNumber(state.selectedTeam)),
     rankings: renderRankings,
     analysis: renderAnalysis,
+    derivedBuilder: renderDerivedBuilder,
     schedule: renderSchedule,
     matchup: renderMatchup,
     quality: renderQuality,
@@ -1771,7 +2172,7 @@ function renderTeamDetail(team) {
       </div>
       <div class="stat-grid">
         <div class="stat"><span>${escapeHtml(selectedMetric.label)}</span><strong>${teamMetricValue(team, selectedMetric).toFixed(selectedMetric.unit === "%" ? 0 : 1)}${selectedMetric.unit === "%" ? "%" : ""}</strong></div>
-        <div class="stat"><span>Scouter Total</span><strong>${teamMetricValue(team, scouterMetric).toFixed(1)}</strong></div>
+        <div class="stat"><span>Scouter Total (${scoutingWindowLabel()})</span><strong>${teamMetricValue(team, scouterMetric).toFixed(1)}</strong></div>
         <div class="stat"><span>EPA</span><strong>${teamMetricValue(team, epaMetric).toFixed(1)}</strong></div>
         <div class="stat"><span>OPR</span><strong>${teamMetricValue(team, oprMetric).toFixed(1)}</strong></div>
       </div>
@@ -1785,6 +2186,13 @@ function renderTeamDetail(team) {
               <span class="muted">Metric</span>
               <select id="teamDetailMetricSelect" aria-label="Team detail metric">
                 ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === selectedMetric.id ? "selected" : ""}>${item.label}</option>`).join("")}
+              </select>
+            </label>
+            <label class="team-trend-metric">
+              <span class="muted">Window</span>
+              <select id="scoutingWindowSelect" aria-label="Scouting window">
+                <option value="all" ${currentScoutingWindow() === "all" ? "selected" : ""}>All Matches</option>
+                <option value="recent" ${currentScoutingWindow() === "recent" ? "selected" : ""}>Recent ${currentRecentMatchCount()}</option>
               </select>
             </label>
           </div>
@@ -1803,6 +2211,7 @@ function renderTeamDetail(team) {
 }
 
 function metricTrendValues(team, metric) {
+  if (engineMetricTrendValues) return engineMetricTrendValues(team, metric, { window: currentScoutingWindow() });
   if (metric.kind === "source") {
     if (metric.sourceId === "scouter" && metric.componentId === "total") {
       return Array.isArray(team.sources?.scouter?.trend) ? team.sources.scouter.trend : [];
@@ -1815,6 +2224,9 @@ function metricTrendValues(team, metric) {
     const total = team.sources?.[metric.sourceId]?.total || 1;
     const component = team.sources?.[metric.sourceId]?.components?.[metric.componentId] || 0;
     return sourceTrend.map((value) => (value / total) * component);
+  }
+  if (Array.isArray(team.derivedTrend?.[metric.componentId])) {
+    return team.derivedTrend[metric.componentId];
   }
   const baseline = average(team.matches) || 1;
   return team.matches.map((value) => (value / baseline) * teamMetricValue(team, metric));
@@ -1892,6 +2304,13 @@ function renderAnalysis() {
           </optgroup>
         </select>
       </label>
+      <label>
+        Scouting Window
+        <select id="analysisScoutingWindowSelect">
+          <option value="all" ${currentScoutingWindow() === "all" ? "selected" : ""}>All Matches</option>
+          <option value="recent" ${currentScoutingWindow() === "recent" ? "selected" : ""}>Recent ${currentRecentMatchCount()}</option>
+        </select>
+      </label>
       <div class="stat"><span>Event Average</span><strong>${eventAverage.toFixed(1)} ${selection.unit}</strong></div>
       ${selection.type === "sortEquation" ? '<div class="stat"><span>Source</span><strong>Sort Equation</strong></div>' : ""}
       ${renderBoxPlotLegend()}
@@ -1908,6 +2327,226 @@ function renderAnalysis() {
         <span class="analysis-axis-label">${selection.label} (${selection.unit})</span>
       </div>
       <span></span>
+    </div>
+  `;
+}
+
+function renderDerivedMetricDefinitionList(scopeType, scopeKey, definitions) {
+  if (!definitions.length) return `<div class="empty-state">No custom derived metrics are saved for this ${scopeType} yet.</div>`;
+  return `
+    <div class="builder-list">
+      ${definitions
+        .map(
+          (definition) => `
+        <button class="builder-list-row ${state.derivedMetricEditingKey === `${scopeType}:${scopeKey}:${definition.id}` ? "active" : ""}" data-load-custom-derived="${scopeType}:${scopeKey}:${definition.id}">
+          <strong>${definition.label}</strong>
+          <span class="muted">${definition.id} | ${definition.formula}</span>
+        </button>
+      `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderFieldMultiSelect(id, values, ariaLabel) {
+  return `
+    <select id="${id}" multiple size="8" aria-label="${escapeAttribute(ariaLabel)}">
+      ${derivedMetricFieldOptions()
+        .map((field) => `<option value="${field.id}" ${values.includes(field.id) ? "selected" : ""}>${field.label} (${field.id})</option>`)
+        .join("")}
+    </select>
+  `;
+}
+
+function renderDerivedMetricIssues() {
+  if (!state.derivedMetricConfigIssues.length) return "";
+  return `
+    <div class="issue-list">
+      ${state.derivedMetricConfigIssues.map((issue) => `<div class="issue-row danger">${escapeHtml(issue)}</div>`).join("")}
+    </div>
+  `;
+}
+
+function derivedMetricDraftIssues(draft = state.derivedMetricDraft) {
+  const issues = [];
+  const draftId = String(draft.id || "").trim();
+  const draftLabel = String(draft.label || "").trim();
+  if (draftId && reservedMetricIds().has(draftId)) {
+    issues.push({ field: "id", message: `Metric ID "${draftId}" conflicts with a built-in metric.` });
+  }
+  if (draftId) {
+    const scopeType = draft.scopeType === "profile" ? "profile" : "season";
+    const scopeKey = derivedMetricScopeKeyFromDraft(draft);
+    const editingRecord = derivedMetricEditingRecord();
+    const duplicate = derivedMetricConfigScopeDefinitions(scopeType, scopeKey).some(
+      (item) => item.id === draftId && item.id !== editingRecord?.definition?.id,
+    );
+    if (duplicate) issues.push({ field: "id", message: `Metric ID "${draftId}" already exists in this ${scopeType} scope.` });
+  }
+  if (!draftLabel && draftId) issues.push({ field: "label", message: "Add a label to preview and save this metric." });
+  if (draft.template === "sum" && !draft.fields.length) issues.push({ field: "fields", message: "Select at least one field to sum." });
+  if (draft.template === "rate" && !draft.madeFields.length) issues.push({ field: "madeFields", message: "Select at least one made field." });
+  if (draft.template === "rate" && !draft.missedFields.length) issues.push({ field: "missedFields", message: "Select at least one missed field." });
+  if (["average_per_match", "average_present", "attempt_average"].includes(draft.template) && !draft.numeratorFields.length) {
+    issues.push({ field: "numeratorFields", message: "Select at least one numerator field." });
+  }
+  if (draft.template === "attempt_average" && !draft.denominatorFields.length) {
+    issues.push({ field: "denominatorFields", message: "Select at least one denominator field." });
+  }
+  if (draft.template === "average_present" && !draft.presenceFields.length && draft.numeratorFields.length) {
+    issues.push({ field: "presenceFields", message: "Presence fields will default to the numerator fields unless you choose different ones." });
+  }
+  return issues;
+}
+
+function renderDraftIssue(issue) {
+  return issue ? `<p class="inline-hint danger">${escapeHtml(issue.message)}</p>` : "";
+}
+
+function renderDerivedBuilder() {
+  const summary = derivedMetricScopeSummary();
+  const draft = state.derivedMetricDraft;
+  const definition = metricDefinitionFromDraft(draft);
+  const previewTeam = teamByNumber(state.derivedMetricPreviewTeam) || currentTeams()[0];
+  const allPreview = definition && previewTeam ? derivedMetricPreviewValue(definition, previewTeam, "all") : 0;
+  const recentPreview = definition && previewTeam ? derivedMetricPreviewValue(definition, previewTeam, "recent") : 0;
+  const editingRecord = derivedMetricEditingRecord();
+  const draftIssues = derivedMetricDraftIssues(draft);
+  const draftIssueFor = (field) => draftIssues.find((issue) => issue.field === field);
+  return `
+    <div class="grid">
+      <div class="grid cols-2">
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <h2>Scope Overview</h2>
+              <p class="muted">Builder outputs can be scoped by season or spreadsheet profile.</p>
+            </div>
+          </div>
+          <div class="stat-grid">
+            <div class="stat"><span>Season Scope</span><strong>${summary.seasonKey}</strong></div>
+            <div class="stat"><span>Profile Scope</span><strong>${summary.profileKey}</strong></div>
+            <div class="stat"><span>Recent Window</span><strong>${currentRecentMatchCount()} matches</strong></div>
+            <div class="stat"><span>Imported Teams</span><strong>${importedTeamCount()}</strong></div>
+          </div>
+        </article>
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <h2>Live Preview</h2>
+              <p class="muted">Preview the current draft against imported scouting data before saving it.</p>
+            </div>
+          </div>
+          <div class="admin-form-grid">
+            <label>
+              Preview team
+              <select id="derivedMetricPreviewTeamSelect">
+                ${currentTeams().map((team) => `<option value="${team.number}" ${team.number === previewTeam?.number ? "selected" : ""}>${team.number} ${team.name}</option>`).join("")}
+              </select>
+            </label>
+          </div>
+          <div class="stat-grid">
+            <div class="stat"><span>All Matches</span><strong>${definition ? allPreview.toFixed(definition.unit === "%" ? 0 : 1) : "--"}${definition?.unit === "%" ? "%" : ""}</strong></div>
+            <div class="stat"><span>Recent ${currentRecentMatchCount()}</span><strong>${definition ? recentPreview.toFixed(definition.unit === "%" ? 0 : 1) : "--"}${definition?.unit === "%" ? "%" : ""}</strong></div>
+          </div>
+          <p class="muted">${definition ? `${definition.label} (${definition.id})` : "Complete the draft fields to see a live preview."}</p>
+        </article>
+      </div>
+      <div class="grid cols-2">
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <h2>Saved Metrics</h2>
+              <p class="muted">Season-scoped metrics apply to all events in that season; profile-scoped metrics apply to the selected spreadsheet profile.</p>
+            </div>
+          </div>
+          <h3>Season ${summary.seasonKey}</h3>
+          ${renderDerivedMetricDefinitionList("season", summary.seasonKey, summary.seasonDefinitions)}
+          <h3 style="margin-top: 18px;">Profile ${summary.profileKey}</h3>
+          ${renderDerivedMetricDefinitionList("profile", summary.profileKey, summary.profileDefinitions)}
+        </article>
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <h2>${editingRecord ? `Edit ${editingRecord.definition.label}` : "New Derived Metric"}</h2>
+              <p class="muted">Use denominator templates that match the spreadsheet rules we have identified.</p>
+            </div>
+          </div>
+          <div class="admin-actions" style="margin-bottom: 12px;">
+            <label style="min-width: 260px;">
+              Preset
+              <select id="derivedMetricPresetSelect">
+                ${derivedMetricPresets.map((preset) => `<option value="${preset.id}">${preset.label}</option>`).join("")}
+              </select>
+            </label>
+            <button type="button" id="applyDerivedMetricPresetButton">Load Preset</button>
+          </div>
+          <div class="admin-form-grid">
+            <label>
+              Scope
+              <select id="derivedMetricScopeType">
+                <option value="season" ${draft.scopeType === "season" ? "selected" : ""}>Season (${draft.seasonKey})</option>
+                <option value="profile" ${draft.scopeType === "profile" ? "selected" : ""}>Profile (${draft.profileKey})</option>
+              </select>
+            </label>
+            <label>
+              Metric ID
+              <input id="derivedMetricIdInput" class="admin-input" value="${escapeAttribute(draft.id)}" placeholder="driverConsistencyRecent" />
+              ${renderDraftIssue(draftIssueFor("id"))}
+            </label>
+            <label>
+              Label
+              <input id="derivedMetricLabelInput" class="admin-input" value="${escapeAttribute(draft.label)}" placeholder="Driver Consistency" />
+              ${renderDraftIssue(draftIssueFor("label"))}
+            </label>
+            <label>
+              Unit
+              <select id="derivedMetricUnitSelect">
+                ${["pts", "%", "rating", "count", "level"].map((unit) => `<option value="${unit}" ${draft.unit === unit ? "selected" : ""}>${unit}</option>`).join("")}
+              </select>
+            </label>
+            <label>
+              Denominator Template
+              <select id="derivedMetricTemplateSelect">
+                <option value="sum" ${draft.template === "sum" ? "selected" : ""}>Sum of fields</option>
+                <option value="rate" ${draft.template === "rate" ? "selected" : ""}>Success rate (made / attempts)</option>
+                <option value="average_per_match" ${draft.template === "average_per_match" ? "selected" : ""}>Average per match</option>
+                <option value="average_present" ${draft.template === "average_present" ? "selected" : ""}>Average across non-zero rows</option>
+                <option value="attempt_average" ${draft.template === "attempt_average" ? "selected" : ""}>Average per attempt-like denominator</option>
+              </select>
+            </label>
+            ${draft.template === "sum" ? `<label>Fields${renderFieldMultiSelect("derivedMetricFieldsSelect", draft.fields, "Derived metric fields")}${renderDraftIssue(draftIssueFor("fields"))}</label>` : ""}
+            ${draft.template === "rate" ? `<label>Made Fields${renderFieldMultiSelect("derivedMetricMadeFieldsSelect", draft.madeFields, "Derived metric made fields")}${renderDraftIssue(draftIssueFor("madeFields"))}</label>` : ""}
+            ${draft.template === "rate" ? `<label>Missed Fields${renderFieldMultiSelect("derivedMetricMissedFieldsSelect", draft.missedFields, "Derived metric missed fields")}${renderDraftIssue(draftIssueFor("missedFields"))}</label>` : ""}
+            ${["average_per_match", "average_present", "attempt_average"].includes(draft.template) ? `<label>Numerator Fields${renderFieldMultiSelect("derivedMetricNumeratorFieldsSelect", draft.numeratorFields, "Derived metric numerator fields")}${renderDraftIssue(draftIssueFor("numeratorFields"))}</label>` : ""}
+            ${draft.template === "average_present" ? `<label>Presence Fields${renderFieldMultiSelect("derivedMetricPresenceFieldsSelect", draft.presenceFields, "Derived metric presence fields")}${renderDraftIssue(draftIssueFor("presenceFields"))}</label>` : ""}
+            ${draft.template === "attempt_average" ? `<label>Denominator Fields${renderFieldMultiSelect("derivedMetricDenominatorFieldsSelect", draft.denominatorFields, "Derived metric denominator fields")}${renderDraftIssue(draftIssueFor("denominatorFields"))}</label>` : ""}
+            <div class="admin-actions">
+              <button type="button" id="saveDerivedMetricButton" class="primary" ${definition ? "" : "disabled"}>Save Metric</button>
+              <button type="button" id="resetDerivedMetricButton">Reset Draft</button>
+              <button type="button" id="deleteDerivedMetricButton" ${editingRecord ? "" : "disabled"}>Delete</button>
+            </div>
+          </div>
+        </article>
+      </div>
+      <article class="card">
+        <div class="section-heading">
+          <div>
+            <h2>Config Export</h2>
+            <p class="muted">Use this editor to export, paste, or import season/profile metric configs.</p>
+          </div>
+          <div class="admin-actions">
+            <input id="derivedMetricConfigFileInput" type="file" accept=".json,application/json" />
+            <button type="button" id="applyDerivedMetricConfigButton">Apply JSON</button>
+            <button type="button" id="resetDerivedMetricConfigButton">Reset Editor</button>
+            <button type="button" id="downloadDerivedMetricConfigButton">Download JSON</button>
+          </div>
+        </div>
+        <textarea id="derivedMetricConfigTextarea" class="admin-textarea" spellcheck="false">${escapeHtml(state.derivedMetricConfigEditorText)}</textarea>
+        <p class="muted">${state.derivedMetricConfigStatus || "Applying JSON replaces the current custom derived metric config in local storage."}</p>
+        ${renderDerivedMetricIssues()}
+      </article>
     </div>
   `;
 }
@@ -2317,6 +2956,13 @@ function renderPicklistBuilder() {
             <span class="muted">Metric</span>
             <select id="picklistCompareMetricSelect" aria-label="Picklist comparison metric">
               ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric.id ? "selected" : ""}>${item.label}</option>`).join("")}
+            </select>
+          </label>
+          <label class="team-trend-metric">
+            <span class="muted">Window</span>
+            <select id="picklistScoutingWindowSelect" aria-label="Picklist scouting window">
+              <option value="all" ${currentScoutingWindow() === "all" ? "selected" : ""}>All Matches</option>
+              <option value="recent" ${currentScoutingWindow() === "recent" ? "selected" : ""}>Recent ${currentRecentMatchCount()}</option>
             </select>
           </label>
         </div>
@@ -2764,10 +3410,14 @@ function renderAdmin() {
                 ${globalEventCatalog.map((item) => `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.season} ${item.name}</option>`).join("")}
               </select>
             </label>
+            <label>
+              Recent Match Count
+              <input id="recentMatchCountInput" class="admin-input" type="number" min="1" max="12" step="1" value="${currentRecentMatchCount()}" />
+            </label>
             <div class="issue-list">
               <div class="issue-row">
                 <strong>Scouting sheet</strong>
-                <span class="muted">${event.sheet?.tab || "Unknown tab"} | ${event.sheet?.access === "public_csv" ? "Public CSV sample cached" : "Sign-in required for direct export"}</span>
+                <span class="muted">${event.sheet?.tab || "Unknown tab"} | ${event.sheet?.access === "public_csv" ? "Public CSV sample cached" : "Sign-in required for direct export"} | Window: ${scoutingWindowLabel()}</span>
               </div>
             </div>
           </div>
@@ -3196,6 +3846,123 @@ function bindViewEvents() {
     saveState();
     render();
   });
+  document.querySelector("#scoutingWindowSelect")?.addEventListener("change", (event) => {
+    state.scoutingWindow = event.target.value === "recent" ? "recent" : "all";
+    saveState();
+    render();
+  });
+  document.querySelector("#analysisScoutingWindowSelect")?.addEventListener("change", (event) => {
+    state.scoutingWindow = event.target.value === "recent" ? "recent" : "all";
+    saveState();
+    render();
+  });
+  document.querySelector("#picklistScoutingWindowSelect")?.addEventListener("change", (event) => {
+    state.scoutingWindow = event.target.value === "recent" ? "recent" : "all";
+    saveState();
+    render();
+  });
+  document.querySelector("#derivedMetricPreviewTeamSelect")?.addEventListener("change", (event) => {
+    state.derivedMetricPreviewTeam = Number(event.target.value) || currentEvent().teams[0].number;
+    render();
+  });
+  document.querySelector("#derivedMetricScopeType")?.addEventListener("change", (event) => {
+    state.derivedMetricDraft.scopeType = event.target.value === "profile" ? "profile" : "season";
+    state.derivedMetricEditingKey = "";
+    render();
+  });
+  document.querySelector("#applyDerivedMetricPresetButton")?.addEventListener("click", () => {
+    applyDerivedMetricPreset(document.querySelector("#derivedMetricPresetSelect")?.value || "blank");
+  });
+  document.querySelector("#derivedMetricIdInput")?.addEventListener("input", (event) => {
+    state.derivedMetricDraft.id = event.target.value;
+  });
+  document.querySelector("#derivedMetricLabelInput")?.addEventListener("input", (event) => {
+    state.derivedMetricDraft.label = event.target.value;
+  });
+  document.querySelector("#derivedMetricUnitSelect")?.addEventListener("change", (event) => {
+    state.derivedMetricDraft.unit = event.target.value;
+    render();
+  });
+  document.querySelector("#derivedMetricTemplateSelect")?.addEventListener("change", (event) => {
+    state.derivedMetricDraft.template = event.target.value;
+    render();
+  });
+  document.querySelector("#derivedMetricFieldsSelect")?.addEventListener("change", (event) => {
+    state.derivedMetricDraft.fields = selectedValues(event.target);
+    render();
+  });
+  document.querySelector("#derivedMetricMadeFieldsSelect")?.addEventListener("change", (event) => {
+    state.derivedMetricDraft.madeFields = selectedValues(event.target);
+    render();
+  });
+  document.querySelector("#derivedMetricMissedFieldsSelect")?.addEventListener("change", (event) => {
+    state.derivedMetricDraft.missedFields = selectedValues(event.target);
+    render();
+  });
+  document.querySelector("#derivedMetricNumeratorFieldsSelect")?.addEventListener("change", (event) => {
+    state.derivedMetricDraft.numeratorFields = selectedValues(event.target);
+    render();
+  });
+  document.querySelector("#derivedMetricDenominatorFieldsSelect")?.addEventListener("change", (event) => {
+    state.derivedMetricDraft.denominatorFields = selectedValues(event.target);
+    render();
+  });
+  document.querySelector("#derivedMetricPresenceFieldsSelect")?.addEventListener("change", (event) => {
+    state.derivedMetricDraft.presenceFields = selectedValues(event.target);
+    render();
+  });
+  document.querySelector("#saveDerivedMetricButton")?.addEventListener("click", () => {
+    saveDerivedMetricDraft();
+  });
+  document.querySelector("#resetDerivedMetricButton")?.addEventListener("click", () => {
+    state.derivedMetricEditingKey = "";
+    state.derivedMetricDraft = createDerivedMetricDraft(currentEvent());
+    render();
+  });
+  document.querySelector("#deleteDerivedMetricButton")?.addEventListener("click", () => {
+    deleteDerivedMetricDraft();
+  });
+  document.querySelectorAll("[data-load-custom-derived]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const [scopeType, scopeKey, metricId] = String(button.dataset.loadCustomDerived).split(":");
+      const definition = derivedMetricConfigScopeDefinitions(scopeType, scopeKey).find((item) => item.id === metricId);
+      if (!definition) return;
+      state.derivedMetricEditingKey = `${scopeType}:${scopeKey}:${metricId}`;
+      setDerivedMetricDraftFromDefinition(scopeType, scopeKey, definition);
+      render();
+    });
+  });
+  document.querySelector("#downloadDerivedMetricConfigButton")?.addEventListener("click", () => {
+    const blob = new Blob([derivedMetricConfigJson()], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `derived-metric-config-${currentEvent().season}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  });
+  document.querySelector("#derivedMetricConfigTextarea")?.addEventListener("input", (event) => {
+    state.derivedMetricConfigEditorText = event.target.value;
+    state.derivedMetricConfigStatus = "";
+  });
+  document.querySelector("#applyDerivedMetricConfigButton")?.addEventListener("click", () => {
+    applyDerivedMetricConfigText(document.querySelector("#derivedMetricConfigTextarea")?.value || "");
+  });
+  document.querySelector("#resetDerivedMetricConfigButton")?.addEventListener("click", () => {
+    syncDerivedMetricConfigEditor("Editor reset to saved config.");
+    render();
+  });
+  document.querySelector("#derivedMetricConfigFileInput")?.addEventListener("change", (event) => {
+    const [file] = Array.from(event.target.files || []);
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      state.derivedMetricConfigEditorText = String(reader.result || "");
+      state.derivedMetricConfigStatus = `Loaded ${file.name}. Apply JSON to save it.`;
+      render();
+    };
+    reader.readAsText(file);
+  });
   document.querySelector("#teamSelect")?.addEventListener("change", (event) => {
     state.selectedTeam = Number(event.target.value);
     state.activeView = "teamDetail";
@@ -3538,6 +4305,11 @@ function bindViewEvents() {
   });
   document.querySelector("#importSourceUrl")?.addEventListener("input", (event) => {
     state.importSourceUrl = event.target.value;
+  });
+  document.querySelector("#recentMatchCountInput")?.addEventListener("change", (event) => {
+    state.recentMatchCount = Math.max(1, Math.min(12, Number(event.target.value) || currentRecentMatchCount()));
+    saveState();
+    render();
   });
   document.querySelector("#importCsvInput")?.addEventListener("input", (event) => {
     state.importCsvText = event.target.value;

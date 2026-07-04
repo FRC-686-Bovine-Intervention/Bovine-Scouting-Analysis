@@ -1,0 +1,307 @@
+(function () {
+function metric(id, label, unit = "pts", extra = {}) {
+  return { id, label, unit, ...extra };
+}
+
+function rateMetric(id, label, madeFields, missFields, unit = "%") {
+  return { id, label, unit, formula: "rate", madeFields, missFields };
+}
+
+function sumMetric(id, label, fields, unit = "pts") {
+  return { id, label, unit, formula: "sum", fields };
+}
+
+function averageMetric(id, label, fields, unit = "rating") {
+  return { id, label, unit, formula: "average", fields };
+}
+
+const seasonDefinitions = {
+  2024: {
+    label: "Crescendo",
+    scoringComponents: [
+      { id: "auto", label: "Auto", unit: "pts" },
+      { id: "speaker", label: "Speaker", unit: "pts" },
+      { id: "amp", label: "Amp", unit: "pts" },
+      { id: "trap", label: "Trap", unit: "pts" },
+    ],
+    breakdownMap: {
+      auto: ["auto_points"],
+      speaker: ["speaker_points"],
+      amp: ["amplified_notes"],
+      trap: ["endgame_trap_points"],
+    },
+    scouterMetrics: [
+      metric("autoSpeakerMade", "Auto Speaker Made", "notes"),
+      metric("autoSpeakerMissed", "Auto Speaker Missed", "notes"),
+      metric("autoAmpMade", "Auto Amp Made", "notes"),
+      metric("autoAmpMissed", "Auto Amp Missed", "notes"),
+      metric("teleSpeakerMade", "Teleop Speaker Made", "notes"),
+      metric("teleSpeakerMissed", "Teleop Speaker Missed", "notes"),
+      metric("teleAmpMade", "Teleop Amp Made", "notes"),
+      metric("teleAmpMissed", "Teleop Amp Missed", "notes"),
+      metric("driverPerformance", "Driver Performance", "rating"),
+      metric("playedDefenseRating", "Played Defense", "rating"),
+      metric("defenseOnThemRating", "Defense On Them", "rating"),
+      metric("climbSuccess", "Climb Success", "count"),
+      metric("trapSuccess", "Trap Success", "count"),
+      metric("harmonySuccess", "Harmony Success", "count"),
+    ],
+    derivedMetrics: [
+      rateMetric("autoSpeakerAccuracy", "Auto Speaker Accuracy", ["autoSpeakerMade"], ["autoSpeakerMissed"]),
+      rateMetric("autoAmpAccuracy", "Auto Amp Accuracy", ["autoAmpMade"], ["autoAmpMissed"]),
+      rateMetric("teleSpeakerAccuracy", "Teleop Speaker Accuracy", ["teleSpeakerMade"], ["teleSpeakerMissed"]),
+      rateMetric("teleAmpAccuracy", "Teleop Amp Accuracy", ["teleAmpMade"], ["teleAmpMissed"]),
+      averageMetric("driverPerformanceAvg", "Driver Performance Average", ["driverPerformance"]),
+      averageMetric("playedDefenseAvg", "Played Defense Average", ["playedDefenseRating"]),
+      averageMetric("defenseOnThemAvg", "Defense On Them Average", ["defenseOnThemRating"]),
+    ],
+  },
+  2025: {
+    label: "Reefscape",
+    scoringComponents: [
+      { id: "auto", label: "Auto", unit: "pts" },
+      { id: "coral", label: "Coral", unit: "pts" },
+      { id: "algae", label: "Algae", unit: "pts" },
+      { id: "climb", label: "Climb", unit: "pts" },
+    ],
+    breakdownMap: {
+      auto: ["auto_points"],
+      coral: ["total_coral_points"],
+      algae: ["total_algae_points"],
+      climb: ["barge_points"],
+    },
+    scouterMetrics: [
+      metric("autoL4Made", "Auto L4 Made", "count"),
+      metric("autoL4Missed", "Auto L4 Missed", "count"),
+      metric("autoL3Made", "Auto L3 Made", "count"),
+      metric("autoL3Missed", "Auto L3 Missed", "count"),
+      metric("autoL2Made", "Auto L2 Made", "count"),
+      metric("autoL2Missed", "Auto L2 Missed", "count"),
+      metric("autoTroughMade", "Auto Trough Made", "count"),
+      metric("autoTroughMissed", "Auto Trough Missed", "count"),
+      metric("autoRemovedAlgaeMade", "Auto Removed Algae Made", "count"),
+      metric("autoRemovedAlgaeMissed", "Auto Removed Algae Missed", "count"),
+      metric("autoProcessorMade", "Auto Processor Made", "count"),
+      metric("autoProcessorMissed", "Auto Processor Missed", "count"),
+      metric("autoBargeMade", "Auto Barge Made", "count"),
+      metric("autoBargeMissed", "Auto Barge Missed", "count"),
+      metric("teleL4Made", "Teleop L4 Made", "count"),
+      metric("teleL4Missed", "Teleop L4 Missed", "count"),
+      metric("teleL3Made", "Teleop L3 Made", "count"),
+      metric("teleL3Missed", "Teleop L3 Missed", "count"),
+      metric("teleL2Made", "Teleop L2 Made", "count"),
+      metric("teleL2Missed", "Teleop L2 Missed", "count"),
+      metric("teleTroughMade", "Teleop Trough Made", "count"),
+      metric("teleTroughMissed", "Teleop Trough Missed", "count"),
+      metric("teleRemovedAlgaeMade", "Teleop Removed Algae Made", "count"),
+      metric("teleRemovedAlgaeMissed", "Teleop Removed Algae Missed", "count"),
+      metric("teleProcessorMade", "Teleop Processor Made", "count"),
+      metric("teleProcessorMissed", "Teleop Processor Missed", "count"),
+      metric("teleBargeMade", "Teleop Barge Made", "count"),
+      metric("teleBargeMissed", "Teleop Barge Missed", "count"),
+      metric("climbLevel", "Climb Level", "level"),
+      metric("driverPerformance", "Driver Performance", "rating"),
+      metric("playedDefenseRating", "Played Defense", "rating"),
+      metric("defenseOnThemRating", "Defense On Them", "rating"),
+    ],
+    derivedMetrics: [
+      sumMetric("teleopTotal", "Teleop Total", ["coral", "algae"]),
+      sumMetric("endgameTotal", "Endgame Total", ["climb"]),
+      rateMetric("autoL4Accuracy", "Auto L4 Accuracy", ["autoL4Made"], ["autoL4Missed"]),
+      rateMetric("autoL3Accuracy", "Auto L3 Accuracy", ["autoL3Made"], ["autoL3Missed"]),
+      rateMetric("autoL2Accuracy", "Auto L2 Accuracy", ["autoL2Made"], ["autoL2Missed"]),
+      rateMetric("autoTroughAccuracy", "Auto Trough Accuracy", ["autoTroughMade"], ["autoTroughMissed"]),
+      rateMetric("teleL4Accuracy", "Teleop L4 Accuracy", ["teleL4Made"], ["teleL4Missed"]),
+      rateMetric("teleL3Accuracy", "Teleop L3 Accuracy", ["teleL3Made"], ["teleL3Missed"]),
+      rateMetric("teleL2Accuracy", "Teleop L2 Accuracy", ["teleL2Made"], ["teleL2Missed"]),
+      rateMetric("teleTroughAccuracy", "Teleop Trough Accuracy", ["teleTroughMade"], ["teleTroughMissed"]),
+      rateMetric("processorAccuracy", "Processor Accuracy", ["autoProcessorMade", "teleProcessorMade"], ["autoProcessorMissed", "teleProcessorMissed"]),
+      rateMetric("bargeAccuracy", "Barge Accuracy", ["autoBargeMade", "teleBargeMade"], ["autoBargeMissed", "teleBargeMissed"]),
+      averageMetric("driverPerformanceAvg", "Driver Performance Average", ["driverPerformance"]),
+      averageMetric("playedDefenseAvg", "Played Defense Average", ["playedDefenseRating"]),
+      averageMetric("defenseOnThemAvg", "Defense On Them Average", ["defenseOnThemRating"]),
+    ],
+  },
+  2026: {
+    label: "Future Season",
+    scoringComponents: [
+      { id: "auto", label: "Auto", unit: "pts" },
+      { id: "cycle", label: "Cycle", unit: "pts" },
+      { id: "endgame", label: "Endgame", unit: "pts" },
+    ],
+    breakdownMap: {
+      auto: ["auto_points"],
+      cycle: ["teleop_points"],
+      endgame: ["endgame_points"],
+    },
+    scouterMetrics: [
+      metric("autoFuelPct", "Auto Fuel %", "%"),
+      metric("transitionFuelPct", "Transition Fuel %", "%"),
+      metric("shift1FuelPct", "Shift 1 Fuel %", "%"),
+      metric("shift2FuelPct", "Shift 2 Fuel %", "%"),
+      metric("shift3FuelPct", "Shift 3 Fuel %", "%"),
+      metric("shift4FuelPct", "Shift 4 Fuel %", "%"),
+      metric("endgameFuelPct", "Endgame Fuel %", "%"),
+      metric("overallShooter", "Overall Shooter", "rating"),
+      metric("overallPasser", "Overall Passer", "rating"),
+      metric("overallIntake", "Overall Intake", "rating"),
+      metric("overallDriver", "Overall Driver", "rating"),
+      metric("overallDefenseAvoidance", "Overall Defense Avoidance", "rating"),
+      metric("overallDefense", "Overall Defense", "rating"),
+      metric("noShow", "No Show", "count"),
+    ],
+    derivedMetrics: [
+      averageMetric("fuelContributionAvg", "Fuel Contribution Average", ["autoFuelPct", "transitionFuelPct", "shift1FuelPct", "shift2FuelPct", "shift3FuelPct", "shift4FuelPct", "endgameFuelPct"], "%"),
+      averageMetric("overallShooterAvg", "Overall Shooter Average", ["overallShooter"]),
+      averageMetric("overallPasserAvg", "Overall Passer Average", ["overallPasser"]),
+      averageMetric("overallIntakeAvg", "Overall Intake Average", ["overallIntake"]),
+      averageMetric("overallDriverAvg", "Overall Driver Average", ["overallDriver"]),
+      averageMetric("overallDefenseAvoidanceAvg", "Overall Defense Avoidance Average", ["overallDefenseAvoidance"]),
+      averageMetric("overallDefenseAvg", "Overall Defense Average", ["overallDefense"]),
+    ],
+  },
+};
+
+const sourceLabels = {
+  scouter: "Scouter Total",
+  epa: "EPA",
+  opr: "OPR",
+  pridge: "pRidge",
+  derived: "Derived",
+};
+
+function scouterMetricDefinitions(seasonOrEventModel) {
+  if (!seasonOrEventModel) return [];
+  if (Array.isArray(seasonOrEventModel.scouterMetricDefinitions) && seasonOrEventModel.scouterMetricDefinitions.length) {
+    return seasonOrEventModel.scouterMetricDefinitions;
+  }
+  if (Array.isArray(seasonOrEventModel.scoringComponents)) {
+    return [...seasonOrEventModel.scoringComponents, ...(seasonOrEventModel.scouterMetrics || [])];
+  }
+  return [];
+}
+
+function derivedMetricDefinitions(seasonOrEventModel) {
+  if (!seasonOrEventModel) return [];
+  if (Array.isArray(seasonOrEventModel.derivedMetricDefinitions)) return seasonOrEventModel.derivedMetricDefinitions;
+  return seasonOrEventModel.derivedMetrics || [];
+}
+
+function csvHeaderForMetric(metricDefinition) {
+  return metricDefinition.csvKey || (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id);
+}
+
+function metricFieldId(metricDefinition) {
+  return String(csvHeaderForMetric(metricDefinition))
+    .trim()
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function buildMetrics(season) {
+  const scouterMetrics = scouterMetricDefinitions(season);
+  return [
+    {
+      id: "source:scouter:total",
+      kind: "source",
+      sourceId: "scouter",
+      componentId: "total",
+      label: "Scouter Total",
+      shortLabel: "Scouter Total",
+      unit: "pts",
+    },
+    ...scouterMetrics.map((component) => ({
+      id: `source:scouter:${component.id}`,
+      kind: "source",
+      sourceId: "scouter",
+      componentId: component.id,
+      label: `Scouter ${component.label}`,
+      shortLabel: component.label,
+      unit: component.unit,
+    })),
+    ...["epa", "opr", "pridge"].flatMap((sourceId) => [
+      {
+        id: `source:${sourceId}:total`,
+        kind: "source",
+        sourceId,
+        componentId: "total",
+        label: sourceLabels[sourceId],
+        shortLabel: sourceLabels[sourceId],
+        unit: "pts",
+      },
+      ...season.scoringComponents.map((component) => ({
+        id: `source:${sourceId}:${component.id}`,
+        kind: "source",
+        sourceId,
+        componentId: component.id,
+        label: `${sourceLabels[sourceId]} ${component.label}`,
+        shortLabel: component.label,
+        unit: component.unit,
+      })),
+    ]),
+    {
+      id: "derived:defenseImpact",
+      kind: "derived",
+      sourceId: "derived",
+      componentId: "defenseImpact",
+      label: "Defense Impact",
+      shortLabel: "Defense Impact",
+      unit: "pts",
+    },
+    {
+      id: "derived:consistency",
+      kind: "derived",
+      sourceId: "derived",
+      componentId: "consistency",
+      label: "Consistency",
+      shortLabel: "Consistency",
+      unit: "%",
+    },
+    ...derivedMetricDefinitions(season).map((metricDefinition) => ({
+      id: `derived:${metricDefinition.id}`,
+      kind: "derived",
+      sourceId: "derived",
+      componentId: metricDefinition.id,
+      label: metricDefinition.label,
+      shortLabel: metricDefinition.label,
+      unit: metricDefinition.unit,
+    })),
+  ];
+}
+
+function buildCriteriaSources(season) {
+  const scoringComponents = [{ id: "total", label: "Total" }, ...season.scoringComponents.map((component) => ({ id: component.id, label: component.label }))];
+  const scouterComponents = [{ id: "total", label: "Total" }, ...scouterMetricDefinitions(season).map((component) => ({ id: component.id, label: component.label }))];
+  return [
+    { id: "epa", label: sourceLabels.epa, components: scoringComponents },
+    { id: "scouter", label: sourceLabels.scouter, components: scouterComponents },
+    { id: "opr", label: sourceLabels.opr, components: scoringComponents },
+    { id: "pridge", label: sourceLabels.pridge, components: scoringComponents },
+    {
+      id: "derived",
+      label: sourceLabels.derived,
+      components: [
+        { id: "defenseImpact", label: "Defense Impact" },
+        { id: "consistency", label: "Consistency" },
+        ...derivedMetricDefinitions(season).map((metricDefinition) => ({ id: metricDefinition.id, label: metricDefinition.label })),
+      ],
+    },
+  ];
+}
+
+globalThis.SeasonFramework = {
+  averageMetric,
+  buildCriteriaSources,
+  buildMetrics,
+  csvHeaderForMetric,
+  derivedMetricDefinitions,
+  metric,
+  metricFieldId,
+  rateMetric,
+  scouterMetricDefinitions,
+  seasonDefinitions,
+  sourceLabels,
+  sumMetric,
+};
+})();

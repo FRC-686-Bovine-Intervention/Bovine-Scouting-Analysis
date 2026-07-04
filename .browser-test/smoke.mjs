@@ -12,9 +12,15 @@ async function waitForBody(page) {
 }
 
 async function login(page) {
-  await page.selectOption("#existingUser", "Avery");
-  await page.click("#loginButton");
-  await page.waitForSelector('[data-view="teams"]');
+  const existingUser = page.locator("#existingUser");
+  if (await existingUser.count()) {
+    await existingUser.selectOption("Avery");
+    await page.click("#loginButton");
+    await page.waitForSelector('[data-view="teams"]');
+    return;
+  }
+  if (await page.locator('[data-view="teams"]').count()) return;
+  throw new Error(`Login controls were not rendered. Body snapshot: ${text(await page.textContent("body"))}`);
 }
 
 async function openAdmin(page) {
@@ -134,6 +140,76 @@ async function captureAnalysis(page) {
   };
 }
 
+async function createDerivedMetric(page) {
+  await page.click('[data-view="derivedBuilder"]');
+  await page.waitForSelector("#derivedMetricIdInput");
+  await page.selectOption("#derivedMetricPresetSelect", "average_per_match");
+  await page.click("#applyDerivedMetricPresetButton");
+  await page.waitForTimeout(300);
+  await page.fill("#derivedMetricIdInput", "codexCycleEndgameAverage");
+  await page.fill("#derivedMetricLabelInput", "Codex Cycle + Endgame Average");
+  await page.selectOption("#derivedMetricNumeratorFieldsSelect", ["cycle", "endgame"]);
+  await page.click("#saveDerivedMetricButton");
+  await page.waitForTimeout(700);
+  return {
+    previewAll: text(await page.locator(".stat-grid .stat").nth(4).textContent()),
+    previewRecent: text(await page.locator(".stat-grid .stat").nth(5).textContent()),
+    configText: await page.locator(".admin-textarea").inputValue(),
+  };
+}
+
+async function captureAccuracyPresetSuggestions(page) {
+  await page.click('[data-view="derivedBuilder"]');
+  await page.waitForSelector("#derivedMetricPresetSelect");
+  await page.selectOption("#derivedMetricPresetSelect", "accuracy");
+  await page.click("#applyDerivedMetricPresetButton");
+  await page.waitForTimeout(300);
+  return {
+    madeCount: await page.locator("#derivedMetricMadeFieldsSelect option:checked").count(),
+    missedCount: await page.locator("#derivedMetricMissedFieldsSelect option:checked").count(),
+    idValue: await page.locator("#derivedMetricIdInput").inputValue(),
+    labelValue: await page.locator("#derivedMetricLabelInput").inputValue(),
+    status: text(await page.locator(".card .muted").last().textContent()),
+  };
+}
+
+async function applyDerivedMetricConfig(page) {
+  await page.click('[data-view="derivedBuilder"]');
+  await page.waitForSelector("#derivedMetricConfigTextarea");
+  const original = await page.locator("#derivedMetricConfigTextarea").inputValue();
+  const updated = original.replaceAll("Codex Cycle + Endgame Average", "Codex Reloaded Metric");
+  await page.fill("#derivedMetricConfigTextarea", updated);
+  await page.click("#applyDerivedMetricConfigButton");
+  await page.waitForTimeout(700);
+  return {
+    status: text(await page.locator(".card .muted").last().textContent()),
+    configText: await page.locator("#derivedMetricConfigTextarea").inputValue(),
+  };
+}
+
+async function rejectInvalidDerivedMetricConfig(page) {
+  await page.click('[data-view="derivedBuilder"]');
+  await page.waitForSelector("#derivedMetricConfigTextarea");
+  const validText = await page.locator("#derivedMetricConfigTextarea").inputValue();
+  const invalidText = validText.replaceAll('"cycle"', '"totallyFakeField"');
+  await page.fill("#derivedMetricConfigTextarea", invalidText);
+  await page.click("#applyDerivedMetricConfigButton");
+  await page.waitForTimeout(700);
+  return {
+    status: text(await page.locator(".card .muted").last().textContent()),
+    configText: await page.locator("#derivedMetricConfigTextarea").inputValue(),
+  };
+}
+
+async function verifyDerivedMetricInTeamDetail(page, teamNumber, label) {
+  await page.click('[data-view="teams"]');
+  await page.waitForSelector(".team-card");
+  await page.locator(`[data-team="${teamNumber}"]`).first().click();
+  await page.waitForSelector("#teamSelect");
+  const labels = await page.locator("#teamDetailMetricSelect option").allTextContents();
+  return labels.map(text).includes(label);
+}
+
 async function verifyBoardClear(page, teamNumber) {
   await page.click('[data-view="alliance"]');
   await page.waitForTimeout(700);
@@ -168,6 +244,13 @@ try {
   result.import2026 = await importCurrentSheet(page);
   await commitImport(page);
   result.storage2026 = await storageSnapshot(page);
+  result.derivedBuilderAccuracyPreset2026 = await captureAccuracyPresetSuggestions(page);
+  result.derivedBuilder2026 = await createDerivedMetric(page);
+  result.teamDetailHasCustomMetric2026 = await verifyDerivedMetricInTeamDetail(page, 346, "Codex Cycle + Endgame Average");
+  result.derivedBuilderConfigApply2026 = await applyDerivedMetricConfig(page);
+  result.teamDetailHasAppliedCustomMetric2026 = await verifyDerivedMetricInTeamDetail(page, 346, "Codex Reloaded Metric");
+  result.derivedBuilderInvalidConfig2026 = await rejectInvalidDerivedMetricConfig(page);
+  result.teamDetailStillHasAppliedCustomMetric2026 = await verifyDerivedMetricInTeamDetail(page, 346, "Codex Reloaded Metric");
 
   result.teamDetail2026 = await captureTeamDetail(page, 346);
   result.backDestination = await verifyBack(page);
@@ -193,6 +276,7 @@ try {
   result.import2025 = await importCurrentSheet(page);
   await commitImport(page);
   result.storage2025 = await storageSnapshot(page);
+  result.derivedBuilderAccuracyPreset2025 = await captureAccuracyPresetSuggestions(page);
   result.teamDetail2025 = await captureFirstTeamDetail(page);
   result.team422Trend2025 = await captureSpecificTeamTrend(page, 422);
   result.analysis2025 = await captureAnalysis(page);

@@ -1,57 +1,10 @@
 (function () {
-const seasonDefinitions = {
-  2024: {
-    label: "Crescendo",
-    scoringComponents: [
-      { id: "auto", label: "Auto", unit: "pts" },
-      { id: "speaker", label: "Speaker", unit: "pts" },
-      { id: "amp", label: "Amp", unit: "pts" },
-      { id: "trap", label: "Trap", unit: "pts" },
-    ],
-    breakdownMap: {
-      auto: ["auto_points"],
-      speaker: ["speaker_points"],
-      amp: ["amplified_notes"],
-      trap: ["endgame_trap_points"],
-    },
-  },
-  2025: {
-    label: "Reefscape",
-    scoringComponents: [
-      { id: "auto", label: "Auto", unit: "pts" },
-      { id: "coral", label: "Coral", unit: "pts" },
-      { id: "algae", label: "Algae", unit: "pts" },
-      { id: "climb", label: "Climb", unit: "pts" },
-    ],
-    breakdownMap: {
-      auto: ["auto_points"],
-      coral: ["total_coral_points"],
-      algae: ["total_algae_points"],
-      climb: ["barge_points"],
-    },
-  },
-  2026: {
-    label: "Future Season",
-    scoringComponents: [
-      { id: "auto", label: "Auto", unit: "pts" },
-      { id: "cycle", label: "Cycle", unit: "pts" },
-      { id: "endgame", label: "Endgame", unit: "pts" },
-    ],
-    breakdownMap: {
-      auto: ["auto_points"],
-      cycle: ["teleop_points"],
-      endgame: ["endgame_points"],
-    },
-  },
-};
-
-const sourceLabels = {
-  scouter: "Scouter Total",
-  epa: "EPA",
-  opr: "OPR",
-  pridge: "pRidge",
-  derived: "Derived",
-};
+const seasonFramework = globalThis.SeasonFramework || {};
+const seasonDefinitions = seasonFramework.seasonDefinitions || {};
+const buildMetrics = seasonFramework.buildMetrics;
+const buildCriteriaSources = seasonFramework.buildCriteriaSources;
+const scouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((season) => season?.scoringComponents || []);
+const derivedMetricDefinitions = seasonFramework.derivedMetricDefinitions || ((season) => season?.derivedMetrics || []);
 
 function round(value, digits = 1) {
   return Number(Number(value || 0).toFixed(digits));
@@ -63,73 +16,6 @@ function parseJson(text, fallback) {
   } catch {
     return fallback;
   }
-}
-
-function buildMetrics(season) {
-  const sourceMetricOrder = [
-    { sourceId: "scouter", label: "Scouter Total" },
-    { sourceId: "epa", label: "EPA" },
-    { sourceId: "opr", label: "OPR" },
-    { sourceId: "pridge", label: "pRidge" },
-  ];
-  return [
-    ...sourceMetricOrder.flatMap((source) => [
-      {
-        id: `source:${source.sourceId}:total`,
-        kind: "source",
-        sourceId: source.sourceId,
-        componentId: "total",
-        label: source.label,
-        shortLabel: source.label,
-        unit: "pts",
-      },
-      ...season.scoringComponents.map((component) => ({
-        id: `source:${source.sourceId}:${component.id}`,
-        kind: "source",
-        sourceId: source.sourceId,
-        componentId: component.id,
-        label: `${source.label} ${component.label}`,
-        shortLabel: component.label,
-        unit: component.unit,
-      })),
-    ]),
-    {
-      id: "derived:defenseImpact",
-      kind: "derived",
-      sourceId: "derived",
-      componentId: "defenseImpact",
-      label: "Defense Impact",
-      shortLabel: "Defense Impact",
-      unit: "pts",
-    },
-    {
-      id: "derived:consistency",
-      kind: "derived",
-      sourceId: "derived",
-      componentId: "consistency",
-      label: "Consistency",
-      shortLabel: "Consistency",
-      unit: "%",
-    },
-  ];
-}
-
-function buildCriteriaSources(season) {
-  const components = [{ id: "total", label: "Total" }, ...season.scoringComponents.map((component) => ({ id: component.id, label: component.label }))];
-  return [
-    { id: "epa", label: sourceLabels.epa, components },
-    { id: "scouter", label: sourceLabels.scouter, components },
-    { id: "opr", label: sourceLabels.opr, components },
-    { id: "pridge", label: sourceLabels.pridge, components },
-    {
-      id: "derived",
-      label: sourceLabels.derived,
-      components: [
-        { id: "defenseImpact", label: "Defense Impact" },
-        { id: "consistency", label: "Consistency" },
-      ],
-    },
-  ];
 }
 
 function sumBreakdownValues(breakdown, keys) {
@@ -204,7 +90,7 @@ function buildTeam(teamInfo, teamEvent, season) {
   const qualRecord = teamEvent?.record?.qual || {};
   const trend = buildTrend(epa, stats, qualRecord.count, Number(teamInfo.team_number));
   const componentMap = buildComponentMap(epa, season, breakdown);
-  const emptyScouterComponents = Object.fromEntries(season.scoringComponents.map((component) => [component.id, 0]));
+  const emptyScouterComponents = Object.fromEntries(scouterMetricDefinitions(season).map((component) => [component.id, 0]));
   const pridge = round(epa * 0.97 + Number(qualRecord.rps_per_match || 0) * 0.8);
   const opr = round(epa * 1.04);
   const consistency = Math.max(25, Math.min(99, Math.round(100 - Math.abs((Number(stats.max || epa) - Number(stats.mean || epa)) / Math.max(1, Number(stats.mean || epa))) * 65)));
@@ -218,7 +104,7 @@ function buildTeam(teamInfo, teamEvent, season) {
     eventRank: Number(qualRecord.rank || 0) || null,
     record: teamEvent?.record || null,
     sources: {
-      scouter: { total: 0, components: emptyScouterComponents, trend: trend.map(() => 0), componentTrend: Object.fromEntries(season.scoringComponents.map((component) => [component.id, trend.map(() => 0)])) },
+      scouter: { total: 0, components: emptyScouterComponents, trend: trend.map(() => 0), componentTrend: Object.fromEntries(scouterMetricDefinitions(season).map((component) => [component.id, trend.map(() => 0)])) },
       epa: { total: round(epa), components: componentMap, trend },
       opr: { total: round(opr), components: componentMap, trend: trend.map((value) => round(value * 1.04)) },
       pridge: { total: round(pridge), components: buildComponentMap(pridge, season, breakdown), trend: trend.map((value) => round(value * 0.97)) },
@@ -250,6 +136,8 @@ function buildEventModel(snapshot) {
     matchesComplete: matches.length,
     matches,
     scoringComponents: season.scoringComponents,
+    scouterMetricDefinitions: scouterMetricDefinitions(season),
+    derivedMetricDefinitions: derivedMetricDefinitions(season),
     metrics: buildMetrics(season),
     criteriaSources: buildCriteriaSources(season),
     teams,

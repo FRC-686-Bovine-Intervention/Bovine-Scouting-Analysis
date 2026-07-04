@@ -1,4 +1,5 @@
 (function () {
+const seasonFramework = globalThis.SeasonFramework || {};
 const templateProfileSpecs = [
   {
     id: "match-current-v2",
@@ -104,7 +105,15 @@ function normalizeHeader(value, map) {
 }
 
 function componentFieldId(component) {
-  return `${normalizeToken(component.label || component.id)}score`;
+  return normalizeToken((seasonFramework.metricFieldId || ((metricDefinition) => metricDefinition.id))(component));
+}
+
+function scouterMetricDefinitions(eventModel) {
+  return (seasonFramework.scouterMetricDefinitions || ((model) => model?.scoringComponents || []))(eventModel);
+}
+
+function csvHeaderForMetric(component) {
+  return (seasonFramework.csvHeaderForMetric || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id)))(component);
 }
 
 function currentHeaderLabels(eventModel) {
@@ -117,7 +126,7 @@ function currentHeaderLabels(eventModel) {
     "defensePlayed",
     "robotStatus",
     "notes",
-    ...eventModel.scoringComponents.map((component) => `${component.id}Pts`),
+    ...scouterMetricDefinitions(eventModel).map((component) => csvHeaderForMetric(component)),
   ];
 }
 
@@ -131,15 +140,15 @@ function legacyHeaderLabels(eventModel) {
     "played defense",
     "robot state",
     "comments",
-    ...eventModel.scoringComponents.map((component) => `${component.label} Score`),
+    ...scouterMetricDefinitions(eventModel).map((component) => component.label),
   ];
 }
 
 function buildProfiles(eventModel) {
   const componentSynonyms = Object.fromEntries(
-    eventModel.scoringComponents.map((component) => [
+    scouterMetricDefinitions(eventModel).map((component) => [
       componentFieldId(component),
-      [component.id, `${component.label} pts`, `${component.label} score`],
+      [component.id, csvHeaderForMetric(component), `${component.label} pts`, `${component.label} score`, component.label, ...(component.aliases || [])],
     ]),
   );
   const synonyms = synonymMap(componentSynonyms);
@@ -248,9 +257,9 @@ function parseRows(rows, headers, profile, eventModel, metadata) {
   const index = buildHeaderIndex(headers);
   const warnings = [];
   const parsedRows = [];
-  const componentHeaders = eventModel.scoringComponents.map((component) => ({
+  const componentHeaders = scouterMetricDefinitions(eventModel).map((component) => ({
     component,
-    normalizedHeader: normalizeHeader(profile.kind === "current" ? `${component.id}Pts` : `${component.label} Score`, profile.synonyms),
+    normalizedHeader: normalizeHeader(profile.kind === "current" ? csvHeaderForMetric(component) : component.label, profile.synonyms),
   }));
 
   rows.forEach((row, rowOffset) => {
@@ -353,7 +362,7 @@ function validateSeasonPackage(eventModel) {
   if (!eventModel?.season) missing.push("season");
   if (!eventModel?.seasonLabel) missing.push("seasonLabel");
   if (!Array.isArray(eventModel?.metrics) || !eventModel.metrics.length) missing.push("metrics");
-  if (!Array.isArray(eventModel?.scoringComponents) || !eventModel.scoringComponents.length) missing.push("scoringComponents");
+  if (!Array.isArray(scouterMetricDefinitions(eventModel)) || !scouterMetricDefinitions(eventModel).length) missing.push("scouterMetricDefinitions");
   if (!Array.isArray(eventModel?.criteriaSources) || !eventModel.criteriaSources.length) missing.push("criteriaSources");
   return {
     valid: missing.length === 0,
@@ -374,7 +383,7 @@ function buildSampleCsv(eventModel, profileId) {
     const baseCells = profile.kind === "current"
       ? [matchNumber, team.number, `Scout ${index + 1}`, index % 2 === 0 ? "red" : "blue", index + 1, index === 1 ? "yes" : "no", "ok", `Imported sample row ${index + 1}`]
       : [matchNumber, team.number, `Scout ${index + 1}`, index % 2 === 0 ? "red" : "blue", index + 1, index === 1 ? "yes" : "no", "ok", `Legacy sample row ${index + 1}`];
-    const componentCells = eventModel.scoringComponents.map((component) => team.sources.scouter.components[component.id] ?? "");
+    const componentCells = scouterMetricDefinitions(eventModel).map((component) => team.sources.scouter.components[component.id] ?? "");
     return [...baseCells, ...componentCells];
   });
   return [metaRow, valueRow, [], headerRow, ...rows]
@@ -416,7 +425,7 @@ function previewScoutingImport({ csvText, eventModel, activeEventKey, existingSu
   }
 
   const normalizedHeaders = headerRow.map((header) => normalizeHeader(header, synonymMap(Object.fromEntries(
-    eventModel.scoringComponents.map((component) => [componentFieldId(component), [component.id, `${component.label} pts`, `${component.label} score`]]),
+    scouterMetricDefinitions(eventModel).map((component) => [componentFieldId(component), [component.id, csvHeaderForMetric(component), `${component.label} pts`, `${component.label} score`, component.label, ...(component.aliases || [])]]),
   ))));
 
   let profile = null;
