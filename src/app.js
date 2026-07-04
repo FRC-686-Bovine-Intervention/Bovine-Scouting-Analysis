@@ -26,6 +26,7 @@ const storageKeys = {
   picklistCompareTeams: "frc-scouting-picklist-compare-teams",
   scoutingSubmissions: "frc-scouting-submissions",
   activityLog: "frc-scouting-activity-log",
+  importSourceUrl: "frc-scouting-import-source-url",
 };
 
 const globalStorageKeys = new Set([storageKeys.user, storageKeys.users, storageKeys.theme, storageKeys.activeEvent, storageKeys.menuExpanded]);
@@ -97,6 +98,7 @@ const state = {
   activityLog: [],
   importCsvText: "",
   importSelectedProfileId: "",
+  importSourceUrl: initialEvent.sheet?.url || "",
   importResult: null,
   viewHistory: [],
 };
@@ -216,6 +218,7 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.picklistCompareTeams), JSON.stringify(state.picklistCompareTeams));
   localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions), JSON.stringify(state.scoutingSubmissions));
   localStorage.setItem(eventStorageKey(storageKeys.activityLog), JSON.stringify(state.activityLog));
+  localStorage.setItem(eventStorageKey(storageKeys.importSourceUrl), state.importSourceUrl);
 }
 
 function readStoredScoutingSubmissions(eventKey, eventModel = currentEvent()) {
@@ -263,6 +266,7 @@ function hydrateEventState(eventKey) {
   state.picklistCompareTeams = normalizePicklistCompareTeams(readStoredJson(storageKeys.picklistCompareTeams, [], eventKey), eventModel);
   state.scoutingSubmissions = normalizeScoutingSubmissions(readStoredScoutingSubmissions(eventKey, eventModel), eventModel);
   state.activityLog = normalizeActivityLog(readStoredJson(storageKeys.activityLog, [], eventKey));
+  state.importSourceUrl = readStoredItem(storageKeys.importSourceUrl, eventKey) || eventModel.sheet?.url || "";
   if (!state.loadedSources.length && state.picklists.length) state.loadedSources = [`picklist:${state.picklists[0].id}`];
   state.selectedTeam = teamByNumber(state.selectedTeam)?.number || eventModel.teams[0].number;
   state.selectedMatch = currentMatches().some((match) => match.number === state.selectedMatch) ? state.selectedMatch : eventModel.matches[0].number;
@@ -774,42 +778,26 @@ function usableSubmission(submission) {
 }
 
 function aggregateSubmissionMatches(submissions) {
-  const byMatch = new Map();
-  submissions
+  const componentIds = currentEvent().scoringComponents.map((component) => component.id);
+  return submissions
     .filter(usableSubmission)
-    .forEach((submission) => {
-      const key = Number(submission.matchNumber);
-      if (!byMatch.has(key)) byMatch.set(key, []);
-      byMatch.get(key).push(submission);
-    });
-
-  return [...byMatch.entries()]
-    .sort((left, right) => left[0] - right[0])
-    .map(([matchNumber, rows]) => {
-      const totals = rows.map((row) =>
-        Object.values(row.rawMetrics || {}).reduce((sum, value) => sum + (Number.isFinite(Number(value)) ? Number(value) : 0), 0),
-      );
-      const componentIds = currentEvent().scoringComponents.map((component) => component.id);
+    .map((submission, index) => {
       const components = Object.fromEntries(
-        componentIds.map((componentId) => [
-          componentId,
-          roundValue(
-            average(
-              rows.map((row) => {
-                const value = row.rawMetrics?.[componentId];
-                return Number.isFinite(Number(value)) ? Number(value) : 0;
-              }),
-            ),
-          ),
-        ]),
+        componentIds.map((componentId) => {
+          const value = submission.rawMetrics?.[componentId];
+          return [componentId, Number.isFinite(Number(value)) ? Number(value) : 0];
+        }),
       );
       return {
-        matchNumber,
-        submissions: rows,
-        total: roundValue(average(totals)),
+        matchNumber: Number(submission.matchNumber),
+        submissions: [submission],
+        total: roundValue(Object.values(components).reduce((sum, value) => sum + value, 0)),
         components,
+        order: index,
       };
-    });
+    })
+    .sort((left, right) => left.matchNumber - right.matchNumber || left.order - right.order)
+    .map(({ order, ...entry }) => entry);
 }
 
 function standardDeviation(values) {
@@ -818,18 +806,18 @@ function standardDeviation(values) {
   return Math.sqrt(average(values.map((value) => (value - mean) ** 2)));
 }
 
-function scoutingFlagsForTeam(baseTeam, submissions, aggregatedMatches, consistency) {
+function scoutingFlagsForTeam(baseTeam, submissions, importedMatchCount, consistency) {
   const flags = [...baseTeam.flags];
   const duplicateCount = submissions.filter((submission) => submission.confidenceReasons?.includes("duplicate_submission")).length;
   const flaggedCount = submissions.filter((submission) => submission.validity === "flagged").length;
   const brokenCount = submissions.filter((submission) => /broken|dead|disabled/i.test(submission.robotStatus || "")).length;
 
-  if (aggregatedMatches.length && aggregatedMatches.length < 4) {
+  if (importedMatchCount && importedMatchCount < 4) {
     flags.push({
       type: "data_suspect",
       label: "Sparse",
       severity: "warn",
-      evidence: `Only ${aggregatedMatches.length} imported matches are currently available.`,
+      evidence: `Only ${importedMatchCount} imported matches are currently available.`,
     });
   }
   if (duplicateCount) {
@@ -856,7 +844,7 @@ function scoutingFlagsForTeam(baseTeam, submissions, aggregatedMatches, consiste
       evidence: `Robot status was marked broken, dead, or disabled in ${brokenCount} imported submission${brokenCount === 1 ? "" : "s"}.`,
     });
   }
-  if (aggregatedMatches.length >= 3 && consistency < 70) {
+  if (importedMatchCount >= 3 && consistency < 70) {
     flags.push({
       type: "inconsistent",
       label: "Inconsistent",
@@ -871,6 +859,7 @@ function scoutingFlagsForTeam(baseTeam, submissions, aggregatedMatches, consiste
 function overlayTeamWithScouting(baseTeam) {
   const submissions = currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === baseTeam.number);
   const aggregatedMatches = aggregateSubmissionMatches(submissions);
+  const uniqueImportedMatches = new Set(aggregatedMatches.map((match) => match.matchNumber)).size;
   if (!aggregatedMatches.length) {
     return {
       ...baseTeam,
@@ -899,9 +888,9 @@ function overlayTeamWithScouting(baseTeam) {
   const consistency = clamp(Math.round(100 - (standardDeviation(totalsTrend) / mean) * 100), 25, 99);
   const defenseRate = submissions.filter((submission) => usableSubmission(submission) && submission.defensePlayed).length / Math.max(1, submissions.filter(usableSubmission).length);
   const defenseImpact = roundValue(defenseRate * Math.max(1, scouterTotal * 0.25));
-  const flags = scoutingFlagsForTeam(baseTeam, submissions, aggregatedMatches, consistency);
+  const flags = scoutingFlagsForTeam(baseTeam, submissions, uniqueImportedMatches, consistency);
   const scoutingReasons = uniqueValues([
-    ...(aggregatedMatches.length < 4 ? ["sparse_matches"] : []),
+    ...(uniqueImportedMatches < 4 ? ["sparse_matches"] : []),
     ...submissions.flatMap((submission) => submission.confidenceReasons || []),
   ]);
   const scoutingConfidenceTier = scoutingReasons.includes("schema_gap") || scoutingReasons.includes("duplicate_submission")
@@ -930,7 +919,7 @@ function overlayTeamWithScouting(baseTeam) {
     },
     scouting: {
       submissionCount: submissions.length,
-      importedMatches: aggregatedMatches.length,
+      importedMatches: uniqueImportedMatches,
       flaggedCount: submissions.filter((submission) => submission.validity === "flagged").length,
       confidence: {
         tier: scoutingConfidenceTier,
@@ -1007,6 +996,9 @@ function commitImportPreview() {
   });
   state.scoutingSubmissions = normalizeScoutingSubmissions(committed.submissions, currentEvent());
   state.activityLog = normalizeActivityLog(committed.activity);
+  if (state.importResult.summary.rowCount > 0 && state.teamDetailMetric === "source:epa:total") {
+    state.teamDetailMetric = "source:scouter:total";
+  }
   state.importResult = null;
   state.importCsvText = "";
   state.importSelectedProfileId = "";
@@ -1021,15 +1013,85 @@ function switchImportContext(eventKey) {
   runImportPreview();
 }
 
+function normalizeSourceUrl(value) {
+  return String(value || "").trim();
+}
+
+function googleSheetInfo(url) {
+  const match = String(url || "").match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (!match) return null;
+  const id = match[1];
+  let gid = "0";
+  const gidMatch = String(url).match(/[?#&]gid=([0-9]+)/);
+  if (gidMatch) gid = gidMatch[1];
+  return {
+    id,
+    gid,
+    csvUrl: `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`,
+  };
+}
+
+function sourceUrlMatchesEventSheet(url, event = currentEvent()) {
+  const normalized = normalizeSourceUrl(url);
+  if (!normalized) return false;
+  const eventInfo = googleSheetInfo(event.sheet?.url || event.sheet?.csvUrl || "");
+  const inputInfo = googleSheetInfo(normalized);
+  if (event.sheet?.url === normalized || event.sheet?.csvUrl === normalized) return true;
+  return Boolean(eventInfo && inputInfo && eventInfo.id === inputInfo.id);
+}
+
+function setImportError(message) {
+  state.importResult = {
+    ok: false,
+    errors: [message],
+    warnings: [],
+    summary: null,
+  };
+  render();
+}
+
+function loadPreparedScoutingCsv(csvText, profileId = "") {
+  state.importCsvText = csvText;
+  state.importSelectedProfileId = profileId;
+  state.importResult = null;
+  saveState();
+  runImportPreview();
+}
+
 function loadEventSheetSample() {
   const event = currentEvent();
   const sampleCsvText = event.sheet?.sampleCsvText;
   if (!sampleCsvText) return;
-  state.importCsvText = adaptEventSheetCsv(event, sampleCsvText);
-  state.importSelectedProfileId = "match-current-v2";
-  state.importResult = null;
-  saveState();
-  runImportPreview();
+  loadPreparedScoutingCsv(adaptEventSheetCsv(event, sampleCsvText), "");
+}
+
+async function loadScoutingData() {
+  const event = currentEvent();
+  const sourceUrl = normalizeSourceUrl(state.importSourceUrl || event.sheet?.url || "");
+  if (event.sheet?.sampleCsvText && (!sourceUrl || !event.sheet?.url || sourceUrlMatchesEventSheet(sourceUrl, event))) {
+    loadEventSheetSample();
+    return;
+  }
+
+  if (!sourceUrl) {
+    setImportError("Enter a scouting spreadsheet URL before loading scouting data.");
+    return;
+  }
+
+  const sheetInfo = googleSheetInfo(sourceUrl);
+  if (!sheetInfo) {
+    setImportError("That scouting source is not a recognized Google Sheets URL.");
+    return;
+  }
+
+  try {
+    const response = await fetch(sheetInfo.csvUrl);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const csvText = await response.text();
+    loadPreparedScoutingCsv(adaptEventSheetCsv(event, csvText), "");
+  } catch (error) {
+    setImportError(`Unable to load scouting data from that sheet right now. ${error?.message || "Try the event's cached sheet or paste CSV manually."}`);
+  }
 }
 
 function parseCsvText(text) {
@@ -1150,16 +1212,43 @@ function parse2025TeamDescriptor(value) {
   };
 }
 
+function reefscape2025Count(row, headerIndex, header) {
+  return numericValue(eventSheetCell(row, headerIndex, header));
+}
+
+function reefscape2025ClimbPoints(value) {
+  const climbCode = numericValue(value);
+  return {
+    0: 0,
+    1: 2,
+    2: 6,
+    3: 8,
+    4: 12,
+  }[climbCode] ?? 0;
+}
+
 function adapt2025SheetCsv(eventModel, csvText) {
   const rows = parseCsvText(csvText);
   const headers = rows[0] || [];
   const headerIndex = eventSheetHeaderMap(headers);
   const records = rows.slice(1).filter((row) => row.some((cell) => cell)).map((row) => {
     const team = parse2025TeamDescriptor(eventSheetCell(row, headerIndex, "Team"));
-    const autoCoral = ["Auto-L4Make", "Auto-L3Make", "Auto-L2Make", "Auto-TroughMake"].reduce((sum, header) => sum + numericValue(eventSheetCell(row, headerIndex, header)), 0);
-    const autoAlgae = ["Auto-RemovedAlgaeMake", "Auto-ScoredProcessorMake", "Auto-ScoredBargeMake"].reduce((sum, header) => sum + numericValue(eventSheetCell(row, headerIndex, header)), 0);
-    const teleCoral = ["Tele-Op-L4Make", "Tele-Op-L3Make", "Tele-Op-L2Make", "Tele-Op-TroughMake"].reduce((sum, header) => sum + numericValue(eventSheetCell(row, headerIndex, header)), 0);
-    const teleAlgae = ["Tele-Op-RemovedAlgaeMake", "Tele-Op-ScoredProcessorMake", "Tele-Op-ScoredBargeMake"].reduce((sum, header) => sum + numericValue(eventSheetCell(row, headerIndex, header)), 0);
+    const autoPoints =
+      reefscape2025Count(row, headerIndex, "Auto-L4Make") * 7 +
+      reefscape2025Count(row, headerIndex, "Auto-L3Make") * 6 +
+      reefscape2025Count(row, headerIndex, "Auto-L2Make") * 4 +
+      reefscape2025Count(row, headerIndex, "Auto-TroughMake") * 3 +
+      reefscape2025Count(row, headerIndex, "Auto-ScoredProcessorMake") * 6 +
+      reefscape2025Count(row, headerIndex, "Auto-ScoredBargeMake") * 4;
+    const coralPoints =
+      reefscape2025Count(row, headerIndex, "Tele-Op-L4Make") * 5 +
+      reefscape2025Count(row, headerIndex, "Tele-Op-L3Make") * 4 +
+      reefscape2025Count(row, headerIndex, "Tele-Op-L2Make") * 3 +
+      reefscape2025Count(row, headerIndex, "Tele-Op-TroughMake") * 2;
+    const algaePoints =
+      reefscape2025Count(row, headerIndex, "Tele-Op-ScoredProcessorMake") * 6 +
+      reefscape2025Count(row, headerIndex, "Tele-Op-ScoredBargeMake") * 4;
+    const climbPoints = reefscape2025ClimbPoints(eventSheetCell(row, headerIndex, "Climbing"));
     return {
       matchNumber: numericValue(eventSheetCell(row, headerIndex, "MatchNumber")),
       teamNumber: team.teamNumber,
@@ -1170,10 +1259,10 @@ function adapt2025SheetCsv(eventModel, csvText) {
       robotStatus: "ok",
       notes: eventSheetCell(row, headerIndex, "Notes"),
       metrics: {
-        auto: autoCoral + autoAlgae,
-        coral: teleCoral,
-        algae: autoAlgae + teleAlgae,
-        climb: numericValue(eventSheetCell(row, headerIndex, "Climbing")),
+        auto: autoPoints,
+        coral: coralPoints,
+        algae: algaePoints,
+        climb: climbPoints,
       },
     };
   });
@@ -1665,8 +1754,8 @@ function renderTeamDetail(team) {
   const selectedMetric = teamDetailMetric();
   const scouterMetric = metricById("source:scouter:total");
   const epaMetric = metricById("source:epa:total");
+  const oprMetric = metricById("source:opr:total");
   const pridgeMetric = metricById("source:pridge:total");
-  const consistencyMetric = metricById("derived:consistency");
   return `
     <article class="card">
         <div class="section-heading">
@@ -1681,10 +1770,10 @@ function renderTeamDetail(team) {
         </div>
       </div>
       <div class="stat-grid">
+        <div class="stat"><span>${escapeHtml(selectedMetric.label)}</span><strong>${teamMetricValue(team, selectedMetric).toFixed(selectedMetric.unit === "%" ? 0 : 1)}${selectedMetric.unit === "%" ? "%" : ""}</strong></div>
         <div class="stat"><span>Scouter Total</span><strong>${teamMetricValue(team, scouterMetric).toFixed(1)}</strong></div>
         <div class="stat"><span>EPA</span><strong>${teamMetricValue(team, epaMetric).toFixed(1)}</strong></div>
-        <div class="stat"><span>pRidge</span><strong>${teamMetricValue(team, pridgeMetric).toFixed(1)}</strong></div>
-        <div class="stat"><span>Consistency</span><strong>${teamMetricValue(team, consistencyMetric)}%</strong></div>
+        <div class="stat"><span>OPR</span><strong>${teamMetricValue(team, oprMetric).toFixed(1)}</strong></div>
       </div>
       <div class="team-detail-grid">
         <div>
@@ -1702,7 +1791,10 @@ function renderTeamDetail(team) {
           ${renderSparkline(team, selectedMetric)}
         </div>
         <div class="compact-flags">
-          <h3>Flags</h3>
+          <h3>Source Snapshot</h3>
+          <p><strong>pRidge:</strong> ${teamMetricValue(team, pridgeMetric).toFixed(1)}</p>
+          <p><strong>Rank:</strong> ${team.eventRank || "Unranked"}</p>
+          <p><strong>Imported scouting matches:</strong> ${team.scouting?.importedMatches || 0}</p>
           ${team.flags.length ? team.flags.map((flag) => `<p><span class="flag ${flag.severity}">${flag.label}</span> <span class="flag-evidence">${flag.evidence}</span></p>`).join("") : `<p class="muted">No active flags.</p>`}
         </div>
       </div>
@@ -2657,60 +2749,46 @@ function renderAdmin() {
   const reviewGroups = flaggedSubmissionGroups();
   return `
     <div class="grid">
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Event Workspace</h2>
-            <p class="muted">Admins choose the active event here, and the rest of the app follows that event context.</p>
-          </div>
-        </div>
-        <div class="admin-form-grid">
-          <label>
-            Active event
-            <select id="adminEventSelect" aria-label="Admin event selection">
-              ${globalEventCatalog.map((item) => `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.season} ${item.name}</option>`).join("")}
-            </select>
-          </label>
-          <div class="issue-list">
-            <div class="issue-row">
-              <strong>Scouting sheet</strong>
-              <span class="muted">${event.sheet?.tab || "Unknown tab"} | ${event.sheet?.access === "public_csv" ? "Public CSV sample cached" : "Sign-in required for direct export"}</span>
+      <div class="grid cols-2">
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <h2>Event Workspace</h2>
+              <p class="muted">Choose the active event here. The rest of the app switches immediately.</p>
             </div>
           </div>
-          <div class="admin-actions">
-            <button type="button" id="switchAdminEventButton" class="primary">Use Selected Event</button>
-            ${
-              event.sheet?.sampleCsvText
-                ? `<button type="button" id="loadSourceSheetButton">Load ${escapeHtml(event.sheet.tab || "sheet")} CSV</button>`
-                : ""
-            }
-          </div>
-        </div>
-      </article>
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Data Sources</h2>
-            <p class="muted">These source statuses are based on the real snapshots and sheet access we have for ${event.key}.</p>
-          </div>
-        </div>
-        <div class="data-source-list">
-          ${currentDataSources()
-            .map(
-              (source) => `
-            <div class="data-source-row">
-              <div>
-                <strong>${source.name}</strong>
-                <span class="muted">${source.notes}</span>
+          <div class="admin-form-grid">
+            <label>
+              Active event
+              <select id="adminEventSelect" aria-label="Admin event selection">
+                ${globalEventCatalog.map((item) => `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.season} ${item.name}</option>`).join("")}
+              </select>
+            </label>
+            <div class="issue-list">
+              <div class="issue-row">
+                <strong>Scouting sheet</strong>
+                <span class="muted">${event.sheet?.tab || "Unknown tab"} | ${event.sheet?.access === "public_csv" ? "Public CSV sample cached" : "Sign-in required for direct export"}</span>
               </div>
-              <span class="source-status">${source.status}</span>
-              <span class="muted">${source.updated}</span>
             </div>
-          `,
-            )
-            .join("")}
-        </div>
-      </article>
+          </div>
+        </article>
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <h2>How To Use</h2>
+              <p class="muted">This is the shortest path for changing events and loading scouting data.</p>
+            </div>
+          </div>
+          <div class="howto-list">
+            <div class="howto-row"><strong>1.</strong><span>Pick the event in Event Workspace.</span></div>
+            <div class="howto-row"><strong>2.</strong><span>Paste or confirm the scouting sheet URL.</span></div>
+            <div class="howto-row"><strong>3.</strong><span>Click <strong>Load Scouting Data</strong>.</span></div>
+            <div class="howto-row"><strong>4.</strong><span>Confirm the preview says <strong>Preview Ready</strong>.</span></div>
+            <div class="howto-row"><strong>5.</strong><span>Click <strong>Commit Import</strong>.</span></div>
+            <div class="howto-row"><strong>6.</strong><span>Open Teams or Analysis to use the imported scouting data.</span></div>
+          </div>
+        </article>
+      </div>
       <div class="stat-grid">
         <div class="stat"><span>Imported Rows</span><strong>${state.scoutingSubmissions.length}</strong></div>
         <div class="stat"><span>Imported Matches</span><strong>${importedMatchCount()}</strong></div>
@@ -2722,25 +2800,17 @@ function renderAdmin() {
           <div class="section-heading">
             <div>
               <h2>Scouting Import</h2>
-              <p class="muted">${event.season} imports still use metadata + header mapping so future seasons can define new scoring breakdowns without hardcoding per-column assumptions.</p>
-            </div>
-            <div class="admin-actions">
-              <button type="button" data-load-sample="match-current-v2">Load Current Sample</button>
-              <button type="button" data-load-sample="match-legacy-v1">Load Legacy Sample</button>
-              ${
-                event.sheet?.sampleCsvText
-                  ? `<button type="button" id="loadSheetSampleInlineButton">Load Real Sheet Sample</button>`
-                  : ""
-              }
+              <p class="muted">Paste the scouting Google Sheet URL, load it, then commit the preview into this event.</p>
             </div>
           </div>
           <div class="admin-form-grid">
             <label>
-              Template profile override
-              <select id="importProfileSelect">
-                ${importProfileOptions.map((option) => `<option value="${option.id}" ${option.id === state.importSelectedProfileId ? "selected" : ""}>${option.label}</option>`).join("")}
-              </select>
+              Scouting sheet URL
+              <input id="importSourceUrl" class="admin-input" type="url" value="${escapeAttribute(state.importSourceUrl || event.sheet?.url || "")}" placeholder="https://docs.google.com/spreadsheets/d/..." />
             </label>
+            <div class="admin-actions">
+              <button type="button" id="loadScoutingDataButton" class="primary">Load Scouting Data</button>
+            </div>
             <label>
               CSV payload
               <textarea id="importCsvInput" class="admin-textarea" spellcheck="false" placeholder="Paste CSV with metadata block here.">${escapeHtml(state.importCsvText)}</textarea>
@@ -2816,6 +2886,30 @@ function renderAdmin() {
           }
         </article>
       </div>
+      <article class="card">
+        <div class="section-heading">
+          <div>
+            <h2>Data Sources</h2>
+            <p class="muted">These source statuses follow the selected event and update with the current event context.</p>
+          </div>
+        </div>
+        <div class="data-source-list">
+          ${currentDataSources()
+            .map(
+              (source) => `
+            <div class="data-source-row">
+              <div>
+                <strong>${source.name}</strong>
+                <span class="muted">${source.notes}</span>
+              </div>
+              <span class="source-status">${source.status}</span>
+              <span class="muted">${source.updated}</span>
+            </div>
+          `,
+            )
+            .join("")}
+        </div>
+      </article>
       <article class="card">
         <div class="section-heading">
           <div>
@@ -3108,6 +3202,15 @@ function bindViewEvents() {
     saveState();
     render();
   });
+  document.querySelector("#adminEventSelect")?.addEventListener("change", (event) => {
+    const nextEventKey = event.target.value;
+    if (!nextEventKey) return;
+    hydrateEventState(nextEventKey);
+    state.activeView = "admin";
+    state.viewHistory = [];
+    saveState();
+    render();
+  });
   document.querySelector("#switchAdminEventButton")?.addEventListener("click", () => {
     const nextEventKey = document.querySelector("#adminEventSelect")?.value;
     if (!nextEventKey) return;
@@ -3117,8 +3220,6 @@ function bindViewEvents() {
     saveState();
     render();
   });
-  document.querySelector("#loadSourceSheetButton")?.addEventListener("click", loadEventSheetSample);
-  document.querySelector("#loadSheetSampleInlineButton")?.addEventListener("click", loadEventSheetSample);
   document.querySelector("#clearAllianceBoardButton")?.addEventListener("click", clearAllianceBoard);
   document.querySelectorAll("[data-team], [data-team-link]").forEach((element) => {
     element.addEventListener("click", (event) => {
@@ -3435,12 +3536,14 @@ function bindViewEvents() {
       updatePicklist(picklist.id, (current) => ({ ...current, teams: moveItemBefore(current.teams, draggedTeam, targetTeam) }));
     });
   });
-  document.querySelector("#importProfileSelect")?.addEventListener("change", (event) => {
-    state.importSelectedProfileId = event.target.value;
-    if (state.importResult) runImportPreview();
+  document.querySelector("#importSourceUrl")?.addEventListener("input", (event) => {
+    state.importSourceUrl = event.target.value;
   });
   document.querySelector("#importCsvInput")?.addEventListener("input", (event) => {
     state.importCsvText = event.target.value;
+  });
+  document.querySelector("#loadScoutingDataButton")?.addEventListener("click", async () => {
+    await loadScoutingData();
   });
   document.querySelector("#dryRunImportButton")?.addEventListener("click", () => {
     runImportPreview();
@@ -3453,14 +3556,6 @@ function bindViewEvents() {
     state.importSelectedProfileId = "";
     state.importResult = null;
     render();
-  });
-  document.querySelectorAll("[data-load-sample]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.importSelectedProfileId = button.dataset.loadSample;
-      state.importCsvText = buildSampleCsv(currentEvent(), button.dataset.loadSample);
-      state.importResult = null;
-      render();
-    });
   });
   document.querySelector("#switchImportContextButton")?.addEventListener("click", () => {
     switchImportContext(state.importResult?.suggestedEventKey);

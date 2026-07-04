@@ -255,7 +255,7 @@ function buildEventModel(snapshot) {
     teams,
     teamNumbers: teams.map((team) => team.number),
     defaultMetricId: "source:epa:total",
-    defaultTeamDetailMetricId: "source:epa:total",
+    defaultTeamDetailMetricId: "source:scouter:total",
     seedSortEquations: [
       {
         id: "sort-defense-backup",

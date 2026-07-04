@@ -24,18 +24,19 @@ async function openAdmin(page) {
 
 async function switchEvent(page, eventKey) {
   await page.selectOption("#adminEventSelect", eventKey);
-  await page.click("#switchAdminEventButton");
   await page.waitForTimeout(750);
 }
 
 async function importCurrentSheet(page) {
-  const loadButton = page.locator("#loadSheetSampleInlineButton");
+  const loadButton = page.locator("#loadScoutingDataButton");
   await loadButton.waitFor({ state: "visible" });
   await loadButton.click();
   await page.waitForTimeout(1200);
   const previewFlags = await page.locator(".preview-shell .flag").allTextContents();
   const commitEnabled = await page.locator("#commitImportButton").isEnabled();
-  return { previewFlags, commitEnabled };
+  const issues = await page.locator(".issue-list .issue-row").allTextContents();
+  const csvHead = (await page.locator("#importCsvInput").inputValue()).split(/\r?\n/).slice(0, 5);
+  return { previewFlags, commitEnabled, issues: issues.map(text), csvHead };
 }
 
 async function commitImport(page) {
@@ -99,6 +100,22 @@ async function captureFirstTeamDetail(page) {
   const title = text(await page.locator(".card h2").first().textContent());
   const stats = await page.locator(".stat-grid .stat").allTextContents();
   return { teamNumber: Number(firstTeamNumber), title, stats: stats.map(text) };
+}
+
+async function captureSpecificTeamTrend(page, teamNumber) {
+  await page.click('[data-view="teams"]');
+  await page.waitForSelector(".team-card");
+  await page.locator(`[data-team="${teamNumber}"]`).first().click();
+  await page.waitForSelector("#teamSelect");
+  const selectedMetric = await page.locator("#teamDetailMetricSelect").inputValue();
+  const selectedMetricLabel = text(await page.locator("#teamDetailMetricSelect").locator("option:checked").textContent());
+  const pointTitles = await page.locator(".trend-chart circle title").allTextContents();
+  return {
+    teamNumber,
+    selectedMetric,
+    selectedMetricLabel,
+    firstPoints: pointTitles.slice(0, 6).map(text),
+  };
 }
 
 async function verifyBack(page) {
@@ -177,6 +194,7 @@ try {
   await commitImport(page);
   result.storage2025 = await storageSnapshot(page);
   result.teamDetail2025 = await captureFirstTeamDetail(page);
+  result.team422Trend2025 = await captureSpecificTeamTrend(page, 422);
   result.analysis2025 = await captureAnalysis(page);
   result.legacy2025Setup = await simulateLegacyOnlyStorage(page);
   await page.reload();
