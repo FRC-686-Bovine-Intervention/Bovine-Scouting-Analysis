@@ -63,6 +63,7 @@ const navItems = [
   { view: "quality", label: "Data Quality", icon: "quality" },
   { view: "analysis", label: "Analysis", icon: "analysis" },
   { view: "derivedBuilder", label: "Derived Builder", icon: "analysis" },
+  { view: "scoringMatrixBuilder", label: "Scoring Matrices", icon: "analysis" },
   { view: "sortBuilder", label: "Sort Builder", icon: "sortEquation" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
   { view: "alliance", label: "Alliance Selection", icon: "alliance" },
@@ -127,6 +128,7 @@ const state = {
   derivedMetricConfigEditorText: JSON.stringify(normalizeCustomDerivedMetricConfig(readStoredJson(storageKeys.customDerivedMetricConfig, seededDerivedMetricConfig)), null, 2),
   derivedMetricConfigStatus: "",
   derivedMetricConfigIssues: [],
+  derivedMetricFieldScrollTops: {},
   viewHistory: [],
 };
 globalThis.__scoutingActiveEventKey = state.activeEventKey;
@@ -279,6 +281,15 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.customDerivedMetricConfig), JSON.stringify(state.customDerivedMetricConfig));
 }
 
+function clearAppStorage() {
+  const keysToRemove = [];
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (key && key.startsWith("frc-scouting-")) keysToRemove.push(key);
+  }
+  keysToRemove.forEach((key) => localStorage.removeItem(key));
+}
+
 function readStoredScoutingSubmissions(eventKey, eventModel = currentEvent()) {
   const scoped = readStoredJson(storageKeys.scoutingSubmissions, null, eventKey);
   if (Array.isArray(scoped)) return scoped;
@@ -342,17 +353,21 @@ function hydrateEventState(eventKey) {
 function createDerivedMetricDraft(eventModel = currentEvent()) {
   return {
     scopeType: "season",
+    presetId: "blank",
     id: "",
+    idManuallyEdited: false,
     label: "",
     unit: "pts",
     template: "sum",
     fields: [],
+    weightedFields: [],
     madeFields: [],
     missedFields: [],
     numeratorFields: [],
     denominatorFields: [],
     denominatorMode: "match_count",
     presenceFields: [],
+    scoringMatrixPresetId: "",
     seasonKey: String(eventModel.season),
     profileKey: currentProfileMetricScopeKey(eventModel),
   };
@@ -361,11 +376,69 @@ function createDerivedMetricDraft(eventModel = currentEvent()) {
 const derivedMetricPresets = [
   { id: "blank", label: "Blank Draft", template: "sum", unit: "pts", seedId: "", seedLabel: "" },
   { id: "sum", label: "Scoring Sum", template: "sum", unit: "pts", seedId: "newScoringSum", seedLabel: "New Scoring Sum" },
+  { id: "weighted_sum", label: "Scoring Matrix", template: "weighted_sum", unit: "pts", seedId: "newScoringMatrix", seedLabel: "New Scoring Matrix" },
   { id: "accuracy", label: "Accuracy (%)", template: "rate", unit: "%", seedId: "newAccuracy", seedLabel: "New Accuracy" },
   { id: "average_per_match", label: "Average Per Match", template: "average_per_match", unit: "pts", seedId: "newAveragePerMatch", seedLabel: "New Average Per Match" },
   { id: "average_present", label: "Average When Present", template: "average_present", unit: "pts", seedId: "newAverageWhenPresent", seedLabel: "New Average When Present" },
   { id: "attempt_average", label: "Average Per Attempt", template: "attempt_average", unit: "pts", seedId: "newAveragePerAttempt", seedLabel: "New Average Per Attempt" },
 ];
+
+function generatedMetricId(label) {
+  const words = String(label || "")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return "";
+  return words
+    .map((word, index) => {
+      const normalized = word.toLowerCase();
+      return index === 0 ? normalized : `${normalized.slice(0, 1).toUpperCase()}${normalized.slice(1)}`;
+    })
+    .join("");
+}
+
+function presetIdForDefinition(definition) {
+  if (!definition) return "blank";
+  if (definition.formula === "sum") return "sum";
+  if (definition.formula === "weighted_sum") return "weighted_sum";
+  if (definition.formula === "rate") return "accuracy";
+  if (definition.formula === "ratio" && definition.denominatorMode === "attempt_sum") return "attempt_average";
+  if (definition.formula === "ratio" && definition.denominatorMode === "nonzero_numerator_matches") return "average_present";
+  if (definition.formula === "ratio" && definition.denominatorMode === "match_count") return "average_per_match";
+  return "blank";
+}
+
+function normalizeWeightedFieldEntries(entries) {
+  const normalized = [];
+  const seen = new Set();
+  (entries || []).forEach((entry) => {
+    const field = String(entry?.field || "").trim();
+    if (!field || seen.has(field)) return;
+    seen.add(field);
+    normalized.push({
+      field,
+      weight: Number.isFinite(Number(entry?.weight)) ? Number(entry.weight) : 1,
+    });
+  });
+  return normalized;
+}
+
+function isScoringMatrixDefinition(definition) {
+  return String(definition?.formula || "") === "weighted_sum";
+}
+
+function derivedDefinitionKindLabel(definition) {
+  if (isScoringMatrixDefinition(definition)) return "Scoring matrix";
+  if (definition?.formula === "sum") return "Derived metric";
+  if (definition?.formula === "rate") return "Derived metric";
+  if (definition?.formula === "ratio") return "Derived metric";
+  return "Derived metric";
+}
+
+function isScoringMatrixDraft(draft = state.derivedMetricDraft) {
+  return draft.template === "weighted_sum" || draft.presetId === "weighted_sum";
+}
 
 function normalizeCustomDerivedMetricDefinition(definition) {
   if (!definition || typeof definition !== "object" || !definition.id || !definition.label) return null;
@@ -375,6 +448,7 @@ function normalizeCustomDerivedMetricDefinition(definition) {
     unit: String(definition.unit || "pts").trim(),
     formula: String(definition.formula || "sum").trim(),
     fields: Array.isArray(definition.fields) ? [...new Set(definition.fields.map(String).filter(Boolean))] : [],
+    weightedFields: normalizeWeightedFieldEntries(definition.weightedFields),
     madeFields: Array.isArray(definition.madeFields) ? [...new Set(definition.madeFields.map(String).filter(Boolean))] : [],
     missFields: Array.isArray(definition.missFields) ? [...new Set(definition.missFields.map(String).filter(Boolean))] : [],
     numeratorFields: Array.isArray(definition.numeratorFields) ? [...new Set(definition.numeratorFields.map(String).filter(Boolean))] : [],
@@ -413,7 +487,7 @@ function validateCustomDerivedMetricDefinition(definition, options = {}) {
   if (!definition?.id) errors.push("Metric ID is required.");
   if (!definition?.label) errors.push("Metric label is required.");
   const formula = String(definition?.formula || "");
-  const allowedFormulas = new Set(["sum", "rate", "ratio"]);
+  const allowedFormulas = new Set(["sum", "weighted_sum", "rate", "ratio"]);
   if (!allowedFormulas.has(formula)) errors.push(`Unsupported formula "${formula || "unknown"}".`);
 
   const knownFields = options.knownFields || knownScouterFieldIds();
@@ -428,6 +502,15 @@ function validateCustomDerivedMetricDefinition(definition, options = {}) {
   };
 
   if (formula === "sum") requireFields("Sum fields", definition.fields);
+  if (formula === "weighted_sum") {
+    if (!Array.isArray(definition.weightedFields) || !definition.weightedFields.length) {
+      errors.push("Weighted fields must include at least one field.");
+    } else {
+      definition.weightedFields.forEach((entry) => {
+        if (!knownFields.has(entry.field)) errors.push(`Weighted fields reference unknown field "${entry.field}".`);
+      });
+    }
+  }
   if (formula === "rate") {
     requireFields("Made fields", definition.madeFields);
     requireFields("Missed fields", definition.missFields);
@@ -487,6 +570,9 @@ function metricDefinitionFromDraft(draft = state.derivedMetricDraft) {
   if (draft.template === "sum") {
     return normalizeCustomDerivedMetricDefinition({ id, label, unit: draft.unit, formula: "sum", fields: draft.fields });
   }
+  if (draft.template === "weighted_sum") {
+    return normalizeCustomDerivedMetricDefinition({ id, label, unit: draft.unit, formula: "weighted_sum", weightedFields: draft.weightedFields });
+  }
   if (draft.template === "rate") {
     return normalizeCustomDerivedMetricDefinition({ id, label, unit: "%", formula: "rate", madeFields: draft.madeFields, missFields: draft.missedFields });
   }
@@ -536,14 +622,19 @@ function derivedMetricEditingRecord() {
 function setDerivedMetricDraftFromDefinition(scopeType, scopeKey, definition) {
   const draft = createDerivedMetricDraft(currentEvent());
   draft.scopeType = scopeType;
+  draft.presetId = presetIdForDefinition(definition);
   if (scopeType === "profile") draft.profileKey = scopeKey;
   else draft.seasonKey = scopeKey;
   draft.id = definition.id;
+  draft.idManuallyEdited = true;
   draft.label = definition.label;
   draft.unit = definition.unit;
   if (definition.formula === "sum") {
     draft.template = "sum";
     draft.fields = [...(definition.fields || [])];
+  } else if (definition.formula === "weighted_sum") {
+    draft.template = "weighted_sum";
+    draft.weightedFields = normalizeWeightedFieldEntries(definition.weightedFields);
   } else if (definition.formula === "rate") {
     draft.template = "rate";
     draft.madeFields = [...(definition.madeFields || [])];
@@ -571,10 +662,11 @@ function applyDerivedMetricPreset(presetId) {
   nextDraft.scopeType = state.derivedMetricDraft.scopeType;
   nextDraft.seasonKey = state.derivedMetricDraft.seasonKey;
   nextDraft.profileKey = state.derivedMetricDraft.profileKey;
+  nextDraft.presetId = preset.id;
   nextDraft.template = preset.template;
   nextDraft.unit = preset.unit;
-  nextDraft.id = preset.seedId;
   nextDraft.label = preset.seedLabel;
+  nextDraft.id = generatedMetricId(preset.seedLabel);
   let presetStatus = `Preset loaded: ${preset.label}.`;
   if (preset.id === "accuracy") {
     const fieldOptions = derivedMetricFieldOptions().map((field) => field.id);
@@ -597,6 +689,36 @@ function applyDerivedMetricPreset(presetId) {
   state.derivedMetricConfigStatus = presetStatus;
   state.derivedMetricConfigIssues = [];
   render();
+}
+
+function applyScoringMatrixPreset(presetId) {
+  const preset = currentScoringMatrixPresets().find((item) => item.id === presetId);
+  if (!preset) return;
+  state.derivedMetricDraft.template = "weighted_sum";
+  state.derivedMetricDraft.presetId = "weighted_sum";
+  state.derivedMetricDraft.scoringMatrixPresetId = preset.id;
+  state.derivedMetricDraft.unit = preset.unit || "pts";
+  if (!state.derivedMetricDraft.label || /^new weighted points$/i.test(state.derivedMetricDraft.label)) {
+    state.derivedMetricDraft.label = preset.label;
+  }
+  if (!state.derivedMetricDraft.idManuallyEdited) {
+    state.derivedMetricDraft.id = generatedMetricId(state.derivedMetricDraft.label);
+  }
+  state.derivedMetricDraft.weightedFields = normalizeWeightedFieldEntries(preset.weightedFields);
+  state.derivedMetricConfigStatus = `Scoring matrix preset loaded: ${preset.label}.`;
+  state.derivedMetricConfigIssues = [];
+  render();
+}
+
+function setWeightedFieldSelection(fieldIds) {
+  const previousByField = new Map((state.derivedMetricDraft.weightedFields || []).map((entry) => [entry.field, entry]));
+  state.derivedMetricDraft.weightedFields = fieldIds.map((field) => previousByField.get(field) || { field, weight: 1 });
+}
+
+function setWeightedFieldWeight(fieldId, weight) {
+  state.derivedMetricDraft.weightedFields = normalizeWeightedFieldEntries(
+    (state.derivedMetricDraft.weightedFields || []).map((entry) => (entry.field === fieldId ? { ...entry, weight } : entry)),
+  );
 }
 
 function normalizeView(view) {
@@ -1132,6 +1254,14 @@ function derivedMetricFieldOptions() {
   }));
 }
 
+function currentSeasonDefinition(eventModel = currentEvent()) {
+  return seasonFramework.seasonDefinitions?.[eventModel.season] || null;
+}
+
+function currentScoringMatrixPresets(eventModel = currentEvent()) {
+  return Array.isArray(currentSeasonDefinition(eventModel)?.scoringMatrixPresets) ? currentSeasonDefinition(eventModel).scoringMatrixPresets : [];
+}
+
 function derivedMetricScopeSummary() {
   return {
     seasonKey: String(currentEvent().season),
@@ -1162,6 +1292,15 @@ function derivedMetricPreviewValue(definition, team, window = "all") {
 
 function selectedValues(select) {
   return Array.from(select?.selectedOptions || []).map((option) => option.value).filter(Boolean);
+}
+
+function restoreDerivedMetricFieldScroll() {
+  requestAnimationFrame(() => {
+    Object.entries(state.derivedMetricFieldScrollTops || {}).forEach(([id, scrollTop]) => {
+      const select = document.getElementById(id);
+      if (select) select.scrollTop = scrollTop;
+    });
+  });
 }
 
 function derivedMetricConfigJson() {
@@ -1848,6 +1987,28 @@ function toggleTheme() {
   setTheme(state.theme === "light" ? "dark" : "light");
 }
 
+function normalizeDerivedBuilderDraftForView() {
+  if (state.activeView === "derivedBuilder" && isScoringMatrixDraft()) {
+    const nextDraft = createDerivedMetricDraft(currentEvent());
+    nextDraft.scopeType = state.derivedMetricDraft.scopeType;
+    nextDraft.seasonKey = state.derivedMetricDraft.seasonKey;
+    nextDraft.profileKey = state.derivedMetricDraft.profileKey;
+    state.derivedMetricDraft = nextDraft;
+  }
+  if (state.activeView === "scoringMatrixBuilder" && !isScoringMatrixDraft()) {
+    const nextDraft = createDerivedMetricDraft(currentEvent());
+    nextDraft.scopeType = state.derivedMetricDraft.scopeType;
+    nextDraft.seasonKey = state.derivedMetricDraft.seasonKey;
+    nextDraft.profileKey = state.derivedMetricDraft.profileKey;
+    nextDraft.presetId = "weighted_sum";
+    nextDraft.template = "weighted_sum";
+    nextDraft.unit = "pts";
+    nextDraft.label = "New Scoring Matrix";
+    nextDraft.id = generatedMetricId(nextDraft.label);
+    state.derivedMetricDraft = nextDraft;
+  }
+}
+
 function setView(view, options = {}) {
   const { recordHistory = true } = options;
   if (!canView(view)) view = "teams";
@@ -1868,6 +2029,29 @@ function render() {
   if (!canView(state.activeView)) {
     state.activeView = "teams";
     saveState();
+  }
+  normalizeDerivedBuilderDraftForView();
+  let content = "";
+  try {
+    content = renderView();
+  } catch (error) {
+    console.error("Render failed for view", state.activeView, error);
+    if (state.activeView !== "teams") {
+      state.activeView = "teams";
+      state.derivedMetricEditingKey = "";
+      state.derivedMetricDraft = createDerivedMetricDraft(currentEvent());
+      saveState();
+      try {
+        content = renderView();
+      } catch (fallbackError) {
+        console.error("Fallback render failed", fallbackError);
+        renderRecoveryScreen(fallbackError);
+        return;
+      }
+    } else {
+      renderRecoveryScreen(error);
+      return;
+    }
   }
 
   app.innerHTML = `
@@ -1910,7 +2094,7 @@ function render() {
             </button>
           </div>
         </header>
-        <section class="content">${renderView()}</section>
+        <section class="content">${content}</section>
       </main>
     </div>
   `;
@@ -2016,6 +2200,7 @@ function viewTitle(view) {
     rankings: "Rankings",
     analysis: "Analysis",
     derivedBuilder: "Derived Builder",
+    scoringMatrixBuilder: "Scoring Matrices",
     schedule: "Match Schedule",
     matchup: "Matchup",
     quality: "Data Quality",
@@ -2054,6 +2239,7 @@ function renderView() {
     rankings: renderRankings,
     analysis: renderAnalysis,
     derivedBuilder: renderDerivedBuilder,
+    scoringMatrixBuilder: renderScoringMatrixBuilder,
     schedule: renderSchedule,
     matchup: renderMatchup,
     quality: renderQuality,
@@ -2062,6 +2248,50 @@ function renderView() {
     alliance: renderAlliance,
     admin: renderAdmin,
   }[state.activeView]();
+}
+
+function renderRecoveryScreen(error) {
+  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error || "Unknown error");
+  app.innerHTML = `
+    <div class="app-shell menu-expanded">
+      <main class="main">
+        <header class="topbar">
+          <div class="page-title">
+            <p class="eyebrow">${currentEvent().key}</p>
+            <h1>Recovery</h1>
+          </div>
+        </header>
+        <section class="content">
+          <article class="card">
+            <div class="section-heading">
+              <div>
+                <h2>App State Recovery</h2>
+                <p class="muted">The saved browser state triggered a rendering error. You can reset it here instead of staying on a blank screen.</p>
+              </div>
+            </div>
+            <div class="issue-list">
+              <div class="issue-row danger">${escapeHtml(message)}</div>
+            </div>
+            <div class="admin-actions" style="margin-top: 16px;">
+              <button type="button" id="recoveryGoTeamsButton" class="primary">Reset To Teams</button>
+              <button type="button" id="recoveryClearStorageButton">Clear Saved App State</button>
+            </div>
+          </article>
+        </section>
+      </main>
+    </div>
+  `;
+  document.querySelector("#recoveryGoTeamsButton")?.addEventListener("click", () => {
+    state.activeView = "teams";
+    state.derivedMetricEditingKey = "";
+    state.derivedMetricDraft = createDerivedMetricDraft(currentEvent());
+    saveState();
+    render();
+  });
+  document.querySelector("#recoveryClearStorageButton")?.addEventListener("click", () => {
+    clearAppStorage();
+    window.location.reload();
+  });
 }
 
 function renderRankings() {
@@ -2332,7 +2562,7 @@ function renderAnalysis() {
 }
 
 function renderDerivedMetricDefinitionList(scopeType, scopeKey, definitions) {
-  if (!definitions.length) return `<div class="empty-state">No custom derived metrics are saved for this ${scopeType} yet.</div>`;
+  if (!definitions.length) return `<div class="empty-state">None saved yet for this ${scopeType}.</div>`;
   return `
     <div class="builder-list">
       ${definitions
@@ -2340,7 +2570,7 @@ function renderDerivedMetricDefinitionList(scopeType, scopeKey, definitions) {
           (definition) => `
         <button class="builder-list-row ${state.derivedMetricEditingKey === `${scopeType}:${scopeKey}:${definition.id}` ? "active" : ""}" data-load-custom-derived="${scopeType}:${scopeKey}:${definition.id}">
           <strong>${definition.label}</strong>
-          <span class="muted">${definition.id} | ${definition.formula}</span>
+          <span class="muted">${definition.id} | ${derivedDefinitionKindLabel(definition)}</span>
         </button>
       `,
         )
@@ -2351,11 +2581,38 @@ function renderDerivedMetricDefinitionList(scopeType, scopeKey, definitions) {
 
 function renderFieldMultiSelect(id, values, ariaLabel) {
   return `
-    <select id="${id}" multiple size="8" aria-label="${escapeAttribute(ariaLabel)}">
+    <select id="${id}" data-preserve-scroll="true" multiple size="8" aria-label="${escapeAttribute(ariaLabel)}">
       ${derivedMetricFieldOptions()
         .map((field) => `<option value="${field.id}" ${values.includes(field.id) ? "selected" : ""}>${field.label} (${field.id})</option>`)
         .join("")}
     </select>
+  `;
+}
+
+function renderWeightedFieldEditor(weightedFields) {
+  if (!weightedFields.length) return `<p class="muted">Select one or more fields to assign point values.</p>`;
+  return `
+    <div class="builder-list">
+      ${weightedFields
+        .map((entry) => {
+          const field = derivedMetricFieldOptions().find((option) => option.id === entry.field);
+          return `
+            <div class="builder-list-row">
+              <strong>${escapeHtml(field?.label || entry.field)}</strong>
+              <span class="muted">${escapeHtml(entry.field)}</span>
+              <input
+                class="admin-input derived-weight-input"
+                data-weighted-field="${escapeAttribute(entry.field)}"
+                type="number"
+                step="0.1"
+                value="${escapeAttribute(String(entry.weight ?? 1))}"
+                aria-label="Point value for ${escapeAttribute(field?.label || entry.field)}"
+              />
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
   `;
 }
 
@@ -2366,6 +2623,53 @@ function renderDerivedMetricIssues() {
       ${state.derivedMetricConfigIssues.map((issue) => `<div class="issue-row danger">${escapeHtml(issue)}</div>`).join("")}
     </div>
   `;
+}
+
+function derivedMetricPresetHelp(draft = state.derivedMetricDraft) {
+  if (draft.presetId === "weighted_sum" || draft.template === "weighted_sum") {
+    return "This preset multiplies each selected scouting field by its point value, then sums the result. Use a scoring matrix preset to prefill official game values where the scouting fields map directly.";
+  }
+  if (draft.presetId === "accuracy") {
+    const madeCount = draft.madeFields.length;
+    const missedCount = draft.missedFields.length;
+    return `The accuracy preset groups all selected made fields as scored attempts and all selected missed fields as failed attempts. Multiple made and missed fields can contribute to one combined accuracy. ${madeCount || missedCount ? `Currently selected: ${madeCount} made field(s), ${missedCount} missed field(s).` : "Select or adjust the suggested fields below."}`;
+  }
+  if (draft.presetId === "average_per_match") {
+    return "This preset averages the selected numerator fields over the chosen match window.";
+  }
+  if (draft.presetId === "average_present") {
+    return "This preset averages the selected numerator fields only across matches where the chosen presence fields appear.";
+  }
+  if (draft.presetId === "attempt_average") {
+    return "This preset divides the selected numerator fields by the selected denominator fields across the chosen match window.";
+  }
+  if (draft.presetId === "sum") {
+    return "This preset sums the selected fields directly.";
+  }
+  return "Choose a preset to scaffold the equation, then adjust fields as needed.";
+}
+
+function derivedMetricTemplateHelp(draft = state.derivedMetricDraft) {
+  if (draft.template === "weighted_sum") {
+    return "Use this when each counted event contributes a known point value.";
+  }
+  if (draft.template === "rate") {
+    return "Use this when you want made divided by total attempts. The unit is always %.";
+  }
+  if (draft.template === "average_per_match") {
+    return "Use this when you want the selected values averaged over all imported matches in the active scouting window.";
+  }
+  if (draft.template === "average_present") {
+    return "Use this when you want the average only across matches where the robot actually attempted or showed the behavior.";
+  }
+  if (draft.template === "attempt_average") {
+    return "Use this when you want one group of values divided by another counted denominator, such as points per attempt.";
+  }
+  return "Use this when you want a direct total of the selected fields.";
+}
+
+function derivedMetricUnitLocked(draft = state.derivedMetricDraft) {
+  return draft.template === "rate";
 }
 
 function derivedMetricDraftIssues(draft = state.derivedMetricDraft) {
@@ -2386,6 +2690,7 @@ function derivedMetricDraftIssues(draft = state.derivedMetricDraft) {
   }
   if (!draftLabel && draftId) issues.push({ field: "label", message: "Add a label to preview and save this metric." });
   if (draft.template === "sum" && !draft.fields.length) issues.push({ field: "fields", message: "Select at least one field to sum." });
+  if (draft.template === "weighted_sum" && !draft.weightedFields.length) issues.push({ field: "weightedFields", message: "Select at least one field and assign point values." });
   if (draft.template === "rate" && !draft.madeFields.length) issues.push({ field: "madeFields", message: "Select at least one made field." });
   if (draft.template === "rate" && !draft.missedFields.length) issues.push({ field: "missedFields", message: "Select at least one missed field." });
   if (["average_per_match", "average_present", "attempt_average"].includes(draft.template) && !draft.numeratorFields.length) {
@@ -2404,16 +2709,33 @@ function renderDraftIssue(issue) {
   return issue ? `<p class="inline-hint danger">${escapeHtml(issue.message)}</p>` : "";
 }
 
-function renderDerivedBuilder() {
+function renderDerivedBuilderShell(mode) {
+  const matrixMode = mode === "scoringMatrix";
   const summary = derivedMetricScopeSummary();
   const draft = state.derivedMetricDraft;
   const definition = metricDefinitionFromDraft(draft);
+  const scoringMatrixPresets = currentScoringMatrixPresets();
+  const seasonDefinitions = summary.seasonDefinitions.filter((definitionItem) => isScoringMatrixDefinition(definitionItem) === matrixMode);
+  const profileDefinitions = summary.profileDefinitions.filter((definitionItem) => isScoringMatrixDefinition(definitionItem) === matrixMode);
   const previewTeam = teamByNumber(state.derivedMetricPreviewTeam) || currentTeams()[0];
   const allPreview = definition && previewTeam ? derivedMetricPreviewValue(definition, previewTeam, "all") : 0;
   const recentPreview = definition && previewTeam ? derivedMetricPreviewValue(definition, previewTeam, "recent") : 0;
   const editingRecord = derivedMetricEditingRecord();
   const draftIssues = derivedMetricDraftIssues(draft);
   const draftIssueFor = (field) => draftIssues.find((issue) => issue.field === field);
+  const pageLabel = matrixMode ? "Scoring Matrix" : "Derived Metric";
+  const presetOptions = derivedMetricPresets.filter((preset) => (matrixMode ? preset.template === "weighted_sum" : preset.template !== "weighted_sum"));
+  const unitAutoDetermined = matrixMode || derivedMetricUnitLocked(draft);
+  const editingTitle = editingRecord ? `Edit ${editingRecord.definition.label}` : `New ${pageLabel}`;
+  const presetHelp = matrixMode
+    ? "Load an official season matrix to seed point values, or build a custom point mapping from your scouting events."
+    : derivedMetricPresetHelp(draft);
+  const builderDescription = matrixMode
+    ? "Build point mappings here. The recent-match window is controlled elsewhere, and previews update against that active window automatically."
+    : "Build the metric definition here. The recent-match window is controlled elsewhere, and previews update against that active window automatically.";
+  const configDescription = matrixMode
+    ? `Use this editor to export, paste, or import saved derived metrics and scoring matrices for season ${summary.seasonKey} and profile ${summary.profileKey}.`
+    : `Use this editor to export, paste, or import saved derived metrics and scoring matrices for season ${summary.seasonKey} and profile ${summary.profileKey}.`;
   return `
     <div class="grid">
       <div class="grid cols-2">
@@ -2457,31 +2779,32 @@ function renderDerivedBuilder() {
         <article class="card">
           <div class="section-heading">
             <div>
-              <h2>Saved Metrics</h2>
-              <p class="muted">Season-scoped metrics apply to all events in that season; profile-scoped metrics apply to the selected spreadsheet profile.</p>
+              <h2>Saved ${pageLabel}s</h2>
+              <p class="muted">Season-scoped definitions apply to all events in that season; profile-scoped definitions apply to the selected spreadsheet profile.</p>
             </div>
           </div>
           <h3>Season ${summary.seasonKey}</h3>
-          ${renderDerivedMetricDefinitionList("season", summary.seasonKey, summary.seasonDefinitions)}
+          ${renderDerivedMetricDefinitionList("season", summary.seasonKey, seasonDefinitions)}
           <h3 style="margin-top: 18px;">Profile ${summary.profileKey}</h3>
-          ${renderDerivedMetricDefinitionList("profile", summary.profileKey, summary.profileDefinitions)}
+          ${renderDerivedMetricDefinitionList("profile", summary.profileKey, profileDefinitions)}
         </article>
         <article class="card">
           <div class="section-heading">
             <div>
-              <h2>${editingRecord ? `Edit ${editingRecord.definition.label}` : "New Derived Metric"}</h2>
-              <p class="muted">Use denominator templates that match the spreadsheet rules we have identified.</p>
+              <h2>${editingTitle}</h2>
+              <p class="muted">${builderDescription}</p>
             </div>
           </div>
           <div class="admin-actions" style="margin-bottom: 12px;">
             <label style="min-width: 260px;">
-              Preset
+              ${matrixMode ? "Scoring Matrix Type" : "Metric Type"}
               <select id="derivedMetricPresetSelect">
-                ${derivedMetricPresets.map((preset) => `<option value="${preset.id}">${preset.label}</option>`).join("")}
+                ${presetOptions.map((preset) => `<option value="${preset.id}" ${preset.id === draft.presetId ? "selected" : ""}>${preset.label}</option>`).join("")}
               </select>
             </label>
-            <button type="button" id="applyDerivedMetricPresetButton">Load Preset</button>
+            <button type="button" id="applyDerivedMetricPresetButton">Load</button>
           </div>
+          <p class="muted">${presetHelp}</p>
           <div class="admin-form-grid">
             <label>
               Scope
@@ -2491,39 +2814,53 @@ function renderDerivedBuilder() {
               </select>
             </label>
             <label>
-              Metric ID
-              <input id="derivedMetricIdInput" class="admin-input" value="${escapeAttribute(draft.id)}" placeholder="driverConsistencyRecent" />
-              ${renderDraftIssue(draftIssueFor("id"))}
-            </label>
-            <label>
               Label
-              <input id="derivedMetricLabelInput" class="admin-input" value="${escapeAttribute(draft.label)}" placeholder="Driver Consistency" />
+              <input id="derivedMetricLabelInput" class="admin-input" value="${escapeAttribute(draft.label)}" placeholder="${matrixMode ? "Reefscape Point Matrix" : "Driver Consistency"}" />
               ${renderDraftIssue(draftIssueFor("label"))}
             </label>
             <label>
+              ${matrixMode ? "Matrix ID (Auto-generated by default)" : "Metric ID (Auto-generated by default)"}
+              <input id="derivedMetricIdInput" class="admin-input" value="${escapeAttribute(draft.id)}" placeholder="${matrixMode ? "reefscapePointMatrix" : "driverConsistencyRecent"}" />
+              ${renderDraftIssue(draftIssueFor("id"))}
+            </label>
+            ${unitAutoDetermined ? "" : `<label>
               Unit
               <select id="derivedMetricUnitSelect">
                 ${["pts", "%", "rating", "count", "level"].map((unit) => `<option value="${unit}" ${draft.unit === unit ? "selected" : ""}>${unit}</option>`).join("")}
               </select>
-            </label>
-            <label>
-              Denominator Template
-              <select id="derivedMetricTemplateSelect">
-                <option value="sum" ${draft.template === "sum" ? "selected" : ""}>Sum of fields</option>
-                <option value="rate" ${draft.template === "rate" ? "selected" : ""}>Success rate (made / attempts)</option>
-                <option value="average_per_match" ${draft.template === "average_per_match" ? "selected" : ""}>Average per match</option>
-                <option value="average_present" ${draft.template === "average_present" ? "selected" : ""}>Average across non-zero rows</option>
-                <option value="attempt_average" ${draft.template === "attempt_average" ? "selected" : ""}>Average per attempt-like denominator</option>
-              </select>
-            </label>
-            ${draft.template === "sum" ? `<label>Fields${renderFieldMultiSelect("derivedMetricFieldsSelect", draft.fields, "Derived metric fields")}${renderDraftIssue(draftIssueFor("fields"))}</label>` : ""}
-            ${draft.template === "rate" ? `<label>Made Fields${renderFieldMultiSelect("derivedMetricMadeFieldsSelect", draft.madeFields, "Derived metric made fields")}${renderDraftIssue(draftIssueFor("madeFields"))}</label>` : ""}
-            ${draft.template === "rate" ? `<label>Missed Fields${renderFieldMultiSelect("derivedMetricMissedFieldsSelect", draft.missedFields, "Derived metric missed fields")}${renderDraftIssue(draftIssueFor("missedFields"))}</label>` : ""}
-            ${["average_per_match", "average_present", "attempt_average"].includes(draft.template) ? `<label>Numerator Fields${renderFieldMultiSelect("derivedMetricNumeratorFieldsSelect", draft.numeratorFields, "Derived metric numerator fields")}${renderDraftIssue(draftIssueFor("numeratorFields"))}</label>` : ""}
-            ${draft.template === "average_present" ? `<label>Presence Fields${renderFieldMultiSelect("derivedMetricPresenceFieldsSelect", draft.presenceFields, "Derived metric presence fields")}${renderDraftIssue(draftIssueFor("presenceFields"))}</label>` : ""}
-            ${draft.template === "attempt_average" ? `<label>Denominator Fields${renderFieldMultiSelect("derivedMetricDenominatorFieldsSelect", draft.denominatorFields, "Derived metric denominator fields")}${renderDraftIssue(draftIssueFor("denominatorFields"))}</label>` : ""}
+            </label>`}
+            ${!matrixMode && draft.template === "sum" ? `<label>Fields${renderFieldMultiSelect("derivedMetricFieldsSelect", draft.fields, "Derived metric fields")}${renderDraftIssue(draftIssueFor("fields"))}</label>` : ""}
+            ${
+              matrixMode
+                ? `
+                  ${
+                    scoringMatrixPresets.length
+                      ? `
+                        <label>
+                          Scoring Matrix Preset
+                          <div class="admin-actions">
+                            <select id="derivedMetricScoringMatrixPresetSelect">
+                              <option value="">Choose a season preset</option>
+                              ${scoringMatrixPresets.map((preset) => `<option value="${preset.id}" ${preset.id === draft.scoringMatrixPresetId ? "selected" : ""}>${preset.label}</option>`).join("")}
+                            </select>
+                            <button type="button" id="applyScoringMatrixPresetButton">Load Matrix</button>
+                          </div>
+                        </label>
+                      `
+                      : `<p class="muted">No season scoring matrix presets are defined yet for this event, so point values can be entered manually.</p>`
+                  }
+                  <label>Weighted Fields${renderFieldMultiSelect("derivedMetricWeightedFieldsSelect", draft.weightedFields.map((entry) => entry.field), "Derived metric weighted fields")}${renderDraftIssue(draftIssueFor("weightedFields"))}</label>
+                  <label>Point Mapping${renderWeightedFieldEditor(draft.weightedFields)}</label>
+                `
+                : ""
+            }
+            ${!matrixMode && draft.template === "rate" ? `<label>Made Fields${renderFieldMultiSelect("derivedMetricMadeFieldsSelect", draft.madeFields, "Derived metric made fields")}${renderDraftIssue(draftIssueFor("madeFields"))}</label>` : ""}
+            ${!matrixMode && draft.template === "rate" ? `<label>Missed Fields${renderFieldMultiSelect("derivedMetricMissedFieldsSelect", draft.missedFields, "Derived metric missed fields")}${renderDraftIssue(draftIssueFor("missedFields"))}</label>` : ""}
+            ${!matrixMode && ["average_per_match", "average_present", "attempt_average"].includes(draft.template) ? `<label>Numerator Fields${renderFieldMultiSelect("derivedMetricNumeratorFieldsSelect", draft.numeratorFields, "Derived metric numerator fields")}${renderDraftIssue(draftIssueFor("numeratorFields"))}</label>` : ""}
+            ${!matrixMode && draft.template === "average_present" ? `<label>Presence Fields${renderFieldMultiSelect("derivedMetricPresenceFieldsSelect", draft.presenceFields, "Derived metric presence fields")}${renderDraftIssue(draftIssueFor("presenceFields"))}</label>` : ""}
+            ${!matrixMode && draft.template === "attempt_average" ? `<label>Denominator Fields${renderFieldMultiSelect("derivedMetricDenominatorFieldsSelect", draft.denominatorFields, "Derived metric denominator fields")}${renderDraftIssue(draftIssueFor("denominatorFields"))}</label>` : ""}
             <div class="admin-actions">
-              <button type="button" id="saveDerivedMetricButton" class="primary" ${definition ? "" : "disabled"}>Save Metric</button>
+              <button type="button" id="saveDerivedMetricButton" class="primary" ${definition ? "" : "disabled"}>Save ${pageLabel}</button>
               <button type="button" id="resetDerivedMetricButton">Reset Draft</button>
               <button type="button" id="deleteDerivedMetricButton" ${editingRecord ? "" : "disabled"}>Delete</button>
             </div>
@@ -2534,7 +2871,7 @@ function renderDerivedBuilder() {
         <div class="section-heading">
           <div>
             <h2>Config Export</h2>
-            <p class="muted">Use this editor to export, paste, or import season/profile metric configs.</p>
+            <p class="muted">${configDescription}</p>
           </div>
           <div class="admin-actions">
             <input id="derivedMetricConfigFileInput" type="file" accept=".json,application/json" />
@@ -2549,6 +2886,14 @@ function renderDerivedBuilder() {
       </article>
     </div>
   `;
+}
+
+function renderDerivedBuilder() {
+  return renderDerivedBuilderShell("derivedMetric");
+}
+
+function renderScoringMatrixBuilder() {
+  return renderDerivedBuilderShell("scoringMatrix");
 }
 
 function renderBoxPlotLegend() {
@@ -3831,6 +4176,14 @@ function handleBuilderKeyboard(event) {
 }
 
 function bindViewEvents() {
+  const bindDerivedMetricFieldSelect = (selector, assign) => {
+    document.querySelector(selector)?.addEventListener("change", (event) => {
+      state.derivedMetricFieldScrollTops[event.target.id] = event.target.scrollTop;
+      assign(selectedValues(event.target));
+      render();
+      restoreDerivedMetricFieldScroll();
+    });
+  };
   document.querySelector("#metricSelect")?.addEventListener("change", (event) => {
     state.metric = event.target.value;
     saveState();
@@ -3875,41 +4228,50 @@ function bindViewEvents() {
   });
   document.querySelector("#derivedMetricIdInput")?.addEventListener("input", (event) => {
     state.derivedMetricDraft.id = event.target.value;
+    state.derivedMetricDraft.idManuallyEdited = true;
   });
   document.querySelector("#derivedMetricLabelInput")?.addEventListener("input", (event) => {
     state.derivedMetricDraft.label = event.target.value;
+    if (!state.derivedMetricDraft.idManuallyEdited) {
+      state.derivedMetricDraft.id = generatedMetricId(event.target.value);
+      const idInput = document.querySelector("#derivedMetricIdInput");
+      if (idInput) idInput.value = state.derivedMetricDraft.id;
+    }
   });
   document.querySelector("#derivedMetricUnitSelect")?.addEventListener("change", (event) => {
     state.derivedMetricDraft.unit = event.target.value;
     render();
   });
-  document.querySelector("#derivedMetricTemplateSelect")?.addEventListener("change", (event) => {
-    state.derivedMetricDraft.template = event.target.value;
+  document.querySelector("#applyScoringMatrixPresetButton")?.addEventListener("click", () => {
+    applyScoringMatrixPreset(document.querySelector("#derivedMetricScoringMatrixPresetSelect")?.value || "");
+  });
+  bindDerivedMetricFieldSelect("#derivedMetricFieldsSelect", (values) => {
+    state.derivedMetricDraft.fields = values;
+  });
+  bindDerivedMetricFieldSelect("#derivedMetricWeightedFieldsSelect", (values) => {
+    setWeightedFieldSelection(values);
     render();
   });
-  document.querySelector("#derivedMetricFieldsSelect")?.addEventListener("change", (event) => {
-    state.derivedMetricDraft.fields = selectedValues(event.target);
-    render();
+  bindDerivedMetricFieldSelect("#derivedMetricMadeFieldsSelect", (values) => {
+    state.derivedMetricDraft.madeFields = values;
   });
-  document.querySelector("#derivedMetricMadeFieldsSelect")?.addEventListener("change", (event) => {
-    state.derivedMetricDraft.madeFields = selectedValues(event.target);
-    render();
+  bindDerivedMetricFieldSelect("#derivedMetricMissedFieldsSelect", (values) => {
+    state.derivedMetricDraft.missedFields = values;
   });
-  document.querySelector("#derivedMetricMissedFieldsSelect")?.addEventListener("change", (event) => {
-    state.derivedMetricDraft.missedFields = selectedValues(event.target);
-    render();
+  bindDerivedMetricFieldSelect("#derivedMetricNumeratorFieldsSelect", (values) => {
+    state.derivedMetricDraft.numeratorFields = values;
   });
-  document.querySelector("#derivedMetricNumeratorFieldsSelect")?.addEventListener("change", (event) => {
-    state.derivedMetricDraft.numeratorFields = selectedValues(event.target);
-    render();
+  bindDerivedMetricFieldSelect("#derivedMetricDenominatorFieldsSelect", (values) => {
+    state.derivedMetricDraft.denominatorFields = values;
   });
-  document.querySelector("#derivedMetricDenominatorFieldsSelect")?.addEventListener("change", (event) => {
-    state.derivedMetricDraft.denominatorFields = selectedValues(event.target);
-    render();
+  bindDerivedMetricFieldSelect("#derivedMetricPresenceFieldsSelect", (values) => {
+    state.derivedMetricDraft.presenceFields = values;
   });
-  document.querySelector("#derivedMetricPresenceFieldsSelect")?.addEventListener("change", (event) => {
-    state.derivedMetricDraft.presenceFields = selectedValues(event.target);
-    render();
+  document.querySelectorAll(".derived-weight-input").forEach((input) => {
+    input.addEventListener("input", (event) => {
+      setWeightedFieldWeight(event.target.dataset.weightedField, event.target.value);
+      render();
+    });
   });
   document.querySelector("#saveDerivedMetricButton")?.addEventListener("click", () => {
     saveDerivedMetricDraft();

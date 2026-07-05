@@ -15,6 +15,10 @@ function averageMetric(id, label, fields, unit = "rating") {
   return { id, label, unit, formula: "average", fields };
 }
 
+function weightedMetric(id, label, weightedFields, unit = "pts") {
+  return { id, label, unit, formula: "weighted_sum", weightedFields };
+}
+
 const seasonDefinitions = {
   2024: {
     label: "Crescendo",
@@ -54,6 +58,21 @@ const seasonDefinitions = {
       averageMetric("driverPerformanceAvg", "Driver Performance Average", ["driverPerformance"]),
       averageMetric("playedDefenseAvg", "Played Defense Average", ["playedDefenseRating"]),
       averageMetric("defenseOnThemAvg", "Defense On Them Average", ["defenseOnThemRating"]),
+    ],
+    scoringMatrixPresets: [
+      {
+        id: "crescendoNoteTrapPoints",
+        label: "Crescendo Note + Trap Points",
+        description: "Prefills note-scoring and trap rows that map directly to scouting counts.",
+        unit: "pts",
+        weightedFields: [
+          { field: "autoSpeakerMade", weight: 5 },
+          { field: "autoAmpMade", weight: 2 },
+          { field: "teleSpeakerMade", weight: 2 },
+          { field: "teleAmpMade", weight: 1 },
+          { field: "trapSuccess", weight: 5 },
+        ],
+      },
     ],
   },
   2025: {
@@ -120,6 +139,28 @@ const seasonDefinitions = {
       averageMetric("driverPerformanceAvg", "Driver Performance Average", ["driverPerformance"]),
       averageMetric("playedDefenseAvg", "Played Defense Average", ["playedDefenseRating"]),
       averageMetric("defenseOnThemAvg", "Defense On Them Average", ["defenseOnThemRating"]),
+    ],
+    scoringMatrixPresets: [
+      {
+        id: "reefscapeCoralAlgaePoints",
+        label: "Reefscape Coral + Algae Points",
+        description: "Prefills coral and algae point values that map directly to scouting counts.",
+        unit: "pts",
+        weightedFields: [
+          { field: "autoTroughMade", weight: 3 },
+          { field: "autoL2Made", weight: 4 },
+          { field: "autoL3Made", weight: 6 },
+          { field: "autoL4Made", weight: 7 },
+          { field: "autoProcessorMade", weight: 6 },
+          { field: "autoBargeMade", weight: 4 },
+          { field: "teleTroughMade", weight: 2 },
+          { field: "teleL2Made", weight: 3 },
+          { field: "teleL3Made", weight: 4 },
+          { field: "teleL4Made", weight: 5 },
+          { field: "teleProcessorMade", weight: 6 },
+          { field: "teleBargeMade", weight: 4 },
+        ],
+      },
     ],
   },
   2026: {
@@ -303,5 +344,6 @@ globalThis.SeasonFramework = {
   seasonDefinitions,
   sourceLabels,
   sumMetric,
+  weightedMetric,
 };
 })();

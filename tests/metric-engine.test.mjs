@@ -34,13 +34,21 @@ function runTest(name, fn) {
   }
 }
 
-runTest("evaluateDerivedMetricDefinition supports sum, average, and rate formulas", () => {
+runTest("evaluateDerivedMetricDefinition supports sum, weighted sum, average, and rate formulas", () => {
   assert.equal(
     metricEngine.evaluateDerivedMetricDefinition(
       { formula: "sum", fields: ["auto", "cycle"] },
       { auto: 12, cycle: 28 },
     ),
     40,
+  );
+
+  assert.equal(
+    metricEngine.evaluateDerivedMetricDefinition(
+      { formula: "weighted_sum", weightedFields: [{ field: "speakerMade", weight: 5 }, { field: "ampMade", weight: 2 }] },
+      { speakerMade: 3, ampMade: 4 },
+    ),
+    23,
   );
 
   assert.equal(

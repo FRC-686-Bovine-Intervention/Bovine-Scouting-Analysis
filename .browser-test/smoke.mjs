@@ -146,14 +146,36 @@ async function createDerivedMetric(page) {
   await page.selectOption("#derivedMetricPresetSelect", "average_per_match");
   await page.click("#applyDerivedMetricPresetButton");
   await page.waitForTimeout(300);
-  await page.fill("#derivedMetricIdInput", "codexCycleEndgameAverage");
   await page.fill("#derivedMetricLabelInput", "Codex Cycle + Endgame Average");
   await page.selectOption("#derivedMetricNumeratorFieldsSelect", ["cycle", "endgame"]);
   await page.click("#saveDerivedMetricButton");
   await page.waitForTimeout(700);
   return {
+    presetValue: await page.locator("#derivedMetricPresetSelect").inputValue(),
+    idValue: await page.locator("#derivedMetricIdInput").inputValue(),
     previewAll: text(await page.locator(".stat-grid .stat").nth(4).textContent()),
     previewRecent: text(await page.locator(".stat-grid .stat").nth(5).textContent()),
+    configText: await page.locator(".admin-textarea").inputValue(),
+  };
+}
+
+async function createWeightedMatrixMetric(page) {
+  await page.click('[data-view="scoringMatrixBuilder"]');
+  await page.waitForSelector("#derivedMetricIdInput");
+  await page.selectOption("#derivedMetricScoringMatrixPresetSelect", "reefscapeCoralAlgaePoints");
+  await page.click("#applyScoringMatrixPresetButton");
+  await page.waitForTimeout(300);
+  await page.fill("#derivedMetricLabelInput", "Codex Reefscape Points");
+  await page.click("#saveDerivedMetricButton");
+  await page.waitForTimeout(700);
+  return {
+    pageTitle: text(await page.locator(".page-title h1").textContent()),
+    presetValue: await page.locator("#derivedMetricPresetSelect").inputValue(),
+    matrixPresetValue: await page.locator("#derivedMetricScoringMatrixPresetSelect").inputValue(),
+    idValue: await page.locator("#derivedMetricIdInput").inputValue(),
+    weightedFieldCount: await page.locator("#derivedMetricWeightedFieldsSelect option:checked").count(),
+    firstWeight: await page.locator(".derived-weight-input").first().inputValue(),
+    hasTemplateSelector: await page.locator("#derivedMetricTemplateSelect").count(),
     configText: await page.locator(".admin-textarea").inputValue(),
   };
 }
@@ -277,6 +299,7 @@ try {
   await commitImport(page);
   result.storage2025 = await storageSnapshot(page);
   result.derivedBuilderAccuracyPreset2025 = await captureAccuracyPresetSuggestions(page);
+  result.derivedBuilderWeightedPreset2025 = await createWeightedMatrixMetric(page);
   result.teamDetail2025 = await captureFirstTeamDetail(page);
   result.team422Trend2025 = await captureSpecificTeamTrend(page, 422);
   result.analysis2025 = await captureAnalysis(page);

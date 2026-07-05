@@ -25,6 +25,13 @@ function sumMatchFields(match, fields) {
   return (fields || []).reduce((sum, field) => sum + Number(match?.components?.[field] || 0), 0);
 }
 
+function sumWeightedValues(values, weightedFields) {
+  return (weightedFields || []).reduce(
+    (sum, entry) => sum + Number(values?.[entry.field] || 0) * Number(entry.weight || 0),
+    0,
+  );
+}
+
 function usableSubmission(submission, options = {}) {
   if (!submission || submission.validity === "excluded") return false;
   if (options.includeFlagged) return true;
@@ -128,6 +135,9 @@ function evaluateDerivedMetricDefinition(metricDefinition, values, context = {})
   if (!metricDefinition) return 0;
   if (metricDefinition.formula === "sum") {
     return roundValue((metricDefinition.fields || []).reduce((sum, field) => sum + Number(values?.[field] || 0), 0));
+  }
+  if (metricDefinition.formula === "weighted_sum") {
+    return roundValue(sumWeightedValues(values, metricDefinition.weightedFields));
   }
   if (metricDefinition.formula === "ratio") {
     const aggregatedMatches = Array.isArray(context.aggregatedMatches) ? context.aggregatedMatches : [];
