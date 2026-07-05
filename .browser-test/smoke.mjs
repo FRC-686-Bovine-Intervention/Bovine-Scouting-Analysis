@@ -161,22 +161,29 @@ async function createDerivedMetric(page) {
 
 async function createWeightedMatrixMetric(page) {
   await page.click('[data-view="scoringMatrixBuilder"]');
-  await page.waitForSelector("#derivedMetricIdInput");
-  await page.selectOption("#derivedMetricScoringMatrixPresetSelect", "reefscapeCoralAlgaePoints");
-  await page.click("#applyScoringMatrixPresetButton");
-  await page.waitForTimeout(300);
-  await page.fill("#derivedMetricLabelInput", "Codex Reefscape Points");
-  await page.click("#saveDerivedMetricButton");
+  await page.waitForSelector("#scoringTableProfileSelect");
+  await page.selectOption("#scoringTableProfileSelect", "match-current-v2");
+  await page.fill('[data-scoring-field="autoTroughMade"]', "3");
+  await page.fill('[data-scoring-field="autoL2Made"]', "4");
+  await page.fill('[data-scoring-field="autoL3Made"]', "6");
+  await page.fill('[data-scoring-field="autoL4Made"]', "7");
+  await page.fill('[data-scoring-field="autoProcessorMade"]', "6");
+  await page.fill('[data-scoring-field="autoBargeMade"]', "4");
+  await page.fill('[data-scoring-field="teleTroughMade"]', "2");
+  await page.fill('[data-scoring-field="teleL2Made"]', "3");
+  await page.fill('[data-scoring-field="teleL3Made"]', "4");
+  await page.fill('[data-scoring-field="teleL4Made"]', "5");
+  await page.fill('[data-scoring-field="teleProcessorMade"]', "6");
+  await page.fill('[data-scoring-field="teleBargeMade"]', "4");
   await page.waitForTimeout(700);
+  const configText = await page.evaluate(() => localStorage.getItem("frc-scouting-custom-derived-metric-config") || "");
   return {
     pageTitle: text(await page.locator(".page-title h1").textContent()),
-    presetValue: await page.locator("#derivedMetricPresetSelect").inputValue(),
-    matrixPresetValue: await page.locator("#derivedMetricScoringMatrixPresetSelect").inputValue(),
-    idValue: await page.locator("#derivedMetricIdInput").inputValue(),
-    weightedFieldCount: await page.locator("#derivedMetricWeightedFieldsSelect option:checked").count(),
-    firstWeight: await page.locator(".derived-weight-input").first().inputValue(),
+    profileValue: await page.locator("#scoringTableProfileSelect").inputValue(),
+    weightedFieldCount: (configText.match(/"field":/g) || []).length,
+    firstWeight: await page.locator('[data-scoring-field="autoTroughMade"]').inputValue(),
     hasTemplateSelector: await page.locator("#derivedMetricTemplateSelect").count(),
-    configText: await page.locator(".admin-textarea").inputValue(),
+    configText,
   };
 }
 

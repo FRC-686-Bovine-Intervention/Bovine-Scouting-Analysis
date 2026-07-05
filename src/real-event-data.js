@@ -71,6 +71,11 @@ function matchSortValue(match) {
   return (compOrder[match.comp_level] || 9) * 1000 + Number(match.match_number || 0) * 10 + Number(match.set_number || 0);
 }
 
+function cloneBreakdown(breakdown) {
+  if (!breakdown || typeof breakdown !== "object") return null;
+  return Object.fromEntries(Object.entries(breakdown));
+}
+
 function normalizeMatches(matches) {
   return matches
     .filter((match) => match?.comp_level === "qm")
@@ -79,6 +84,15 @@ function normalizeMatches(matches) {
       number: Number(match.match_number),
       red: (match.alliances?.red?.team_keys || []).map((teamKey) => Number(String(teamKey).replace("frc", ""))).filter(Number.isFinite),
       blue: (match.alliances?.blue?.team_keys || []).map((teamKey) => Number(String(teamKey).replace("frc", ""))).filter(Number.isFinite),
+      redScore: Number(match.alliances?.red?.score || 0),
+      blueScore: Number(match.alliances?.blue?.score || 0),
+      winningAlliance: match.winning_alliance || "",
+      scoreBreakdown: match.score_breakdown
+        ? {
+            red: cloneBreakdown(match.score_breakdown.red),
+            blue: cloneBreakdown(match.score_breakdown.blue),
+          }
+        : null,
     }))
     .filter((match) => match.red.length === 3 && match.blue.length === 3);
 }

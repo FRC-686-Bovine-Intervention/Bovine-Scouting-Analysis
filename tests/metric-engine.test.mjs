@@ -116,6 +116,101 @@ runTest("aggregateSubmissionMatches sorts by match number and excludes flagged a
   );
 });
 
+runTest("normalizeAllianceFieldShares normalizes buckets within each match and alliance", () => {
+  const normalized = metricEngine.normalizeAllianceFieldShares(
+    [
+      {
+        id: "red-1",
+        teamNumber: 111,
+        matchNumber: 1,
+        alliance: "red",
+        validity: "valid",
+        rawMetrics: { autoFuelPct: 20, shift1FuelPct: 10 },
+      },
+      {
+        id: "red-2",
+        teamNumber: 222,
+        matchNumber: 1,
+        alliance: "red",
+        validity: "valid",
+        rawMetrics: { autoFuelPct: 30, shift1FuelPct: 30 },
+      },
+      {
+        id: "red-3",
+        teamNumber: 333,
+        matchNumber: 1,
+        alliance: "red",
+        validity: "flagged",
+        rawMetrics: { autoFuelPct: 50, shift1FuelPct: 60 },
+      },
+      {
+        id: "blue-1",
+        teamNumber: 444,
+        matchNumber: 1,
+        alliance: "blue",
+        validity: "valid",
+        rawMetrics: { autoFuelPct: 0, shift1FuelPct: 0 },
+      },
+      {
+        id: "blue-2",
+        teamNumber: 555,
+        matchNumber: 1,
+        alliance: "blue",
+        validity: "valid",
+        rawMetrics: { autoFuelPct: 0, shift1FuelPct: 0 },
+      },
+    ],
+    ["autoFuelPct", "shift1FuelPct"],
+  );
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(normalized.map((entry) => ({
+      submissionId: entry.submissionId,
+      autoFuelPct: Number(entry.shares.autoFuelPct.toFixed(3)),
+      shift1FuelPct: Number(entry.shares.shift1FuelPct.toFixed(3)),
+    })))),
+    [
+      { submissionId: "blue-1", autoFuelPct: 0, shift1FuelPct: 0 },
+      { submissionId: "blue-2", autoFuelPct: 0, shift1FuelPct: 0 },
+      { submissionId: "red-1", autoFuelPct: 0.4, shift1FuelPct: 0.25 },
+      { submissionId: "red-2", autoFuelPct: 0.6, shift1FuelPct: 0.75 },
+    ],
+  );
+});
+
+runTest("normalizeAllianceFieldShares can include flagged rows when requested", () => {
+  const normalized = metricEngine.normalizeAllianceFieldShares(
+    [
+      {
+        id: "team-a",
+        teamNumber: 1,
+        matchNumber: 7,
+        alliance: "red",
+        validity: "valid",
+        rawMetrics: { autoFuelPct: 25 },
+      },
+      {
+        id: "team-b",
+        teamNumber: 2,
+        matchNumber: 7,
+        alliance: "red",
+        validity: "flagged",
+        rawMetrics: { autoFuelPct: 75 },
+      },
+    ],
+    ["autoFuelPct"],
+    { includeFlagged: true },
+  );
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(normalized.map((entry) => ({ submissionId: entry.submissionId, share: Number(entry.shares.autoFuelPct.toFixed(2)) })))),
+    [
+      { submissionId: "team-a", share: 0.25 },
+      { submissionId: "team-b", share: 0.75 },
+    ],
+  );
+});
+
 runTest("buildTeamScoutingOverlay computes scouting totals, trends, and confidence", () => {
   const team = {
     number: 1234,

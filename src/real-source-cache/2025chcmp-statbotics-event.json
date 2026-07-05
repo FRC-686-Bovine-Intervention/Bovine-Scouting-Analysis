@@ -1,1 +1,56 @@
-{"key":"2025chcmp","year":2025,"name":"FIRST Chesapeake District Championship presented by Qualcomm","time":1743652800,"country":"USA","state":"MD","district":"fch","start_date":"2025-04-03","end_date":"2025-04-06","type":"district_cmp","week":6,"video":"https://www.youtube.com/watch?v=6fQFjcG7wKM","status":"Completed","status_str":"Completed","num_teams":54,"current_match":123,"qual_matches":108,"epa":{"max":92.28,"top_8":58.12,"top_24":45.06,"mean":42.92,"sd":14.45},"metrics":{"win_prob":{"count":123,"conf":0.6966,"acc":0.7642,"mse":0.1711},"score_pred":{"count":246,"rmse":27.6536,"error":-6.3927},"rp_pred":{"count":216,"auto_rp":{"error":-0.0536,"acc":0.8889},"coral_rp":{"error":-0.1554,"acc":0.7176},"barge_rp":[{"error":-0.0555,"acc":0.7037}]}}}
+{
+  "key": "2025chcmp",
+  "year": 2025,
+  "name": "FIRST Chesapeake District Championship presented by Qualcomm",
+  "time": 1743652800,
+  "country": "USA",
+  "state": "MD",
+  "district": "fch",
+  "start_date": "2025-04-03",
+  "end_date": "2025-04-06",
+  "type": "district_cmp",
+  "week": 6,
+  "video": "https://www.youtube.com/watch?v=6fQFjcG7wKM",
+  "status": "Completed",
+  "status_str": "Completed",
+  "num_teams": 54,
+  "current_match": 123,
+  "qual_matches": 108,
+  "epa": {
+    "max": 92.28,
+    "top_8": 58.12,
+    "top_24": 45.06,
+    "mean": 42.92,
+    "sd": 14.45
+  },
+  "metrics": {
+    "win_prob": {
+      "count": 123,
+      "conf": 0.6966,
+      "acc": 0.7642,
+      "mse": 0.1711
+    },
+    "score_pred": {
+      "count": 246,
+      "rmse": 27.6536,
+      "error": -6.3927
+    },
+    "rp_pred": {
+      "count": 216,
+      "auto_rp": {
+        "error": -0.0536,
+        "acc": 0.8889
+      },
+      "coral_rp": {
+        "error": -0.1554,
+        "acc": 0.7176
+      },
+      "barge_rp": [
+        {
+          "error": -0.0555,
+          "acc": 0.7037
+        }
+      ]
+    }
+  }
+}

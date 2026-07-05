@@ -62,6 +62,60 @@ function aggregateSubmissionMatches(submissions, options = {}) {
     .map(({ order, ...entry }) => entry);
 }
 
+function normalizeAllianceFieldShares(submissions, fieldIds, options = {}) {
+  const normalizedFieldIds = [...new Set((fieldIds || []).map((fieldId) => String(fieldId || "").trim()).filter(Boolean))];
+  if (!normalizedFieldIds.length) return [];
+  const grouped = new Map();
+  (submissions || [])
+    .filter((submission) => usableSubmission(submission, { includeFlagged: Boolean(options.includeFlagged) }))
+    .forEach((submission, index) => {
+      const alliance = String(submission?.alliance || "").trim().toLowerCase();
+      const matchNumber = Number(submission?.matchNumber);
+      if (!alliance || !Number.isFinite(matchNumber)) return;
+      const groupKey = `${matchNumber}:${alliance}`;
+      if (!grouped.has(groupKey)) {
+        grouped.set(groupKey, {
+          matchNumber,
+          alliance,
+          denominators: Object.fromEntries(normalizedFieldIds.map((fieldId) => [fieldId, 0])),
+          entries: [],
+        });
+      }
+      const group = grouped.get(groupKey);
+      const values = Object.fromEntries(
+        normalizedFieldIds.map((fieldId) => {
+          const value = Number(submission?.rawMetrics?.[fieldId] || 0);
+          return [fieldId, Number.isFinite(value) ? value : 0];
+        }),
+      );
+      normalizedFieldIds.forEach((fieldId) => {
+        group.denominators[fieldId] += Math.max(0, values[fieldId]);
+      });
+      group.entries.push({
+        submission,
+        index,
+        values,
+      });
+    });
+
+  return [...grouped.values()]
+    .sort((left, right) => left.matchNumber - right.matchNumber || left.alliance.localeCompare(right.alliance))
+    .flatMap((group) =>
+      group.entries.map((entry) => ({
+        submissionId: entry.submission?.id || `${group.matchNumber}:${group.alliance}:${entry.submission?.teamNumber || "team"}:${entry.index}`,
+        teamNumber: Number(entry.submission?.teamNumber),
+        matchNumber: group.matchNumber,
+        alliance: group.alliance,
+        shares: Object.fromEntries(
+          normalizedFieldIds.map((fieldId) => {
+            const denominator = Number(group.denominators[fieldId] || 0);
+            return [fieldId, denominator > 0 ? entry.values[fieldId] / denominator : 0];
+          }),
+        ),
+      })),
+    );
+}
+
 function sliceRecentMatches(aggregatedMatches, recentMatchCount = 0) {
   if (!Array.isArray(aggregatedMatches) || !aggregatedMatches.length) return [];
   const normalizedRecentCount = Math.max(0, Number(recentMatchCount) || 0);
@@ -420,6 +474,7 @@ globalThis.MetricEngine = {
   buildTeamScoutingOverlay,
   evaluateDerivedMetricDefinition,
   metricTrendValues,
+  normalizeAllianceFieldShares,
   scoutingFlagsForTeam,
   sliceRecentMatches,
   standardDeviation,

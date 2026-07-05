@@ -44,9 +44,19 @@ const storageKeys = {
   scoutingWindow: "frc-scouting-window",
   recentMatchCount: "frc-scouting-recent-match-count",
   customDerivedMetricConfig: "frc-scouting-custom-derived-metric-config",
+  seasonProfiles: "frc-scouting-season-profiles",
+  scoringTableProfile: "frc-scouting-scoring-table-profile",
 };
 
-const globalStorageKeys = new Set([storageKeys.user, storageKeys.users, storageKeys.theme, storageKeys.activeEvent, storageKeys.menuExpanded, storageKeys.customDerivedMetricConfig]);
+const globalStorageKeys = new Set([
+  storageKeys.user,
+  storageKeys.users,
+  storageKeys.theme,
+  storageKeys.activeEvent,
+  storageKeys.menuExpanded,
+  storageKeys.customDerivedMetricConfig,
+  storageKeys.seasonProfiles,
+]);
 const seedUsers = ["Avery", "Jordan", "Morgan"];
 const adminUsers = ["Avery"];
 const importProfileOptions = [
@@ -62,12 +72,12 @@ const navItems = [
   { view: "matchup", label: "Matchup", icon: "matchup" },
   { view: "quality", label: "Data Quality", icon: "quality" },
   { view: "analysis", label: "Analysis", icon: "analysis" },
-  { view: "derivedBuilder", label: "Derived Builder", icon: "analysis" },
-  { view: "scoringMatrixBuilder", label: "Scoring Matrices", icon: "analysis" },
+  { view: "derivedBuilder", label: "Derived Builder", icon: "derivedBuilder" },
   { view: "sortBuilder", label: "Sort Builder", icon: "sortEquation" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
   { view: "alliance", label: "Alliance Selection", icon: "alliance" },
   { view: "admin", label: "Admin", icon: "admin" },
+  { view: "scoringMatrixBuilder", label: "Scoring Table", icon: "bullseye" },
 ];
 
 const appViews = [...navItems, { view: "teamDetail", label: "Team Detail", icon: "teams" }];
@@ -85,6 +95,11 @@ const protectedEpaSortEquation = {
   name: "EPA",
   metricId: "source:epa:total",
   locked: true,
+};
+
+const knownImportProfileLabels = {
+  "match-current-v2": "Current Match Template",
+  "match-legacy-v1": "Legacy Match Template",
 };
 
 const initialEventKey = resolveEventKey(readStoredItem(storageKeys.activeEvent));
@@ -122,6 +137,7 @@ const state = {
   scoutingWindow: readStoredItem(storageKeys.scoutingWindow) || "all",
   recentMatchCount: Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount) || 4)),
   customDerivedMetricConfig: normalizeCustomDerivedMetricConfig(readStoredJson(storageKeys.customDerivedMetricConfig, seededDerivedMetricConfig)),
+  seasonProfileCatalog: normalizeSeasonProfileCatalog(readStoredJson(storageKeys.seasonProfiles, {})),
   derivedMetricDraft: createDerivedMetricDraft(initialEvent),
   derivedMetricPreviewTeam: initialEvent.teams[0].number,
   derivedMetricEditingKey: "",
@@ -129,8 +145,11 @@ const state = {
   derivedMetricConfigStatus: "",
   derivedMetricConfigIssues: [],
   derivedMetricFieldScrollTops: {},
+  scoringTableProfileId: readStoredItem(storageKeys.scoringTableProfile) || "",
+  scoringTableStatus: "",
   viewHistory: [],
 };
+globalThis.__scoutingAppState = state;
 globalThis.__scoutingActiveEventKey = state.activeEventKey;
 
 hydrateEventState(state.activeEventKey);
@@ -179,8 +198,31 @@ function currentScouterMetricDefinitions(eventModel = currentEvent()) {
   return seasonScouterMetricDefinitions(eventModel);
 }
 
+function currentAtomicScouterMetricDefinitions(eventModel = currentEvent()) {
+  const seasonDefinition = currentSeasonDefinition(eventModel);
+  if (Array.isArray(seasonDefinition?.scouterMetrics) && seasonDefinition.scouterMetrics.length) {
+    return seasonDefinition.scouterMetrics;
+  }
+  const scoringComponentIds = new Set((eventModel?.scoringComponents || []).map((component) => component.id));
+  return currentScouterMetricDefinitions(eventModel).filter((metricDefinition) => !scoringComponentIds.has(metricDefinition.id));
+}
+
+function importedProfileScopeKey(eventModel = currentEvent()) {
+  const appState = globalThis.__scoutingAppState;
+  if (!appState?.activeEventKey) return "";
+  const importedProfileIds = uniqueValues(
+    (appState.scoutingSubmissions || [])
+      .filter((submission) => submission.eventKey === appState.activeEventKey)
+      .map((submission) => String(submission?.templateProfileId || "").trim())
+      .filter(Boolean),
+  );
+  if (importedProfileIds.length === 1) return importedProfileIds[0];
+  if (appState.importResult?.summary?.profileId) return String(appState.importResult.summary.profileId);
+  return "";
+}
+
 function currentProfileMetricScopeKey(eventModel = currentEvent()) {
-  return eventModel.sheet?.recommendedProfileId || "match-current-v2";
+  return importedProfileScopeKey(eventModel) || eventModel.sheet?.recommendedProfileId || "match-current-v2";
 }
 
 function currentCustomDerivedMetricDefinitions(eventModel = currentEvent()) {
@@ -279,6 +321,8 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.scoutingWindow), state.scoutingWindow);
   localStorage.setItem(eventStorageKey(storageKeys.recentMatchCount), String(state.recentMatchCount));
   localStorage.setItem(eventStorageKey(storageKeys.customDerivedMetricConfig), JSON.stringify(state.customDerivedMetricConfig));
+  localStorage.setItem(eventStorageKey(storageKeys.seasonProfiles), JSON.stringify(state.seasonProfileCatalog));
+  localStorage.setItem(eventStorageKey(storageKeys.scoringTableProfile), state.scoringTableProfileId);
 }
 
 function clearAppStorage() {
@@ -314,6 +358,57 @@ function readStoredScoutingSubmissions(eventKey, eventModel = currentEvent()) {
   return migrated;
 }
 
+function registerSeasonScoutingProfile(seasonKey, profile) {
+  const normalized = normalizeSeasonProfileCatalog(state.seasonProfileCatalog);
+  const key = String(seasonKey);
+  const existing = normalized[key] || [];
+  normalized[key] = normalizeSeasonProfileCatalog({
+    [key]: [
+      ...existing,
+      {
+        id: String(profile?.id || "").trim(),
+        label: String(profile?.label || knownImportProfileLabels[String(profile?.id || "").trim()] || profile?.id || "").trim(),
+      },
+    ],
+  })[key] || [];
+  state.seasonProfileCatalog = normalized;
+}
+
+function seasonScoutingProfiles(seasonKey = String(currentEvent().season)) {
+  return state.seasonProfileCatalog?.[String(seasonKey)] || [];
+}
+
+function ensureScoringTableProfileSelection(seasonKey = String(currentEvent().season)) {
+  const profiles = seasonScoutingProfiles(seasonKey);
+  if (!profiles.length) {
+    state.scoringTableProfileId = "";
+    return "";
+  }
+  if (profiles.some((profile) => profile.id === state.scoringTableProfileId)) return state.scoringTableProfileId;
+  state.scoringTableProfileId = profiles[0].id;
+  return state.scoringTableProfileId;
+}
+
+function backfillSeasonProfilesFromSubmissions(eventModel = currentEvent()) {
+  const seasonKey = String(eventModel.season);
+  const profiles = seasonScoutingProfiles(seasonKey);
+  if (profiles.length) return;
+  const discovered = new Map();
+  state.scoutingSubmissions.forEach((submission) => {
+    const profileId = String(submission?.templateProfileId || "").trim();
+    if (!profileId || discovered.has(profileId)) return;
+    discovered.set(profileId, {
+      id: profileId,
+      label: knownImportProfileLabels[profileId] || profileId,
+    });
+  });
+  if (!discovered.size) return;
+  state.seasonProfileCatalog = normalizeSeasonProfileCatalog({
+    ...state.seasonProfileCatalog,
+    [seasonKey]: [...discovered.values()],
+  });
+}
+
 function hydrateEventState(eventKey) {
   state.activeEventKey = resolveEventKey(eventKey);
   globalThis.__scoutingActiveEventKey = state.activeEventKey;
@@ -334,10 +429,13 @@ function hydrateEventState(eventKey) {
   state.allianceBoard = normalizeBoard(readStoredJson(storageKeys.allianceBoard, defaultAllianceBoard, eventKey), eventModel);
   state.picklistCompareTeams = normalizePicklistCompareTeams(readStoredJson(storageKeys.picklistCompareTeams, [], eventKey), eventModel);
   state.scoutingSubmissions = normalizeScoutingSubmissions(readStoredScoutingSubmissions(eventKey, eventModel), eventModel);
+  backfillSeasonProfilesFromSubmissions(eventModel);
   state.activityLog = normalizeActivityLog(readStoredJson(storageKeys.activityLog, [], eventKey));
   state.importSourceUrl = readStoredItem(storageKeys.importSourceUrl, eventKey) || eventModel.sheet?.url || "";
   state.scoutingWindow = readStoredItem(storageKeys.scoutingWindow, eventKey) || "all";
   state.recentMatchCount = Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount, eventKey) || state.recentMatchCount || 4));
+  state.scoringTableProfileId = readStoredItem(storageKeys.scoringTableProfile, eventKey) || state.scoringTableProfileId || "";
+  ensureScoringTableProfileSelection(String(eventModel.season));
   state.derivedMetricDraft.seasonKey = String(eventModel.season);
   state.derivedMetricDraft.profileKey = currentProfileMetricScopeKey(eventModel);
   if (!state.loadedSources.length && state.picklists.length) state.loadedSources = [`picklist:${state.picklists[0].id}`];
@@ -348,6 +446,7 @@ function hydrateEventState(eventKey) {
   state.inlineRename = null;
   state.picklistSelectedTeam = null;
   state.importResult = null;
+  state.scoringTableStatus = "";
 }
 
 function createDerivedMetricDraft(eventModel = currentEvent()) {
@@ -373,10 +472,29 @@ function createDerivedMetricDraft(eventModel = currentEvent()) {
   };
 }
 
+function normalizeSeasonProfileCatalog(catalog) {
+  const normalized = {};
+  Object.entries(catalog || {}).forEach(([seasonKey, profiles]) => {
+    const seen = new Set();
+    const nextProfiles = [];
+    (profiles || []).forEach((profile) => {
+      const id = String(profile?.id || "").trim();
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      nextProfiles.push({
+        id,
+        label: String(profile?.label || knownImportProfileLabels[id] || id).trim() || id,
+      });
+    });
+    normalized[String(seasonKey)] = nextProfiles.sort((left, right) => left.label.localeCompare(right.label));
+  });
+  return normalized;
+}
+
 const derivedMetricPresets = [
   { id: "blank", label: "Blank Draft", template: "sum", unit: "pts", seedId: "", seedLabel: "" },
   { id: "sum", label: "Scoring Sum", template: "sum", unit: "pts", seedId: "newScoringSum", seedLabel: "New Scoring Sum" },
-  { id: "weighted_sum", label: "Scoring Matrix", template: "weighted_sum", unit: "pts", seedId: "newScoringMatrix", seedLabel: "New Scoring Matrix" },
+  { id: "weighted_sum", label: "Scoring Table", template: "weighted_sum", unit: "pts", seedId: "newScoringTable", seedLabel: "New Scoring Table" },
   { id: "accuracy", label: "Accuracy (%)", template: "rate", unit: "%", seedId: "newAccuracy", seedLabel: "New Accuracy" },
   { id: "average_per_match", label: "Average Per Match", template: "average_per_match", unit: "pts", seedId: "newAveragePerMatch", seedLabel: "New Average Per Match" },
   { id: "average_present", label: "Average When Present", template: "average_present", unit: "pts", seedId: "newAverageWhenPresent", seedLabel: "New Average When Present" },
@@ -429,7 +547,7 @@ function isScoringMatrixDefinition(definition) {
 }
 
 function derivedDefinitionKindLabel(definition) {
-  if (isScoringMatrixDefinition(definition)) return "Scoring matrix";
+  if (isScoringMatrixDefinition(definition)) return "Scoring table";
   if (definition?.formula === "sum") return "Derived metric";
   if (definition?.formula === "rate") return "Derived metric";
   if (definition?.formula === "ratio") return "Derived metric";
@@ -705,7 +823,7 @@ function applyScoringMatrixPreset(presetId) {
     state.derivedMetricDraft.id = generatedMetricId(state.derivedMetricDraft.label);
   }
   state.derivedMetricDraft.weightedFields = normalizeWeightedFieldEntries(preset.weightedFields);
-  state.derivedMetricConfigStatus = `Scoring matrix preset loaded: ${preset.label}.`;
+  state.derivedMetricConfigStatus = `Scoring table preset loaded: ${preset.label}.`;
   state.derivedMetricConfigIssues = [];
   render();
 }
@@ -764,7 +882,7 @@ function userLabel(user) {
 }
 
 function canView(view) {
-  return view !== "admin" || isAdmin();
+  return !["admin", "scoringMatrixBuilder"].includes(view) || isAdmin();
 }
 
 function visibleNavItems() {
@@ -1373,6 +1491,9 @@ function saveDerivedMetricDraft() {
 function deleteDerivedMetricDraft() {
   const editingRecord = derivedMetricEditingRecord();
   if (!editingRecord) return;
+  if (isScoringMatrixDefinition(editingRecord.definition) && !window.confirm(`Delete scoring table "${editingRecord.definition.label}"?`)) {
+    return;
+  }
   updateDerivedMetricConfig(
     editingRecord.scopeType,
     editingRecord.scopeKey,
@@ -1454,6 +1575,13 @@ function commitImportPreview() {
   state.activityLog = normalizeActivityLog(committed.activity);
   if (state.importResult.summary.rowCount > 0 && state.teamDetailMetric === "source:epa:total") {
     state.teamDetailMetric = "source:scouter:total";
+  }
+  registerSeasonScoutingProfile(currentEvent().season, {
+    id: state.importResult.summary.profileId,
+    label: state.importResult.summary.profileLabel,
+  });
+  if (!state.scoringTableProfileId) {
+    state.scoringTableProfileId = state.importResult.summary.profileId || "";
   }
   state.importResult = null;
   state.importCsvText = "";
@@ -2003,7 +2131,7 @@ function normalizeDerivedBuilderDraftForView() {
     nextDraft.presetId = "weighted_sum";
     nextDraft.template = "weighted_sum";
     nextDraft.unit = "pts";
-    nextDraft.label = "New Scoring Matrix";
+    nextDraft.label = "New Scoring Table";
     nextDraft.id = generatedMetricId(nextDraft.label);
     state.derivedMetricDraft = nextDraft;
   }
@@ -2171,6 +2299,9 @@ function icon(name) {
     teams: '<path d="M8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/><path d="M2 21a6 6 0 0 1 12 0"/><path d="M17 11a3 3 0 1 0 0-6"/><path d="M22 21a5 5 0 0 0-6-5"/>',
     rankings: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
     analysis: '<path d="M4 19h16"/><path d="M6 15h10"/><path d="M8 11h12"/><path d="M5 7h7"/><path d="M14 7h4"/>',
+    derivedBuilder:
+      '<text x="12" y="16" text-anchor="middle" font-size="9" font-weight="700" fill="currentColor" stroke="none">f(x)</text>',
+    bullseye: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>',
     schedule: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/>',
     matchup: '<path d="M7 7h10"/><path d="M7 17h10"/><path d="M9 7a3 3 0 1 1 0 6"/><path d="M15 17a3 3 0 1 1 0-6"/>',
     quality: '<path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5"/><path d="M12 17h.01"/>',
@@ -2200,7 +2331,7 @@ function viewTitle(view) {
     rankings: "Rankings",
     analysis: "Analysis",
     derivedBuilder: "Derived Builder",
-    scoringMatrixBuilder: "Scoring Matrices",
+    scoringMatrixBuilder: "Scoring Table",
     schedule: "Match Schedule",
     matchup: "Matchup",
     quality: "Data Quality",
@@ -2627,7 +2758,7 @@ function renderDerivedMetricIssues() {
 
 function derivedMetricPresetHelp(draft = state.derivedMetricDraft) {
   if (draft.presetId === "weighted_sum" || draft.template === "weighted_sum") {
-    return "This preset multiplies each selected scouting field by its point value, then sums the result. Use a scoring matrix preset to prefill official game values where the scouting fields map directly.";
+    return "This preset multiplies each selected scouting field by its point value, then sums the result. Use a scoring table preset to prefill official game values where the scouting fields map directly.";
   }
   if (draft.presetId === "accuracy") {
     const madeCount = draft.madeFields.length;
@@ -2723,64 +2854,70 @@ function renderDerivedBuilderShell(mode) {
   const editingRecord = derivedMetricEditingRecord();
   const draftIssues = derivedMetricDraftIssues(draft);
   const draftIssueFor = (field) => draftIssues.find((issue) => issue.field === field);
-  const pageLabel = matrixMode ? "Scoring Matrix" : "Derived Metric";
+  const pageLabel = matrixMode ? "Scoring Table" : "Derived Metric";
   const presetOptions = derivedMetricPresets.filter((preset) => (matrixMode ? preset.template === "weighted_sum" : preset.template !== "weighted_sum"));
   const unitAutoDetermined = matrixMode || derivedMetricUnitLocked(draft);
   const editingTitle = editingRecord ? `Edit ${editingRecord.definition.label}` : `New ${pageLabel}`;
   const presetHelp = matrixMode
-    ? "Load an official season matrix to seed point values, or build a custom point mapping from your scouting events."
+    ? "Create a new scoring table by loading a season preset or entering point values manually. To edit an existing scoring table, choose it from the saved list first."
     : derivedMetricPresetHelp(draft);
   const builderDescription = matrixMode
-    ? "Build point mappings here. The recent-match window is controlled elsewhere, and previews update against that active window automatically."
+    ? "Build point mappings here. Scoring tables are admin-only and can be saved for the current season or spreadsheet profile."
     : "Build the metric definition here. The recent-match window is controlled elsewhere, and previews update against that active window automatically.";
   const configDescription = matrixMode
-    ? `Use this editor to export, paste, or import saved derived metrics and scoring matrices for season ${summary.seasonKey} and profile ${summary.profileKey}.`
-    : `Use this editor to export, paste, or import saved derived metrics and scoring matrices for season ${summary.seasonKey} and profile ${summary.profileKey}.`;
+    ? `Use this editor to export, paste, or import saved derived metrics and scoring tables for season ${summary.seasonKey} and profile ${summary.profileKey}.`
+    : `Use this editor to export, paste, or import saved derived metrics and scoring tables for season ${summary.seasonKey} and profile ${summary.profileKey}.`;
   return `
     <div class="grid">
-      <div class="grid cols-2">
-        <article class="card">
-          <div class="section-heading">
-            <div>
-              <h2>Scope Overview</h2>
-              <p class="muted">Builder outputs can be scoped by season or spreadsheet profile.</p>
+      ${
+        matrixMode
+          ? ""
+          : `
+            <div class="grid cols-2">
+              <article class="card">
+                <div class="section-heading">
+                  <div>
+                    <h2>Scope Overview</h2>
+                    <p class="muted">Builder outputs can be scoped by season or spreadsheet profile.</p>
+                  </div>
+                </div>
+                <div class="stat-grid">
+                  <div class="stat"><span>Season Scope</span><strong>${summary.seasonKey}</strong></div>
+                  <div class="stat"><span>Profile Scope</span><strong>${summary.profileKey}</strong></div>
+                  <div class="stat"><span>Recent Window</span><strong>${currentRecentMatchCount()} matches</strong></div>
+                  <div class="stat"><span>Imported Teams</span><strong>${importedTeamCount()}</strong></div>
+                </div>
+              </article>
+              <article class="card">
+                <div class="section-heading">
+                  <div>
+                    <h2>Live Preview</h2>
+                    <p class="muted">Preview the current draft against imported scouting data before saving it.</p>
+                  </div>
+                </div>
+                <div class="admin-form-grid">
+                  <label>
+                    Preview team
+                    <select id="derivedMetricPreviewTeamSelect">
+                      ${currentTeams().map((team) => `<option value="${team.number}" ${team.number === previewTeam?.number ? "selected" : ""}>${team.number} ${team.name}</option>`).join("")}
+                    </select>
+                  </label>
+                </div>
+                <div class="stat-grid">
+                  <div class="stat"><span>All Matches</span><strong>${definition ? allPreview.toFixed(definition.unit === "%" ? 0 : 1) : "--"}${definition?.unit === "%" ? "%" : ""}</strong></div>
+                  <div class="stat"><span>Recent ${currentRecentMatchCount()}</span><strong>${definition ? recentPreview.toFixed(definition.unit === "%" ? 0 : 1) : "--"}${definition?.unit === "%" ? "%" : ""}</strong></div>
+                </div>
+                <p class="muted">${definition ? `${definition.label} (${definition.id})` : "Complete the draft fields to see a live preview."}</p>
+              </article>
             </div>
-          </div>
-          <div class="stat-grid">
-            <div class="stat"><span>Season Scope</span><strong>${summary.seasonKey}</strong></div>
-            <div class="stat"><span>Profile Scope</span><strong>${summary.profileKey}</strong></div>
-            <div class="stat"><span>Recent Window</span><strong>${currentRecentMatchCount()} matches</strong></div>
-            <div class="stat"><span>Imported Teams</span><strong>${importedTeamCount()}</strong></div>
-          </div>
-        </article>
-        <article class="card">
-          <div class="section-heading">
-            <div>
-              <h2>Live Preview</h2>
-              <p class="muted">Preview the current draft against imported scouting data before saving it.</p>
-            </div>
-          </div>
-          <div class="admin-form-grid">
-            <label>
-              Preview team
-              <select id="derivedMetricPreviewTeamSelect">
-                ${currentTeams().map((team) => `<option value="${team.number}" ${team.number === previewTeam?.number ? "selected" : ""}>${team.number} ${team.name}</option>`).join("")}
-              </select>
-            </label>
-          </div>
-          <div class="stat-grid">
-            <div class="stat"><span>All Matches</span><strong>${definition ? allPreview.toFixed(definition.unit === "%" ? 0 : 1) : "--"}${definition?.unit === "%" ? "%" : ""}</strong></div>
-            <div class="stat"><span>Recent ${currentRecentMatchCount()}</span><strong>${definition ? recentPreview.toFixed(definition.unit === "%" ? 0 : 1) : "--"}${definition?.unit === "%" ? "%" : ""}</strong></div>
-          </div>
-          <p class="muted">${definition ? `${definition.label} (${definition.id})` : "Complete the draft fields to see a live preview."}</p>
-        </article>
-      </div>
+          `
+      }
       <div class="grid cols-2">
         <article class="card">
           <div class="section-heading">
             <div>
               <h2>Saved ${pageLabel}s</h2>
-              <p class="muted">Season-scoped definitions apply to all events in that season; profile-scoped definitions apply to the selected spreadsheet profile.</p>
+              <p class="muted">${matrixMode ? "Select a saved scoring table to edit it, or use Reset Draft to start a new one." : "Season-scoped definitions apply to all events in that season; profile-scoped definitions apply to the selected spreadsheet profile."}</p>
             </div>
           </div>
           <h3>Season ${summary.seasonKey}</h3>
@@ -2797,7 +2934,7 @@ function renderDerivedBuilderShell(mode) {
           </div>
           <div class="admin-actions" style="margin-bottom: 12px;">
             <label style="min-width: 260px;">
-              ${matrixMode ? "Scoring Matrix Type" : "Metric Type"}
+              ${matrixMode ? "Scoring Table Type" : "Metric Type"}
               <select id="derivedMetricPresetSelect">
                 ${presetOptions.map((preset) => `<option value="${preset.id}" ${preset.id === draft.presetId ? "selected" : ""}>${preset.label}</option>`).join("")}
               </select>
@@ -2815,12 +2952,12 @@ function renderDerivedBuilderShell(mode) {
             </label>
             <label>
               Label
-              <input id="derivedMetricLabelInput" class="admin-input" value="${escapeAttribute(draft.label)}" placeholder="${matrixMode ? "Reefscape Point Matrix" : "Driver Consistency"}" />
+              <input id="derivedMetricLabelInput" class="admin-input" value="${escapeAttribute(draft.label)}" placeholder="${matrixMode ? "Reefscape Point Table" : "Driver Consistency"}" />
               ${renderDraftIssue(draftIssueFor("label"))}
             </label>
             <label>
-              ${matrixMode ? "Matrix ID (Auto-generated by default)" : "Metric ID (Auto-generated by default)"}
-              <input id="derivedMetricIdInput" class="admin-input" value="${escapeAttribute(draft.id)}" placeholder="${matrixMode ? "reefscapePointMatrix" : "driverConsistencyRecent"}" />
+              ${matrixMode ? "Table ID (Auto-generated by default)" : "Metric ID (Auto-generated by default)"}
+              <input id="derivedMetricIdInput" class="admin-input" value="${escapeAttribute(draft.id)}" placeholder="${matrixMode ? "reefscapePointTable" : "driverConsistencyRecent"}" />
               ${renderDraftIssue(draftIssueFor("id"))}
             </label>
             ${unitAutoDetermined ? "" : `<label>
@@ -2837,17 +2974,17 @@ function renderDerivedBuilderShell(mode) {
                     scoringMatrixPresets.length
                       ? `
                         <label>
-                          Scoring Matrix Preset
+                          Scoring Table Preset
                           <div class="admin-actions">
                             <select id="derivedMetricScoringMatrixPresetSelect">
                               <option value="">Choose a season preset</option>
                               ${scoringMatrixPresets.map((preset) => `<option value="${preset.id}" ${preset.id === draft.scoringMatrixPresetId ? "selected" : ""}>${preset.label}</option>`).join("")}
                             </select>
-                            <button type="button" id="applyScoringMatrixPresetButton">Load Matrix</button>
+                            <button type="button" id="applyScoringMatrixPresetButton">Load Table</button>
                           </div>
                         </label>
                       `
-                      : `<p class="muted">No season scoring matrix presets are defined yet for this event, so point values can be entered manually.</p>`
+                      : `<p class="muted">No season scoring table presets are defined yet for this event, so point values can be entered manually.</p>`
                   }
                   <label>Weighted Fields${renderFieldMultiSelect("derivedMetricWeightedFieldsSelect", draft.weightedFields.map((entry) => entry.field), "Derived metric weighted fields")}${renderDraftIssue(draftIssueFor("weightedFields"))}</label>
                   <label>Point Mapping${renderWeightedFieldEditor(draft.weightedFields)}</label>
@@ -2861,7 +2998,7 @@ function renderDerivedBuilderShell(mode) {
             ${!matrixMode && draft.template === "attempt_average" ? `<label>Denominator Fields${renderFieldMultiSelect("derivedMetricDenominatorFieldsSelect", draft.denominatorFields, "Derived metric denominator fields")}${renderDraftIssue(draftIssueFor("denominatorFields"))}</label>` : ""}
             <div class="admin-actions">
               <button type="button" id="saveDerivedMetricButton" class="primary" ${definition ? "" : "disabled"}>Save ${pageLabel}</button>
-              <button type="button" id="resetDerivedMetricButton">Reset Draft</button>
+              <button type="button" id="resetDerivedMetricButton">${matrixMode ? "New Scoring Table" : "Reset Draft"}</button>
               <button type="button" id="deleteDerivedMetricButton" ${editingRecord ? "" : "disabled"}>Delete</button>
             </div>
           </div>
@@ -2880,7 +3017,7 @@ function renderDerivedBuilderShell(mode) {
             <button type="button" id="downloadDerivedMetricConfigButton">Download JSON</button>
           </div>
         </div>
-        <textarea id="derivedMetricConfigTextarea" class="admin-textarea" spellcheck="false">${escapeHtml(state.derivedMetricConfigEditorText)}</textarea>
+        <textarea id="derivedMetricConfigTextarea" class="admin-textarea" style="min-height: 360px;" spellcheck="false">${escapeHtml(state.derivedMetricConfigEditorText)}</textarea>
         <p class="muted">${state.derivedMetricConfigStatus || "Applying JSON replaces the current custom derived metric config in local storage."}</p>
         ${renderDerivedMetricIssues()}
       </article>
@@ -2892,8 +3029,168 @@ function renderDerivedBuilder() {
   return renderDerivedBuilderShell("derivedMetric");
 }
 
+function scoringTableProfileDefinition(profileId) {
+  if (!profileId) return null;
+  return derivedMetricConfigScopeDefinitions("profile", profileId).find(isScoringMatrixDefinition) || null;
+}
+
+function scoringTableDefinitionForProfile(profile) {
+  if (!profile?.id) return null;
+  const label = `${profile.label} Scoring Table`;
+  return normalizeCustomDerivedMetricDefinition({
+    id: `scoringTable${generatedMetricId(profile.id).slice(0, 1).toUpperCase()}${generatedMetricId(profile.id).slice(1)}`,
+    label,
+    unit: "pts",
+    formula: "weighted_sum",
+    weightedFields: [],
+  });
+}
+
+function scoringTableValueForField(definition, fieldId) {
+  const entry = (definition?.weightedFields || []).find((item) => item.field === fieldId);
+  return entry && Number(entry.weight) !== 0 ? String(entry.weight) : "";
+}
+
+function saveScoringTableForProfile(profileId, nextWeightsByField) {
+  const profile = seasonScoutingProfiles().find((item) => item.id === profileId);
+  if (!profile) return;
+  const baseDefinition = scoringTableProfileDefinition(profileId) || scoringTableDefinitionForProfile(profile);
+  if (!baseDefinition) return;
+  const weightedFields = normalizeWeightedFieldEntries(
+    Object.entries(nextWeightsByField)
+      .map(([field, weight]) => ({ field, weight: Number(weight) }))
+      .filter((entry) => Number.isFinite(entry.weight) && entry.weight !== 0),
+  );
+  const scopeDefinitions = derivedMetricConfigScopeDefinitions("profile", profileId);
+  const nonTableDefinitions = scopeDefinitions.filter((definition) => !isScoringMatrixDefinition(definition));
+  if (weightedFields.length) {
+    updateDerivedMetricConfig("profile", profileId, [...nonTableDefinitions, { ...baseDefinition, weightedFields }]);
+    state.scoringTableStatus = `Saved ${profile.label}.`;
+  } else {
+    updateDerivedMetricConfig("profile", profileId, nonTableDefinitions);
+    state.scoringTableStatus = `Saved ${profile.label}. Blank values are treated as 0.`;
+  }
+  syncDerivedMetricConfigEditor(state.scoringTableStatus);
+  saveState();
+}
+
+function deleteScoringTableForProfile(profileId) {
+  const profile = seasonScoutingProfiles().find((item) => item.id === profileId);
+  const existing = scoringTableProfileDefinition(profileId);
+  if (!profile || !existing) return;
+  if (!window.confirm(`Delete scoring table for ${profile.label}?`)) return;
+  updateDerivedMetricConfig(
+    "profile",
+    profileId,
+    derivedMetricConfigScopeDefinitions("profile", profileId).filter((definition) => !isScoringMatrixDefinition(definition)),
+  );
+  state.scoringTableStatus = `Deleted ${profile.label}.`;
+  syncDerivedMetricConfigEditor(state.scoringTableStatus);
+  saveState();
+  render();
+}
+
 function renderScoringMatrixBuilder() {
-  return renderDerivedBuilderShell("scoringMatrix");
+  const seasonKey = String(currentEvent().season);
+  const profiles = seasonScoutingProfiles(seasonKey);
+  const selectedProfileId = ensureScoringTableProfileSelection(seasonKey);
+  const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) || null;
+  const existingDefinition = selectedProfile ? scoringTableProfileDefinition(selectedProfile.id) : null;
+  const fieldDefinitions = currentAtomicScouterMetricDefinitions();
+  return `
+    <div class="grid">
+      <article class="card">
+        <div class="section-heading">
+          <div>
+            <h2>Scouting Profiles</h2>
+            <p class="muted">Profiles appear here after a scouting import is committed on the Admin page for season ${seasonKey}.</p>
+          </div>
+          <div class="admin-actions">
+            ${existingDefinition ? '<button type="button" id="deleteScoringTableButton">Delete Table</button>' : ""}
+          </div>
+        </div>
+        ${
+          profiles.length
+            ? `
+              <div class="admin-form-grid">
+                <label>
+                  Scouting profile
+                  <select id="scoringTableProfileSelect">
+                    ${profiles.map((profile) => `<option value="${profile.id}" ${profile.id === selectedProfileId ? "selected" : ""}>${profile.label}</option>`).join("")}
+                  </select>
+                </label>
+              </div>
+              <p class="muted">Create a new scoring table by selecting a profile and entering point values below. To edit an existing scoring table, select that profile and update the values directly.</p>
+            `
+            : `<p class="muted">No scouting profiles have been imported for this season yet. Commit a scouting import on the Admin page to add one.</p>`
+        }
+        <p class="muted">${state.scoringTableStatus || "Blank values are treated as 0 points, and saved 0 values display as blanks."}</p>
+      </article>
+      <article class="card">
+        <div class="section-heading">
+          <div>
+            <h2>Scoring Table${selectedProfile ? ` for ${selectedProfile.label}` : ""}</h2>
+            <p class="muted">Only atomic imported scouting fields appear here. Use tab/shift-tab, up/down arrow keys, or Enter to move through the point-value column. Changes save automatically.</p>
+          </div>
+        </div>
+        ${
+          selectedProfile
+            ? `
+              <div class="table-shell">
+                <table class="admin-table">
+                  <thead>
+                    <tr><th>Scouting Field</th><th>Point Value</th></tr>
+                  </thead>
+                  <tbody>
+                    ${fieldDefinitions
+                      .map(
+                        (fieldDefinition, index) => `
+                          <tr>
+                            <td>
+                              <strong>${escapeHtml(fieldDefinition.label)}</strong>
+                              <div class="muted">${escapeHtml(fieldDefinition.id)}</div>
+                            </td>
+                            <td>
+                              <input
+                                id="scoringTableValue-${index}"
+                                class="admin-input scoring-table-input"
+                                data-scoring-row="${index}"
+                                data-scoring-field="${escapeAttribute(fieldDefinition.id)}"
+                                inputmode="decimal"
+                                value="${escapeAttribute(scoringTableValueForField(existingDefinition, fieldDefinition.id))}"
+                                placeholder="0"
+                                aria-label="Points for ${escapeAttribute(fieldDefinition.label)}"
+                              />
+                            </td>
+                          </tr>
+                        `,
+                      )
+                      .join("")}
+                  </tbody>
+                </table>
+              </div>
+            `
+            : `<div class="empty-state">Select or import a scouting profile to edit its scoring table.</div>`
+        }
+      </article>
+    </div>
+  `;
+}
+
+function collectScoringTableInputValues() {
+  return Object.fromEntries(
+    Array.from(document.querySelectorAll(".scoring-table-input")).map((input) => [
+      input.dataset.scoringField,
+      input.value.trim() === "" ? "" : Number(input.value),
+    ]),
+  );
+}
+
+function focusScoringTableInput(rowIndex) {
+  const input = document.querySelector(`#scoringTableValue-${rowIndex}`);
+  if (!input) return;
+  input.focus();
+  input.select?.();
 }
 
 function renderBoxPlotLegend() {
@@ -4244,6 +4541,36 @@ function bindViewEvents() {
   });
   document.querySelector("#applyScoringMatrixPresetButton")?.addEventListener("click", () => {
     applyScoringMatrixPreset(document.querySelector("#derivedMetricScoringMatrixPresetSelect")?.value || "");
+  });
+  document.querySelector("#scoringTableProfileSelect")?.addEventListener("change", (event) => {
+    state.scoringTableProfileId = event.target.value;
+    state.scoringTableStatus = "";
+    saveState();
+    render();
+  });
+  document.querySelector("#deleteScoringTableButton")?.addEventListener("click", () => {
+    deleteScoringTableForProfile(state.scoringTableProfileId);
+  });
+  document.querySelectorAll(".scoring-table-input").forEach((input) => {
+    input.addEventListener("input", () => {
+      saveScoringTableForProfile(state.scoringTableProfileId, collectScoringTableInputValues());
+    });
+    input.addEventListener("keydown", (event) => {
+      const rowIndex = Number(event.target.dataset.scoringRow);
+      if (!Number.isFinite(rowIndex)) return;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        focusScoringTableInput(rowIndex + 1);
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        focusScoringTableInput(rowIndex - 1);
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        focusScoringTableInput(rowIndex + 1);
+      }
+    });
   });
   bindDerivedMetricFieldSelect("#derivedMetricFieldsSelect", (values) => {
     state.derivedMetricDraft.fields = values;
