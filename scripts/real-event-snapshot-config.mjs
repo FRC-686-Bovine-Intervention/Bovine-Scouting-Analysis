@@ -13,11 +13,11 @@ export const realEventSourceConfig = [
   {
     key: "2025chcmp",
     year: 2025,
-    importProfileId: "match-legacy-v1",
+    importProfileId: "match-current-v2",
     sheet: {
-      url: "https://docs.google.com/spreadsheets/d/1FaWnB7JuMKSKWPhqXlZyU_-VQg3qHiOpT_G0R7dwwp4/edit?gid=1335468219#gid=1335468219",
-      tab: "BlackHawkImport",
-      csvUrl: "https://docs.google.com/spreadsheets/d/1FaWnB7JuMKSKWPhqXlZyU_-VQg3qHiOpT_G0R7dwwp4/gviz/tq?tqx=out:csv&sheet=BlackHawkImport",
+      url: "https://docs.google.com/spreadsheets/d/15OXDSrdMHyGeaWC4aKdAjAKSjtfvDqNIBPUqzZSF_0I/edit?gid=57845526#gid=57845526",
+      tab: "AnalysisExport",
+      csvUrl: "https://docs.google.com/spreadsheets/d/15OXDSrdMHyGeaWC4aKdAjAKSjtfvDqNIBPUqzZSF_0I/export?format=csv&gid=57845526",
       access: "public_csv",
     },
   },

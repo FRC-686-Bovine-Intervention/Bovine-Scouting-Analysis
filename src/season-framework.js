@@ -119,6 +119,7 @@ const seasonDefinitions = {
       metric("teleBargeMade", "Teleop Barge Made", "count"),
       metric("teleBargeMissed", "Teleop Barge Missed", "count"),
       metric("climbLevel", "Climb Level", "level"),
+      metric("climbAttempt", "Climb Attempt", "count", { aggregate: "max" }),
       metric("driverPerformance", "Driver Performance", "rating"),
       metric("playedDefenseRating", "Played Defense", "rating"),
       metric("defenseOnThemRating", "Defense On Them", "rating"),
@@ -307,6 +308,7 @@ function buildMetrics(season) {
       label: metricDefinition.label,
       shortLabel: metricDefinition.label,
       unit: metricDefinition.unit,
+      definition: metricDefinition,
     })),
   ];
 }

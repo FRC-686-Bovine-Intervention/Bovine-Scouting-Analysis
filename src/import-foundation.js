@@ -506,7 +506,7 @@ function previewScoutingImport({ csvText, eventModel, activeEventKey, existingSu
   };
 }
 
-function commitScoutingImport({ preview, existingSubmissions = [], existingActivity = [] }) {
+function commitScoutingImport({ preview, existingSubmissions = [], existingActivity = [], replaceExisting = false }) {
   if (!preview?.ok || !preview.summary) {
     return {
       submissions: existingSubmissions,
@@ -515,12 +515,13 @@ function commitScoutingImport({ preview, existingSubmissions = [], existingActiv
   }
 
   const timestamp = new Date().toISOString();
-  const submissions = [...existingSubmissions, ...preview.summary.submissions.map((submission) => ({ ...submission, importedAt: timestamp }))];
+  const baseSubmissions = replaceExisting ? [] : existingSubmissions;
+  const submissions = [...baseSubmissions, ...preview.summary.submissions.map((submission) => ({ ...submission, importedAt: timestamp }))];
   const activityEntry = {
     id: createId("activity"),
     kind: "import",
     timestamp,
-    message: `Imported ${preview.summary.newRows} rows into ${preview.summary.metadata.eventKey}; ${preview.summary.duplicateGroups} duplicate groups flagged; confidence lowered for ${preview.summary.confidenceImpactTeams} teams.`,
+    message: `${replaceExisting ? "Replaced" : "Imported"} ${preview.summary.newRows} rows into ${preview.summary.metadata.eventKey}; ${preview.summary.duplicateGroups} duplicate groups flagged; confidence lowered for ${preview.summary.confidenceImpactTeams} teams.`,
   };
 
   return {

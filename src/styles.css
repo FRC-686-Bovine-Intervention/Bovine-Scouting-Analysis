@@ -1017,6 +1017,7 @@ button.pill {
 .builder-list {
   display: grid;
   gap: 8px;
+  align-content: start;
 }
 
 .builder-list:focus {
@@ -1465,6 +1466,288 @@ button.pill {
   text-align: center;
 }
 
+.range-control {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.topbar .split-row {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.topbar-range-control {
+  min-width: 140px;
+}
+
+.topbar-range-control span {
+  font-size: 0.82rem;
+  color: var(--muted);
+  text-align: right;
+}
+
+.derived-header-actions {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.derived-builder-layout {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  max-height: calc(100vh - 250px);
+  min-height: 0;
+}
+
+.derived-builder-sidebar {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+  max-height: calc(100vh - 250px);
+}
+
+.derived-builder-main {
+  min-height: 0;
+  max-height: calc(100vh - 250px);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.derived-pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--panel) 92%, white 8%);
+}
+
+.derived-pane-header,
+.derived-formula-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.metric-catalog .builder-list-item {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 12px;
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.derived-formula-header {
+  align-items: stretch;
+  margin-bottom: 4px;
+}
+
+.derived-formula-name {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.derived-formula-name-sidebar {
+  justify-items: start;
+}
+
+.derived-formula-bar {
+  flex: 1;
+  position: relative;
+}
+
+.derived-formula-bar input {
+  width: 100%;
+  min-height: 42px;
+}
+
+.formula-autocomplete {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 26;
+  display: grid;
+  gap: 2px;
+  max-height: 280px;
+  padding: 6px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.formula-autocomplete[hidden] {
+  display: none;
+}
+
+.formula-autocomplete-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.formula-autocomplete-item:hover,
+.formula-autocomplete-item.active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel) 86%);
+}
+
+.formula-function-menu {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.formula-function-button {
+  min-width: 48px;
+  min-height: 42px;
+  padding: 0 10px;
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
+}
+
+.formula-function-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 25;
+  min-width: 280px;
+  display: none;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.formula-function-menu:hover .formula-function-popover,
+.formula-function-menu:focus-within .formula-function-popover {
+  display: grid;
+}
+
+.formula-function-item {
+  display: grid;
+  gap: 2px;
+}
+
+.formula-function-item span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.confidence-badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.confidence-badge.warn {
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+}
+
+.confidence-badge.danger {
+  background: rgba(220, 38, 38, 0.14);
+  color: #b91c1c;
+}
+
+.derived-grid-shell {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(160px, 1fr);
+  gap: 12px;
+  overflow-x: auto;
+  align-items: start;
+  padding-bottom: 8px;
+  min-height: 0;
+}
+
+.derived-grid-team {
+  min-width: 96px;
+}
+
+.derived-grid-result {
+  min-width: 180px;
+}
+
+.derived-grid-column {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.derived-grid-column header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--panel) 84%, white 16%);
+}
+
+.derived-grid-column-body {
+  max-height: calc(100vh - 390px);
+  overflow-y: auto;
+}
+
+.derived-pane .builder-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 10px 10px;
+}
+
+.derived-grid-cell {
+  height: 38px;
+  padding: 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent 30%);
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.derived-grid-cell.team-start {
+  border-top: 2px solid color-mix(in srgb, var(--accent) 45%, var(--line) 55%);
+}
+
+.derived-grid-cell.team-end {
+  margin-bottom: 0;
+}
+
+.derived-grid-cell.muted {
+  color: var(--muted);
+}
+
+.derived-grid-cell.danger {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.derived-pane .builder-list-item {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
 @media (max-width: 860px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -1487,7 +1770,9 @@ button.pill {
   .picklist-columns,
   .sort-builder-layout,
   .picklist-builder-layout,
-  .builder-grid-columns {
+  .builder-grid-columns,
+  .derived-builder-layout,
+  .derived-builder-sidebar {
     grid-template-columns: 1fr;
   }
 
@@ -1518,5 +1803,13 @@ button.pill {
 
   .operator-spacer {
     display: none;
+  }
+
+  .derived-builder-sidebar {
+    min-height: auto;
+  }
+
+  .topbar-range-control {
+    min-width: 100%;
   }
 }

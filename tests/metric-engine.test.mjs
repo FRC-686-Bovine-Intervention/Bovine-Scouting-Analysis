@@ -77,6 +77,168 @@ runTest("evaluateDerivedMetricDefinition supports sum, weighted sum, average, an
   );
 });
 
+runTest("evaluateFormulaExpression supports nested averages and attempt denominators", () => {
+  const result = metricEngine.evaluateFormulaExpression("averageOverAttempts(tba.climbScore, scouting.climbAttempt) + average(scouting.teleL3Made)", {
+    recentEntryCount: 3,
+    resolveIdentifier(identifier) {
+      if (identifier === "tba.climbScore") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 2 },
+          { key: 2, value: 6 },
+          { key: 3, value: 12 },
+        ]);
+      }
+      if (identifier === "scouting.climbAttempt") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 1 },
+          { key: 2, value: 0 },
+          { key: 3, value: 1 },
+        ]);
+      }
+      if (identifier === "scouting.teleL3Made") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 2 },
+          { key: 2, value: 4 },
+          { key: 3, value: 6 },
+        ]);
+      }
+      return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+    },
+  });
+
+  assert.equal(result.granularity, "event");
+  assert.equal(result.value, 11);
+});
+
+runTest("averageOverAttempts excludes matches with zero attempts from the numerator", () => {
+  const result = metricEngine.evaluateFormulaExpression("averageOverAttempts(tba.climbScore, scouting.climbAttempt)", {
+    recentEntryCount: 3,
+    resolveIdentifier(identifier) {
+      if (identifier === "tba.climbScore") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 12 },
+          { key: 2, value: 12 },
+          { key: 3, value: 12 },
+        ]);
+      }
+      if (identifier === "scouting.climbAttempt") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 1 },
+          { key: 2, value: 0 },
+          { key: 3, value: 1 },
+        ]);
+      }
+      return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+    },
+  });
+
+  assert.equal(result.granularity, "event");
+  assert.equal(result.value, 12);
+});
+
+runTest("sum aggregates recent match-level values", () => {
+  const result = metricEngine.evaluateFormulaExpression("sum(scouting.teleL3Made)", {
+    recentEntryCount: 3,
+    resolveIdentifier(identifier) {
+      if (identifier === "scouting.teleL3Made") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 2 },
+          { key: 2, value: 4 },
+          { key: 3, value: 6 },
+        ]);
+      }
+      return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+    },
+  });
+
+  assert.equal(result.granularity, "event");
+  assert.equal(result.value, 12);
+});
+
+runTest("evaluateFormulaExpression supports comparison operators for match-level filters", () => {
+  const result = metricEngine.evaluateFormulaExpression("scouting.climbAttempt > 0", {
+    resolveIdentifier(identifier) {
+      if (identifier === "scouting.climbAttempt") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 0 },
+          { key: 2, value: 1 },
+          { key: 3, value: 2 },
+        ]);
+      }
+      return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+    },
+  });
+
+  assert.equal(result.granularity, "match");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.entries)),
+    [
+      { key: 1, value: 0 },
+      { key: 2, value: 1 },
+      { key: 3, value: 1 },
+    ],
+  );
+});
+
+runTest("evaluateFormulaExpression supports boolean composition for filters", () => {
+  const result = metricEngine.evaluateFormulaExpression(
+    "and(tba.climbScore > 0, or(scouting.climbAttempt > 0, scouting.deepClimb > 0))",
+    {
+      resolveIdentifier(identifier) {
+        if (identifier === "tba.climbScore") {
+          return metricEngine.seriesResult([
+            { key: 1, value: 0 },
+            { key: 2, value: 6 },
+            { key: 3, value: 12 },
+          ]);
+        }
+        if (identifier === "scouting.climbAttempt") {
+          return metricEngine.seriesResult([
+            { key: 1, value: 0 },
+            { key: 2, value: 1 },
+            { key: 3, value: 0 },
+          ]);
+        }
+        if (identifier === "scouting.deepClimb") {
+          return metricEngine.seriesResult([
+            { key: 1, value: 0 },
+            { key: 2, value: 0 },
+            { key: 3, value: 1 },
+          ]);
+        }
+        return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+      },
+    },
+  );
+
+  assert.equal(result.granularity, "match");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.entries)),
+    [
+      { key: 1, value: 0 },
+      { key: 2, value: 1 },
+      { key: 3, value: 1 },
+    ],
+  );
+});
+
+runTest("evaluateFormulaExpression rejects mixed granularity without averaging", () => {
+  const result = metricEngine.evaluateFormulaExpression("scouting.teleL3Made + statbotics.total", {
+    resolveIdentifier(identifier) {
+      if (identifier === "scouting.teleL3Made") {
+        return metricEngine.seriesResult([{ key: 1, value: 3 }]);
+      }
+      if (identifier === "statbotics.total") {
+        return metricEngine.scalarResult(100, "event");
+      }
+      return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+    },
+  });
+
+  assert.equal(result.kind, "error");
+  assert.match(result.error, /Cannot mix match-level and event-level/);
+});
+
 runTest("aggregateSubmissionMatches sorts by match number and excludes flagged and excluded rows", () => {
   const matches = metricEngine.aggregateSubmissionMatches(
     [
@@ -108,10 +270,86 @@ runTest("aggregateSubmissionMatches sorts by match number and excludes flagged a
   );
 
   assert.deepEqual(
-    matches.map((match) => ({ matchNumber: match.matchNumber, total: match.total })),
+    JSON.parse(JSON.stringify(matches.map((match) => ({ matchNumber: match.matchNumber, total: match.total })))),
     [
       { matchNumber: 2, total: 14 },
       { matchNumber: 3, total: 16 },
+    ],
+  );
+});
+
+runTest("aggregateSubmissionMatches collapses multiple valid submissions for the same match", () => {
+  const matches = metricEngine.aggregateSubmissionMatches(
+    [
+      {
+        matchNumber: 12,
+        validity: "valid",
+        rawMetrics: { tele: 4, climbAttempt: 1 },
+      },
+      {
+        matchNumber: 12,
+        validity: "valid",
+        rawMetrics: { tele: 6, climbAttempt: 0 },
+      },
+      {
+        matchNumber: 13,
+        validity: "valid",
+        rawMetrics: { tele: 3, climbAttempt: 1 },
+      },
+    ],
+    {
+      scoringComponentIds: ["tele"],
+      scouterMetricIds: ["tele", "climbAttempt"],
+    },
+  );
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(matches.map((match) => ({
+      matchNumber: match.matchNumber,
+      total: match.total,
+      tele: match.components.tele,
+      climbAttempt: match.components.climbAttempt,
+      submissionCount: match.submissions.length,
+    })))),
+    [
+      { matchNumber: 12, total: 5, tele: 5, climbAttempt: 0.5, submissionCount: 2 },
+      { matchNumber: 13, total: 3, tele: 3, climbAttempt: 1, submissionCount: 1 },
+    ],
+  );
+});
+
+runTest("aggregateSubmissionMatches supports max aggregation for binary attempt fields", () => {
+  const matches = metricEngine.aggregateSubmissionMatches(
+    [
+      {
+        matchNumber: 12,
+        validity: "valid",
+        rawMetrics: { climbAttempt: 1, tele: 4 },
+      },
+      {
+        matchNumber: 12,
+        validity: "valid",
+        rawMetrics: { climbAttempt: 0, tele: 6 },
+      },
+    ],
+    {
+      scoringComponentIds: ["tele"],
+      scouterMetricIds: ["climbAttempt", "tele"],
+      scouterMetricDefinitions: [
+        { id: "climbAttempt", aggregate: "max" },
+        { id: "tele" },
+      ],
+    },
+  );
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(matches.map((match) => ({
+      matchNumber: match.matchNumber,
+      climbAttempt: match.components.climbAttempt,
+      tele: match.components.tele,
+    })))),
+    [
+      { matchNumber: 12, climbAttempt: 1, tele: 5 },
     ],
   );
 });
@@ -258,8 +496,8 @@ runTest("buildTeamScoutingOverlay computes scouting totals, trends, and confiden
   });
 
   assert.equal(overlay.sources.scouter.total, 40);
-  assert.deepEqual(overlay.sources.scouter.trend, [40]);
-  assert.deepEqual(overlay.sources.scouter.componentTrend.auto, [10]);
+  assert.deepEqual(JSON.parse(JSON.stringify(overlay.sources.scouter.trend)), [40]);
+  assert.deepEqual(JSON.parse(JSON.stringify(overlay.sources.scouter.componentTrend.auto)), [10]);
   assert.equal(overlay.derived.accuracy, 80);
   assert.equal(overlay.derived.driverAvg, 3);
   assert.equal(overlay.scouting.importedMatches, 1);
@@ -293,10 +531,13 @@ runTest("buildTeamScoutingOverlay exposes recent-window scouting aggregates", ()
 
   assert.equal(overlay.sources.scouter.total, 50);
   assert.equal(overlay.recentWindow.sources.scouter.total, 60);
-  assert.deepEqual(overlay.recentWindow.sources.scouter.trend, [50, 70]);
+  assert.deepEqual(JSON.parse(JSON.stringify(overlay.recentWindow.sources.scouter.trend)), [50, 70]);
   assert.equal(metricEngine.teamMetricValue(overlay, { kind: "source", sourceId: "scouter", componentId: "total" }, { window: "recent" }), 60);
   assert.equal(metricEngine.teamMetricValue(overlay, { kind: "derived", componentId: "driverAvg" }, { window: "recent" }), 3.5);
-  assert.deepEqual(metricEngine.metricTrendValues(overlay, { kind: "source", sourceId: "scouter", componentId: "auto" }, { window: "recent" }), [20, 30]);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(metricEngine.metricTrendValues(overlay, { kind: "source", sourceId: "scouter", componentId: "auto" }, { window: "recent" }))),
+    [20, 30],
+  );
 });
 
 runTest("metricTrendValues returns direct and derived trends", () => {
@@ -424,7 +665,7 @@ runTest("buildTeamScoutingOverlay returns seeded confidence when no team submiss
   assert.equal(overlay.scouting.submissionCount, 0);
   assert.equal(overlay.scouting.importedMatches, 0);
   assert.equal(overlay.scouting.confidence.tier, "medium");
-  assert.deepEqual(Array.from(overlay.scouting.confidence.reasons), ["no_scouting_data", "seeded_scouting"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(Array.from(overlay.scouting.confidence.reasons))), ["no_scouting_data", "seeded_scouting"]);
   assert.deepEqual(
     JSON.parse(JSON.stringify(overlay.flags)),
     [{ type: "external", label: "Seeded", severity: "good", evidence: "Seed data exists." }],

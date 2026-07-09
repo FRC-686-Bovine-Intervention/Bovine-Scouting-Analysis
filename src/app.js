@@ -3,7 +3,9 @@ const importFoundation = globalThis.ImportFoundation || {};
 const seasonFramework = globalThis.SeasonFramework || {};
 const metricEngine = globalThis.MetricEngine || {};
 const sheetImportAdapters = globalThis.SheetImportAdapters || {};
-const seededDerivedMetricConfig = globalThis.DerivedMetricConfig || { seasons: {}, profiles: {} };
+const scoutingImportRepair = globalThis.ScoutingImportRepair || {};
+const seededSeasonDerivedEquations = globalThis.SeasonDerivedEquations || { seasons: {} };
+const seededSeasonFilters = globalThis.SeasonFilters || { seasons: {} };
 const commitScoutingImport = importFoundation.commitScoutingImport;
 const buildSampleCsv = importFoundation.buildSampleCsv;
 const previewScoutingImport = importFoundation.previewScoutingImport;
@@ -12,11 +14,17 @@ const seasonScouterMetricDefinitions = seasonFramework.scouterMetricDefinitions 
 const seasonDerivedMetricDefinitions = seasonFramework.derivedMetricDefinitions || (() => []);
 const seasonMetricFieldId = seasonFramework.csvHeaderForMetric || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id));
 const sharedAdaptEventSheetCsv = sheetImportAdapters.adaptEventSheetCsv || ((eventModel, csvText) => csvText);
+const shouldRefreshSampleBackedScoutingSubmissions =
+  scoutingImportRepair.shouldRefreshSampleBackedScoutingSubmissions || (() => false);
+const stampScoutingSubmissionMetadata = scoutingImportRepair.stampScoutingSubmissionMetadata || ((submissions) => submissions || []);
 const buildTeamScoutingOverlay = metricEngine.buildTeamScoutingOverlay;
 const engineMetricTrendValues = metricEngine.metricTrendValues;
 const engineTeamMetricValue = metricEngine.teamMetricValue;
 const aggregateSubmissionMatches = metricEngine.aggregateSubmissionMatches;
 const evaluateDerivedMetricDefinition = metricEngine.evaluateDerivedMetricDefinition;
+const evaluateFormulaExpression = metricEngine.evaluateFormulaExpression || (() => metricEngine.errorResult?.("Formula engine unavailable.") || { kind: "error", error: "Formula engine unavailable." });
+const isErrorFormulaResult = metricEngine.isErrorResult || ((result) => result?.kind === "error");
+const isSeriesFormulaResult = metricEngine.isSeriesResult || ((result) => result?.kind === "series");
 
 const storageKeys = {
   user: "frc-scouting-user",
@@ -25,6 +33,7 @@ const storageKeys = {
   activeEvent: "frc-scouting-active-event",
   activeView: "frc-scouting-view",
   metric: "frc-scouting-metric",
+  analysisFilter: "frc-scouting-analysis-filter",
   teamDetailMetric: "frc-scouting-team-detail-metric",
   picklistCompareMetric: "frc-scouting-picklist-compare-metric",
   selectedTeam: "frc-scouting-selected-team",
@@ -43,9 +52,9 @@ const storageKeys = {
   importSourceUrl: "frc-scouting-import-source-url",
   scoutingWindow: "frc-scouting-window",
   recentMatchCount: "frc-scouting-recent-match-count",
-  customDerivedMetricConfig: "frc-scouting-custom-derived-metric-config",
   seasonProfiles: "frc-scouting-season-profiles",
-  scoringTableProfile: "frc-scouting-scoring-table-profile",
+  seasonDerivedEquations: "frc-scouting-season-derived-equations",
+  seasonFilters: "frc-scouting-season-filters",
 };
 
 const globalStorageKeys = new Set([
@@ -54,8 +63,9 @@ const globalStorageKeys = new Set([
   storageKeys.theme,
   storageKeys.activeEvent,
   storageKeys.menuExpanded,
-  storageKeys.customDerivedMetricConfig,
   storageKeys.seasonProfiles,
+  storageKeys.seasonDerivedEquations,
+  storageKeys.seasonFilters,
 ]);
 const seedUsers = ["Avery", "Jordan", "Morgan"];
 const adminUsers = ["Avery"];
@@ -73,16 +83,13 @@ const navItems = [
   { view: "quality", label: "Data Quality", icon: "quality" },
   { view: "analysis", label: "Analysis", icon: "analysis" },
   { view: "derivedBuilder", label: "Derived Builder", icon: "derivedBuilder" },
-  { view: "sortBuilder", label: "Sort Builder", icon: "sortEquation" },
+  { view: "filterBuilder", label: "Filter Builder", icon: "bullseye" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
   { view: "alliance", label: "Alliance Selection", icon: "alliance" },
   { view: "admin", label: "Admin", icon: "admin" },
-  { view: "scoringMatrixBuilder", label: "Scoring Table", icon: "bullseye" },
 ];
 
 const appViews = [...navItems, { view: "teamDetail", label: "Team Detail", icon: "teams" }];
-
-const defaultCriteriaTerms = [{ operator: "+", weight: 1, metricId: "source:epa:total" }];
 
 const picklistColumnCount = 4;
 const picklistCompareLimit = 4;
@@ -111,6 +118,7 @@ const state = {
   theme: readStoredItem(storageKeys.theme) || "light",
   activeView: "teams",
   metric: initialEvent.defaultMetricId,
+  activeAnalysisFilterId: "",
   teamDetailMetric: initialEvent.defaultTeamDetailMetricId,
   picklistCompareMetric: initialEvent.defaultTeamDetailMetricId,
   selectedTeam: initialEvent.teams[0].number,
@@ -135,18 +143,12 @@ const state = {
   importSourceUrl: initialEvent.sheet?.url || "",
   importResult: null,
   scoutingWindow: readStoredItem(storageKeys.scoutingWindow) || "all",
-  recentMatchCount: Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount) || 4)),
-  customDerivedMetricConfig: normalizeCustomDerivedMetricConfig(readStoredJson(storageKeys.customDerivedMetricConfig, seededDerivedMetricConfig)),
+  recentMatchCount: Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount) || 12)),
+  seasonDerivedEquationCatalog: normalizeSeasonDerivedEquationCatalog(readStoredJson(storageKeys.seasonDerivedEquations, seededSeasonDerivedEquations)),
+  seasonFilterCatalog: normalizeSeasonFilterCatalog(readStoredJson(storageKeys.seasonFilters, seededSeasonFilters)),
   seasonProfileCatalog: normalizeSeasonProfileCatalog(readStoredJson(storageKeys.seasonProfiles, {})),
-  derivedMetricDraft: createDerivedMetricDraft(initialEvent),
-  derivedMetricPreviewTeam: initialEvent.teams[0].number,
-  derivedMetricEditingKey: "",
-  derivedMetricConfigEditorText: JSON.stringify(normalizeCustomDerivedMetricConfig(readStoredJson(storageKeys.customDerivedMetricConfig, seededDerivedMetricConfig)), null, 2),
-  derivedMetricConfigStatus: "",
-  derivedMetricConfigIssues: [],
-  derivedMetricFieldScrollTops: {},
-  scoringTableProfileId: readStoredItem(storageKeys.scoringTableProfile) || "",
-  scoringTableStatus: "",
+  activeDerivedEquationId: "",
+  activeSeasonFilterId: "",
   viewHistory: [],
 };
 globalThis.__scoutingAppState = state;
@@ -225,17 +227,225 @@ function currentProfileMetricScopeKey(eventModel = currentEvent()) {
   return importedProfileScopeKey(eventModel) || eventModel.sheet?.recommendedProfileId || "match-current-v2";
 }
 
-function currentCustomDerivedMetricDefinitions(eventModel = currentEvent()) {
-  const seasonKey = String(eventModel.season);
-  const profileKey = currentProfileMetricScopeKey(eventModel);
-  return [
-    ...(state.customDerivedMetricConfig?.seasons?.[seasonKey] || []),
-    ...(state.customDerivedMetricConfig?.profiles?.[profileKey] || []),
-  ];
+function currentSeasonDerivedEquationDefinitions(eventModel = currentEvent()) {
+  return (state.seasonDerivedEquationCatalog?.seasons?.[String(eventModel.season)] || []).map((definition) => ({
+    id: definition.id,
+    label: definition.name,
+    unit: definition.unit || "pts",
+    expression: definition.formula,
+    formula: "expression",
+    source: "season_equation",
+  }));
 }
 
 function currentDerivedMetricDefinitions(eventModel = currentEvent()) {
-  return [...seasonDerivedMetricDefinitions(eventModel), ...currentCustomDerivedMetricDefinitions(eventModel)];
+  return [...seasonDerivedMetricDefinitions(eventModel), ...currentSeasonDerivedEquationDefinitions(eventModel)];
+}
+
+function currentRankableMetrics(eventModel = currentEvent()) {
+  const previewTeam = eventModel.teams[0];
+  return currentMetrics().filter((metric) => {
+    if (!metric) return false;
+    if (metric.kind === "derived" && metric.definition?.expression) {
+      const evaluation = evaluateEquationForTeam(previewTeam, metric.componentId, { eventModel });
+      return !isErrorFormulaResult(evaluation.result) && evaluation.result.granularity === "event" && Number.isFinite(Number(evaluation.result.value));
+    }
+    const value = teamMetricValue(previewTeam, metric);
+    return Number.isFinite(Number(value));
+  });
+}
+
+const tbaClimbStatusPoints = {
+  None: 0,
+  Parked: 2,
+  ShallowCage: 6,
+  DeepCage: 12,
+};
+
+function currentSeasonEquationList(eventModel = currentEvent()) {
+  return [...(state.seasonDerivedEquationCatalog?.seasons?.[String(eventModel.season)] || [])]
+    .sort((left, right) => Number(left.sourceOrder || 0) - Number(right.sourceOrder || 0) || left.name.localeCompare(right.name));
+}
+
+function currentSeasonFilterList(eventModel = currentEvent()) {
+  return [...(state.seasonFilterCatalog?.seasons?.[String(eventModel.season)] || [])]
+    .sort((left, right) => Number(left.sourceOrder || 0) - Number(right.sourceOrder || 0) || left.name.localeCompare(right.name));
+}
+
+function equationDefinitionById(id, eventModel = currentEvent()) {
+  return currentSeasonEquationList(eventModel).find((definition) => definition.id === id) || null;
+}
+
+function seasonFilterDefinitionById(id, eventModel = currentEvent()) {
+  return currentSeasonFilterList(eventModel).find((definition) => definition.id === id) || null;
+}
+
+function ensureActiveDerivedEquation(eventModel = currentEvent()) {
+  const definitions = currentSeasonEquationList(eventModel);
+  if (definitions.some((definition) => definition.id === state.activeDerivedEquationId)) return state.activeDerivedEquationId;
+  state.activeDerivedEquationId = definitions[0]?.id || "";
+  return state.activeDerivedEquationId;
+}
+
+function activeDerivedEquation(eventModel = currentEvent()) {
+  return equationDefinitionById(ensureActiveDerivedEquation(eventModel), eventModel);
+}
+
+function ensureActiveSeasonFilter(eventModel = currentEvent()) {
+  const definitions = currentSeasonFilterList(eventModel);
+  if (definitions.some((definition) => definition.id === state.activeSeasonFilterId)) return state.activeSeasonFilterId;
+  state.activeSeasonFilterId = definitions[0]?.id || "";
+  return state.activeSeasonFilterId;
+}
+
+function activeSeasonFilter(eventModel = currentEvent()) {
+  return seasonFilterDefinitionById(ensureActiveSeasonFilter(eventModel), eventModel);
+}
+
+function activeAnalysisFilter(eventModel = currentEvent()) {
+  return seasonFilterDefinitionById(state.activeAnalysisFilterId, eventModel);
+}
+
+function tbaMatchMetricsByTeam(teamNumber, eventModel = currentEvent()) {
+  return (eventModel.matches || [])
+    .filter((match) => match.red.includes(teamNumber) || match.blue.includes(teamNumber))
+    .map((match) => {
+      const allianceKey = match.red.includes(teamNumber) ? "red" : "blue";
+      const teams = allianceKey === "red" ? match.red : match.blue;
+      const index = teams.indexOf(teamNumber);
+      const breakdown = match.scoreBreakdown?.[allianceKey] || null;
+      const climbStatus = breakdown ? breakdown[`endGameRobot${index + 1}`] : "";
+      return {
+        matchNumber: match.number,
+        climbScore: Number(tbaClimbStatusPoints[climbStatus] ?? Number.NaN),
+      };
+    })
+    .sort((left, right) => left.matchNumber - right.matchNumber);
+}
+
+function buildTeamFormulaContext(team, eventModel = currentEvent()) {
+  const baseTeam = team?.number ? team : currentEvent().teams.find((entry) => entry.number === Number(team)) || null;
+  if (!baseTeam) return null;
+  const overlayTeam = overlayTeamWithScouting(baseTeam);
+  const scoringComponents = (eventModel.scoringComponents || []).map((component) => component.id);
+  const scouterMetricIds = currentScouterMetricDefinitions(eventModel).map((metricDefinition) => metricDefinition.id);
+  const scoutingMatches = aggregateSubmissionMatches(
+    currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === Number(baseTeam.number)),
+    {
+      scoringComponentIds: scoringComponents,
+      scouterMetricIds,
+      scouterMetricDefinitions: currentScouterMetricDefinitions(eventModel),
+    },
+  );
+  const scoutingByMatch = new Map(scoutingMatches.map((match) => [match.matchNumber, match]));
+  const tbaByMatch = new Map(tbaMatchMetricsByTeam(Number(baseTeam.number), eventModel).map((entry) => [entry.matchNumber, entry]));
+  const teamSchedule = (eventModel.matches || [])
+    .filter((match) => match.red.includes(baseTeam.number) || match.blue.includes(baseTeam.number))
+    .map((match) => match.number)
+    .sort((left, right) => left - right);
+  const rowMatchNumbers = (teamSchedule.length ? teamSchedule : [...new Set([...scoutingByMatch.keys(), ...tbaByMatch.keys()])]).sort(
+    (left, right) => left - right,
+  );
+  const matchRows = rowMatchNumbers.map((matchNumber) => ({
+    matchNumber,
+    scouting: scoutingByMatch.get(matchNumber) || null,
+    tba: tbaByMatch.get(matchNumber) || null,
+  }));
+  return {
+    baseTeam,
+    overlayTeam,
+    eventModel,
+    matchRows,
+  };
+}
+
+function formulaSeriesFromRows(matchRows, readValue) {
+  return {
+    kind: "series",
+    granularity: "match",
+    entries: matchRows.map((row) => ({
+      key: row.matchNumber,
+      value: readValue(row),
+    })),
+  };
+}
+
+function formulaScalarValue(value, granularity = "event") {
+  return {
+    kind: "scalar",
+    granularity,
+    value: Number(value),
+  };
+}
+
+function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, evaluationStack) {
+  if (identifier.startsWith("scouting.")) {
+    const fieldId = identifier.slice("scouting.".length);
+    if (fieldId === "total") {
+      return formulaSeriesFromRows(formulaContext.matchRows, (row) => Number(row.scouting?.total ?? Number.NaN));
+    }
+    return formulaSeriesFromRows(formulaContext.matchRows, (row) => Number(row.scouting?.components?.[fieldId] ?? Number.NaN));
+  }
+  if (identifier.startsWith("tba.")) {
+    const fieldId = identifier.slice("tba.".length);
+    return formulaSeriesFromRows(formulaContext.matchRows, (row) => Number(row.tba?.[fieldId] ?? Number.NaN));
+  }
+  if (identifier.startsWith("statbotics.")) {
+    const componentId = identifier.slice("statbotics.".length);
+    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.epa?.total || Number.NaN);
+    return formulaScalarValue(formulaContext.overlayTeam.sources?.epa?.components?.[componentId] || Number.NaN);
+  }
+  if (identifier.startsWith("pridge.")) {
+    const componentId = identifier.slice("pridge.".length);
+    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.total || Number.NaN);
+    return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.components?.[componentId] || Number.NaN);
+  }
+  if (identifier.startsWith("opr.")) {
+    const componentId = identifier.slice("opr.".length);
+    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.total || Number.NaN);
+    return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.components?.[componentId] || Number.NaN);
+  }
+  const referencedEquation = equationDefinitionById(identifier, formulaContext.eventModel);
+  if (!referencedEquation) return null;
+  return evaluateEquationForTeam(formulaContext.baseTeam, referencedEquation.id, {
+    eventModel: formulaContext.eventModel,
+    evaluationCache,
+    evaluationStack,
+  }).result;
+}
+
+function evaluateEquationForTeam(team, equationId, options = {}) {
+  const eventModel = options.eventModel || currentEvent();
+  const formulaContext = options.formulaContext || buildTeamFormulaContext(team, eventModel);
+  const evaluationCache = options.evaluationCache || new Map();
+  const evaluationStack = Array.isArray(options.evaluationStack) ? [...options.evaluationStack] : [];
+  const cacheKey = `${formulaContext?.baseTeam?.number || team}:${equationId}:${eventModel.key}`;
+  if (evaluationCache.has(cacheKey)) return evaluationCache.get(cacheKey);
+  if (evaluationStack.includes(equationId)) {
+    const circular = { definition: equationDefinitionById(equationId, eventModel), result: { kind: "error", error: `Circular derived equation reference: ${[...evaluationStack, equationId].join(" -> ")}.` } };
+    evaluationCache.set(cacheKey, circular);
+    return circular;
+  }
+  const definition = equationDefinitionById(equationId, eventModel);
+  if (!definition || !formulaContext) {
+    const missing = { definition, result: { kind: "error", error: `Unknown derived equation "${equationId}".` } };
+    evaluationCache.set(cacheKey, missing);
+    return missing;
+  }
+  const result = evaluateFormulaExpression(definition.formula, {
+    recentEntryCount: currentRecentMatchCount(),
+    resolveIdentifier: (identifier) => resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, [...evaluationStack, equationId]) || { kind: "error", error: `Unknown identifier "${identifier}".` },
+  });
+  const evaluation = { definition, result, formulaContext };
+  evaluationCache.set(cacheKey, evaluation);
+  return evaluation;
+}
+
+function equationStatusForTeam(team, equationId, eventModel = currentEvent()) {
+  const evaluation = evaluateEquationForTeam(team, equationId, { eventModel });
+  if (isErrorFormulaResult(evaluation.result)) return { label: "Invalid", severity: "danger", detail: evaluation.result.error };
+  if (evaluation.result.granularity !== "event") return { label: "Match Only", severity: "warn", detail: "Equation stays at match granularity until averaged." };
+  return null;
 }
 
 function scouterMetricFieldId(metricDefinition) {
@@ -302,6 +512,7 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.activeEvent), state.activeEventKey);
   localStorage.setItem(eventStorageKey(storageKeys.activeView), state.activeView);
   localStorage.setItem(eventStorageKey(storageKeys.metric), state.metric);
+  localStorage.setItem(eventStorageKey(storageKeys.analysisFilter), state.activeAnalysisFilterId);
   localStorage.setItem(eventStorageKey(storageKeys.teamDetailMetric), state.teamDetailMetric);
   localStorage.setItem(eventStorageKey(storageKeys.picklistCompareMetric), state.picklistCompareMetric);
   localStorage.setItem(eventStorageKey(storageKeys.selectedTeam), String(state.selectedTeam));
@@ -320,9 +531,9 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.importSourceUrl), state.importSourceUrl);
   localStorage.setItem(eventStorageKey(storageKeys.scoutingWindow), state.scoutingWindow);
   localStorage.setItem(eventStorageKey(storageKeys.recentMatchCount), String(state.recentMatchCount));
-  localStorage.setItem(eventStorageKey(storageKeys.customDerivedMetricConfig), JSON.stringify(state.customDerivedMetricConfig));
   localStorage.setItem(eventStorageKey(storageKeys.seasonProfiles), JSON.stringify(state.seasonProfileCatalog));
-  localStorage.setItem(eventStorageKey(storageKeys.scoringTableProfile), state.scoringTableProfileId);
+  localStorage.setItem(eventStorageKey(storageKeys.seasonDerivedEquations), JSON.stringify(state.seasonDerivedEquationCatalog));
+  localStorage.setItem(eventStorageKey(storageKeys.seasonFilters), JSON.stringify(state.seasonFilterCatalog));
 }
 
 function clearAppStorage() {
@@ -378,17 +589,6 @@ function seasonScoutingProfiles(seasonKey = String(currentEvent().season)) {
   return state.seasonProfileCatalog?.[String(seasonKey)] || [];
 }
 
-function ensureScoringTableProfileSelection(seasonKey = String(currentEvent().season)) {
-  const profiles = seasonScoutingProfiles(seasonKey);
-  if (!profiles.length) {
-    state.scoringTableProfileId = "";
-    return "";
-  }
-  if (profiles.some((profile) => profile.id === state.scoringTableProfileId)) return state.scoringTableProfileId;
-  state.scoringTableProfileId = profiles[0].id;
-  return state.scoringTableProfileId;
-}
-
 function backfillSeasonProfilesFromSubmissions(eventModel = currentEvent()) {
   const seasonKey = String(eventModel.season);
   const profiles = seasonScoutingProfiles(seasonKey);
@@ -409,12 +609,38 @@ function backfillSeasonProfilesFromSubmissions(eventModel = currentEvent()) {
   });
 }
 
+function rebuildSampleBackedScoutingSubmissions(eventModel = currentEvent()) {
+  const sampleCsvText = eventModel.sheet?.sampleCsvText;
+  if (!sampleCsvText) return null;
+  const preview = previewScoutingImport({
+    csvText: sharedAdaptEventSheetCsv(eventModel, sampleCsvText),
+    eventModel,
+    activeEventKey: eventModel.key,
+    existingSubmissions: [],
+    templateProfileId: eventModel.sheet?.recommendedProfileId || "",
+  });
+  if (!preview?.ok || !preview.summary) return null;
+  const committed = commitScoutingImport({
+    preview,
+    existingSubmissions: [],
+    existingActivity: state.activityLog,
+    replaceExisting: true,
+  });
+  return {
+    submissions: stampScoutingSubmissionMetadata(committed.submissions, eventModel, {
+      scoutingImportSource: "event-sheet-sample",
+    }),
+    activity: normalizeActivityLog(committed.activity),
+  };
+}
+
 function hydrateEventState(eventKey) {
   state.activeEventKey = resolveEventKey(eventKey);
   globalThis.__scoutingActiveEventKey = state.activeEventKey;
   const eventModel = currentEvent();
   state.activeView = normalizeView(readStoredItem(storageKeys.activeView, eventKey));
   state.metric = normalizeAnalysisSelection(readStoredItem(storageKeys.metric, eventKey), eventModel);
+  state.activeAnalysisFilterId = normalizeAnalysisFilterSelection(readStoredItem(storageKeys.analysisFilter, eventKey), eventModel);
   state.teamDetailMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.teamDetailMetric, eventKey), eventModel);
   state.picklistCompareMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.picklistCompareMetric, eventKey), eventModel);
   state.selectedTeam = Number(readStoredItem(storageKeys.selectedTeam, eventKey)) || eventModel.teams[0].number;
@@ -432,21 +658,27 @@ function hydrateEventState(eventKey) {
   backfillSeasonProfilesFromSubmissions(eventModel);
   state.activityLog = normalizeActivityLog(readStoredJson(storageKeys.activityLog, [], eventKey));
   state.importSourceUrl = readStoredItem(storageKeys.importSourceUrl, eventKey) || eventModel.sheet?.url || "";
+  let repairedScoutingSubmissions = false;
+  if (state.scoutingSubmissions.length && shouldRefreshSampleBackedScoutingSubmissions(state.scoutingSubmissions, eventModel)) {
+    const refreshed = rebuildSampleBackedScoutingSubmissions(eventModel);
+    if (refreshed) {
+      state.scoutingSubmissions = normalizeScoutingSubmissions(refreshed.submissions, eventModel);
+      state.activityLog = refreshed.activity;
+      repairedScoutingSubmissions = true;
+    }
+  }
   state.scoutingWindow = readStoredItem(storageKeys.scoutingWindow, eventKey) || "all";
-  state.recentMatchCount = Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount, eventKey) || state.recentMatchCount || 4));
-  state.scoringTableProfileId = readStoredItem(storageKeys.scoringTableProfile, eventKey) || state.scoringTableProfileId || "";
-  ensureScoringTableProfileSelection(String(eventModel.season));
-  state.derivedMetricDraft.seasonKey = String(eventModel.season);
-  state.derivedMetricDraft.profileKey = currentProfileMetricScopeKey(eventModel);
+  state.recentMatchCount = Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount, eventKey) || state.recentMatchCount || 12));
+  ensureActiveDerivedEquation(eventModel);
+  ensureActiveSeasonFilter(eventModel);
   if (!state.loadedSources.length && state.picklists.length) state.loadedSources = [`picklist:${state.picklists[0].id}`];
   state.selectedTeam = teamByNumber(state.selectedTeam)?.number || eventModel.teams[0].number;
   state.selectedMatch = currentMatches().some((match) => match.number === state.selectedMatch) ? state.selectedMatch : eventModel.matches[0].number;
-  state.derivedMetricPreviewTeam = teamByNumber(state.derivedMetricPreviewTeam)?.number || eventModel.teams[0].number;
   state.contextMenu = null;
   state.inlineRename = null;
   state.picklistSelectedTeam = null;
   state.importResult = null;
-  state.scoringTableStatus = "";
+  if (repairedScoutingSubmissions) saveState();
 }
 
 function createDerivedMetricDraft(eventModel = currentEvent()) {
@@ -472,6 +704,31 @@ function createDerivedMetricDraft(eventModel = currentEvent()) {
   };
 }
 
+function normalizeSeasonDerivedEquationCatalog(catalog) {
+  const normalized = { seasons: {} };
+  Object.entries(catalog?.seasons || {}).forEach(([seasonKey, definitions]) => {
+    const seen = new Set();
+    const nextDefinitions = [];
+    (definitions || []).forEach((definition, index) => {
+      const id = String(definition?.id || "").trim();
+      const name = String(definition?.name || "").trim();
+      const formula = String(definition?.formula || "");
+      if (!id || !name || seen.has(id)) return;
+      seen.add(id);
+      nextDefinitions.push({
+        id,
+        name,
+        formula,
+        unit: String(definition?.unit || "pts").trim() || "pts",
+        description: String(definition?.description || "").trim(),
+        sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
+      });
+    });
+    normalized.seasons[String(seasonKey)] = nextDefinitions;
+  });
+  return normalized;
+}
+
 function normalizeSeasonProfileCatalog(catalog) {
   const normalized = {};
   Object.entries(catalog || {}).forEach(([seasonKey, profiles]) => {
@@ -491,101 +748,25 @@ function normalizeSeasonProfileCatalog(catalog) {
   return normalized;
 }
 
-const derivedMetricPresets = [
-  { id: "blank", label: "Blank Draft", template: "sum", unit: "pts", seedId: "", seedLabel: "" },
-  { id: "sum", label: "Scoring Sum", template: "sum", unit: "pts", seedId: "newScoringSum", seedLabel: "New Scoring Sum" },
-  { id: "weighted_sum", label: "Scoring Table", template: "weighted_sum", unit: "pts", seedId: "newScoringTable", seedLabel: "New Scoring Table" },
-  { id: "accuracy", label: "Accuracy (%)", template: "rate", unit: "%", seedId: "newAccuracy", seedLabel: "New Accuracy" },
-  { id: "average_per_match", label: "Average Per Match", template: "average_per_match", unit: "pts", seedId: "newAveragePerMatch", seedLabel: "New Average Per Match" },
-  { id: "average_present", label: "Average When Present", template: "average_present", unit: "pts", seedId: "newAverageWhenPresent", seedLabel: "New Average When Present" },
-  { id: "attempt_average", label: "Average Per Attempt", template: "attempt_average", unit: "pts", seedId: "newAveragePerAttempt", seedLabel: "New Average Per Attempt" },
-];
-
-function generatedMetricId(label) {
-  const words = String(label || "")
-    .replace(/[^a-zA-Z0-9]+/g, " ")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (!words.length) return "";
-  return words
-    .map((word, index) => {
-      const normalized = word.toLowerCase();
-      return index === 0 ? normalized : `${normalized.slice(0, 1).toUpperCase()}${normalized.slice(1)}`;
-    })
-    .join("");
-}
-
-function presetIdForDefinition(definition) {
-  if (!definition) return "blank";
-  if (definition.formula === "sum") return "sum";
-  if (definition.formula === "weighted_sum") return "weighted_sum";
-  if (definition.formula === "rate") return "accuracy";
-  if (definition.formula === "ratio" && definition.denominatorMode === "attempt_sum") return "attempt_average";
-  if (definition.formula === "ratio" && definition.denominatorMode === "nonzero_numerator_matches") return "average_present";
-  if (definition.formula === "ratio" && definition.denominatorMode === "match_count") return "average_per_match";
-  return "blank";
-}
-
-function normalizeWeightedFieldEntries(entries) {
-  const normalized = [];
-  const seen = new Set();
-  (entries || []).forEach((entry) => {
-    const field = String(entry?.field || "").trim();
-    if (!field || seen.has(field)) return;
-    seen.add(field);
-    normalized.push({
-      field,
-      weight: Number.isFinite(Number(entry?.weight)) ? Number(entry.weight) : 1,
+function normalizeSeasonFilterCatalog(catalog) {
+  const normalized = { seasons: {} };
+  Object.entries(catalog?.seasons || {}).forEach(([seasonKey, definitions]) => {
+    const seen = new Set();
+    const nextDefinitions = [];
+    (definitions || []).forEach((definition, index) => {
+      const id = String(definition?.id || "").trim();
+      const name = String(definition?.name || "").trim();
+      if (!id || !name || seen.has(id)) return;
+      seen.add(id);
+      nextDefinitions.push({
+        id,
+        name,
+        formula: String(definition?.formula || "").trim() || "0 > 1",
+        description: String(definition?.description || "").trim(),
+        sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
+      });
     });
-  });
-  return normalized;
-}
-
-function isScoringMatrixDefinition(definition) {
-  return String(definition?.formula || "") === "weighted_sum";
-}
-
-function derivedDefinitionKindLabel(definition) {
-  if (isScoringMatrixDefinition(definition)) return "Scoring table";
-  if (definition?.formula === "sum") return "Derived metric";
-  if (definition?.formula === "rate") return "Derived metric";
-  if (definition?.formula === "ratio") return "Derived metric";
-  return "Derived metric";
-}
-
-function isScoringMatrixDraft(draft = state.derivedMetricDraft) {
-  return draft.template === "weighted_sum" || draft.presetId === "weighted_sum";
-}
-
-function normalizeCustomDerivedMetricDefinition(definition) {
-  if (!definition || typeof definition !== "object" || !definition.id || !definition.label) return null;
-  return {
-    id: String(definition.id).trim(),
-    label: String(definition.label).trim(),
-    unit: String(definition.unit || "pts").trim(),
-    formula: String(definition.formula || "sum").trim(),
-    fields: Array.isArray(definition.fields) ? [...new Set(definition.fields.map(String).filter(Boolean))] : [],
-    weightedFields: normalizeWeightedFieldEntries(definition.weightedFields),
-    madeFields: Array.isArray(definition.madeFields) ? [...new Set(definition.madeFields.map(String).filter(Boolean))] : [],
-    missFields: Array.isArray(definition.missFields) ? [...new Set(definition.missFields.map(String).filter(Boolean))] : [],
-    numeratorFields: Array.isArray(definition.numeratorFields) ? [...new Set(definition.numeratorFields.map(String).filter(Boolean))] : [],
-    denominatorFields: Array.isArray(definition.denominatorFields) ? [...new Set(definition.denominatorFields.map(String).filter(Boolean))] : [],
-    denominatorMode: String(definition.denominatorMode || "match_count").trim(),
-    presenceFields: Array.isArray(definition.presenceFields) ? [...new Set(definition.presenceFields.map(String).filter(Boolean))] : [],
-    source: "builder",
-  };
-}
-
-function normalizeCustomDerivedMetricConfig(config) {
-  const normalized = { seasons: {}, profiles: {} };
-  ["seasons", "profiles"].forEach((scopeType) => {
-    const source = config?.[scopeType];
-    if (!source || typeof source !== "object") return;
-    Object.entries(source).forEach(([scopeKey, definitions]) => {
-      const normalizedDefinitions = (definitions || []).map(normalizeCustomDerivedMetricDefinition).filter(Boolean);
-      if (normalizedDefinitions.length) normalized[scopeType][String(scopeKey)] = normalizedDefinitions;
-    });
+    normalized.seasons[String(seasonKey)] = nextDefinitions;
   });
   return normalized;
 }
@@ -600,246 +781,8 @@ function reservedMetricIds() {
   return new Set(globalEventCatalog.flatMap((eventModel) => (eventModel.metrics || []).map((metric) => metric.id)));
 }
 
-function validateCustomDerivedMetricDefinition(definition, options = {}) {
-  const errors = [];
-  if (!definition?.id) errors.push("Metric ID is required.");
-  if (!definition?.label) errors.push("Metric label is required.");
-  const formula = String(definition?.formula || "");
-  const allowedFormulas = new Set(["sum", "weighted_sum", "rate", "ratio"]);
-  if (!allowedFormulas.has(formula)) errors.push(`Unsupported formula "${formula || "unknown"}".`);
-
-  const knownFields = options.knownFields || knownScouterFieldIds();
-  const requireFields = (label, fields) => {
-    if (!Array.isArray(fields) || !fields.length) {
-      errors.push(`${label} must include at least one field.`);
-      return;
-    }
-    fields.forEach((fieldId) => {
-      if (!knownFields.has(fieldId)) errors.push(`${label} references unknown field "${fieldId}".`);
-    });
-  };
-
-  if (formula === "sum") requireFields("Sum fields", definition.fields);
-  if (formula === "weighted_sum") {
-    if (!Array.isArray(definition.weightedFields) || !definition.weightedFields.length) {
-      errors.push("Weighted fields must include at least one field.");
-    } else {
-      definition.weightedFields.forEach((entry) => {
-        if (!knownFields.has(entry.field)) errors.push(`Weighted fields reference unknown field "${entry.field}".`);
-      });
-    }
-  }
-  if (formula === "rate") {
-    requireFields("Made fields", definition.madeFields);
-    requireFields("Missed fields", definition.missFields);
-  }
-  if (formula === "ratio") {
-    requireFields("Numerator fields", definition.numeratorFields);
-    const denominatorMode = String(definition.denominatorMode || "match_count");
-    if (!["match_count", "attempt_sum", "nonzero_numerator_matches"].includes(denominatorMode)) {
-      errors.push(`Unsupported denominator mode "${denominatorMode}".`);
-    }
-    if (denominatorMode === "attempt_sum") requireFields("Denominator fields", definition.denominatorFields);
-    if (denominatorMode === "nonzero_numerator_matches" && Array.isArray(definition.presenceFields) && definition.presenceFields.length) {
-      definition.presenceFields.forEach((fieldId) => {
-        if (!knownFields.has(fieldId)) errors.push(`Presence fields reference unknown field "${fieldId}".`);
-      });
-    }
-  }
-
-  const reservedIds = options.reservedIds || reservedMetricIds();
-  if (definition?.id && reservedIds.has(definition.id)) errors.push(`Metric ID "${definition.id}" conflicts with a built-in metric.`);
-  return errors;
-}
-
-function validateCustomDerivedMetricConfig(config) {
-  const normalized = normalizeCustomDerivedMetricConfig(config);
-  const errors = [];
-  const knownFields = knownScouterFieldIds();
-  const reservedIds = reservedMetricIds();
-
-  ["seasons", "profiles"].forEach((scopeType) => {
-    Object.entries(normalized[scopeType] || {}).forEach(([scopeKey, definitions]) => {
-      const seenIds = new Set();
-      definitions.forEach((definition) => {
-        validateCustomDerivedMetricDefinition(definition, { knownFields, reservedIds }).forEach((error) => {
-          errors.push(`${scopeType}.${scopeKey}.${definition.id || "unknown"}: ${error}`);
-        });
-        if (seenIds.has(definition.id)) {
-          errors.push(`${scopeType}.${scopeKey}.${definition.id}: Duplicate metric ID within this scope.`);
-        }
-        seenIds.add(definition.id);
-      });
-    });
-  });
-
-  return { normalized, errors };
-}
-
-function derivedMetricConfigScopeDefinitions(scopeType, scopeKey) {
-  const bucket = scopeType === "profile" ? state.customDerivedMetricConfig.profiles : state.customDerivedMetricConfig.seasons;
-  return bucket[String(scopeKey)] || [];
-}
-
-function metricDefinitionFromDraft(draft = state.derivedMetricDraft) {
-  const id = String(draft.id || "").trim();
-  const label = String(draft.label || "").trim();
-  if (!id || !label) return null;
-  if (draft.template === "sum") {
-    return normalizeCustomDerivedMetricDefinition({ id, label, unit: draft.unit, formula: "sum", fields: draft.fields });
-  }
-  if (draft.template === "weighted_sum") {
-    return normalizeCustomDerivedMetricDefinition({ id, label, unit: draft.unit, formula: "weighted_sum", weightedFields: draft.weightedFields });
-  }
-  if (draft.template === "rate") {
-    return normalizeCustomDerivedMetricDefinition({ id, label, unit: "%", formula: "rate", madeFields: draft.madeFields, missFields: draft.missedFields });
-  }
-  if (draft.template === "average_per_match") {
-    return normalizeCustomDerivedMetricDefinition({
-      id,
-      label,
-      unit: draft.unit,
-      formula: "ratio",
-      numeratorFields: draft.numeratorFields,
-      denominatorMode: "match_count",
-    });
-  }
-  if (draft.template === "average_present") {
-    return normalizeCustomDerivedMetricDefinition({
-      id,
-      label,
-      unit: draft.unit,
-      formula: "ratio",
-      numeratorFields: draft.numeratorFields,
-      denominatorMode: "nonzero_numerator_matches",
-      presenceFields: draft.presenceFields.length ? draft.presenceFields : draft.numeratorFields,
-    });
-  }
-  return normalizeCustomDerivedMetricDefinition({
-    id,
-    label,
-    unit: draft.unit,
-    formula: "ratio",
-    numeratorFields: draft.numeratorFields,
-    denominatorMode: "attempt_sum",
-    denominatorFields: draft.denominatorFields,
-  });
-}
-
-function derivedMetricScopeKeyFromDraft(draft = state.derivedMetricDraft) {
-  return draft.scopeType === "profile" ? draft.profileKey : draft.seasonKey;
-}
-
-function derivedMetricEditingRecord() {
-  if (!state.derivedMetricEditingKey) return null;
-  const [scopeType, scopeKey, metricId] = String(state.derivedMetricEditingKey).split(":");
-  const definition = derivedMetricConfigScopeDefinitions(scopeType, scopeKey).find((item) => item.id === metricId);
-  return definition ? { scopeType, scopeKey, definition } : null;
-}
-
-function setDerivedMetricDraftFromDefinition(scopeType, scopeKey, definition) {
-  const draft = createDerivedMetricDraft(currentEvent());
-  draft.scopeType = scopeType;
-  draft.presetId = presetIdForDefinition(definition);
-  if (scopeType === "profile") draft.profileKey = scopeKey;
-  else draft.seasonKey = scopeKey;
-  draft.id = definition.id;
-  draft.idManuallyEdited = true;
-  draft.label = definition.label;
-  draft.unit = definition.unit;
-  if (definition.formula === "sum") {
-    draft.template = "sum";
-    draft.fields = [...(definition.fields || [])];
-  } else if (definition.formula === "weighted_sum") {
-    draft.template = "weighted_sum";
-    draft.weightedFields = normalizeWeightedFieldEntries(definition.weightedFields);
-  } else if (definition.formula === "rate") {
-    draft.template = "rate";
-    draft.madeFields = [...(definition.madeFields || [])];
-    draft.missedFields = [...(definition.missFields || [])];
-    draft.unit = "%";
-  } else if (definition.formula === "ratio" && definition.denominatorMode === "attempt_sum") {
-    draft.template = "attempt_average";
-    draft.numeratorFields = [...(definition.numeratorFields || [])];
-    draft.denominatorFields = [...(definition.denominatorFields || [])];
-  } else if (definition.formula === "ratio" && definition.denominatorMode === "nonzero_numerator_matches") {
-    draft.template = "average_present";
-    draft.numeratorFields = [...(definition.numeratorFields || [])];
-    draft.presenceFields = [...(definition.presenceFields || [])];
-  } else {
-    draft.template = "average_per_match";
-    draft.numeratorFields = [...(definition.numeratorFields || definition.fields || [])];
-  }
-  state.derivedMetricDraft = draft;
-}
-
-function applyDerivedMetricPreset(presetId) {
-  const preset = derivedMetricPresets.find((item) => item.id === presetId);
-  if (!preset) return;
-  const nextDraft = createDerivedMetricDraft(currentEvent());
-  nextDraft.scopeType = state.derivedMetricDraft.scopeType;
-  nextDraft.seasonKey = state.derivedMetricDraft.seasonKey;
-  nextDraft.profileKey = state.derivedMetricDraft.profileKey;
-  nextDraft.presetId = preset.id;
-  nextDraft.template = preset.template;
-  nextDraft.unit = preset.unit;
-  nextDraft.label = preset.seedLabel;
-  nextDraft.id = generatedMetricId(preset.seedLabel);
-  let presetStatus = `Preset loaded: ${preset.label}.`;
-  if (preset.id === "accuracy") {
-    const fieldOptions = derivedMetricFieldOptions().map((field) => field.id);
-    const fieldSet = new Set(fieldOptions);
-    const suggestedPairs = fieldOptions
-      .filter((fieldId) => fieldId.endsWith("Made"))
-      .map((madeField) => {
-        const missedField = `${madeField.slice(0, -4)}Missed`;
-        return fieldSet.has(missedField) ? { madeField, missedField } : null;
-      })
-      .filter(Boolean);
-    nextDraft.madeFields = suggestedPairs.map((pair) => pair.madeField);
-    nextDraft.missedFields = suggestedPairs.map((pair) => pair.missedField);
-    presetStatus = suggestedPairs.length
-      ? `Preset loaded: ${preset.label}. Suggested ${suggestedPairs.length} made/missed field pairs.`
-      : `Preset loaded: ${preset.label}. No made/missed field pairs were found for this event.`;
-  }
-  state.derivedMetricEditingKey = "";
-  state.derivedMetricDraft = nextDraft;
-  state.derivedMetricConfigStatus = presetStatus;
-  state.derivedMetricConfigIssues = [];
-  render();
-}
-
-function applyScoringMatrixPreset(presetId) {
-  const preset = currentScoringMatrixPresets().find((item) => item.id === presetId);
-  if (!preset) return;
-  state.derivedMetricDraft.template = "weighted_sum";
-  state.derivedMetricDraft.presetId = "weighted_sum";
-  state.derivedMetricDraft.scoringMatrixPresetId = preset.id;
-  state.derivedMetricDraft.unit = preset.unit || "pts";
-  if (!state.derivedMetricDraft.label || /^new weighted points$/i.test(state.derivedMetricDraft.label)) {
-    state.derivedMetricDraft.label = preset.label;
-  }
-  if (!state.derivedMetricDraft.idManuallyEdited) {
-    state.derivedMetricDraft.id = generatedMetricId(state.derivedMetricDraft.label);
-  }
-  state.derivedMetricDraft.weightedFields = normalizeWeightedFieldEntries(preset.weightedFields);
-  state.derivedMetricConfigStatus = `Scoring table preset loaded: ${preset.label}.`;
-  state.derivedMetricConfigIssues = [];
-  render();
-}
-
-function setWeightedFieldSelection(fieldIds) {
-  const previousByField = new Map((state.derivedMetricDraft.weightedFields || []).map((entry) => [entry.field, entry]));
-  state.derivedMetricDraft.weightedFields = fieldIds.map((field) => previousByField.get(field) || { field, weight: 1 });
-}
-
-function setWeightedFieldWeight(fieldId, weight) {
-  state.derivedMetricDraft.weightedFields = normalizeWeightedFieldEntries(
-    (state.derivedMetricDraft.weightedFields || []).map((entry) => (entry.field === fieldId ? { ...entry, weight } : entry)),
-  );
-}
-
 function normalizeView(view) {
+  if (view === "scoringMatrixBuilder" || view === "sortBuilder") return "derivedBuilder";
   return appViews.some((item) => item.view === view) ? view : "teams";
 }
 
@@ -858,10 +801,12 @@ function normalizeBoard(board, eventModel = currentEvent()) {
 
 function normalizeAnalysisSelection(value, eventModel = currentEvent()) {
   if (typeof value !== "string" || !value) return eventModel.defaultMetricId;
-  if (value.startsWith("sort:")) {
-    return value;
-  }
-  return eventModel.metrics.some((metric) => metric.id === value) ? value : eventModel.defaultMetricId;
+  return currentMetrics().some((metric) => metric.id === value) ? value : eventModel.defaultMetricId;
+}
+
+function normalizeAnalysisFilterSelection(value, eventModel = currentEvent()) {
+  if (typeof value !== "string" || !value) return "";
+  return currentSeasonFilterList(eventModel).some((definition) => definition.id === value) ? value : "";
 }
 
 function normalizeTeamDetailMetric(value, eventModel = currentEvent()) {
@@ -882,7 +827,7 @@ function userLabel(user) {
 }
 
 function canView(view) {
-  return !["admin", "scoringMatrixBuilder"].includes(view) || isAdmin();
+  return !["admin", "filterBuilder"].includes(view) || isAdmin();
 }
 
 function visibleNavItems() {
@@ -972,13 +917,19 @@ function normalizePicklistColumns(columns) {
 
 function normalizeSourceEntry(entry) {
   if (!entry || typeof entry !== "string") return "";
+  if (entry.startsWith("metric:")) {
+    const metricId = entry.slice(7);
+    return currentRankableMetrics().some((metric) => metric.id === metricId) ? `metric:${metricId}` : "";
+  }
   if (entry.startsWith("sort:")) {
-    const id = resolveSortEquationId(entry.slice(5));
-    return id ? `sort:${id}` : "";
+    return entry === "sort:sort-epa" ? "metric:source:epa:total" : "";
   }
   if (entry.startsWith("picklist:")) {
     const id = resolvePicklistId(entry.slice(9));
     return id ? `picklist:${id}` : "";
+  }
+  if (currentRankableMetrics().some((metric) => metric.id === entry)) {
+    return `metric:${entry}`;
   }
   const legacyPicklistId = resolvePicklistId(entry);
   return legacyPicklistId ? `picklist:${legacyPicklistId}` : "";
@@ -1176,6 +1127,12 @@ function formatTimestamp(value) {
   });
 }
 
+function formatMetricValue(value) {
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return "NaN";
+  return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1);
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -1357,7 +1314,14 @@ function currentScoutingWindow() {
 }
 
 function currentRecentMatchCount() {
-  return Math.max(1, Number(state.recentMatchCount) || 4);
+  return Math.max(1, Number(state.recentMatchCount) || 12);
+}
+
+function currentScoutingImportShouldReplace() {
+  const event = currentEvent();
+  const sourceUrl = normalizeSourceUrl(state.importSourceUrl || event.sheet?.url || "");
+  if (sourceUrlMatchesEventSheet(sourceUrl, event)) return true;
+  return Boolean(event.sheet?.sampleCsvText && !sourceUrl);
 }
 
 function scoutingWindowLabel() {
@@ -1406,104 +1370,6 @@ function derivedMetricPreviewValue(definition, team, window = "all") {
     ]),
   );
   return evaluateDerivedMetricDefinition(definition, preciseScouterComponents, { aggregatedMatches: scopedMatches });
-}
-
-function selectedValues(select) {
-  return Array.from(select?.selectedOptions || []).map((option) => option.value).filter(Boolean);
-}
-
-function restoreDerivedMetricFieldScroll() {
-  requestAnimationFrame(() => {
-    Object.entries(state.derivedMetricFieldScrollTops || {}).forEach(([id, scrollTop]) => {
-      const select = document.getElementById(id);
-      if (select) select.scrollTop = scrollTop;
-    });
-  });
-}
-
-function derivedMetricConfigJson() {
-  return JSON.stringify(state.customDerivedMetricConfig, null, 2);
-}
-
-function syncDerivedMetricConfigEditor(status = "") {
-  state.derivedMetricConfigEditorText = derivedMetricConfigJson();
-  state.derivedMetricConfigStatus = status;
-  state.derivedMetricConfigIssues = [];
-}
-
-function updateDerivedMetricConfig(scopeType, scopeKey, nextDefinitions) {
-  const bucketKey = scopeType === "profile" ? "profiles" : "seasons";
-  const nextConfig = normalizeCustomDerivedMetricConfig(state.customDerivedMetricConfig);
-  if (nextDefinitions.length) nextConfig[bucketKey][String(scopeKey)] = nextDefinitions.map(normalizeCustomDerivedMetricDefinition).filter(Boolean);
-  else delete nextConfig[bucketKey][String(scopeKey)];
-  state.customDerivedMetricConfig = nextConfig;
-}
-
-function applyDerivedMetricConfigText(rawText) {
-  try {
-    const parsed = JSON.parse(rawText);
-    const { normalized, errors } = validateCustomDerivedMetricConfig(parsed);
-    if (errors.length) {
-      state.derivedMetricConfigStatus = "Config has validation issues.";
-      state.derivedMetricConfigIssues = errors;
-      render();
-      return;
-    }
-    state.customDerivedMetricConfig = normalized;
-    syncDerivedMetricConfigEditor("Config applied.");
-    state.derivedMetricEditingKey = "";
-    state.derivedMetricDraft = createDerivedMetricDraft(currentEvent());
-    saveState();
-    render();
-  } catch {
-    state.derivedMetricConfigStatus = "Config JSON is invalid.";
-    state.derivedMetricConfigIssues = [];
-    render();
-  }
-}
-
-function saveDerivedMetricDraft() {
-  const definition = metricDefinitionFromDraft();
-  if (!definition) return;
-  const validationErrors = validateCustomDerivedMetricDefinition(definition);
-  if (validationErrors.length) {
-    state.derivedMetricConfigStatus = "Metric has validation issues.";
-    state.derivedMetricConfigIssues = validationErrors;
-    render();
-    return;
-  }
-  const scopeType = state.derivedMetricDraft.scopeType;
-  const scopeKey = derivedMetricScopeKeyFromDraft();
-  const existing = derivedMetricConfigScopeDefinitions(scopeType, scopeKey).filter((item) => item.id !== definition.id);
-  if (existing.some((item) => item.id === definition.id)) {
-    state.derivedMetricConfigStatus = `Metric ID "${definition.id}" is duplicated in this scope.`;
-    state.derivedMetricConfigIssues = [`Metric ID "${definition.id}" is duplicated in this scope.`];
-    render();
-    return;
-  }
-  updateDerivedMetricConfig(scopeType, scopeKey, [...existing, definition].sort((left, right) => left.label.localeCompare(right.label)));
-  state.derivedMetricEditingKey = `${scopeType}:${scopeKey}:${definition.id}`;
-  syncDerivedMetricConfigEditor("Metric saved.");
-  saveState();
-  render();
-}
-
-function deleteDerivedMetricDraft() {
-  const editingRecord = derivedMetricEditingRecord();
-  if (!editingRecord) return;
-  if (isScoringMatrixDefinition(editingRecord.definition) && !window.confirm(`Delete scoring table "${editingRecord.definition.label}"?`)) {
-    return;
-  }
-  updateDerivedMetricConfig(
-    editingRecord.scopeType,
-    editingRecord.scopeKey,
-    derivedMetricConfigScopeDefinitions(editingRecord.scopeType, editingRecord.scopeKey).filter((item) => item.id !== editingRecord.definition.id),
-  );
-  state.derivedMetricEditingKey = "";
-  state.derivedMetricDraft = createDerivedMetricDraft(currentEvent());
-  syncDerivedMetricConfigEditor("Metric deleted.");
-  saveState();
-  render();
 }
 
 function confidenceRank(tier) {
@@ -1566,12 +1432,19 @@ function runImportPreview() {
 
 function commitImportPreview() {
   if (!state.importResult?.ok || !state.importResult.summary) return;
+  const replaceExisting = currentScoutingImportShouldReplace();
   const committed = commitScoutingImport({
     preview: state.importResult,
     existingSubmissions: state.scoutingSubmissions,
     existingActivity: state.activityLog,
+    replaceExisting,
   });
-  state.scoutingSubmissions = normalizeScoutingSubmissions(committed.submissions, currentEvent());
+  state.scoutingSubmissions = normalizeScoutingSubmissions(
+    stampScoutingSubmissionMetadata(committed.submissions, currentEvent(), {
+      scoutingImportSource: replaceExisting ? "event-sheet-source" : "manual",
+    }),
+    currentEvent(),
+  );
   state.activityLog = normalizeActivityLog(committed.activity);
   if (state.importResult.summary.rowCount > 0 && state.teamDetailMetric === "source:epa:total") {
     state.teamDetailMetric = "source:scouter:total";
@@ -1580,9 +1453,6 @@ function commitImportPreview() {
     id: state.importResult.summary.profileId,
     label: state.importResult.summary.profileLabel,
   });
-  if (!state.scoringTableProfileId) {
-    state.scoringTableProfileId = state.importResult.summary.profileId || "";
-  }
   state.importResult = null;
   state.importCsvText = "";
   state.importSelectedProfileId = "";
@@ -1652,7 +1522,7 @@ function loadEventSheetSample() {
 async function loadScoutingData() {
   const event = currentEvent();
   const sourceUrl = normalizeSourceUrl(state.importSourceUrl || event.sheet?.url || "");
-  if (event.sheet?.sampleCsvText && (!sourceUrl || !event.sheet?.url || sourceUrlMatchesEventSheet(sourceUrl, event))) {
+  if (event.sheet?.sampleCsvText && !sourceUrl) {
     loadEventSheetSample();
     return;
   }
@@ -1674,6 +1544,10 @@ async function loadScoutingData() {
     const csvText = await response.text();
     loadPreparedScoutingCsv(sharedAdaptEventSheetCsv(event, csvText), "");
   } catch (error) {
+    if (event.sheet?.sampleCsvText && sourceUrlMatchesEventSheet(sourceUrl, event)) {
+      loadEventSheetSample();
+      return;
+    }
     setImportError(`Unable to load scouting data from that sheet right now. ${error?.message || "Try the event's cached sheet or paste CSV manually."}`);
   }
 }
@@ -2027,12 +1901,46 @@ function analysisSortEquations() {
 }
 
 function analysisSelectionModel() {
-  if (typeof state.metric === "string" && state.metric.startsWith("sort:")) {
-    const equation = state.sortEquations.find((item) => item.id === state.metric.slice(5));
-    if (equation) return { type: "sortEquation", id: equation.id, label: equation.name, unit: "pts", equation };
-  }
   const metric = metricById(state.metric);
   return { type: "metric", id: metric.id, label: metric.label, unit: metric.unit, metric };
+}
+
+function filterResultEntries(filterResult) {
+  return Array.isArray(filterResult?.entries) ? filterResult.entries : [];
+}
+
+function seriesResultLooksBoolean(result) {
+  return filterResultEntries(result).every((entry) => Number.isNaN(Number(entry.value)) || [0, 1].includes(Number(entry.value)));
+}
+
+function evaluateSeasonFilterForTeam(team, filterId, options = {}) {
+  const eventModel = options.eventModel || currentEvent();
+  const formulaContext = options.formulaContext || buildTeamFormulaContext(team, eventModel);
+  const definition = seasonFilterDefinitionById(filterId, eventModel);
+  if (!definition || !formulaContext) {
+    return { definition, result: { kind: "error", error: `Unknown filter "${filterId}".` }, formulaContext };
+  }
+  const evaluationCache = new Map();
+  const result = evaluateFormulaExpression(definition.formula, {
+    recentEntryCount: currentRecentMatchCount(),
+    resolveIdentifier: (identifier) =>
+      resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, []) || { kind: "error", error: `Unknown identifier "${identifier}".` },
+  });
+  return { definition, result, formulaContext };
+}
+
+function filterStatusForTeam(team, filterId, eventModel = currentEvent()) {
+  const evaluation = evaluateSeasonFilterForTeam(team, filterId, { eventModel });
+  if (isErrorFormulaResult(evaluation.result)) {
+    return { label: "Invalid", severity: "danger", detail: evaluation.result.error };
+  }
+  if (!isSeriesFormulaResult(evaluation.result)) {
+    return { label: "Event Only", severity: "warn", detail: "Filters must evaluate to a match-level result." };
+  }
+  if (!seriesResultLooksBoolean(evaluation.result)) {
+    return { label: "Non-Boolean", severity: "warn", detail: "Filters must resolve to true/false style values such as `metric > 0`." };
+  }
+  return null;
 }
 
 function compareSlotIndexForTeam(teamNumber) {
@@ -2065,6 +1973,10 @@ function metricFromTerm(term) {
 }
 
 function teamMetricValue(team, metric) {
+  if (metric?.kind === "derived" && metric.definition?.expression) {
+    const evaluation = evaluateEquationForTeam(team, metric.componentId);
+    return evaluation.result.granularity === "event" ? Number(evaluation.result.value) : Number.NaN;
+  }
   if (engineTeamMetricValue) return engineTeamMetricValue(team, metric, { window: currentScoutingWindow() });
   if (!team || !metric) return 0;
   if (metric.kind === "derived") return Number(team.derived?.[metric.componentId] || 0);
@@ -2115,28 +2027,6 @@ function toggleTheme() {
   setTheme(state.theme === "light" ? "dark" : "light");
 }
 
-function normalizeDerivedBuilderDraftForView() {
-  if (state.activeView === "derivedBuilder" && isScoringMatrixDraft()) {
-    const nextDraft = createDerivedMetricDraft(currentEvent());
-    nextDraft.scopeType = state.derivedMetricDraft.scopeType;
-    nextDraft.seasonKey = state.derivedMetricDraft.seasonKey;
-    nextDraft.profileKey = state.derivedMetricDraft.profileKey;
-    state.derivedMetricDraft = nextDraft;
-  }
-  if (state.activeView === "scoringMatrixBuilder" && !isScoringMatrixDraft()) {
-    const nextDraft = createDerivedMetricDraft(currentEvent());
-    nextDraft.scopeType = state.derivedMetricDraft.scopeType;
-    nextDraft.seasonKey = state.derivedMetricDraft.seasonKey;
-    nextDraft.profileKey = state.derivedMetricDraft.profileKey;
-    nextDraft.presetId = "weighted_sum";
-    nextDraft.template = "weighted_sum";
-    nextDraft.unit = "pts";
-    nextDraft.label = "New Scoring Table";
-    nextDraft.id = generatedMetricId(nextDraft.label);
-    state.derivedMetricDraft = nextDraft;
-  }
-}
-
 function setView(view, options = {}) {
   const { recordHistory = true } = options;
   if (!canView(view)) view = "teams";
@@ -2158,7 +2048,6 @@ function render() {
     state.activeView = "teams";
     saveState();
   }
-  normalizeDerivedBuilderDraftForView();
   let content = "";
   try {
     content = renderView();
@@ -2166,8 +2055,6 @@ function render() {
     console.error("Render failed for view", state.activeView, error);
     if (state.activeView !== "teams") {
       state.activeView = "teams";
-      state.derivedMetricEditingKey = "";
-      state.derivedMetricDraft = createDerivedMetricDraft(currentEvent());
       saveState();
       try {
         content = renderView();
@@ -2214,6 +2101,7 @@ function render() {
               <span class="muted">Active Event</span>
               <strong>${event.season} ${event.name}</strong>
             </div>
+            ${renderGlobalRecentMatchControl()}
             ${renderThemeToggle()}
             <button class="action-button" id="logoutButton" title="Sign out ${state.user}" aria-label="Sign out ${state.user}">
               ${icon("user")}
@@ -2289,6 +2177,15 @@ function renderThemeToggle() {
   `;
 }
 
+function renderGlobalRecentMatchControl() {
+  return `
+    <label class="range-control topbar-range-control">
+      <span>Recent ${currentRecentMatchCount()}</span>
+      <input id="globalRecentMatchCountInput" type="range" min="1" max="12" step="1" value="${currentRecentMatchCount()}" />
+    </label>
+  `;
+}
+
 function icon(name) {
   const paths = {
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
@@ -2331,11 +2228,10 @@ function viewTitle(view) {
     rankings: "Rankings",
     analysis: "Analysis",
     derivedBuilder: "Derived Builder",
-    scoringMatrixBuilder: "Scoring Table",
+    filterBuilder: "Filter Builder",
     schedule: "Match Schedule",
     matchup: "Matchup",
     quality: "Data Quality",
-    sortBuilder: "Sort Builder",
     picklistBuilder: "Picklist Builder",
     alliance: "Alliance Selection",
     admin: "Admin",
@@ -2350,6 +2246,11 @@ function bindShellEvents() {
     button.addEventListener("click", () => goBack(button.dataset.historyBack || "teams"));
   });
   document.querySelector("#themeToggle")?.addEventListener("click", toggleTheme);
+  document.querySelector("#globalRecentMatchCountInput")?.addEventListener("input", (event) => {
+    state.recentMatchCount = Math.max(1, Math.min(12, Number(event.target.value) || currentRecentMatchCount()));
+    saveState();
+    render();
+  });
   document.querySelector("#menuToggle").addEventListener("click", () => {
     state.menuExpanded = !state.menuExpanded;
     saveState();
@@ -2370,11 +2271,10 @@ function renderView() {
     rankings: renderRankings,
     analysis: renderAnalysis,
     derivedBuilder: renderDerivedBuilder,
-    scoringMatrixBuilder: renderScoringMatrixBuilder,
+    filterBuilder: renderFilterBuilder,
     schedule: renderSchedule,
     matchup: renderMatchup,
     quality: renderQuality,
-    sortBuilder: renderSortBuilder,
     picklistBuilder: renderPicklistBuilder,
     alliance: renderAlliance,
     admin: renderAdmin,
@@ -2414,8 +2314,6 @@ function renderRecoveryScreen(error) {
   `;
   document.querySelector("#recoveryGoTeamsButton")?.addEventListener("click", () => {
     state.activeView = "teams";
-    state.derivedMetricEditingKey = "";
-    state.derivedMetricDraft = createDerivedMetricDraft(currentEvent());
     saveState();
     render();
   });
@@ -2572,6 +2470,10 @@ function renderTeamDetail(team) {
 }
 
 function metricTrendValues(team, metric) {
+  if (metric?.kind === "derived" && metric.definition?.expression) {
+    const evaluation = evaluateEquationForTeam(team, metric.componentId);
+    return isSeriesFormulaResult(evaluation.result) ? evaluation.result.entries.map((entry) => Number(entry.value)) : [];
+  }
   if (engineMetricTrendValues) return engineMetricTrendValues(team, metric, { window: currentScoutingWindow() });
   if (metric.kind === "source") {
     if (metric.sourceId === "scouter" && metric.componentId === "total") {
@@ -2591,6 +2493,65 @@ function metricTrendValues(team, metric) {
   }
   const baseline = average(team.matches) || 1;
   return team.matches.map((value) => (value / baseline) * teamMetricValue(team, metric));
+}
+
+function metricUsesMatchDistribution(team, metric) {
+  if (!team || !metric) return false;
+  if (metric?.kind === "derived" && metric.definition?.expression) {
+    const evaluation = evaluateEquationForTeam(team, metric.componentId);
+    return isSeriesFormulaResult(evaluation.result);
+  }
+  return metric.kind === "source" && metric.sourceId === "scouter";
+}
+
+function applyCurrentScoutingWindowToEntries(entries) {
+  const normalized = Array.isArray(entries) ? entries : [];
+  if (currentScoutingWindow() !== "recent") return normalized;
+  return normalized.slice(-currentRecentMatchCount());
+}
+
+function analysisSeriesEntriesForMetric(team, metric) {
+  if (!team || !metric || !metricUsesMatchDistribution(team, metric)) return [];
+  if (metric?.kind === "derived" && metric.definition?.expression) {
+    const evaluation = evaluateEquationForTeam(team, metric.componentId);
+    return applyCurrentScoutingWindowToEntries(
+      filterResultEntries(evaluation.result).filter((entry) => Number.isFinite(Number(entry.value))),
+    );
+  }
+  const aggregatedMatches = aggregateSubmissionMatches(
+    currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === Number(team.number)),
+    {
+      scoringComponentIds: (currentEvent().scoringComponents || []).map((component) => component.id),
+      scouterMetricIds: currentScouterMetricDefinitions().map((metricDefinition) => metricDefinition.id),
+      scouterMetricDefinitions: currentScouterMetricDefinitions(),
+    },
+  );
+  const entries = aggregatedMatches.map((match) => ({
+    key: match.matchNumber,
+    value: metric.componentId === "total" ? match.total : Number(match.components?.[metric.componentId]),
+  }));
+  return applyCurrentScoutingWindowToEntries(entries.filter((entry) => Number.isFinite(Number(entry.value))));
+}
+
+function filteredSeriesEntriesForMetric(team, metric, filterId = state.activeAnalysisFilterId) {
+  const metricEntries = analysisSeriesEntriesForMetric(team, metric);
+  if (!filterId || !metricEntries.length) return metricEntries;
+  const evaluation = evaluateSeasonFilterForTeam(team, filterId);
+  if (!isSeriesFormulaResult(evaluation.result) || !seriesResultLooksBoolean(evaluation.result)) return metricEntries;
+  const allowedEntries = new Map(filterResultEntries(evaluation.result).map((entry) => [entry.key, truthy(entry.value)]));
+  return metricEntries.filter((entry) => allowedEntries.get(entry.key));
+}
+
+function analysisScoreForTeam(team, metric, filterId = state.activeAnalysisFilterId) {
+  if (!metricUsesMatchDistribution(team, metric) || !filterId) return teamMetricValue(team, metric);
+  const values = filteredSeriesEntriesForMetric(team, metric, filterId)
+    .map((entry) => Number(entry.value))
+    .filter((value) => Number.isFinite(value));
+  return values.length ? average(values) : Number.NaN;
+}
+
+function truthy(value) {
+  return Number.isFinite(Number(value)) && Number(value) !== 0;
 }
 
 function renderSparkline(team, metric) {
@@ -2630,39 +2591,31 @@ function renderSparkline(team, metric) {
 
 function renderAnalysis() {
   const selection = analysisSelectionModel();
-  const ranked =
-    selection.type === "sortEquation"
-      ? rankTeamsByEquation(selection.equation).map((number) => teamByNumber(number)).filter(Boolean)
-      : [...currentTeams()].sort((a, b) => teamMetricValue(b, selection.metric) - teamMetricValue(a, selection.metric));
-  const scoreForTeam =
-    selection.type === "sortEquation"
-      ? (team) => scoreTeamByEquation(team, selection.equation)
-      : (team) => teamMetricValue(team, selection.metric);
-  const allScores = ranked.map((team) => scoreForTeam(team));
-  const scoreRange = {
-    min: Math.min(...allScores),
-    max: Math.max(...allScores),
+  const selectedFilter = activeAnalysisFilter();
+  const selectedFilterStatus = selectedFilter && currentTeams()[0] ? filterStatusForTeam(currentTeams()[0], selectedFilter.id) : null;
+  const filterAffectsMetric = selectedFilter && metricUsesMatchDistribution(currentTeams()[0], selection.metric);
+  const scoreForTeam = (team) => analysisScoreForTeam(team, selection.metric, state.activeAnalysisFilterId);
+  const sortableScoreForTeam = (team) => {
+    const value = scoreForTeam(team);
+    return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
   };
-  const distributions = ranked.map((team) =>
-    selection.type === "sortEquation"
-      ? distributionForEquationScore(scoreForTeam(team), scoreRange.min, scoreRange.max)
-      : distributionForMetric(team, selection.metric.id),
+  const ranked = [...currentTeams()].sort((a, b) => sortableScoreForTeam(b) - sortableScoreForTeam(a) || a.number - b.number);
+  const allScores = ranked.map((team) => scoreForTeam(team));
+  const distributions = ranked.map((team) => distributionForMetric(team, selection.metric.id));
+  const finiteScores = allScores.filter((value) => Number.isFinite(value));
+  const finiteDistributions = distributions.filter(
+    (item) => Number.isFinite(item.min) && Number.isFinite(item.max) && Number.isFinite(item.mean) && Number.isFinite(item.median) && Number.isFinite(item.q1) && Number.isFinite(item.q3),
   );
-  const globalMin = Math.min(...distributions.map((item) => item.min));
-  const globalMax = Math.max(...distributions.map((item) => item.max));
-  const eventAverage = average(allScores);
+  const globalMin = finiteDistributions.length ? Math.min(...finiteDistributions.map((item) => item.min)) : 0;
+  const globalMax = finiteDistributions.length ? Math.max(...finiteDistributions.map((item) => item.max)) : globalMin;
+  const eventAverage = finiteScores.length ? average(finiteScores) : 0;
   const axisTicks = Array.from({ length: 5 }, (_, index) => globalMin + ((globalMax - globalMin) * index) / 4);
   return `
     <div class="toolbar">
       <label>
         Metric
         <select id="metricSelect">
-          <optgroup label="Metrics">
-            ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === state.metric ? "selected" : ""}>${item.label}</option>`).join("")}
-          </optgroup>
-          <optgroup label="Sort Equations">
-            ${analysisSortEquations().map((item) => `<option value="sort:${item.id}" ${state.metric === `sort:${item.id}` ? "selected" : ""}>${item.name}</option>`).join("")}
-          </optgroup>
+          ${analysisMetricOptions().map((item) => `<option value="${item.id}" ${item.id === state.metric ? "selected" : ""}>${item.label}</option>`).join("")}
         </select>
       </label>
       <label>
@@ -2672,10 +2625,23 @@ function renderAnalysis() {
           <option value="recent" ${currentScoutingWindow() === "recent" ? "selected" : ""}>Recent ${currentRecentMatchCount()}</option>
         </select>
       </label>
+      <label>
+        Filter
+        <select id="analysisFilterSelect">
+          <option value="">None</option>
+          ${currentSeasonFilterList().map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${item.name}</option>`).join("")}
+        </select>
+      </label>
       <div class="stat"><span>Event Average</span><strong>${eventAverage.toFixed(1)} ${selection.unit}</strong></div>
-      ${selection.type === "sortEquation" ? '<div class="stat"><span>Source</span><strong>Sort Equation</strong></div>' : ""}
       ${renderBoxPlotLegend()}
     </div>
+    ${
+      selectedFilterStatus
+        ? `<p class="inline-hint danger">Filter <strong>${escapeHtml(selectedFilter.name)}</strong> is not applied: ${escapeHtml(selectedFilterStatus.detail)}</p>`
+        : selectedFilter && !filterAffectsMetric
+          ? `<p class="inline-hint">Selected filter <strong>${escapeHtml(selectedFilter.name)}</strong> only affects match-distribution metrics. ${escapeHtml(selection.label)} stays unfiltered.</p>`
+          : ""
+    }
     <div class="analysis-chart" style="margin-top: 8px;">
       ${ranked.map((team, index) => renderChartRow(team, selection, distributions[index], globalMin, globalMax, eventAverage, scoreForTeam(team))).join("")}
     </div>
@@ -2692,505 +2658,338 @@ function renderAnalysis() {
   `;
 }
 
-function renderDerivedMetricDefinitionList(scopeType, scopeKey, definitions) {
-  if (!definitions.length) return `<div class="empty-state">None saved yet for this ${scopeType}.</div>`;
-  return `
-    <div class="builder-list">
-      ${definitions
-        .map(
-          (definition) => `
-        <button class="builder-list-row ${state.derivedMetricEditingKey === `${scopeType}:${scopeKey}:${definition.id}` ? "active" : ""}" data-load-custom-derived="${scopeType}:${scopeKey}:${definition.id}">
-          <strong>${definition.label}</strong>
-          <span class="muted">${definition.id} | ${derivedDefinitionKindLabel(definition)}</span>
-        </button>
-      `,
-        )
-        .join("")}
-    </div>
-  `;
-}
-
-function renderFieldMultiSelect(id, values, ariaLabel) {
-  return `
-    <select id="${id}" data-preserve-scroll="true" multiple size="8" aria-label="${escapeAttribute(ariaLabel)}">
-      ${derivedMetricFieldOptions()
-        .map((field) => `<option value="${field.id}" ${values.includes(field.id) ? "selected" : ""}>${field.label} (${field.id})</option>`)
-        .join("")}
-    </select>
-  `;
-}
-
-function renderWeightedFieldEditor(weightedFields) {
-  if (!weightedFields.length) return `<p class="muted">Select one or more fields to assign point values.</p>`;
-  return `
-    <div class="builder-list">
-      ${weightedFields
-        .map((entry) => {
-          const field = derivedMetricFieldOptions().find((option) => option.id === entry.field);
-          return `
-            <div class="builder-list-row">
-              <strong>${escapeHtml(field?.label || entry.field)}</strong>
-              <span class="muted">${escapeHtml(entry.field)}</span>
-              <input
-                class="admin-input derived-weight-input"
-                data-weighted-field="${escapeAttribute(entry.field)}"
-                type="number"
-                step="0.1"
-                value="${escapeAttribute(String(entry.weight ?? 1))}"
-                aria-label="Point value for ${escapeAttribute(field?.label || entry.field)}"
-              />
-            </div>
-          `;
-        })
-        .join("")}
-    </div>
-  `;
-}
-
-function renderDerivedMetricIssues() {
-  if (!state.derivedMetricConfigIssues.length) return "";
-  return `
-    <div class="issue-list">
-      ${state.derivedMetricConfigIssues.map((issue) => `<div class="issue-row danger">${escapeHtml(issue)}</div>`).join("")}
-    </div>
-  `;
-}
-
-function derivedMetricPresetHelp(draft = state.derivedMetricDraft) {
-  if (draft.presetId === "weighted_sum" || draft.template === "weighted_sum") {
-    return "This preset multiplies each selected scouting field by its point value, then sums the result. Use a scoring table preset to prefill official game values where the scouting fields map directly.";
-  }
-  if (draft.presetId === "accuracy") {
-    const madeCount = draft.madeFields.length;
-    const missedCount = draft.missedFields.length;
-    return `The accuracy preset groups all selected made fields as scored attempts and all selected missed fields as failed attempts. Multiple made and missed fields can contribute to one combined accuracy. ${madeCount || missedCount ? `Currently selected: ${madeCount} made field(s), ${missedCount} missed field(s).` : "Select or adjust the suggested fields below."}`;
-  }
-  if (draft.presetId === "average_per_match") {
-    return "This preset averages the selected numerator fields over the chosen match window.";
-  }
-  if (draft.presetId === "average_present") {
-    return "This preset averages the selected numerator fields only across matches where the chosen presence fields appear.";
-  }
-  if (draft.presetId === "attempt_average") {
-    return "This preset divides the selected numerator fields by the selected denominator fields across the chosen match window.";
-  }
-  if (draft.presetId === "sum") {
-    return "This preset sums the selected fields directly.";
-  }
-  return "Choose a preset to scaffold the equation, then adjust fields as needed.";
-}
-
-function derivedMetricTemplateHelp(draft = state.derivedMetricDraft) {
-  if (draft.template === "weighted_sum") {
-    return "Use this when each counted event contributes a known point value.";
-  }
-  if (draft.template === "rate") {
-    return "Use this when you want made divided by total attempts. The unit is always %.";
-  }
-  if (draft.template === "average_per_match") {
-    return "Use this when you want the selected values averaged over all imported matches in the active scouting window.";
-  }
-  if (draft.template === "average_present") {
-    return "Use this when you want the average only across matches where the robot actually attempted or showed the behavior.";
-  }
-  if (draft.template === "attempt_average") {
-    return "Use this when you want one group of values divided by another counted denominator, such as points per attempt.";
-  }
-  return "Use this when you want a direct total of the selected fields.";
-}
-
-function derivedMetricUnitLocked(draft = state.derivedMetricDraft) {
-  return draft.template === "rate";
-}
-
-function derivedMetricDraftIssues(draft = state.derivedMetricDraft) {
-  const issues = [];
-  const draftId = String(draft.id || "").trim();
-  const draftLabel = String(draft.label || "").trim();
-  if (draftId && reservedMetricIds().has(draftId)) {
-    issues.push({ field: "id", message: `Metric ID "${draftId}" conflicts with a built-in metric.` });
-  }
-  if (draftId) {
-    const scopeType = draft.scopeType === "profile" ? "profile" : "season";
-    const scopeKey = derivedMetricScopeKeyFromDraft(draft);
-    const editingRecord = derivedMetricEditingRecord();
-    const duplicate = derivedMetricConfigScopeDefinitions(scopeType, scopeKey).some(
-      (item) => item.id === draftId && item.id !== editingRecord?.definition?.id,
-    );
-    if (duplicate) issues.push({ field: "id", message: `Metric ID "${draftId}" already exists in this ${scopeType} scope.` });
-  }
-  if (!draftLabel && draftId) issues.push({ field: "label", message: "Add a label to preview and save this metric." });
-  if (draft.template === "sum" && !draft.fields.length) issues.push({ field: "fields", message: "Select at least one field to sum." });
-  if (draft.template === "weighted_sum" && !draft.weightedFields.length) issues.push({ field: "weightedFields", message: "Select at least one field and assign point values." });
-  if (draft.template === "rate" && !draft.madeFields.length) issues.push({ field: "madeFields", message: "Select at least one made field." });
-  if (draft.template === "rate" && !draft.missedFields.length) issues.push({ field: "missedFields", message: "Select at least one missed field." });
-  if (["average_per_match", "average_present", "attempt_average"].includes(draft.template) && !draft.numeratorFields.length) {
-    issues.push({ field: "numeratorFields", message: "Select at least one numerator field." });
-  }
-  if (draft.template === "attempt_average" && !draft.denominatorFields.length) {
-    issues.push({ field: "denominatorFields", message: "Select at least one denominator field." });
-  }
-  if (draft.template === "average_present" && !draft.presenceFields.length && draft.numeratorFields.length) {
-    issues.push({ field: "presenceFields", message: "Presence fields will default to the numerator fields unless you choose different ones." });
-  }
-  return issues;
-}
-
-function renderDraftIssue(issue) {
-  return issue ? `<p class="inline-hint danger">${escapeHtml(issue.message)}</p>` : "";
-}
-
-function renderDerivedBuilderShell(mode) {
-  const matrixMode = mode === "scoringMatrix";
-  const summary = derivedMetricScopeSummary();
-  const draft = state.derivedMetricDraft;
-  const definition = metricDefinitionFromDraft(draft);
-  const scoringMatrixPresets = currentScoringMatrixPresets();
-  const seasonDefinitions = summary.seasonDefinitions.filter((definitionItem) => isScoringMatrixDefinition(definitionItem) === matrixMode);
-  const profileDefinitions = summary.profileDefinitions.filter((definitionItem) => isScoringMatrixDefinition(definitionItem) === matrixMode);
-  const previewTeam = teamByNumber(state.derivedMetricPreviewTeam) || currentTeams()[0];
-  const allPreview = definition && previewTeam ? derivedMetricPreviewValue(definition, previewTeam, "all") : 0;
-  const recentPreview = definition && previewTeam ? derivedMetricPreviewValue(definition, previewTeam, "recent") : 0;
-  const editingRecord = derivedMetricEditingRecord();
-  const draftIssues = derivedMetricDraftIssues(draft);
-  const draftIssueFor = (field) => draftIssues.find((issue) => issue.field === field);
-  const pageLabel = matrixMode ? "Scoring Table" : "Derived Metric";
-  const presetOptions = derivedMetricPresets.filter((preset) => (matrixMode ? preset.template === "weighted_sum" : preset.template !== "weighted_sum"));
-  const unitAutoDetermined = matrixMode || derivedMetricUnitLocked(draft);
-  const editingTitle = editingRecord ? `Edit ${editingRecord.definition.label}` : `New ${pageLabel}`;
-  const presetHelp = matrixMode
-    ? "Create a new scoring table by loading a season preset or entering point values manually. To edit an existing scoring table, choose it from the saved list first."
-    : derivedMetricPresetHelp(draft);
-  const builderDescription = matrixMode
-    ? "Build point mappings here. Scoring tables are admin-only and can be saved for the current season or spreadsheet profile."
-    : "Build the metric definition here. The recent-match window is controlled elsewhere, and previews update against that active window automatically.";
-  const configDescription = matrixMode
-    ? `Use this editor to export, paste, or import saved derived metrics and scoring tables for season ${summary.seasonKey} and profile ${summary.profileKey}.`
-    : `Use this editor to export, paste, or import saved derived metrics and scoring tables for season ${summary.seasonKey} and profile ${summary.profileKey}.`;
-  return `
-    <div class="grid">
-      ${
-        matrixMode
-          ? ""
-          : `
-            <div class="grid cols-2">
-              <article class="card">
-                <div class="section-heading">
-                  <div>
-                    <h2>Scope Overview</h2>
-                    <p class="muted">Builder outputs can be scoped by season or spreadsheet profile.</p>
-                  </div>
-                </div>
-                <div class="stat-grid">
-                  <div class="stat"><span>Season Scope</span><strong>${summary.seasonKey}</strong></div>
-                  <div class="stat"><span>Profile Scope</span><strong>${summary.profileKey}</strong></div>
-                  <div class="stat"><span>Recent Window</span><strong>${currentRecentMatchCount()} matches</strong></div>
-                  <div class="stat"><span>Imported Teams</span><strong>${importedTeamCount()}</strong></div>
-                </div>
-              </article>
-              <article class="card">
-                <div class="section-heading">
-                  <div>
-                    <h2>Live Preview</h2>
-                    <p class="muted">Preview the current draft against imported scouting data before saving it.</p>
-                  </div>
-                </div>
-                <div class="admin-form-grid">
-                  <label>
-                    Preview team
-                    <select id="derivedMetricPreviewTeamSelect">
-                      ${currentTeams().map((team) => `<option value="${team.number}" ${team.number === previewTeam?.number ? "selected" : ""}>${team.number} ${team.name}</option>`).join("")}
-                    </select>
-                  </label>
-                </div>
-                <div class="stat-grid">
-                  <div class="stat"><span>All Matches</span><strong>${definition ? allPreview.toFixed(definition.unit === "%" ? 0 : 1) : "--"}${definition?.unit === "%" ? "%" : ""}</strong></div>
-                  <div class="stat"><span>Recent ${currentRecentMatchCount()}</span><strong>${definition ? recentPreview.toFixed(definition.unit === "%" ? 0 : 1) : "--"}${definition?.unit === "%" ? "%" : ""}</strong></div>
-                </div>
-                <p class="muted">${definition ? `${definition.label} (${definition.id})` : "Complete the draft fields to see a live preview."}</p>
-              </article>
-            </div>
-          `
-      }
-      <div class="grid cols-2">
-        <article class="card">
-          <div class="section-heading">
-            <div>
-              <h2>Saved ${pageLabel}s</h2>
-              <p class="muted">${matrixMode ? "Select a saved scoring table to edit it, or use Reset Draft to start a new one." : "Season-scoped definitions apply to all events in that season; profile-scoped definitions apply to the selected spreadsheet profile."}</p>
-            </div>
-          </div>
-          <h3>Season ${summary.seasonKey}</h3>
-          ${renderDerivedMetricDefinitionList("season", summary.seasonKey, seasonDefinitions)}
-          <h3 style="margin-top: 18px;">Profile ${summary.profileKey}</h3>
-          ${renderDerivedMetricDefinitionList("profile", summary.profileKey, profileDefinitions)}
-        </article>
-        <article class="card">
-          <div class="section-heading">
-            <div>
-              <h2>${editingTitle}</h2>
-              <p class="muted">${builderDescription}</p>
-            </div>
-          </div>
-          <div class="admin-actions" style="margin-bottom: 12px;">
-            <label style="min-width: 260px;">
-              ${matrixMode ? "Scoring Table Type" : "Metric Type"}
-              <select id="derivedMetricPresetSelect">
-                ${presetOptions.map((preset) => `<option value="${preset.id}" ${preset.id === draft.presetId ? "selected" : ""}>${preset.label}</option>`).join("")}
-              </select>
-            </label>
-            <button type="button" id="applyDerivedMetricPresetButton">Load</button>
-          </div>
-          <p class="muted">${presetHelp}</p>
-          <div class="admin-form-grid">
-            <label>
-              Scope
-              <select id="derivedMetricScopeType">
-                <option value="season" ${draft.scopeType === "season" ? "selected" : ""}>Season (${draft.seasonKey})</option>
-                <option value="profile" ${draft.scopeType === "profile" ? "selected" : ""}>Profile (${draft.profileKey})</option>
-              </select>
-            </label>
-            <label>
-              Label
-              <input id="derivedMetricLabelInput" class="admin-input" value="${escapeAttribute(draft.label)}" placeholder="${matrixMode ? "Reefscape Point Table" : "Driver Consistency"}" />
-              ${renderDraftIssue(draftIssueFor("label"))}
-            </label>
-            <label>
-              ${matrixMode ? "Table ID (Auto-generated by default)" : "Metric ID (Auto-generated by default)"}
-              <input id="derivedMetricIdInput" class="admin-input" value="${escapeAttribute(draft.id)}" placeholder="${matrixMode ? "reefscapePointTable" : "driverConsistencyRecent"}" />
-              ${renderDraftIssue(draftIssueFor("id"))}
-            </label>
-            ${unitAutoDetermined ? "" : `<label>
-              Unit
-              <select id="derivedMetricUnitSelect">
-                ${["pts", "%", "rating", "count", "level"].map((unit) => `<option value="${unit}" ${draft.unit === unit ? "selected" : ""}>${unit}</option>`).join("")}
-              </select>
-            </label>`}
-            ${!matrixMode && draft.template === "sum" ? `<label>Fields${renderFieldMultiSelect("derivedMetricFieldsSelect", draft.fields, "Derived metric fields")}${renderDraftIssue(draftIssueFor("fields"))}</label>` : ""}
-            ${
-              matrixMode
-                ? `
-                  ${
-                    scoringMatrixPresets.length
-                      ? `
-                        <label>
-                          Scoring Table Preset
-                          <div class="admin-actions">
-                            <select id="derivedMetricScoringMatrixPresetSelect">
-                              <option value="">Choose a season preset</option>
-                              ${scoringMatrixPresets.map((preset) => `<option value="${preset.id}" ${preset.id === draft.scoringMatrixPresetId ? "selected" : ""}>${preset.label}</option>`).join("")}
-                            </select>
-                            <button type="button" id="applyScoringMatrixPresetButton">Load Table</button>
-                          </div>
-                        </label>
-                      `
-                      : `<p class="muted">No season scoring table presets are defined yet for this event, so point values can be entered manually.</p>`
-                  }
-                  <label>Weighted Fields${renderFieldMultiSelect("derivedMetricWeightedFieldsSelect", draft.weightedFields.map((entry) => entry.field), "Derived metric weighted fields")}${renderDraftIssue(draftIssueFor("weightedFields"))}</label>
-                  <label>Point Mapping${renderWeightedFieldEditor(draft.weightedFields)}</label>
-                `
-                : ""
-            }
-            ${!matrixMode && draft.template === "rate" ? `<label>Made Fields${renderFieldMultiSelect("derivedMetricMadeFieldsSelect", draft.madeFields, "Derived metric made fields")}${renderDraftIssue(draftIssueFor("madeFields"))}</label>` : ""}
-            ${!matrixMode && draft.template === "rate" ? `<label>Missed Fields${renderFieldMultiSelect("derivedMetricMissedFieldsSelect", draft.missedFields, "Derived metric missed fields")}${renderDraftIssue(draftIssueFor("missedFields"))}</label>` : ""}
-            ${!matrixMode && ["average_per_match", "average_present", "attempt_average"].includes(draft.template) ? `<label>Numerator Fields${renderFieldMultiSelect("derivedMetricNumeratorFieldsSelect", draft.numeratorFields, "Derived metric numerator fields")}${renderDraftIssue(draftIssueFor("numeratorFields"))}</label>` : ""}
-            ${!matrixMode && draft.template === "average_present" ? `<label>Presence Fields${renderFieldMultiSelect("derivedMetricPresenceFieldsSelect", draft.presenceFields, "Derived metric presence fields")}${renderDraftIssue(draftIssueFor("presenceFields"))}</label>` : ""}
-            ${!matrixMode && draft.template === "attempt_average" ? `<label>Denominator Fields${renderFieldMultiSelect("derivedMetricDenominatorFieldsSelect", draft.denominatorFields, "Derived metric denominator fields")}${renderDraftIssue(draftIssueFor("denominatorFields"))}</label>` : ""}
-            <div class="admin-actions">
-              <button type="button" id="saveDerivedMetricButton" class="primary" ${definition ? "" : "disabled"}>Save ${pageLabel}</button>
-              <button type="button" id="resetDerivedMetricButton">${matrixMode ? "New Scoring Table" : "Reset Draft"}</button>
-              <button type="button" id="deleteDerivedMetricButton" ${editingRecord ? "" : "disabled"}>Delete</button>
-            </div>
-          </div>
-        </article>
-      </div>
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Config Export</h2>
-            <p class="muted">${configDescription}</p>
-          </div>
-          <div class="admin-actions">
-            <input id="derivedMetricConfigFileInput" type="file" accept=".json,application/json" />
-            <button type="button" id="applyDerivedMetricConfigButton">Apply JSON</button>
-            <button type="button" id="resetDerivedMetricConfigButton">Reset Editor</button>
-            <button type="button" id="downloadDerivedMetricConfigButton">Download JSON</button>
-          </div>
-        </div>
-        <textarea id="derivedMetricConfigTextarea" class="admin-textarea" style="min-height: 360px;" spellcheck="false">${escapeHtml(state.derivedMetricConfigEditorText)}</textarea>
-        <p class="muted">${state.derivedMetricConfigStatus || "Applying JSON replaces the current custom derived metric config in local storage."}</p>
-        ${renderDerivedMetricIssues()}
-      </article>
-    </div>
-  `;
-}
-
 function renderDerivedBuilder() {
-  return renderDerivedBuilderShell("derivedMetric");
-}
-
-function scoringTableProfileDefinition(profileId) {
-  if (!profileId) return null;
-  return derivedMetricConfigScopeDefinitions("profile", profileId).find(isScoringMatrixDefinition) || null;
-}
-
-function scoringTableDefinitionForProfile(profile) {
-  if (!profile?.id) return null;
-  const label = `${profile.label} Scoring Table`;
-  return normalizeCustomDerivedMetricDefinition({
-    id: `scoringTable${generatedMetricId(profile.id).slice(0, 1).toUpperCase()}${generatedMetricId(profile.id).slice(1)}`,
-    label,
-    unit: "pts",
-    formula: "weighted_sum",
-    weightedFields: [],
+  const activeEquation = activeDerivedEquation();
+  const teams = currentEvent().teams.slice().sort((left, right) => left.number - right.number);
+  const previewTeam = teams[0] || null;
+  const previewStatus = activeEquation && previewTeam ? equationStatusForTeam(previewTeam, activeEquation.id) : null;
+  const previewEvaluation = activeEquation && previewTeam ? evaluateEquationForTeam(previewTeam, activeEquation.id) : null;
+  const identifiers = previewEvaluation?.result?.identifiers || [];
+  const availableMetrics = [
+    { id: "scouting.total" },
+    ...currentAtomicScouterMetricDefinitions().map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
+    { id: "tba.climbScore" },
+    ...currentEvent().scoringComponents.map((component) => ({ id: `statbotics.${component.id}` })),
+    { id: "statbotics.total" },
+    ...currentEvent().scoringComponents.map((component) => ({ id: `opr.${component.id}` })),
+    { id: "opr.total" },
+    ...currentEvent().scoringComponents.map((component) => ({ id: `pridge.${component.id}` })),
+    { id: "pridge.total" },
+    ...currentSeasonEquationList().filter((definition) => definition.id !== activeEquation?.id).map((definition) => ({ id: definition.id })),
+  ];
+  const gridRows = teams.flatMap((team) => {
+    const context = buildTeamFormulaContext(team);
+    return (context?.matchRows || []).map((row, index, rows) => ({
+      teamNumber: team.number,
+      matchNumber: row.matchNumber,
+      teamStart: index === 0,
+      teamEnd: index === rows.length - 1,
+      rowIndex: index,
+      rowCount: rows.length,
+      formulaContext: context,
+    }));
   });
-}
-
-function scoringTableValueForField(definition, fieldId) {
-  const entry = (definition?.weightedFields || []).find((item) => item.field === fieldId);
-  return entry && Number(entry.weight) !== 0 ? String(entry.weight) : "";
-}
-
-function saveScoringTableForProfile(profileId, nextWeightsByField) {
-  const profile = seasonScoutingProfiles().find((item) => item.id === profileId);
-  if (!profile) return;
-  const baseDefinition = scoringTableProfileDefinition(profileId) || scoringTableDefinitionForProfile(profile);
-  if (!baseDefinition) return;
-  const weightedFields = normalizeWeightedFieldEntries(
-    Object.entries(nextWeightsByField)
-      .map(([field, weight]) => ({ field, weight: Number(weight) }))
-      .filter((entry) => Number.isFinite(entry.weight) && entry.weight !== 0),
-  );
-  const scopeDefinitions = derivedMetricConfigScopeDefinitions("profile", profileId);
-  const nonTableDefinitions = scopeDefinitions.filter((definition) => !isScoringMatrixDefinition(definition));
-  if (weightedFields.length) {
-    updateDerivedMetricConfig("profile", profileId, [...nonTableDefinitions, { ...baseDefinition, weightedFields }]);
-    state.scoringTableStatus = `Saved ${profile.label}.`;
-  } else {
-    updateDerivedMetricConfig("profile", profileId, nonTableDefinitions);
-    state.scoringTableStatus = `Saved ${profile.label}. Blank values are treated as 0.`;
-  }
-  syncDerivedMetricConfigEditor(state.scoringTableStatus);
-  saveState();
-}
-
-function deleteScoringTableForProfile(profileId) {
-  const profile = seasonScoutingProfiles().find((item) => item.id === profileId);
-  const existing = scoringTableProfileDefinition(profileId);
-  if (!profile || !existing) return;
-  if (!window.confirm(`Delete scoring table for ${profile.label}?`)) return;
-  updateDerivedMetricConfig(
-    "profile",
-    profileId,
-    derivedMetricConfigScopeDefinitions("profile", profileId).filter((definition) => !isScoringMatrixDefinition(definition)),
-  );
-  state.scoringTableStatus = `Deleted ${profile.label}.`;
-  syncDerivedMetricConfigEditor(state.scoringTableStatus);
-  saveState();
-  render();
-}
-
-function renderScoringMatrixBuilder() {
-  const seasonKey = String(currentEvent().season);
-  const profiles = seasonScoutingProfiles(seasonKey);
-  const selectedProfileId = ensureScoringTableProfileSelection(seasonKey);
-  const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) || null;
-  const existingDefinition = selectedProfile ? scoringTableProfileDefinition(selectedProfile.id) : null;
-  const fieldDefinitions = currentAtomicScouterMetricDefinitions();
+  const resolveGridCellValue = (identifier, rowModel) => {
+    const result = resolveFormulaIdentifier(identifier, rowModel.formulaContext, new Map(), []) || { kind: "error", error: `Unknown identifier "${identifier}".` };
+    if (isErrorFormulaResult(result)) return { text: "Invalid", className: "danger" };
+    if (isSeriesFormulaResult(result)) {
+      const matchEntry = result.entries.find((entry) => entry.key === rowModel.matchNumber);
+      return { text: matchEntry && !Number.isNaN(matchEntry.value) ? formatMetricValue(matchEntry.value) : "", className: "" };
+    }
+    return { text: rowModel.rowIndex === 0 && !Number.isNaN(result.value) ? formatMetricValue(result.value) : "", className: rowModel.rowIndex === 0 ? "" : "muted" };
+  };
+  const resolveResultCellValue = (rowModel) => {
+    if (!activeEquation) return { text: "", className: "" };
+    const evaluation = evaluateEquationForTeam(rowModel.formulaContext.baseTeam, activeEquation.id, {
+      formulaContext: rowModel.formulaContext,
+      eventModel: currentEvent(),
+      evaluationCache: new Map(),
+    });
+    if (isErrorFormulaResult(evaluation.result)) return { text: rowModel.rowIndex === 0 ? "Invalid" : "", className: "danger" };
+    if (isSeriesFormulaResult(evaluation.result)) {
+      const matchEntry = evaluation.result.entries.find((entry) => entry.key === rowModel.matchNumber);
+      return { text: matchEntry && !Number.isNaN(matchEntry.value) ? formatMetricValue(matchEntry.value) : "", className: "" };
+    }
+    return { text: rowModel.rowIndex === 0 && !Number.isNaN(evaluation.result.value) ? formatMetricValue(evaluation.result.value) : "", className: rowModel.rowIndex === 0 ? "" : "muted" };
+  };
   return `
     <div class="grid">
       <article class="card">
         <div class="section-heading">
           <div>
-            <h2>Scouting Profiles</h2>
-            <p class="muted">Profiles appear here after a scouting import is committed on the Admin page for season ${seasonKey}.</p>
+            <h2>Derived Metric Builder</h2>
+            <p class="muted">Admins define season-specific derived equations here. Match-level formulas must use an averaging function before they can behave like event-level metrics elsewhere. Reloads seed from the checked-in season file.</p>
           </div>
-          <div class="admin-actions">
-            ${existingDefinition ? '<button type="button" id="deleteScoringTableButton">Delete Table</button>' : ""}
-          </div>
-        </div>
-        ${
-          profiles.length
-            ? `
-              <div class="admin-form-grid">
-                <label>
-                  Scouting profile
-                  <select id="scoringTableProfileSelect">
-                    ${profiles.map((profile) => `<option value="${profile.id}" ${profile.id === selectedProfileId ? "selected" : ""}>${profile.label}</option>`).join("")}
-                  </select>
-                </label>
-              </div>
-              <p class="muted">Create a new scoring table by selecting a profile and entering point values below. To edit an existing scoring table, select that profile and update the values directly.</p>
-            `
-            : `<p class="muted">No scouting profiles have been imported for this season yet. Commit a scouting import on the Admin page to add one.</p>`
-        }
-        <p class="muted">${state.scoringTableStatus || "Blank values are treated as 0 points, and saved 0 values display as blanks."}</p>
-      </article>
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Scoring Table${selectedProfile ? ` for ${selectedProfile.label}` : ""}</h2>
-            <p class="muted">Only atomic imported scouting fields appear here. Use tab/shift-tab, up/down arrow keys, or Enter to move through the point-value column. Changes save automatically.</p>
+          <div class="derived-header-actions">
+            <button type="button" id="downloadSeasonDerivedEquationsButton">Download Season File</button>
           </div>
         </div>
-        ${
-          selectedProfile
-            ? `
-              <div class="table-shell">
-                <table class="admin-table">
-                  <thead>
-                    <tr><th>Scouting Field</th><th>Point Value</th></tr>
-                  </thead>
-                  <tbody>
-                    ${fieldDefinitions
-                      .map(
-                        (fieldDefinition, index) => `
-                          <tr>
-                            <td>
-                              <strong>${escapeHtml(fieldDefinition.label)}</strong>
-                              <div class="muted">${escapeHtml(fieldDefinition.id)}</div>
-                            </td>
-                            <td>
-                              <input
-                                id="scoringTableValue-${index}"
-                                class="admin-input scoring-table-input"
-                                data-scoring-row="${index}"
-                                data-scoring-field="${escapeAttribute(fieldDefinition.id)}"
-                                inputmode="decimal"
-                                value="${escapeAttribute(scoringTableValueForField(existingDefinition, fieldDefinition.id))}"
-                                placeholder="0"
-                                aria-label="Points for ${escapeAttribute(fieldDefinition.label)}"
-                              />
-                            </td>
-                          </tr>
-                        `,
-                      )
-                      .join("")}
-                  </tbody>
-                </table>
+        <div class="derived-builder-layout">
+          <aside class="derived-builder-sidebar">
+            <div class="derived-formula-name derived-formula-name-sidebar">
+              <strong>${escapeHtml(activeEquation?.name || "New Equation")} =</strong>
+              <button type="button" id="addDerivedEquationButton">New</button>
+            </div>
+            <section class="derived-pane">
+              <div class="derived-pane-header">
+                <h3>Derived Equations</h3>
               </div>
-            `
-            : `<div class="empty-state">Select or import a scouting profile to edit its scoring table.</div>`
-        }
+              <div class="builder-list">
+                ${currentSeasonEquationList()
+                  .map((definition, index) => {
+                    const status = previewTeam ? equationStatusForTeam(previewTeam, definition.id) : null;
+                    const rename = state.inlineRename?.kind === "derivedEquation" && state.inlineRename?.id === definition.id;
+                    return `
+                      <div
+                        class="builder-list-item ${definition.id === ensureActiveDerivedEquation() ? "active" : ""}"
+                        data-entity-row="derivedEquation:${definition.id}"
+                        data-entity-kind="derivedEquation"
+                        data-entity-id="${definition.id}"
+                        data-entity-index="${index}"
+                        draggable="false"
+                      >
+                        <span>
+                          ${rename ? `<input class="inline-rename-input" data-inline-rename="derivedEquation:${definition.id}" value="${escapeAttribute(state.inlineRename.value)}" autocomplete="off" />` : escapeHtml(definition.name)}
+                        </span>
+                        ${status ? `<span class="confidence-badge ${status.severity}">${escapeHtml(status.label)}</span>` : ""}
+                      </div>
+                    `;
+                  })
+                  .join("")}
+              </div>
+            </section>
+            <section class="derived-pane">
+              <div class="derived-pane-header">
+                <h3>Available Metrics</h3>
+              </div>
+              <div class="builder-list metric-catalog">
+                ${availableMetrics.map((item) => `<div class="builder-list-item">${escapeHtml(item.id)}</div>`).join("")}
+              </div>
+            </section>
+          </aside>
+          <section class="derived-builder-main">
+            <div class="derived-formula-header">
+              <div class="derived-formula-bar">
+                <input
+                  id="derivedEquationFormulaInput"
+                  class="admin-input"
+                  type="text"
+                  value="${escapeAttribute(activeEquation?.formula || "")}"
+                  placeholder="average(tba.climbScore)"
+                  autocomplete="off"
+                />
+                <div id="derivedFormulaAutocomplete" class="formula-autocomplete" hidden></div>
+              </div>
+              <div class="formula-function-menu" aria-label="Built-in functions">
+                <button type="button" class="formula-function-button" tabindex="-1">f(x)</button>
+                <div class="formula-function-popover">
+                  ${builtInFunctionList()
+                    .map((entry) => `<div class="formula-function-item"><strong>${escapeHtml(entry.name)}</strong><span>${escapeHtml(entry.description)}</span></div>`)
+                    .join("")}
+                </div>
+              </div>
+            </div>
+            <p class="muted">${previewStatus ? escapeHtml(previewStatus.detail) : "Use `average()`, `sum()`, `averageWhenPresent()`, or `averageOverAttempts()` to lift match-level metrics into event-level results."}</p>
+            <div class="derived-grid-shell">
+              <section class="derived-grid-column derived-grid-team">
+                <header>Team</header>
+                <div class="derived-grid-column-body" data-derived-scroll="team">
+                  ${gridRows.map((row) => `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""}">${row.teamNumber}</div>`).join("")}
+                </div>
+              </section>
+              ${identifiers.map((identifier) => `
+                <section class="derived-grid-column">
+                  <header>${escapeHtml(identifier)}</header>
+                  <div class="derived-grid-column-body" data-derived-scroll="${escapeAttribute(identifier)}">
+                    ${gridRows.map((row) => {
+                      const value = resolveGridCellValue(identifier, row);
+                      return `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""} ${value.className}">${escapeHtml(value.text)}</div>`;
+                    }).join("")}
+                  </div>
+                </section>
+              `).join("")}
+              <section class="derived-grid-column derived-grid-result">
+                <header>${escapeHtml(activeEquation?.name || "Result")}</header>
+                <div class="derived-grid-column-body" data-derived-scroll="result">
+                  ${gridRows.map((row) => {
+                    const value = resolveResultCellValue(row);
+                    return `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""} ${value.className}">${escapeHtml(value.text)}</div>`;
+                  }).join("")}
+                </div>
+              </section>
+            </div>
+          </section>
+        </div>
+        ${renderContextMenu()}
       </article>
     </div>
   `;
 }
 
-function collectScoringTableInputValues() {
-  return Object.fromEntries(
-    Array.from(document.querySelectorAll(".scoring-table-input")).map((input) => [
-      input.dataset.scoringField,
-      input.value.trim() === "" ? "" : Number(input.value),
-    ]),
-  );
-}
-
-function focusScoringTableInput(rowIndex) {
-  const input = document.querySelector(`#scoringTableValue-${rowIndex}`);
-  if (!input) return;
-  input.focus();
-  input.select?.();
+function renderFilterBuilder() {
+  const activeFilter = activeSeasonFilter();
+  const teams = currentEvent().teams.slice().sort((left, right) => left.number - right.number);
+  const previewTeam = teams[0] || null;
+  const previewStatus = activeFilter && previewTeam ? filterStatusForTeam(previewTeam, activeFilter.id) : null;
+  const previewEvaluation = activeFilter && previewTeam ? evaluateSeasonFilterForTeam(previewTeam, activeFilter.id) : null;
+  const identifiers = previewEvaluation?.result?.identifiers || [];
+  const availableMetrics = [
+    { id: "scouting.total" },
+    ...currentAtomicScouterMetricDefinitions().map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
+    { id: "tba.climbScore" },
+  ];
+  const gridRows = teams.flatMap((team) => {
+    const context = buildTeamFormulaContext(team);
+    return (context?.matchRows || []).map((row, index, rows) => ({
+      teamNumber: team.number,
+      matchNumber: row.matchNumber,
+      teamStart: index === 0,
+      teamEnd: index === rows.length - 1,
+      rowIndex: index,
+      formulaContext: context,
+    }));
+  });
+  const resolveGridCellValue = (identifier, rowModel) => {
+    const result = resolveFormulaIdentifier(identifier, rowModel.formulaContext, new Map(), []) || { kind: "error", error: `Unknown identifier "${identifier}".` };
+    if (isErrorFormulaResult(result)) return { text: "Invalid", className: "danger" };
+    if (isSeriesFormulaResult(result)) {
+      const matchEntry = result.entries.find((entry) => entry.key === rowModel.matchNumber);
+      return { text: matchEntry && !Number.isNaN(matchEntry.value) ? formatMetricValue(matchEntry.value) : "", className: "" };
+    }
+    return { text: rowModel.rowIndex === 0 && !Number.isNaN(result.value) ? formatMetricValue(result.value) : "", className: rowModel.rowIndex === 0 ? "" : "muted" };
+  };
+  const resolveResultCellValue = (rowModel) => {
+    if (!activeFilter) return { text: "", className: "" };
+    const evaluation = evaluateSeasonFilterForTeam(rowModel.formulaContext.baseTeam, activeFilter.id, {
+      formulaContext: rowModel.formulaContext,
+      eventModel: currentEvent(),
+    });
+    if (isErrorFormulaResult(evaluation.result)) return { text: rowModel.rowIndex === 0 ? "Invalid" : "", className: "danger" };
+    if (!isSeriesFormulaResult(evaluation.result)) {
+      return { text: rowModel.rowIndex === 0 ? "Event" : "", className: "muted" };
+    }
+    const matchEntry = evaluation.result.entries.find((entry) => entry.key === rowModel.matchNumber);
+    const value = matchEntry ? truthy(matchEntry.value) : false;
+    return { text: value ? "Keep" : "", className: value ? "" : "muted" };
+  };
+  return `
+    <div class="grid">
+      <article class="card">
+        <div class="section-heading">
+          <div>
+            <h2>Filter Builder</h2>
+            <p class="muted">Admins define season-scoped reusable match filters here. Filters apply to Analysis box-and-whisker distributions and still respect the global Recent slider.</p>
+          </div>
+          <div class="derived-header-actions">
+            <button type="button" id="downloadSeasonFiltersButton">Download Season File</button>
+          </div>
+        </div>
+        <div class="derived-builder-layout">
+          <aside class="derived-builder-sidebar">
+            <div class="derived-formula-name derived-formula-name-sidebar">
+              <strong>${escapeHtml(activeFilter?.name || "New Filter")}</strong>
+              <button type="button" id="addSeasonFilterButton">New</button>
+            </div>
+            <section class="derived-pane">
+              <div class="derived-pane-header">
+                <h3>Season Filters</h3>
+              </div>
+              <div class="builder-list">
+                ${currentSeasonFilterList()
+                  .map((definition, index) => {
+                    const status = previewTeam ? filterStatusForTeam(previewTeam, definition.id) : null;
+                    const rename = state.inlineRename?.kind === "seasonFilter" && state.inlineRename?.id === definition.id;
+                    return `
+                      <div
+                        class="builder-list-item ${definition.id === ensureActiveSeasonFilter() ? "active" : ""}"
+                        data-entity-row="seasonFilter:${definition.id}"
+                        data-entity-kind="seasonFilter"
+                        data-entity-id="${definition.id}"
+                        data-entity-index="${index}"
+                        draggable="false"
+                      >
+                        <span>
+                          ${rename ? `<input class="inline-rename-input" data-inline-rename="seasonFilter:${definition.id}" value="${escapeAttribute(state.inlineRename.value)}" autocomplete="off" />` : escapeHtml(definition.name)}
+                        </span>
+                        ${status ? `<span class="confidence-badge ${status.severity}">${escapeHtml(status.label)}</span>` : ""}
+                      </div>
+                    `;
+                  })
+                  .join("")}
+              </div>
+            </section>
+            <section class="derived-pane">
+              <div class="derived-pane-header">
+                <h3>Available Metrics</h3>
+              </div>
+              <div class="builder-list metric-catalog">
+                ${availableMetrics.map((item) => `<div class="builder-list-item">${escapeHtml(item.id)}</div>`).join("")}
+              </div>
+            </section>
+          </aside>
+          <section class="derived-builder-main">
+            <div class="derived-formula-header">
+              <div class="derived-formula-bar">
+                <input
+                  id="seasonFilterFormulaInput"
+                  class="admin-input"
+                  type="text"
+                  value="${escapeAttribute(activeFilter?.formula || "")}"
+                  placeholder="and(tba.climbScore > 0, scouting.climbAttempt > 0)"
+                  autocomplete="off"
+                />
+                <div id="seasonFilterAutocomplete" class="formula-autocomplete" hidden></div>
+              </div>
+              <div class="formula-function-menu" aria-label="Built-in filter functions">
+                <button type="button" class="formula-function-button" tabindex="-1">f(x)</button>
+                <div class="formula-function-popover">
+                  ${builtInFilterFunctionList()
+                    .map((entry) => `<div class="formula-function-item"><strong>${escapeHtml(entry.name)}</strong><span>${escapeHtml(entry.description)}</span></div>`)
+                    .join("")}
+                </div>
+              </div>
+            </div>
+            <p class="muted">${previewStatus ? escapeHtml(previewStatus.detail) : "Use comparisons like `scouting.climbAttempt > 0` and combine them with `and()`, `or()`, or `not()`."}</p>
+            <div class="derived-grid-shell">
+              <section class="derived-grid-column derived-grid-team">
+                <header>Team</header>
+                <div class="derived-grid-column-body">
+                  ${gridRows.map((row) => `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""}">${row.teamNumber}</div>`).join("")}
+                </div>
+              </section>
+              <section class="derived-grid-column">
+                <header>Match</header>
+                <div class="derived-grid-column-body">
+                  ${gridRows.map((row) => `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""}">Q${row.matchNumber}</div>`).join("")}
+                </div>
+              </section>
+              ${identifiers.map((identifier) => `
+                <section class="derived-grid-column">
+                  <header>${escapeHtml(identifier)}</header>
+                  <div class="derived-grid-column-body">
+                    ${gridRows.map((row) => {
+                      const value = resolveGridCellValue(identifier, row);
+                      return `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""} ${value.className}">${escapeHtml(value.text)}</div>`;
+                    }).join("")}
+                  </div>
+                </section>
+              `).join("")}
+              <section class="derived-grid-column derived-grid-result">
+                <header>${escapeHtml(activeFilter?.name || "Keep?")}</header>
+                <div class="derived-grid-column-body">
+                  ${gridRows.map((row) => {
+                    const value = resolveResultCellValue(row);
+                    return `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""} ${value.className}">${escapeHtml(value.text)}</div>`;
+                  }).join("")}
+                </div>
+              </section>
+            </div>
+          </section>
+        </div>
+        ${renderContextMenu()}
+      </article>
+    </div>
+  `;
 }
 
 function renderBoxPlotLegend() {
@@ -3207,7 +3006,9 @@ function renderBoxPlotLegend() {
 
 function distributionForMetric(team, metricId) {
   const metric = metricById(metricId);
-  const values = metricTrendValues(team, metric);
+  const values = metricUsesMatchDistribution(team, metric)
+    ? filteredSeriesEntriesForMetric(team, metric).map((entry) => Number(entry.value)).filter((value) => Number.isFinite(Number(value)))
+    : [];
   if (values.length > 1) {
     return {
       min: Math.min(...values),
@@ -3216,17 +3017,30 @@ function distributionForMetric(team, metricId) {
       q3: quantile(values, 0.75),
       max: Math.max(...values),
       mean: average(values),
+      kind: "distribution",
+    };
+  }
+  if (metricUsesMatchDistribution(team, metric) && state.activeAnalysisFilterId && values.length === 0) {
+    return {
+      min: 0,
+      q1: 0,
+      median: 0,
+      q3: 0,
+      max: 0,
+      mean: 0,
+      kind: "empty",
     };
   }
   const center = teamMetricValue(team, metric);
-  const spread = metric.unit === "%" ? 5 : 3;
+  const safeCenter = Number.isFinite(center) ? center : 0;
   return {
-    min: center - spread,
-    q1: center - spread * 0.45,
-    median: center,
-    q3: center + spread * 0.45,
-    max: center + spread,
-    mean: center,
+    min: safeCenter,
+    q1: safeCenter,
+    median: safeCenter,
+    q3: safeCenter,
+    max: safeCenter,
+    mean: safeCenter,
+    kind: Number.isFinite(center) ? "value" : "empty",
   };
 }
 
@@ -3263,6 +3077,7 @@ function renderChartRow(team, selection, dist, globalMin, globalMax, eventAverag
     `Q3: ${dist.q3.toFixed(1)} ${selection.unit}`,
     `Max: ${dist.max.toFixed(1)} ${selection.unit}`,
   ].join("\n");
+  const teamScoreLabel = Number.isFinite(teamScore) ? teamScore.toFixed(1) : "Invalid";
   return `
     <div class="chart-row">
       <div class="chart-team">
@@ -3276,7 +3091,7 @@ function renderChartRow(team, selection, dist, globalMin, globalMax, eventAverag
         <span class="median" style="left: ${median}%"></span>
         <span class="mean" style="left: ${mean}%"></span>
       </div>
-      <div class="chart-value">${teamScore.toFixed(1)}</div>
+      <div class="chart-value">${teamScoreLabel}</div>
     </div>
   `;
 }
@@ -3581,7 +3396,7 @@ function renderPicklistBuilder() {
         <div class="section-heading">
           <div>
             <h2>Comparison Grid</h2>
-            <p class="muted">Pick sort equations or saved picklists to compare side by side.</p>
+            <p class="muted">Pick ranked metrics or saved picklists to compare side by side.</p>
           </div>
         </div>
         <div class="builder-grid-columns">
@@ -3773,21 +3588,25 @@ function renderBuilderTeamTile(team, index, options = {}) {
 
 function gridColumnModel(entry) {
   if (!entry) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
-  const [type, id] = entry.split(":");
-  if (type === "sort") {
-    const equation = state.sortEquations.find((item) => item.id === id);
-    if (!equation) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
-    const rankedTeams = rankTeamsByEquation(equation).map((number) => teamByNumber(number)).filter(Boolean);
-    const scores = rankedTeams.map((team) => scoreTeamByEquation(team, equation));
+  if (entry.startsWith("metric:")) {
+    const metricId = entry.slice(7);
+    const metric = metricById(metricId);
+    if (!metric) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
+    const rankedTeams = [...currentTeams()].sort((a, b) => teamMetricValue(b, metric) - teamMetricValue(a, metric) || a.number - b.number);
+    const scores = rankedTeams.map((team) => teamMetricValue(team, metric));
     return {
-      type,
-      id,
-      label: equation.name,
+      type: "metric",
+      id: metric.id,
+      label: metric.label,
       teams: rankedTeams,
       scores,
       minScore: Math.min(...scores),
       maxScore: Math.max(...scores),
     };
+  }
+  const [type, id] = entry.split(":");
+  if (type === "sort") {
+    return entry === "sort:sort-epa" ? gridColumnModel("metric:source:epa:total") : { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
   }
   if (type === "picklist") {
     const picklist = state.picklists.find((item) => item.id === id);
@@ -3813,8 +3632,8 @@ function renderPicklistGridColumn(entry, index) {
         <span>Column ${index + 1}</span>
         <select data-picklist-column="${index}">
           <option value="" ${entry ? "" : "selected"}>---</option>
-          <optgroup label="Sort Equations">
-            ${state.sortEquations.map((item) => `<option value="sort:${item.id}" ${entry === `sort:${item.id}` ? "selected" : ""}>${item.name}</option>`).join("")}
+          <optgroup label="Metrics">
+            ${currentRankableMetrics().map((item) => `<option value="metric:${item.id}" ${entry === `metric:${item.id}` ? "selected" : ""}>${item.label}</option>`).join("")}
           </optgroup>
           <optgroup label="Picklists">
             ${state.picklists.map((item) => `<option value="picklist:${item.id}" ${entry === `picklist:${item.id}` ? "selected" : ""}>${item.name}</option>`).join("")}
@@ -3827,7 +3646,7 @@ function renderPicklistGridColumn(entry, index) {
             ? column.teams
                 .map((team, teamIndex) => {
                   const compareIndex = compareSlotIndexForTeam(team.number);
-                  return column.type === "sort"
+                  return column.type === "metric"
                     ? renderTeamTile(team, teamIndex, {
                         compact: true,
                         showName: false,
@@ -3863,7 +3682,13 @@ function renderContextMenu() {
     `;
   }
   if (state.contextMenu.type !== "entity") return "";
-  const collection = state.contextMenu.entityKind === "sortEquation" ? state.sortEquations : state.picklists;
+  const collection = state.contextMenu.entityKind === "sortEquation"
+    ? state.sortEquations
+    : state.contextMenu.entityKind === "derivedEquation"
+      ? currentSeasonEquationList()
+      : state.contextMenu.entityKind === "seasonFilter"
+        ? currentSeasonFilterList()
+        : state.picklists;
   const item = collection.find((entry) => entry.id === state.contextMenu.id);
   const locked = state.contextMenu.entityKind === "sortEquation" && isProtectedSortEquation(item);
   const canDelete = !locked && isAdmin() && collection.length > 1;
@@ -3930,14 +3755,14 @@ function renderAlliance() {
         </div>
         <div class="picklist-loader">
           <div class="picklist-loader-group">
-            <h3>Sort Equations</h3>
-            ${state.sortEquations
+            <h3>Metrics</h3>
+            ${currentRankableMetrics()
               .map(
-                (equation) => `
+                (metric) => `
             <label class="check-row">
-              <input type="checkbox" class="picklist-check" value="sort:${equation.id}" ${state.loadedSources.includes(`sort:${equation.id}`) ? "checked" : ""} />
-              <span>${equation.name}</span>
-              <span class="muted">${isProtectedSortEquation(equation) ? "Protected source" : "Scored source"}</span>
+              <input type="checkbox" class="picklist-check" value="metric:${metric.id}" ${state.loadedSources.includes(`metric:${metric.id}`) ? "checked" : ""} />
+              <span>${metric.label}</span>
+              <span class="muted">${metric.kind === "derived" ? "Derived equation" : "Metric source"}</span>
             </label>
           `,
               )
@@ -3981,7 +3806,7 @@ function renderAlliance() {
                       renderPicklistTile(team.number, teamIndex, null, {
                         static: true,
                         navigation: false,
-                        showScore: column.type === "sort",
+                        showScore: column.type === "metric",
                         score: column.scores?.[teamIndex],
                         minScore: column.minScore,
                         maxScore: column.maxScore,
@@ -4051,10 +3876,6 @@ function renderAdmin() {
               <select id="adminEventSelect" aria-label="Admin event selection">
                 ${globalEventCatalog.map((item) => `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.season} ${item.name}</option>`).join("")}
               </select>
-            </label>
-            <label>
-              Recent Match Count
-              <input id="recentMatchCountInput" class="admin-input" type="number" min="1" max="12" step="1" value="${currentRecentMatchCount()}" />
             </label>
             <div class="issue-list">
               <div class="issue-row">
@@ -4320,8 +4141,363 @@ function firstVisibleGridColumn() {
 
 function defaultTeamsForNewPicklist() {
   const firstColumn = firstVisibleGridColumn();
-  if (!firstColumn) return rankTeamsByEquation(state.sortEquations[0]);
+  if (!firstColumn) {
+    const defaultMetric = metricById(currentEvent().defaultMetricId);
+    return [...currentTeams()]
+      .sort((a, b) => teamMetricValue(b, defaultMetric) - teamMetricValue(a, defaultMetric) || a.number - b.number)
+      .map((team) => team.number);
+  }
   return gridColumnModel(firstColumn.entry).teams.map((team) => team.number);
+}
+
+function updateSeasonEquationList(nextDefinitions, eventModel = currentEvent()) {
+  const seasonKey = String(eventModel.season);
+  state.seasonDerivedEquationCatalog = normalizeSeasonDerivedEquationCatalog({
+    ...state.seasonDerivedEquationCatalog,
+    seasons: {
+      ...(state.seasonDerivedEquationCatalog?.seasons || {}),
+      [seasonKey]: nextDefinitions,
+    },
+  });
+  ensureActiveDerivedEquation(eventModel);
+  saveState();
+}
+
+function addSeasonEquation() {
+  const existing = currentSeasonEquationList();
+  const name = uniqueEntityName("New Equation", existing, "New Equation");
+  const definition = {
+    id: createId("derived"),
+    name,
+    formula: "0",
+    unit: "pts",
+    description: "",
+    sourceOrder: existing.length,
+  };
+  updateSeasonEquationList([...existing, definition]);
+  state.activeDerivedEquationId = definition.id;
+  state.inlineRename = { kind: "derivedEquation", id: definition.id, value: definition.name };
+  saveState();
+  render();
+}
+
+function removeSeasonEquation(id) {
+  const existing = currentSeasonEquationList();
+  const definition = existing.find((item) => item.id === id);
+  if (!definition || existing.length <= 1) return;
+  updateSeasonEquationList(existing.filter((item) => item.id !== id));
+  if (state.contextMenu?.id === id) state.contextMenu = null;
+  if (state.inlineRename?.id === id) state.inlineRename = null;
+  saveState();
+  render();
+}
+
+function renameSeasonEquation(id, requestedName) {
+  const definition = currentSeasonEquationList().find((item) => item.id === id);
+  if (!definition) return;
+  const trimmed = requestedName.trim();
+  if (!trimmed || trimmed === definition.name) return;
+  const name = uniqueEntityName(trimmed, currentSeasonEquationList().filter((item) => item.id !== id), trimmed);
+  updateSeasonEquationList(currentSeasonEquationList().map((item) => (item.id === id ? { ...item, name } : item)));
+  saveState();
+  render();
+}
+
+function updateSeasonEquationFormula(id, formula) {
+  updateSeasonEquationList(currentSeasonEquationList().map((item) => (item.id === id ? { ...item, formula } : item)));
+}
+
+function seasonDerivedEquationsSourceText() {
+  return `(function () {\nglobalThis.SeasonDerivedEquations = ${JSON.stringify(state.seasonDerivedEquationCatalog, null, 2)};\n})();\n`;
+}
+
+function updateSeasonFilterList(definitions, eventModel = currentEvent()) {
+  const seasonKey = String(eventModel.season);
+  const nextDefinitions = (definitions || []).map((definition, index) => ({
+    id: String(definition?.id || "").trim() || createId("filter"),
+    name: String(definition?.name || "").trim() || `Filter ${index + 1}`,
+    formula: String(definition?.formula || "").trim() || "0 > 1",
+    description: String(definition?.description || "").trim(),
+    sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
+  }));
+  state.seasonFilterCatalog = normalizeSeasonFilterCatalog({
+    seasons: {
+      ...(state.seasonFilterCatalog?.seasons || {}),
+      [seasonKey]: nextDefinitions,
+    },
+  });
+  ensureActiveSeasonFilter(eventModel);
+  state.activeAnalysisFilterId = normalizeAnalysisFilterSelection(state.activeAnalysisFilterId, eventModel);
+  saveState();
+}
+
+function addSeasonFilter() {
+  const existing = currentSeasonFilterList();
+  const name = uniqueEntityName("New Filter", existing, "New Filter");
+  const definition = {
+    id: createId("filter"),
+    name,
+    formula: "scouting.total > 0",
+    description: "",
+    sourceOrder: existing.length,
+  };
+  updateSeasonFilterList([...existing, definition]);
+  state.activeSeasonFilterId = definition.id;
+  state.inlineRename = { kind: "seasonFilter", id: definition.id, value: definition.name };
+  saveState();
+  render();
+}
+
+function removeSeasonFilter(id) {
+  const existing = currentSeasonFilterList();
+  const definition = existing.find((item) => item.id === id);
+  if (!definition || existing.length <= 1) return;
+  updateSeasonFilterList(existing.filter((item) => item.id !== id));
+  if (state.activeAnalysisFilterId === id) state.activeAnalysisFilterId = "";
+  if (state.contextMenu?.id === id) state.contextMenu = null;
+  if (state.inlineRename?.id === id) state.inlineRename = null;
+  saveState();
+  render();
+}
+
+function renameSeasonFilter(id, requestedName) {
+  const definition = currentSeasonFilterList().find((item) => item.id === id);
+  if (!definition) return;
+  const trimmed = requestedName.trim();
+  if (!trimmed || trimmed === definition.name) return;
+  const name = uniqueEntityName(trimmed, currentSeasonFilterList().filter((item) => item.id !== id), trimmed);
+  updateSeasonFilterList(currentSeasonFilterList().map((item) => (item.id === id ? { ...item, name } : item)));
+  saveState();
+  render();
+}
+
+function updateSeasonFilterFormula(id, formula) {
+  updateSeasonFilterList(currentSeasonFilterList().map((item) => (item.id === id ? { ...item, formula } : item)));
+}
+
+function seasonFiltersSourceText() {
+  return `(function () {\nglobalThis.SeasonFilters = ${JSON.stringify(state.seasonFilterCatalog, null, 2)};\n})();\n`;
+}
+
+function formulaAutocompleteCandidates(token) {
+  return [
+    "scouting.total",
+    ...currentAtomicScouterMetricDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
+    "tba.climbScore",
+    ...currentEvent().scoringComponents.flatMap((component) => [`statbotics.${component.id}`, `opr.${component.id}`, `pridge.${component.id}`]),
+    "statbotics.total",
+    "opr.total",
+    "pridge.total",
+    ...currentSeasonEquationList().map((definition) => definition.id),
+    "average",
+    "sum",
+    "averageWhenPresent",
+    "averageOverAttempts",
+  ].filter((candidate) => candidate.startsWith(token));
+}
+
+function filterAutocompleteCandidates(token) {
+  return [
+    "scouting.total",
+    ...currentAtomicScouterMetricDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
+    "tba.climbScore",
+    "and",
+    "or",
+    "not",
+  ].filter((candidate) => candidate.startsWith(token));
+}
+
+function builtInFunctionList() {
+  return [
+    { name: "average(series)", description: "Average over the most recent matches in scope." },
+    { name: "averageWhenPresent(series)", description: "Average only non-zero match values." },
+    { name: "averageOverAttempts(metric, attempts)", description: "Average a match metric only where attempts are present." },
+    { name: "sum(series)", description: "Sum over the most recent matches in scope." },
+  ].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function builtInFilterFunctionList() {
+  return [
+    { name: "and(left, right, ...)", description: "Keep matches where every condition is true." },
+    { name: "not(condition)", description: "Invert a match-level condition." },
+    { name: "or(left, right, ...)", description: "Keep matches where any condition is true." },
+  ].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function analysisMetricOptions() {
+  const metrics = currentMetrics();
+  const derived = metrics.filter((metric) => metric.kind === "derived");
+  const nonDerived = metrics.filter((metric) => metric.kind !== "derived");
+  return [...derived, ...nonDerived];
+}
+
+function longestSharedPrefix(values) {
+  if (!values.length) return "";
+  let prefix = values[0];
+  for (let index = 1; index < values.length; index += 1) {
+    const value = values[index];
+    let prefixIndex = 0;
+    while (prefixIndex < prefix.length && prefixIndex < value.length && prefix[prefixIndex] === value[prefixIndex]) {
+      prefixIndex += 1;
+    }
+    prefix = prefix.slice(0, prefixIndex);
+    if (!prefix) break;
+  }
+  return prefix;
+}
+
+function replaceFormulaToken(input, token, replacement) {
+  const cursor = input.selectionStart ?? input.value.length;
+  const nextValue = `${input.value.slice(0, cursor - token.length)}${replacement}${input.value.slice(cursor)}`;
+  input.value = nextValue;
+  const nextCursor = cursor - token.length + replacement.length;
+  input.setSelectionRange(nextCursor, nextCursor);
+  const definition = activeDerivedEquation();
+  if (definition) updateSeasonEquationFormula(definition.id, nextValue);
+  saveState();
+  requestAnimationFrame(() => {
+    input.focus();
+    input.setSelectionRange(nextCursor, nextCursor);
+  });
+}
+
+function formulaAutocompleteState(input) {
+  if (!input) return { token: "", candidates: [], cursor: 0 };
+  const cursor = input.selectionStart ?? input.value.length;
+  const match = input.value.slice(0, cursor).match(/[A-Za-z_.][A-Za-z0-9_.]*$/);
+  const token = match?.[0] || "";
+  return {
+    token,
+    candidates: token ? formulaAutocompleteCandidates(token) : [],
+    cursor,
+  };
+}
+
+function renderFormulaAutocomplete(input, requestedIndex = 0) {
+  const popup = document.querySelector("#derivedFormulaAutocomplete");
+  if (!popup || !input) return { token: "", candidates: [], selectedIndex: -1 };
+  const autocomplete = formulaAutocompleteState(input);
+  if (!autocomplete.token || !autocomplete.candidates.length) {
+    popup.hidden = true;
+    popup.innerHTML = "";
+    popup.dataset.selectedIndex = "-1";
+    return { ...autocomplete, selectedIndex: -1 };
+  }
+  const selectedIndex = Math.max(0, Math.min(autocomplete.candidates.length - 1, requestedIndex));
+  popup.hidden = false;
+  popup.dataset.selectedIndex = String(selectedIndex);
+  popup.innerHTML = autocomplete.candidates
+    .slice(0, 100)
+    .map(
+      (candidate, index) => `
+        <button
+          type="button"
+          class="formula-autocomplete-item ${index === selectedIndex ? "active" : ""}"
+          data-formula-suggestion="${escapeAttribute(candidate)}"
+        >
+          ${escapeHtml(candidate)}
+        </button>
+      `,
+    )
+    .join("");
+  return { ...autocomplete, selectedIndex };
+}
+
+function hideFormulaAutocomplete() {
+  const popup = document.querySelector("#derivedFormulaAutocomplete");
+  if (!popup) return;
+  popup.hidden = true;
+  popup.innerHTML = "";
+  popup.dataset.selectedIndex = "-1";
+}
+
+function selectedFormulaAutocompleteCandidate() {
+  const popup = document.querySelector("#derivedFormulaAutocomplete");
+  if (!popup || popup.hidden) return "";
+  const selectedIndex = Number(popup.dataset.selectedIndex || "-1");
+  const button = popup.querySelectorAll("[data-formula-suggestion]")[selectedIndex];
+  return button?.dataset.formulaSuggestion || "";
+}
+
+function updateFormulaSuggestionList(input) {
+  renderFormulaAutocomplete(input);
+}
+
+function filterAutocompleteState(input) {
+  if (!input) return { token: "", candidates: [], cursor: 0 };
+  const cursor = input.selectionStart ?? input.value.length;
+  const match = input.value.slice(0, cursor).match(/[A-Za-z_.][A-Za-z0-9_.]*$/);
+  const token = match?.[0] || "";
+  return {
+    token,
+    candidates: token ? filterAutocompleteCandidates(token) : [],
+    cursor,
+  };
+}
+
+function renderFilterAutocomplete(input, requestedIndex = 0) {
+  const popup = document.querySelector("#seasonFilterAutocomplete");
+  if (!popup || !input) return { token: "", candidates: [], selectedIndex: -1 };
+  const autocomplete = filterAutocompleteState(input);
+  if (!autocomplete.token || !autocomplete.candidates.length) {
+    popup.hidden = true;
+    popup.innerHTML = "";
+    popup.dataset.selectedIndex = "-1";
+    return { ...autocomplete, selectedIndex: -1 };
+  }
+  const selectedIndex = Math.max(0, Math.min(autocomplete.candidates.length - 1, requestedIndex));
+  popup.hidden = false;
+  popup.dataset.selectedIndex = String(selectedIndex);
+  popup.innerHTML = autocomplete.candidates
+    .slice(0, 100)
+    .map(
+      (candidate, index) => `
+        <button
+          type="button"
+          class="formula-autocomplete-item ${index === selectedIndex ? "active" : ""}"
+          data-filter-formula-suggestion="${escapeAttribute(candidate)}"
+        >
+          ${escapeHtml(candidate)}
+        </button>
+      `,
+    )
+    .join("");
+  return { ...autocomplete, selectedIndex };
+}
+
+function hideFilterAutocomplete() {
+  const popup = document.querySelector("#seasonFilterAutocomplete");
+  if (!popup) return;
+  popup.hidden = true;
+  popup.innerHTML = "";
+  popup.dataset.selectedIndex = "-1";
+}
+
+function selectedFilterAutocompleteCandidate() {
+  const popup = document.querySelector("#seasonFilterAutocomplete");
+  if (!popup || popup.hidden) return "";
+  const selectedIndex = Number(popup.dataset.selectedIndex || "-1");
+  const button = popup.querySelectorAll("[data-filter-formula-suggestion]")[selectedIndex];
+  return button?.dataset.filterFormulaSuggestion || "";
+}
+
+function replaceFilterToken(input, token, replacement) {
+  const cursor = input.selectionStart ?? input.value.length;
+  const nextValue = `${input.value.slice(0, cursor - token.length)}${replacement}${input.value.slice(cursor)}`;
+  input.value = nextValue;
+  const nextCursor = cursor - token.length + replacement.length;
+  input.setSelectionRange(nextCursor, nextCursor);
+  const definition = activeSeasonFilter();
+  if (definition) updateSeasonFilterFormula(definition.id, nextValue);
+  saveState();
+  requestAnimationFrame(() => {
+    input.focus();
+    input.setSelectionRange(nextCursor, nextCursor);
+  });
+}
+
+function updateFilterSuggestionList(input) {
+  renderFilterAutocomplete(input);
 }
 
 function removePicklist(id) {
@@ -4391,7 +4567,13 @@ function duplicateSortEquation(id) {
 }
 
 function startInlineRename(kind, id) {
-  const collection = kind === "sortEquation" ? state.sortEquations : state.picklists;
+  const collection = kind === "sortEquation"
+    ? state.sortEquations
+    : kind === "derivedEquation"
+      ? currentSeasonEquationList()
+      : kind === "seasonFilter"
+        ? currentSeasonFilterList()
+        : state.picklists;
   const item = collection.find((entry) => entry.id === id);
   if (!item || (kind === "sortEquation" && isProtectedSortEquation(item))) return;
   state.inlineRename = { kind, id, value: item.name };
@@ -4403,6 +4585,8 @@ function commitInlineRename() {
   const { kind, id, value } = state.inlineRename;
   state.inlineRename = null;
   if (kind === "sortEquation") renameSortEquation(id, value);
+  else if (kind === "derivedEquation") renameSeasonEquation(id, value);
+  else if (kind === "seasonFilter") renameSeasonFilter(id, value);
   else renamePicklist(id, value);
 }
 
@@ -4418,6 +4602,14 @@ function handleBuilderKeyboard(event) {
   if (target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) return;
 
   if (event.key === "F2") {
+    if (state.activeView === "derivedBuilder" && state.activeDerivedEquationId) {
+      event.preventDefault();
+      startInlineRename("derivedEquation", state.activeDerivedEquationId);
+    }
+    if (state.activeView === "filterBuilder" && state.activeSeasonFilterId) {
+      event.preventDefault();
+      startInlineRename("seasonFilter", state.activeSeasonFilterId);
+    }
     if (state.activeView === "sortBuilder" && state.activeSortEquation && !isProtectedSortEquation(activeSortEquation())) {
       event.preventDefault();
       startInlineRename("sortEquation", state.activeSortEquation);
@@ -4473,16 +4665,13 @@ function handleBuilderKeyboard(event) {
 }
 
 function bindViewEvents() {
-  const bindDerivedMetricFieldSelect = (selector, assign) => {
-    document.querySelector(selector)?.addEventListener("change", (event) => {
-      state.derivedMetricFieldScrollTops[event.target.id] = event.target.scrollTop;
-      assign(selectedValues(event.target));
-      render();
-      restoreDerivedMetricFieldScroll();
-    });
-  };
   document.querySelector("#metricSelect")?.addEventListener("change", (event) => {
     state.metric = event.target.value;
+    saveState();
+    render();
+  });
+  document.querySelector("#analysisFilterSelect")?.addEventListener("change", (event) => {
+    state.activeAnalysisFilterId = normalizeAnalysisFilterSelection(event.target.value);
     saveState();
     render();
   });
@@ -4510,147 +4699,6 @@ function bindViewEvents() {
     state.scoutingWindow = event.target.value === "recent" ? "recent" : "all";
     saveState();
     render();
-  });
-  document.querySelector("#derivedMetricPreviewTeamSelect")?.addEventListener("change", (event) => {
-    state.derivedMetricPreviewTeam = Number(event.target.value) || currentEvent().teams[0].number;
-    render();
-  });
-  document.querySelector("#derivedMetricScopeType")?.addEventListener("change", (event) => {
-    state.derivedMetricDraft.scopeType = event.target.value === "profile" ? "profile" : "season";
-    state.derivedMetricEditingKey = "";
-    render();
-  });
-  document.querySelector("#applyDerivedMetricPresetButton")?.addEventListener("click", () => {
-    applyDerivedMetricPreset(document.querySelector("#derivedMetricPresetSelect")?.value || "blank");
-  });
-  document.querySelector("#derivedMetricIdInput")?.addEventListener("input", (event) => {
-    state.derivedMetricDraft.id = event.target.value;
-    state.derivedMetricDraft.idManuallyEdited = true;
-  });
-  document.querySelector("#derivedMetricLabelInput")?.addEventListener("input", (event) => {
-    state.derivedMetricDraft.label = event.target.value;
-    if (!state.derivedMetricDraft.idManuallyEdited) {
-      state.derivedMetricDraft.id = generatedMetricId(event.target.value);
-      const idInput = document.querySelector("#derivedMetricIdInput");
-      if (idInput) idInput.value = state.derivedMetricDraft.id;
-    }
-  });
-  document.querySelector("#derivedMetricUnitSelect")?.addEventListener("change", (event) => {
-    state.derivedMetricDraft.unit = event.target.value;
-    render();
-  });
-  document.querySelector("#applyScoringMatrixPresetButton")?.addEventListener("click", () => {
-    applyScoringMatrixPreset(document.querySelector("#derivedMetricScoringMatrixPresetSelect")?.value || "");
-  });
-  document.querySelector("#scoringTableProfileSelect")?.addEventListener("change", (event) => {
-    state.scoringTableProfileId = event.target.value;
-    state.scoringTableStatus = "";
-    saveState();
-    render();
-  });
-  document.querySelector("#deleteScoringTableButton")?.addEventListener("click", () => {
-    deleteScoringTableForProfile(state.scoringTableProfileId);
-  });
-  document.querySelectorAll(".scoring-table-input").forEach((input) => {
-    input.addEventListener("input", () => {
-      saveScoringTableForProfile(state.scoringTableProfileId, collectScoringTableInputValues());
-    });
-    input.addEventListener("keydown", (event) => {
-      const rowIndex = Number(event.target.dataset.scoringRow);
-      if (!Number.isFinite(rowIndex)) return;
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        focusScoringTableInput(rowIndex + 1);
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        focusScoringTableInput(rowIndex - 1);
-      }
-      if (event.key === "Enter") {
-        event.preventDefault();
-        focusScoringTableInput(rowIndex + 1);
-      }
-    });
-  });
-  bindDerivedMetricFieldSelect("#derivedMetricFieldsSelect", (values) => {
-    state.derivedMetricDraft.fields = values;
-  });
-  bindDerivedMetricFieldSelect("#derivedMetricWeightedFieldsSelect", (values) => {
-    setWeightedFieldSelection(values);
-    render();
-  });
-  bindDerivedMetricFieldSelect("#derivedMetricMadeFieldsSelect", (values) => {
-    state.derivedMetricDraft.madeFields = values;
-  });
-  bindDerivedMetricFieldSelect("#derivedMetricMissedFieldsSelect", (values) => {
-    state.derivedMetricDraft.missedFields = values;
-  });
-  bindDerivedMetricFieldSelect("#derivedMetricNumeratorFieldsSelect", (values) => {
-    state.derivedMetricDraft.numeratorFields = values;
-  });
-  bindDerivedMetricFieldSelect("#derivedMetricDenominatorFieldsSelect", (values) => {
-    state.derivedMetricDraft.denominatorFields = values;
-  });
-  bindDerivedMetricFieldSelect("#derivedMetricPresenceFieldsSelect", (values) => {
-    state.derivedMetricDraft.presenceFields = values;
-  });
-  document.querySelectorAll(".derived-weight-input").forEach((input) => {
-    input.addEventListener("input", (event) => {
-      setWeightedFieldWeight(event.target.dataset.weightedField, event.target.value);
-      render();
-    });
-  });
-  document.querySelector("#saveDerivedMetricButton")?.addEventListener("click", () => {
-    saveDerivedMetricDraft();
-  });
-  document.querySelector("#resetDerivedMetricButton")?.addEventListener("click", () => {
-    state.derivedMetricEditingKey = "";
-    state.derivedMetricDraft = createDerivedMetricDraft(currentEvent());
-    render();
-  });
-  document.querySelector("#deleteDerivedMetricButton")?.addEventListener("click", () => {
-    deleteDerivedMetricDraft();
-  });
-  document.querySelectorAll("[data-load-custom-derived]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const [scopeType, scopeKey, metricId] = String(button.dataset.loadCustomDerived).split(":");
-      const definition = derivedMetricConfigScopeDefinitions(scopeType, scopeKey).find((item) => item.id === metricId);
-      if (!definition) return;
-      state.derivedMetricEditingKey = `${scopeType}:${scopeKey}:${metricId}`;
-      setDerivedMetricDraftFromDefinition(scopeType, scopeKey, definition);
-      render();
-    });
-  });
-  document.querySelector("#downloadDerivedMetricConfigButton")?.addEventListener("click", () => {
-    const blob = new Blob([derivedMetricConfigJson()], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `derived-metric-config-${currentEvent().season}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  });
-  document.querySelector("#derivedMetricConfigTextarea")?.addEventListener("input", (event) => {
-    state.derivedMetricConfigEditorText = event.target.value;
-    state.derivedMetricConfigStatus = "";
-  });
-  document.querySelector("#applyDerivedMetricConfigButton")?.addEventListener("click", () => {
-    applyDerivedMetricConfigText(document.querySelector("#derivedMetricConfigTextarea")?.value || "");
-  });
-  document.querySelector("#resetDerivedMetricConfigButton")?.addEventListener("click", () => {
-    syncDerivedMetricConfigEditor("Editor reset to saved config.");
-    render();
-  });
-  document.querySelector("#derivedMetricConfigFileInput")?.addEventListener("change", (event) => {
-    const [file] = Array.from(event.target.files || []);
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      state.derivedMetricConfigEditorText = String(reader.result || "");
-      state.derivedMetricConfigStatus = `Loaded ${file.name}. Apply JSON to save it.`;
-      render();
-    };
-    reader.readAsText(file);
   });
   document.querySelector("#teamSelect")?.addEventListener("change", (event) => {
     state.selectedTeam = Number(event.target.value);
@@ -4817,6 +4865,206 @@ function bindViewEvents() {
     saveState();
     render();
   });
+  document.querySelector("#addDerivedEquationButton")?.addEventListener("click", () => {
+    if (!isAdmin()) return;
+    addSeasonEquation();
+  });
+  document.querySelector("#addSeasonFilterButton")?.addEventListener("click", () => {
+    if (!isAdmin()) return;
+    addSeasonFilter();
+  });
+  document.querySelector("#derivedEquationFormulaInput")?.addEventListener("input", (event) => {
+    const definition = activeDerivedEquation();
+    if (!definition) return;
+    updateSeasonEquationFormula(definition.id, event.target.value);
+    updateFormulaSuggestionList(event.target);
+    saveState();
+  });
+  document.querySelector("#derivedEquationFormulaInput")?.addEventListener("change", () => {
+    saveState();
+    render();
+  });
+  document.querySelector("#derivedEquationFormulaInput")?.addEventListener("focus", (event) => {
+    updateFormulaSuggestionList(event.target);
+  });
+  document.querySelector("#derivedEquationFormulaInput")?.addEventListener("blur", () => {
+    setTimeout(() => hideFormulaAutocomplete(), 0);
+  });
+  document.querySelector("#derivedEquationFormulaInput")?.addEventListener("keydown", (event) => {
+    const input = event.target;
+    const autocomplete = formulaAutocompleteState(input);
+    const selectedIndex = Number(document.querySelector("#derivedFormulaAutocomplete")?.dataset.selectedIndex || "0");
+    if (event.key === "Tab") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!autocomplete.token) {
+        requestAnimationFrame(() => input.focus());
+        return;
+      }
+      const token = autocomplete.token;
+      const candidates = autocomplete.candidates.filter((candidate) => candidate !== token);
+      const replacement = longestSharedPrefix(candidates);
+      if (replacement && replacement !== token) replaceFormulaToken(input, token, replacement);
+      else if (autocomplete.candidates.length === 1 && autocomplete.candidates[0] !== token) replaceFormulaToken(input, token, autocomplete.candidates[0]);
+      else requestAnimationFrame(() => input.focus());
+      requestAnimationFrame(() => updateFormulaSuggestionList(input));
+      return;
+    }
+    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && autocomplete.candidates.length) {
+      event.preventDefault();
+      event.stopPropagation();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      renderFormulaAutocomplete(input, selectedIndex + direction);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      let nextValue = input.value;
+      if (autocomplete.candidates.length) {
+        const replacement = selectedFormulaAutocompleteCandidate() || autocomplete.candidates[0];
+        if (replacement && replacement !== autocomplete.token) {
+          nextValue = `${input.value.slice(0, autocomplete.cursor - autocomplete.token.length)}${replacement}${input.value.slice(autocomplete.cursor)}`;
+          input.value = nextValue;
+          const nextCursor = autocomplete.cursor - autocomplete.token.length + replacement.length;
+          input.setSelectionRange(nextCursor, nextCursor);
+        }
+      }
+      const definition = activeDerivedEquation();
+      if (definition) updateSeasonEquationFormula(definition.id, nextValue);
+      saveState();
+      hideFormulaAutocomplete();
+      render();
+      requestAnimationFrame(() => {
+        const nextInput = document.querySelector("#derivedEquationFormulaInput");
+        if (!nextInput) return;
+        const nextCursor = nextInput.value.length;
+        nextInput.focus();
+        nextInput.setSelectionRange(nextCursor, nextCursor);
+      });
+      return;
+    }
+    requestAnimationFrame(() => updateFormulaSuggestionList(input));
+  });
+  document.querySelectorAll("[data-formula-suggestion]").forEach((button) => {
+    button.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+    });
+    button.addEventListener("click", () => {
+      const input = document.querySelector("#derivedEquationFormulaInput");
+      if (!input) return;
+      const autocomplete = formulaAutocompleteState(input);
+      const replacement = button.dataset.formulaSuggestion || "";
+      if (!autocomplete.token || !replacement) return;
+      replaceFormulaToken(input, autocomplete.token, replacement);
+      requestAnimationFrame(() => updateFormulaSuggestionList(input));
+    });
+  });
+  document.querySelector("#seasonFilterFormulaInput")?.addEventListener("input", (event) => {
+    const definition = activeSeasonFilter();
+    if (!definition) return;
+    updateSeasonFilterFormula(definition.id, event.target.value);
+    updateFilterSuggestionList(event.target);
+    saveState();
+  });
+  document.querySelector("#seasonFilterFormulaInput")?.addEventListener("change", () => {
+    saveState();
+    render();
+  });
+  document.querySelector("#seasonFilterFormulaInput")?.addEventListener("focus", (event) => {
+    updateFilterSuggestionList(event.target);
+  });
+  document.querySelector("#seasonFilterFormulaInput")?.addEventListener("blur", () => {
+    setTimeout(() => hideFilterAutocomplete(), 0);
+  });
+  document.querySelector("#seasonFilterFormulaInput")?.addEventListener("keydown", (event) => {
+    const input = event.target;
+    const autocomplete = filterAutocompleteState(input);
+    const selectedIndex = Number(document.querySelector("#seasonFilterAutocomplete")?.dataset.selectedIndex || "0");
+    if (event.key === "Tab") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!autocomplete.token) {
+        requestAnimationFrame(() => input.focus());
+        return;
+      }
+      const token = autocomplete.token;
+      const candidates = autocomplete.candidates.filter((candidate) => candidate !== token);
+      const replacement = longestSharedPrefix(candidates);
+      if (replacement && replacement !== token) replaceFilterToken(input, token, replacement);
+      else if (autocomplete.candidates.length === 1 && autocomplete.candidates[0] !== token) replaceFilterToken(input, token, autocomplete.candidates[0]);
+      else requestAnimationFrame(() => input.focus());
+      requestAnimationFrame(() => updateFilterSuggestionList(input));
+      return;
+    }
+    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && autocomplete.candidates.length) {
+      event.preventDefault();
+      event.stopPropagation();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      renderFilterAutocomplete(input, selectedIndex + direction);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      let nextValue = input.value;
+      if (autocomplete.candidates.length) {
+        const replacement = selectedFilterAutocompleteCandidate() || autocomplete.candidates[0];
+        if (replacement && replacement !== autocomplete.token) {
+          nextValue = `${input.value.slice(0, autocomplete.cursor - autocomplete.token.length)}${replacement}${input.value.slice(autocomplete.cursor)}`;
+          input.value = nextValue;
+          const nextCursor = autocomplete.cursor - autocomplete.token.length + replacement.length;
+          input.setSelectionRange(nextCursor, nextCursor);
+        }
+      }
+      const definition = activeSeasonFilter();
+      if (definition) updateSeasonFilterFormula(definition.id, nextValue);
+      saveState();
+      hideFilterAutocomplete();
+      render();
+      requestAnimationFrame(() => {
+        const nextInput = document.querySelector("#seasonFilterFormulaInput");
+        if (!nextInput) return;
+        const nextCursor = nextInput.value.length;
+        nextInput.focus();
+        nextInput.setSelectionRange(nextCursor, nextCursor);
+      });
+      return;
+    }
+    requestAnimationFrame(() => updateFilterSuggestionList(input));
+  });
+  document.querySelectorAll("[data-filter-formula-suggestion]").forEach((button) => {
+    button.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+    });
+    button.addEventListener("click", () => {
+      const input = document.querySelector("#seasonFilterFormulaInput");
+      if (!input) return;
+      const autocomplete = filterAutocompleteState(input);
+      const replacement = button.dataset.filterFormulaSuggestion || "";
+      if (!autocomplete.token || !replacement) return;
+      replaceFilterToken(input, autocomplete.token, replacement);
+      requestAnimationFrame(() => updateFilterSuggestionList(input));
+    });
+  });
+  document.querySelector("#downloadSeasonDerivedEquationsButton")?.addEventListener("click", () => {
+    const blob = new Blob([seasonDerivedEquationsSourceText()], { type: "text/javascript;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `season-derived-equations-${currentEvent().season}.js`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  });
+  document.querySelector("#downloadSeasonFiltersButton")?.addEventListener("click", () => {
+    const blob = new Blob([seasonFiltersSourceText()], { type: "text/javascript;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `season-filters-${currentEvent().season}.js`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  });
   document.querySelectorAll("[data-entity-row]").forEach((row) => {
     row.addEventListener("click", () => {
       const kind = row.dataset.entityKind;
@@ -4824,6 +5072,10 @@ function bindViewEvents() {
       if (kind === "sortEquation") {
         state.activeSortEquation = id;
         state.builderFocus.sortBuilder = "list";
+      } else if (kind === "derivedEquation") {
+        state.activeDerivedEquationId = id;
+      } else if (kind === "seasonFilter") {
+        state.activeSeasonFilterId = id;
       } else {
         state.activePicklist = id;
         state.builderFocus.picklistBuilder = "list";
@@ -4858,6 +5110,12 @@ function bindViewEvents() {
       if (kind === "sortEquation") {
         if (draggedId === protectedEpaSortId || row.dataset.entityId === protectedEpaSortId) return;
         state.sortEquations = moveItemBefore(state.sortEquations, state.sortEquations.find((item) => item.id === draggedId), state.sortEquations.find((item) => item.id === row.dataset.entityId));
+      } else if (kind === "derivedEquation") {
+        const moved = moveItemBefore(currentSeasonEquationList(), currentSeasonEquationList().find((item) => item.id === draggedId), currentSeasonEquationList().find((item) => item.id === row.dataset.entityId));
+        updateSeasonEquationList(moved.map((item, index) => ({ ...item, sourceOrder: index })));
+      } else if (kind === "seasonFilter") {
+        const moved = moveItemBefore(currentSeasonFilterList(), currentSeasonFilterList().find((item) => item.id === draggedId), currentSeasonFilterList().find((item) => item.id === row.dataset.entityId));
+        updateSeasonFilterList(moved.map((item, index) => ({ ...item, sourceOrder: index })));
       } else {
         state.picklists = moveItemBefore(state.picklists, state.picklists.find((item) => item.id === draggedId), state.picklists.find((item) => item.id === row.dataset.entityId));
       }
@@ -4868,6 +5126,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-context-rename]").forEach((button) => {
     button.addEventListener("click", () => {
       const [kind, id] = button.dataset.contextRename.split(":");
+      state.contextMenu = null;
       startInlineRename(kind, id);
     });
   });
@@ -4878,12 +5137,16 @@ function bindViewEvents() {
     button.addEventListener("click", () => {
       if (!isAdmin()) return;
       const [kind, id] = button.dataset.contextDelete.split(":");
-      const collection = kind === "sortEquation" ? state.sortEquations : state.picklists;
+      state.contextMenu = null;
+      render();
+      const collection = kind === "sortEquation" ? state.sortEquations : kind === "derivedEquation" ? currentSeasonEquationList() : kind === "seasonFilter" ? currentSeasonFilterList() : state.picklists;
       const item = collection.find((entry) => entry.id === id);
       if (!item) return;
-      const label = kind === "sortEquation" ? "sort equation" : "picklist";
+      const label = kind === "sortEquation" ? "sort equation" : kind === "derivedEquation" ? "derived equation" : kind === "seasonFilter" ? "season filter" : "picklist";
       if (!confirm(`Remove ${label} "${item.name}"? This cannot be undone.`)) return;
       if (kind === "sortEquation") removeSortEquation(id);
+      else if (kind === "derivedEquation") removeSeasonEquation(id);
+      else if (kind === "seasonFilter") removeSeasonFilter(id);
       else removePicklist(id);
     });
   });
@@ -4943,6 +5206,14 @@ function bindViewEvents() {
       render();
     });
   });
+  document.querySelectorAll(".derived-grid-column-body").forEach((column) => {
+    column.addEventListener("scroll", () => {
+      const scrollTop = column.scrollTop;
+      document.querySelectorAll(".derived-grid-column-body").forEach((other) => {
+        if (other !== column && Math.abs(other.scrollTop - scrollTop) > 1) other.scrollTop = scrollTop;
+      });
+    });
+  });
   document.querySelectorAll("[data-copy-grid-column]").forEach((button) => {
     button.addEventListener("click", () => {
       const column = gridColumnModel(state.picklistColumns[Number(button.dataset.copyGridColumn)]);
@@ -4994,11 +5265,6 @@ function bindViewEvents() {
   });
   document.querySelector("#importSourceUrl")?.addEventListener("input", (event) => {
     state.importSourceUrl = event.target.value;
-  });
-  document.querySelector("#recentMatchCountInput")?.addEventListener("change", (event) => {
-    state.recentMatchCount = Math.max(1, Math.min(12, Number(event.target.value) || currentRecentMatchCount()));
-    saveState();
-    render();
   });
   document.querySelector("#importCsvInput")?.addEventListener("input", (event) => {
     state.importCsvText = event.target.value;

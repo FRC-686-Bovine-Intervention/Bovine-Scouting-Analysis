@@ -132,16 +132,6 @@ function buildCanonicalImportCsv(eventModel, records) {
   return toCsvText([metadataRow, valueRow, [], headerRow, ...dataRows]);
 }
 
-function parse2025TeamDescriptor(value) {
-  const [alliance = "", station = "", teamNumber = "", ...nameParts] = String(value || "").split(",");
-  return {
-    alliance: alliance.trim().toLowerCase(),
-    station: station.trim(),
-    teamNumber: Number(teamNumber),
-    name: nameParts.join(",").trim(),
-  };
-}
-
 function reefscape2025Count(row, headerIndex, header) {
   return numericValue(eventSheetCell(row, headerIndex, header));
 }
@@ -162,9 +152,7 @@ function adapt2025SheetCsv(eventModel, csvText) {
   const headers = rows[0] || [];
   const headerIndex = eventSheetHeaderMap(headers);
   const records = rows.slice(1).filter((row) => row.some((cell) => cell)).map((row) => {
-    const team = parse2025TeamDescriptor(eventSheetCell(row, headerIndex, "Team"));
     const autoPoints =
-      reefscape2025Count(row, headerIndex, "Auto-L4Make") * 7 +
       reefscape2025Count(row, headerIndex, "Auto-L3Make") * 6 +
       reefscape2025Count(row, headerIndex, "Auto-L2Make") * 4 +
       reefscape2025Count(row, headerIndex, "Auto-TroughMake") * 3 +
@@ -179,12 +167,21 @@ function adapt2025SheetCsv(eventModel, csvText) {
       reefscape2025Count(row, headerIndex, "Tele-Op-ScoredProcessorMake") * 6 +
       reefscape2025Count(row, headerIndex, "Tele-Op-ScoredBargeMake") * 4;
     const climbPoints = reefscape2025ClimbPoints(eventSheetCell(row, headerIndex, "Climbing"));
+    const alliance = String(
+      eventSheetCell(row, headerIndex, "Alliiance") ||
+      eventSheetCell(row, headerIndex, "Alliance") ||
+      eventSheetCell(row, headerIndex, "Alliance Color"),
+    ).trim().toLowerCase();
+    const stationValue = numericValue(
+      eventSheetCell(row, headerIndex, "Alliance Index") ||
+      eventSheetCell(row, headerIndex, "AllianceIndex"),
+    );
     return {
       matchNumber: numericValue(eventSheetCell(row, headerIndex, "MatchNumber")),
-      teamNumber: team.teamNumber,
+      teamNumber: numericValue(eventSheetCell(row, headerIndex, "Team Number")),
       scoutUser: eventSheetCell(row, headerIndex, "ScouterName") || "Imported Sheet",
-      alliance: team.alliance || "unknown",
-      station: team.station || String(numericValue(eventSheetCell(row, headerIndex, "StartingPosition")) || "sheet"),
+      alliance: alliance || "unknown",
+      station: stationValue ? String(stationValue) : "sheet",
       defensePlayed: numericValue(eventSheetCell(row, headerIndex, "DidTheyPLAYDefense?HowEffective?")) > 0,
       robotStatus: "ok",
       notes: eventSheetCell(row, headerIndex, "Notes"),
@@ -193,8 +190,8 @@ function adapt2025SheetCsv(eventModel, csvText) {
         coral: coralPoints,
         algae: algaePoints,
         climb: climbPoints,
-        autoL4Made: reefscape2025Count(row, headerIndex, "Auto-L4Make"),
-        autoL4Missed: reefscape2025Count(row, headerIndex, "Auto-L4Miss"),
+        autoL4Made: 0,
+        autoL4Missed: 0,
         autoL3Made: reefscape2025Count(row, headerIndex, "Auto-L3Make"),
         autoL3Missed: reefscape2025Count(row, headerIndex, "Auto-L3Miss"),
         autoL2Made: reefscape2025Count(row, headerIndex, "Auto-L2Make"),
@@ -222,6 +219,7 @@ function adapt2025SheetCsv(eventModel, csvText) {
         teleBargeMade: reefscape2025Count(row, headerIndex, "Tele-Op-ScoredBargeMake"),
         teleBargeMissed: reefscape2025Count(row, headerIndex, "Tele-Op-ScoredBargeMiss"),
         climbLevel: numericValue(eventSheetCell(row, headerIndex, "Climbing")),
+        climbAttempt: truthyValue(eventSheetCell(row, headerIndex, "Climb Attempt")) ? 1 : numericValue(eventSheetCell(row, headerIndex, "Climb Attempt")),
         driverPerformance: numericValue(eventSheetCell(row, headerIndex, "DriverPerformance")),
         playedDefenseRating: numericValue(eventSheetCell(row, headerIndex, "DidTheyPLAYDefense?HowEffective?")),
         defenseOnThemRating: numericValue(eventSheetCell(row, headerIndex, "WasDefensePlayedONThem?HowEffective?")),
