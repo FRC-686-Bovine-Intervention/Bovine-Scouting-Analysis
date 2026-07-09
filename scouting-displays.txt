@@ -1,0 +1,172 @@
+This document describes the 2024, 2025, 2026 scouting spreadsheets and how we'd hope to visualize them in the Scouting Analysis app.  Importantly, we'd like to build a framework that can extend this to future games with as little friction as possible.  One question is whether it is worth putting time into teaching the app how to perform these calculations, or whether we should perform the point summations and derived data within a spreadsheet and just have the app read from that data.
+
+The format of our scouting data has changed from year to year.  So another question is whether we can create a flexible framework that is extensible for future games that would make it easier to import into the scouting analysis app (preferrably no changes to the scouting analysis app at all)
+
+Blanks in scouting data indicate the event didn't occur (equivalent of false, no or zero)
+
+Terms:
+Displayable metric: a metric that would appear in the drop-down menu for the Team Detail plot, Analysis plot, Sort Builder, Team Detail Comparison, etc.
+Badge: badge that appears on team list, pick lists, etc. for that team
+
+2024 Scouting Data Displayable Metrics
+Starting location - would like to display the % at each location, or display as a histogram
+Auto scoring speaker score/miss - displayable metrics
+Auto scoring amp score/miss - displayable metrics
+# fouls - displayable metric.  Apply warning badge if total is in the top (configurable) % of teams
+# tech fouls - displayable metric.  Apply warning badge if total is in the top (configurable) % of teams
+Note that #fouls and tech fouls show up in both auto and teleop sections.
+Teleop scoring -- same as Auto scoring
+Climb? -- count towards endgame if successful .
+Scored trap? -- count towards endgame is successful
+Harmony? -- count towards endgame is successful
+Driver performance
+Defense played on robot -- assign numerical value
+Defense effectivity - assign numerical value
+Robot broken? -- if true, triggers a badge until the next match they score in without being noted as broken
+Played defence - assign numerical value
+Auto/teleop passes
+Center line pickup attempt/successful
+Successful exit starting line -- redundant with auto leave from TBA.  Use TBA
+Other notes -- not a metric.  Display all notes on Team page, and team comparison page.  Prefix each note with the match it occurred in
+
+Displayable metrics that are not scouted, but rather pulled from TBA
+Auto leave - Include in Auto total
+Cooperetition criteria met 
+Ranking point bonuses (Melody, Ensemble)
+Ranking Points
+
+Derived values:
+Auto/teleop/endgame totals: sum points made during auto/teleop/endgame (requires knowledge of points per scoring event and the components of auto/teleop/endgame scoring)
+% accuracy for all metrics with score/miss values
+Auto leave % successful
+Climb total attempts, % successful
+Trap total attempts, % successful
+Harmony total attempts, % successful
+Ranking point average over all matches
+Ranking point bonus % successful
+Driver performance average
+Center line pickup % success
+
+
+
+2025 Scouting Data Displayable Metrics
+StartingPosition	- would like to display the % at each location, or display as a histogram
+Auto-L4Make	        
+Auto-L4Miss	
+Auto-L3Make	
+Auto-L3Miss	
+Auto-L2Make	
+Auto-L2Miss	
+Auto-TroughMake	
+Auto-TroughMiss	
+Auto-RemovedAlgaeMake	
+Auto-RemovedAlgaeMiss	
+Auto-ScoredProcessorMake	
+Auto-ScoredProcessorMiss	
+Auto-ScoredBargeMake	
+Auto-ScoredBargeMiss	
+Tele-Op-L4Make	
+Tele-Op-L4Miss	
+Tele-Op-L3Make	
+Tele-Op-L3Miss	
+Tele-Op-L2Make	
+Tele-Op-L2Miss	
+Tele-Op-TroughMake	
+Tele-Op-TroughMiss	
+Tele-Op-RemovedAlgaeMake	
+Tele-Op-RemovedAlgaeMiss	
+Tele-Op-ScoredProcessorMake	
+Tele-Op-ScoredProcessorMiss	
+Tele-Op-ScoredBargeMake	
+Tele-Op-ScoredBargeMiss	
+Climbing	
+DriverPerformance	 - same as 2024
+DidTheyPLAYDefense?HowEffective?	- same as 2024
+WasDefensePlayedONThem?HowEffective?	- same as 2024
+Notes	- same as 2024
+ScouterName - only important when checking data quality.  Some scouters may consistently do a poor job of scouting
+
+Derived:
+% success for all Trough, L2, L3, L4, algae removal, processor, barge scoring attmpts in auto and teleop
+Total auto/teleop/endgame
+Climbing points
+% successful climbs
+Total Coral, Algae, Endgame points
+
+Displayable metrics that are not scouted, but rather pulled from TBA
+Auto leave - Include in Auto total
+Cooperetition criteria met 
+Ranking point bonuses (Auto, Coral, Barge)
+Ranking Points
+
+
+
+2026 Scouting Data Displayable Metrics
+Shifts Auto Primary Role	
+Shifts Auto Secondary Role	
+Shifts Auto Fuel Pct	
+Shifts Auto Starting Position	
+Shifts Auto Climb	
+Shifts Transition Primary Role	
+Shifts Transition Secondary Role	
+Shifts Transition Fuel Pct	
+Shifts Transition Defense On	
+Shifts Shift1 Primary Role	
+Shifts Shift1 Secondary Role	
+Shifts Shift1 Fuel Pct	
+Shifts Shift1 Defense On	
+Shifts Shift2 Primary Role	
+Shifts Shift2 Secondary Role	
+Shifts Shift2 Fuel Pct	
+Shifts Shift2 Defense On	
+Shifts Shift3 Primary Role	
+Shifts Shift3 Secondary Role	
+Shifts Shift3 Fuel Pct	
+Shifts Shift3 Defense On	
+Shifts Shift4 Primary Role	
+Shifts Shift4 Secondary Role	
+Shifts Shift4 Fuel Pct	
+Shifts Shift4 Defense On	
+Shifts Endgame Primary Role	
+Shifts Endgame Secondary Role	
+Shifts Endgame Fuel Pct	
+Shifts Endgame Defense On	
+Shifts Endgame Climb	 
+Id	    - ignore
+Hash	  - ignore
+V	- ignore
+Alliance	- ignore
+Createdat	- ignore
+Event Key	- ignore
+Match Key	- ignore
+Match Number		- self explanatory
+No Show	- flag with badge until next match where they show up
+Overall Shooter	
+Overall Passer	
+Overall Intake	
+Overall Driver	
+Overall Defense Avoidance	
+Overall Defense	
+Overall Notes	- same as 2024
+Scouter	 - same as 2025
+Team Number	- self explanatory
+Updatedat - ignore
+
+Derived Metrics
+% of each primary & secondary Role at each shift (Auto, Transition, Shifts 1-4, Endgame)
+% at each starting position
+% successful climbs in auto and Endgame
+average climb score in auto and endgame
+average values of all "overall" ScoredProcessorMake
+
+Displayable metrics that are not scouted, but rather pulled from TBA
+Auto tower - Include in Auto total
+Ranking point bonuses (Energized, Supercharged, Traversal)
+Ranking Points
+
+give Defense badge to top (configurable) % of teams that play effective defense
+give DefenseAvoidance badge to top (configurable) % of teams that play well against defense
+
+In 2026, climbing wasn't typically a factor in games, so we didn't scout into
+
+In 2026, counting individual fuel scored by each team was impractical, so we had the scouters estimate the percentage of fuel scored by their team in for each shift.  We would normalize the data from all scouters watching a give alliance so that the total percentage was 100%

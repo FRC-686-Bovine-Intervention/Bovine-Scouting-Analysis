@@ -1,0 +1,168 @@
+[
+  {
+    "name": "2024 sheet comparison sample",
+    "season": 2024,
+    "sheetTab": "ManualComparison",
+    "teamNumber": 686,
+    "tolerance": 0.001,
+    "baseTeam": {
+      "flags": [],
+      "matches": [7],
+      "sources": {},
+      "derived": {}
+    },
+    "submissions": [
+      {
+        "teamNumber": 686,
+        "matchNumber": 1,
+        "validity": "valid",
+        "defensePlayed": false,
+        "confidenceReasons": [],
+        "rawMetrics": {
+          "auto": 1,
+          "speaker": 2,
+          "amp": 4,
+          "trap": 0,
+          "autoSpeakerMade": 1,
+          "autoSpeakerMissed": 0,
+          "autoAmpMade": 0,
+          "autoAmpMissed": 0,
+          "teleSpeakerMade": 2,
+          "teleSpeakerMissed": 0,
+          "teleAmpMade": 4,
+          "teleAmpMissed": 0,
+          "driverPerformance": 0,
+          "playedDefenseRating": 0,
+          "defenseOnThemRating": 0,
+          "climbSuccess": 0,
+          "trapSuccess": 0,
+          "harmonySuccess": 0
+        }
+      }
+    ],
+    "expectedMetrics": {
+      "source:scouter:total": 7,
+      "derived:autoSpeakerAccuracy": 100,
+      "derived:teleSpeakerAccuracy": 100,
+      "derived:teleAmpAccuracy": 100
+    },
+    "provenance": "fixture-sheet"
+  },
+  {
+    "name": "2025 sheet comparison sample",
+    "season": 2025,
+    "sheetTab": "TeamCalculaitons",
+    "teamNumber": 9072,
+    "tolerance": 0.001,
+    "baseTeam": {
+      "flags": [],
+      "matches": [34],
+      "sources": {},
+      "derived": {}
+    },
+    "submissions": [
+      {
+        "teamNumber": 9072,
+        "matchNumber": 2,
+        "validity": "valid",
+        "defensePlayed": false,
+        "confidenceReasons": [],
+        "rawMetrics": {
+          "auto": 7,
+          "coral": 25,
+          "algae": 0,
+          "climb": 2,
+          "autoL4Made": 1,
+          "autoL4Missed": 0,
+          "autoL3Made": 0,
+          "autoL3Missed": 0,
+          "autoL2Made": 0,
+          "autoL2Missed": 0,
+          "autoTroughMade": 0,
+          "autoTroughMissed": 0,
+          "autoRemovedAlgaeMade": 0,
+          "autoRemovedAlgaeMissed": 0,
+          "autoProcessorMade": 0,
+          "autoProcessorMissed": 0,
+          "autoBargeMade": 0,
+          "autoBargeMissed": 0,
+          "teleL4Made": 5,
+          "teleL4Missed": 1,
+          "teleL3Made": 0,
+          "teleL3Missed": 0,
+          "teleL2Made": 0,
+          "teleL2Missed": 0,
+          "teleTroughMade": 0,
+          "teleTroughMissed": 0,
+          "teleRemovedAlgaeMade": 0,
+          "teleRemovedAlgaeMissed": 0,
+          "teleProcessorMade": 0,
+          "teleProcessorMissed": 0,
+          "teleBargeMade": 0,
+          "teleBargeMissed": 0,
+          "climbLevel": 1,
+          "driverPerformance": 3,
+          "playedDefenseRating": 0,
+          "defenseOnThemRating": 0
+        }
+      }
+    ],
+    "expectedMetrics": {
+      "source:scouter:total": 34,
+      "derived:teleopTotal": 25,
+      "derived:autoL4Accuracy": 100,
+      "derived:teleL4Accuracy": 83,
+      "derived:driverPerformanceAvg": 3
+    },
+    "provenance": "fixture-sheet"
+  },
+  {
+    "name": "2026 sheet comparison sample",
+    "season": 2026,
+    "sheetTab": "TeamCalculaitons",
+    "teamNumber": 3939,
+    "tolerance": 0.001,
+    "baseTeam": {
+      "flags": [],
+      "matches": [240],
+      "sources": {},
+      "derived": {}
+    },
+    "submissions": [
+      {
+        "teamNumber": 3939,
+        "matchNumber": 93,
+        "validity": "valid",
+        "defensePlayed": false,
+        "confidenceReasons": [],
+        "rawMetrics": {
+          "auto": 40,
+          "cycle": 160,
+          "endgame": 40,
+          "autoFuelPct": 40,
+          "transitionFuelPct": 20,
+          "shift1FuelPct": 30,
+          "shift2FuelPct": 30,
+          "shift3FuelPct": 40,
+          "shift4FuelPct": 40,
+          "endgameFuelPct": 40,
+          "overallShooter": 3,
+          "overallPasser": 0,
+          "overallIntake": 3,
+          "overallDriver": 3,
+          "overallDefenseAvoidance": 0,
+          "overallDefense": 0,
+          "noShow": 0
+        }
+      }
+    ],
+    "expectedMetrics": {
+      "source:scouter:total": 240,
+      "derived:fuelContributionAvg": 34,
+      "derived:overallShooterAvg": 3,
+      "derived:overallIntakeAvg": 3,
+      "derived:overallDriverAvg": 3
+    },
+    "provenance": "fixture-sheet"
+  }
+]

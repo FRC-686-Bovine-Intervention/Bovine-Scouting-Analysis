@@ -1,0 +1,281 @@
+[
+  {
+    "season": 2024,
+    "teamNumber": 111,
+    "baseTeam": {
+      "flags": [],
+      "matches": [28, 30],
+      "sources": {},
+      "derived": {}
+    },
+    "submissions": [
+      {
+        "teamNumber": 111,
+        "matchNumber": 1,
+        "validity": "valid",
+        "defensePlayed": true,
+        "confidenceReasons": [],
+        "rawMetrics": {
+          "auto": 6,
+          "speaker": 20,
+          "amp": 4,
+          "trap": 0,
+          "autoSpeakerMade": 2,
+          "autoSpeakerMissed": 0,
+          "autoAmpMade": 1,
+          "autoAmpMissed": 1,
+          "teleSpeakerMade": 5,
+          "teleSpeakerMissed": 3,
+          "teleAmpMade": 2,
+          "teleAmpMissed": 0,
+          "driverPerformance": 3,
+          "playedDefenseRating": 1,
+          "defenseOnThemRating": 2,
+          "climbSuccess": 1,
+          "trapSuccess": 0,
+          "harmonySuccess": 0
+        }
+      },
+      {
+        "teamNumber": 111,
+        "matchNumber": 2,
+        "validity": "valid",
+        "defensePlayed": false,
+        "confidenceReasons": [],
+        "rawMetrics": {
+          "auto": 0,
+          "speaker": 15,
+          "amp": 6,
+          "trap": 5,
+          "autoSpeakerMade": 4,
+          "autoSpeakerMissed": 2,
+          "autoAmpMade": 0,
+          "autoAmpMissed": 0,
+          "teleSpeakerMade": 7,
+          "teleSpeakerMissed": 1,
+          "teleAmpMade": 1,
+          "teleAmpMissed": 1,
+          "driverPerformance": 5,
+          "playedDefenseRating": 2,
+          "defenseOnThemRating": 4,
+          "climbSuccess": 1,
+          "trapSuccess": 1,
+          "harmonySuccess": 1
+        }
+      }
+    ],
+    "expected": {
+      "scouterTotal": 28,
+      "confidenceTier": "medium",
+      "derived": {
+        "autoSpeakerAccuracy": 75,
+        "autoAmpAccuracy": 50,
+        "teleSpeakerAccuracy": 75,
+        "teleAmpAccuracy": 75,
+        "driverPerformanceAvg": 4,
+        "playedDefenseAvg": 1.5,
+        "defenseOnThemAvg": 3
+      }
+    }
+  },
+  {
+    "season": 2025,
+    "teamNumber": 222,
+    "baseTeam": {
+      "flags": [],
+      "matches": [51, 82],
+      "sources": {},
+      "derived": {}
+    },
+    "submissions": [
+      {
+        "teamNumber": 222,
+        "matchNumber": 1,
+        "validity": "valid",
+        "defensePlayed": true,
+        "confidenceReasons": [],
+        "rawMetrics": {
+          "auto": 10,
+          "coral": 30,
+          "algae": 5,
+          "climb": 6,
+          "autoL4Made": 1,
+          "autoL4Missed": 1,
+          "autoL3Made": 0,
+          "autoL3Missed": 1,
+          "autoL2Made": 2,
+          "autoL2Missed": 0,
+          "autoTroughMade": 1,
+          "autoTroughMissed": 1,
+          "autoRemovedAlgaeMade": 1,
+          "autoRemovedAlgaeMissed": 0,
+          "autoProcessorMade": 1,
+          "autoProcessorMissed": 0,
+          "autoBargeMade": 0,
+          "autoBargeMissed": 1,
+          "teleL4Made": 2,
+          "teleL4Missed": 2,
+          "teleL3Made": 4,
+          "teleL3Missed": 0,
+          "teleL2Made": 1,
+          "teleL2Missed": 1,
+          "teleTroughMade": 3,
+          "teleTroughMissed": 0,
+          "teleRemovedAlgaeMade": 1,
+          "teleRemovedAlgaeMissed": 1,
+          "teleProcessorMade": 1,
+          "teleProcessorMissed": 1,
+          "teleBargeMade": 1,
+          "teleBargeMissed": 1,
+          "climbLevel": 2,
+          "driverPerformance": 3,
+          "playedDefenseRating": 2,
+          "defenseOnThemRating": 1
+        }
+      },
+      {
+        "teamNumber": 222,
+        "matchNumber": 2,
+        "validity": "valid",
+        "defensePlayed": false,
+        "confidenceReasons": [],
+        "rawMetrics": {
+          "auto": 20,
+          "coral": 40,
+          "algae": 10,
+          "climb": 12,
+          "autoL4Made": 3,
+          "autoL4Missed": 0,
+          "autoL3Made": 2,
+          "autoL3Missed": 0,
+          "autoL2Made": 0,
+          "autoL2Missed": 2,
+          "autoTroughMade": 2,
+          "autoTroughMissed": 0,
+          "autoRemovedAlgaeMade": 0,
+          "autoRemovedAlgaeMissed": 1,
+          "autoProcessorMade": 0,
+          "autoProcessorMissed": 0,
+          "autoBargeMade": 1,
+          "autoBargeMissed": 0,
+          "teleL4Made": 4,
+          "teleL4Missed": 0,
+          "teleL3Made": 6,
+          "teleL3Missed": 2,
+          "teleL2Made": 2,
+          "teleL2Missed": 0,
+          "teleTroughMade": 1,
+          "teleTroughMissed": 1,
+          "teleRemovedAlgaeMade": 0,
+          "teleRemovedAlgaeMissed": 0,
+          "teleProcessorMade": 2,
+          "teleProcessorMissed": 0,
+          "teleBargeMade": 0,
+          "teleBargeMissed": 0,
+          "climbLevel": 4,
+          "driverPerformance": 5,
+          "playedDefenseRating": 0,
+          "defenseOnThemRating": 3
+        }
+      }
+    ],
+    "expected": {
+      "scouterTotal": 66.5,
+      "confidenceTier": "medium",
+      "derived": {
+        "teleopTotal": 42.5,
+        "endgameTotal": 9,
+        "autoL4Accuracy": 80,
+        "autoL3Accuracy": 67,
+        "autoL2Accuracy": 50,
+        "autoTroughAccuracy": 75,
+        "teleL4Accuracy": 75,
+        "teleL3Accuracy": 83,
+        "teleL2Accuracy": 75,
+        "teleTroughAccuracy": 80,
+        "processorAccuracy": 80,
+        "bargeAccuracy": 50,
+        "driverPerformanceAvg": 4,
+        "playedDefenseAvg": 1,
+        "defenseOnThemAvg": 2
+      }
+    }
+  },
+  {
+    "season": 2026,
+    "teamNumber": 333,
+    "baseTeam": {
+      "flags": [],
+      "matches": [120, 150],
+      "sources": {},
+      "derived": {}
+    },
+    "submissions": [
+      {
+        "teamNumber": 333,
+        "matchNumber": 1,
+        "validity": "valid",
+        "defensePlayed": false,
+        "confidenceReasons": [],
+        "rawMetrics": {
+          "auto": 20,
+          "cycle": 70,
+          "endgame": 30,
+          "autoFuelPct": 10,
+          "transitionFuelPct": 20,
+          "shift1FuelPct": 30,
+          "shift2FuelPct": 40,
+          "shift3FuelPct": 50,
+          "shift4FuelPct": 60,
+          "endgameFuelPct": 70,
+          "overallShooter": 3,
+          "overallPasser": 2,
+          "overallIntake": 4,
+          "overallDriver": 4,
+          "overallDefenseAvoidance": 5,
+          "overallDefense": 1,
+          "noShow": 0
+        }
+      },
+      {
+        "teamNumber": 333,
+        "matchNumber": 2,
+        "validity": "valid",
+        "defensePlayed": true,
+        "confidenceReasons": [],
+        "rawMetrics": {
+          "auto": 30,
+          "cycle": 80,
+          "endgame": 40,
+          "autoFuelPct": 20,
+          "transitionFuelPct": 30,
+          "shift1FuelPct": 40,
+          "shift2FuelPct": 50,
+          "shift3FuelPct": 60,
+          "shift4FuelPct": 70,
+          "endgameFuelPct": 80,
+          "overallShooter": 5,
+          "overallPasser": 4,
+          "overallIntake": 2,
+          "overallDriver": 4,
+          "overallDefenseAvoidance": 3,
+          "overallDefense": 5,
+          "noShow": 0
+        }
+      }
+    ],
+    "expected": {
+      "scouterTotal": 135,
+      "confidenceTier": "medium",
+      "derived": {
+        "fuelContributionAvg": 45,
+        "overallShooterAvg": 4,
+        "overallPasserAvg": 3,
+        "overallIntakeAvg": 3,
+        "overallDriverAvg": 4,
+        "overallDefenseAvoidanceAvg": 4,
+        "overallDefenseAvg": 3
+      }
+    }
+  }
+]

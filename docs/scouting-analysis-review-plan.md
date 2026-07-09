@@ -26,6 +26,13 @@ The system should be season-adaptable. Game-specific scoring components are conf
 - All imports and syncs record provenance, timestamps, validation status, and source metadata.
 - Derived metrics recompute after imports/syncs, including summaries, trends, consistency, broken-robot signals, defensive impact, and data-quality flags.
 
+## Season Abstraction Strategy
+- Treat each event as belonging to a season definition that describes only the scoring components available that year.
+- Store external and scouter statistics as generic `source -> total + components` data rather than hard-coded per-season fields.
+- Keep derived metrics such as consistency and defensive impact outside the season scoring schema so they can be reused every year.
+- Seed and validate the framework with event catalogs from 2024 onward.
+- Future seasons may use generic placeholder components until a real game breakdown is known; the UI and criteria builder should still function.
+
 ## Key Data Concepts
 - `User`
 - `Event`
