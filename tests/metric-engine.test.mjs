@@ -155,6 +155,91 @@ runTest("sum aggregates recent match-level values", () => {
   assert.equal(result.value, 12);
 });
 
+runTest("average supports an optional inline filter expression", () => {
+  const result = metricEngine.evaluateFormulaExpression("average(scouting.teleL3Made, scouting.climbAttempt > 0)", {
+    recentEntryCount: 3,
+    resolveIdentifier(identifier) {
+      if (identifier === "scouting.teleL3Made") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 2 },
+          { key: 2, value: 4 },
+          { key: 3, value: 8 },
+        ]);
+      }
+      if (identifier === "scouting.climbAttempt") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 0 },
+          { key: 2, value: 1 },
+          { key: 3, value: 1 },
+        ]);
+      }
+      return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+    },
+  });
+
+  assert.equal(result.granularity, "event");
+  assert.equal(result.value, 6);
+});
+
+runTest("sum supports an optional inline filter expression", () => {
+  const result = metricEngine.evaluateFormulaExpression("sum(scouting.teleL3Made, scouting.climbAttempt > 0)", {
+    recentEntryCount: 3,
+    resolveIdentifier(identifier) {
+      if (identifier === "scouting.teleL3Made") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 2 },
+          { key: 2, value: 4 },
+          { key: 3, value: 8 },
+        ]);
+      }
+      if (identifier === "scouting.climbAttempt") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 0 },
+          { key: 2, value: 1 },
+          { key: 3, value: 1 },
+        ]);
+      }
+      return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+    },
+  });
+
+  assert.equal(result.granularity, "event");
+  assert.equal(result.value, 12);
+});
+
+runTest("averageOverAttempts supports an optional inline filter expression", () => {
+  const result = metricEngine.evaluateFormulaExpression("averageOverAttempts(tba.climbScore, scouting.climbAttempt, scouting.deepClimb > 0)", {
+    recentEntryCount: 3,
+    resolveIdentifier(identifier) {
+      if (identifier === "tba.climbScore") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 2 },
+          { key: 2, value: 6 },
+          { key: 3, value: 12 },
+        ]);
+      }
+      if (identifier === "scouting.climbAttempt") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 1 },
+          { key: 2, value: 1 },
+          { key: 3, value: 1 },
+        ]);
+      }
+      if (identifier === "scouting.deepClimb") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 0 },
+          { key: 2, value: 0 },
+          { key: 3, value: 1 },
+        ]);
+      }
+      return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+    },
+  });
+
+  assert.equal(result.granularity, "event");
+  assert.equal(result.value, 12);
+});
+
 runTest("evaluateFormulaExpression supports comparison operators for match-level filters", () => {
   const result = metricEngine.evaluateFormulaExpression("scouting.climbAttempt > 0", {
     resolveIdentifier(identifier) {
@@ -220,6 +305,95 @@ runTest("evaluateFormulaExpression supports boolean composition for filters", ()
       { key: 3, value: 1 },
     ],
   );
+});
+
+runTest("evaluateFormulaExpression supports symbolic boolean operators with precedence", () => {
+  const result = metricEngine.evaluateFormulaExpression("!(tba.climbScore > 0) || scouting.climbAttempt > 0 ^ scouting.deepClimb > 0", {
+    resolveIdentifier(identifier) {
+      if (identifier === "tba.climbScore") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 0 },
+          { key: 2, value: 6 },
+          { key: 3, value: 12 },
+        ]);
+      }
+      if (identifier === "scouting.climbAttempt") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 0 },
+          { key: 2, value: 1 },
+          { key: 3, value: 1 },
+        ]);
+      }
+      if (identifier === "scouting.deepClimb") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 0 },
+          { key: 2, value: 1 },
+          { key: 3, value: 0 },
+        ]);
+      }
+      return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+    },
+  });
+
+  assert.equal(result.granularity, "match");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.entries)),
+    [
+      { key: 1, value: 1 },
+      { key: 2, value: 0 },
+      { key: 3, value: 1 },
+    ],
+  );
+});
+
+runTest("evaluateFormulaExpression supports word-form boolean operators case-insensitively", () => {
+  const result = metricEngine.evaluateFormulaExpression("NOT(tba.climbScore > 0) OR scouting.climbAttempt == 1 XOR scouting.deepClimb > 0", {
+    resolveIdentifier(identifier) {
+      if (identifier === "tba.climbScore") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 0 },
+          { key: 2, value: 6 },
+          { key: 3, value: 12 },
+        ]);
+      }
+      if (identifier === "scouting.climbAttempt") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 0 },
+          { key: 2, value: 1 },
+          { key: 3, value: 1 },
+        ]);
+      }
+      if (identifier === "scouting.deepClimb") {
+        return metricEngine.seriesResult([
+          { key: 1, value: 0 },
+          { key: 2, value: 1 },
+          { key: 3, value: 0 },
+        ]);
+      }
+      return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+    },
+  });
+
+  assert.equal(result.granularity, "match");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.entries)),
+    [
+      { key: 1, value: 1 },
+      { key: 2, value: 0 },
+      { key: 3, value: 1 },
+    ],
+  );
+});
+
+runTest("evaluateFormulaExpression supports true and false literals case-insensitively", () => {
+  const result = metricEngine.evaluateFormulaExpression("TRUE && !false", {
+    resolveIdentifier(identifier) {
+      return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+    },
+  });
+
+  assert.equal(result.granularity, "scalar");
+  assert.equal(result.value, 1);
 });
 
 runTest("evaluateFormulaExpression rejects mixed granularity without averaging", () => {

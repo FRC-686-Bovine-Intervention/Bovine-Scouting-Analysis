@@ -280,6 +280,35 @@ function seasonFilterDefinitionById(id, eventModel = currentEvent()) {
   return currentSeasonFilterList(eventModel).find((definition) => definition.id === id) || null;
 }
 
+function sanitizeFormulaReferenceToken(value) {
+  const trimmed = String(value || "").trim();
+  const normalized = trimmed
+    .trim()
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!normalized) return "filter";
+  if (/^[A-Za-z_]/.test(normalized)) return normalized;
+  return `_${normalized}`;
+}
+
+function seasonFilterReferenceEntries(eventModel = currentEvent()) {
+  const counts = new Map();
+  return currentSeasonFilterList(eventModel).map((definition) => {
+    const baseToken = sanitizeFormulaReferenceToken(definition.name);
+    const nextCount = (counts.get(baseToken) || 0) + 1;
+    counts.set(baseToken, nextCount);
+    return {
+      token: `filter.${nextCount === 1 ? baseToken : `${baseToken}_${nextCount}`}`,
+      definition,
+    };
+  });
+}
+
+function seasonFilterDefinitionByReference(reference, eventModel = currentEvent()) {
+  const normalizedReference = String(reference || "").toLowerCase();
+  return seasonFilterReferenceEntries(eventModel).find((entry) => entry.token.toLowerCase() === normalizedReference)?.definition || null;
+}
+
 function ensureActiveDerivedEquation(eventModel = currentEvent()) {
   const definitions = currentSeasonEquationList(eventModel);
   if (definitions.some((definition) => definition.id === state.activeDerivedEquationId)) return state.activeDerivedEquationId;
@@ -378,7 +407,7 @@ function formulaScalarValue(value, granularity = "event") {
   };
 }
 
-function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, evaluationStack) {
+function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, evaluationStack, filterEvaluationCache = new Map(), filterEvaluationStack = []) {
   if (identifier.startsWith("scouting.")) {
     const fieldId = identifier.slice("scouting.".length);
     if (fieldId === "total") {
@@ -405,12 +434,26 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
     if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.total || Number.NaN);
     return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.components?.[componentId] || Number.NaN);
   }
+  if (identifier.startsWith("filter.")) {
+    const referencedFilter = seasonFilterDefinitionByReference(identifier, formulaContext.eventModel);
+    if (!referencedFilter) return null;
+    return evaluateSeasonFilterDefinitionForTeam(formulaContext.baseTeam, referencedFilter, {
+      eventModel: formulaContext.eventModel,
+      formulaContext,
+      evaluationCache: filterEvaluationCache,
+      evaluationStack: filterEvaluationStack,
+      equationEvaluationCache: evaluationCache,
+      equationEvaluationStack: evaluationStack,
+    }).result;
+  }
   const referencedEquation = equationDefinitionById(identifier, formulaContext.eventModel);
   if (!referencedEquation) return null;
   return evaluateEquationForTeam(formulaContext.baseTeam, referencedEquation.id, {
     eventModel: formulaContext.eventModel,
     evaluationCache,
     evaluationStack,
+    filterEvaluationCache,
+    filterEvaluationStack,
   }).result;
 }
 
@@ -419,6 +462,8 @@ function evaluateEquationForTeam(team, equationId, options = {}) {
   const formulaContext = options.formulaContext || buildTeamFormulaContext(team, eventModel);
   const evaluationCache = options.evaluationCache || new Map();
   const evaluationStack = Array.isArray(options.evaluationStack) ? [...options.evaluationStack] : [];
+  const filterEvaluationCache = options.filterEvaluationCache || new Map();
+  const filterEvaluationStack = Array.isArray(options.filterEvaluationStack) ? [...options.filterEvaluationStack] : [];
   const cacheKey = `${formulaContext?.baseTeam?.number || team}:${equationId}:${eventModel.key}`;
   if (evaluationCache.has(cacheKey)) return evaluationCache.get(cacheKey);
   if (evaluationStack.includes(equationId)) {
@@ -434,7 +479,15 @@ function evaluateEquationForTeam(team, equationId, options = {}) {
   }
   const result = evaluateFormulaExpression(definition.formula, {
     recentEntryCount: currentRecentMatchCount(),
-    resolveIdentifier: (identifier) => resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, [...evaluationStack, equationId]) || { kind: "error", error: `Unknown identifier "${identifier}".` },
+    resolveIdentifier: (identifier) =>
+      resolveFormulaIdentifier(
+        identifier,
+        formulaContext,
+        evaluationCache,
+        [...evaluationStack, equationId],
+        filterEvaluationCache,
+        filterEvaluationStack,
+      ) || { kind: "error", error: `Unknown identifier "${identifier}".` },
   });
   const evaluation = { definition, result, formulaContext };
   evaluationCache.set(cacheKey, evaluation);
@@ -1913,20 +1966,47 @@ function seriesResultLooksBoolean(result) {
   return filterResultEntries(result).every((entry) => Number.isNaN(Number(entry.value)) || [0, 1].includes(Number(entry.value)));
 }
 
-function evaluateSeasonFilterForTeam(team, filterId, options = {}) {
+function evaluateSeasonFilterDefinitionForTeam(team, definition, options = {}) {
   const eventModel = options.eventModel || currentEvent();
   const formulaContext = options.formulaContext || buildTeamFormulaContext(team, eventModel);
-  const definition = seasonFilterDefinitionById(filterId, eventModel);
   if (!definition || !formulaContext) {
-    return { definition, result: { kind: "error", error: `Unknown filter "${filterId}".` }, formulaContext };
+    return { definition, result: { kind: "error", error: `Unknown filter "${definition?.id || ""}".` }, formulaContext };
   }
-  const evaluationCache = new Map();
+  const evaluationCache = options.evaluationCache || new Map();
+  const evaluationStack = Array.isArray(options.evaluationStack) ? [...options.evaluationStack] : [];
+  const equationEvaluationCache = options.equationEvaluationCache || new Map();
+  const equationEvaluationStack = Array.isArray(options.equationEvaluationStack) ? [...options.equationEvaluationStack] : [];
+  const cacheKey = `${formulaContext?.baseTeam?.number || team}:${definition.id}:${eventModel.key}`;
+  if (evaluationCache.has(cacheKey)) return evaluationCache.get(cacheKey);
+  if (evaluationStack.includes(definition.id)) {
+    const circular = { definition, result: { kind: "error", error: `Circular filter reference: ${[...evaluationStack, definition.id].join(" -> ")}.` }, formulaContext };
+    evaluationCache.set(cacheKey, circular);
+    return circular;
+  }
   const result = evaluateFormulaExpression(definition.formula, {
     recentEntryCount: currentRecentMatchCount(),
     resolveIdentifier: (identifier) =>
-      resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, []) || { kind: "error", error: `Unknown identifier "${identifier}".` },
+      resolveFormulaIdentifier(
+        identifier,
+        formulaContext,
+        equationEvaluationCache,
+        equationEvaluationStack,
+        evaluationCache,
+        [...evaluationStack, definition.id],
+      ) || { kind: "error", error: `Unknown identifier "${identifier}".` },
   });
-  return { definition, result, formulaContext };
+  const evaluation = { definition, result, formulaContext };
+  evaluationCache.set(cacheKey, evaluation);
+  return evaluation;
+}
+
+function evaluateSeasonFilterForTeam(team, filterId, options = {}) {
+  const eventModel = options.eventModel || currentEvent();
+  const definition = seasonFilterDefinitionById(filterId, eventModel);
+  if (!definition) {
+    return { definition, result: { kind: "error", error: `Unknown filter "${filterId}".` }, formulaContext: null };
+  }
+  return evaluateSeasonFilterDefinitionForTeam(team, definition, options);
 }
 
 function filterStatusForTeam(team, filterId, eventModel = currentEvent()) {
@@ -2669,6 +2749,7 @@ function renderDerivedBuilder() {
     { id: "scouting.total" },
     ...currentAtomicScouterMetricDefinitions().map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
     { id: "tba.climbScore" },
+    ...seasonFilterReferenceEntries().map((entry) => ({ id: entry.token })),
     ...currentEvent().scoringComponents.map((component) => ({ id: `statbotics.${component.id}` })),
     { id: "statbotics.total" },
     ...currentEvent().scoringComponents.map((component) => ({ id: `opr.${component.id}` })),
@@ -4280,10 +4361,12 @@ function seasonFiltersSourceText() {
 }
 
 function formulaAutocompleteCandidates(token) {
+  const normalizedToken = String(token || "").toLowerCase();
   return [
     "scouting.total",
     ...currentAtomicScouterMetricDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
     "tba.climbScore",
+    ...seasonFilterReferenceEntries().map((entry) => entry.token),
     ...currentEvent().scoringComponents.flatMap((component) => [`statbotics.${component.id}`, `opr.${component.id}`, `pridge.${component.id}`]),
     "statbotics.total",
     "opr.total",
@@ -4293,10 +4376,11 @@ function formulaAutocompleteCandidates(token) {
     "sum",
     "averageWhenPresent",
     "averageOverAttempts",
-  ].filter((candidate) => candidate.startsWith(token));
+  ].filter((candidate) => candidate.toLowerCase().startsWith(normalizedToken));
 }
 
 function filterAutocompleteCandidates(token) {
+  const normalizedToken = String(token || "").toLowerCase();
   return [
     "scouting.total",
     ...currentAtomicScouterMetricDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
@@ -4304,15 +4388,18 @@ function filterAutocompleteCandidates(token) {
     "and",
     "or",
     "not",
-  ].filter((candidate) => candidate.startsWith(token));
+    "true",
+    "false",
+    "xor",
+  ].filter((candidate) => candidate.toLowerCase().startsWith(normalizedToken));
 }
 
 function builtInFunctionList() {
   return [
-    { name: "average(series)", description: "Average over the most recent matches in scope." },
-    { name: "averageWhenPresent(series)", description: "Average only non-zero match values." },
-    { name: "averageOverAttempts(metric, attempts)", description: "Average a match metric only where attempts are present." },
-    { name: "sum(series)", description: "Sum over the most recent matches in scope." },
+    { name: "average(series, filter?)", description: "Average over the most recent matches in scope, optionally filtered." },
+    { name: "averageWhenPresent(series, filter?)", description: "Average only non-zero match values, optionally filtered." },
+    { name: "averageOverAttempts(metric, attempts, filter?)", description: "Average a match metric only where attempts are present, optionally filtered." },
+    { name: "sum(series, filter?)", description: "Sum over the most recent matches in scope, optionally filtered." },
   ].sort((left, right) => left.name.localeCompare(right.name));
 }
 
@@ -4321,6 +4408,9 @@ function builtInFilterFunctionList() {
     { name: "and(left, right, ...)", description: "Keep matches where every condition is true." },
     { name: "not(condition)", description: "Invert a match-level condition." },
     { name: "or(left, right, ...)", description: "Keep matches where any condition is true." },
+    { name: "true / false", description: "Boolean literals you can use directly in filters." },
+    { name: "xor(left, right, ...)", description: "Keep matches where an odd number of conditions are true." },
+    { name: "<, >, ==, !=, <=, >=", description: "Comparison operators for numeric and boolean-style checks." },
   ].sort((left, right) => left.name.localeCompare(right.name));
 }
 
@@ -4337,13 +4427,21 @@ function longestSharedPrefix(values) {
   for (let index = 1; index < values.length; index += 1) {
     const value = values[index];
     let prefixIndex = 0;
-    while (prefixIndex < prefix.length && prefixIndex < value.length && prefix[prefixIndex] === value[prefixIndex]) {
+    while (
+      prefixIndex < prefix.length &&
+      prefixIndex < value.length &&
+      prefix[prefixIndex].toLowerCase() === value[prefixIndex].toLowerCase()
+    ) {
       prefixIndex += 1;
     }
     prefix = prefix.slice(0, prefixIndex);
     if (!prefix) break;
   }
   return prefix;
+}
+
+function stringsEqualIgnoreCase(left, right) {
+  return String(left || "").toLowerCase() === String(right || "").toLowerCase();
 }
 
 function replaceFormulaToken(input, token, replacement) {
@@ -4902,9 +5000,9 @@ function bindViewEvents() {
         return;
       }
       const token = autocomplete.token;
-      const candidates = autocomplete.candidates.filter((candidate) => candidate !== token);
+      const candidates = autocomplete.candidates.filter((candidate) => !stringsEqualIgnoreCase(candidate, token));
       const replacement = longestSharedPrefix(candidates);
-      if (replacement && replacement !== token) replaceFormulaToken(input, token, replacement);
+      if (replacement && !stringsEqualIgnoreCase(replacement, token)) replaceFormulaToken(input, token, replacement);
       else if (autocomplete.candidates.length === 1 && autocomplete.candidates[0] !== token) replaceFormulaToken(input, token, autocomplete.candidates[0]);
       else requestAnimationFrame(() => input.focus());
       requestAnimationFrame(() => updateFormulaSuggestionList(input));
@@ -4923,7 +5021,7 @@ function bindViewEvents() {
       let nextValue = input.value;
       if (autocomplete.candidates.length) {
         const replacement = selectedFormulaAutocompleteCandidate() || autocomplete.candidates[0];
-        if (replacement && replacement !== autocomplete.token) {
+        if (replacement && !stringsEqualIgnoreCase(replacement, autocomplete.token)) {
           nextValue = `${input.value.slice(0, autocomplete.cursor - autocomplete.token.length)}${replacement}${input.value.slice(autocomplete.cursor)}`;
           input.value = nextValue;
           const nextCursor = autocomplete.cursor - autocomplete.token.length + replacement.length;
@@ -4989,9 +5087,9 @@ function bindViewEvents() {
         return;
       }
       const token = autocomplete.token;
-      const candidates = autocomplete.candidates.filter((candidate) => candidate !== token);
+      const candidates = autocomplete.candidates.filter((candidate) => !stringsEqualIgnoreCase(candidate, token));
       const replacement = longestSharedPrefix(candidates);
-      if (replacement && replacement !== token) replaceFilterToken(input, token, replacement);
+      if (replacement && !stringsEqualIgnoreCase(replacement, token)) replaceFilterToken(input, token, replacement);
       else if (autocomplete.candidates.length === 1 && autocomplete.candidates[0] !== token) replaceFilterToken(input, token, autocomplete.candidates[0]);
       else requestAnimationFrame(() => input.focus());
       requestAnimationFrame(() => updateFilterSuggestionList(input));
@@ -5010,7 +5108,7 @@ function bindViewEvents() {
       let nextValue = input.value;
       if (autocomplete.candidates.length) {
         const replacement = selectedFilterAutocompleteCandidate() || autocomplete.candidates[0];
-        if (replacement && replacement !== autocomplete.token) {
+        if (replacement && !stringsEqualIgnoreCase(replacement, autocomplete.token)) {
           nextValue = `${input.value.slice(0, autocomplete.cursor - autocomplete.token.length)}${replacement}${input.value.slice(autocomplete.cursor)}`;
           input.value = nextValue;
           const nextCursor = autocomplete.cursor - autocomplete.token.length + replacement.length;

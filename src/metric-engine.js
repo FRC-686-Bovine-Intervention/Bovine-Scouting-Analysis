@@ -408,6 +408,7 @@ function combineBooleanResults(left, right, operator) {
     const rightBool = truthyNumber(rightValue);
     if (operator === "and") return leftBool && rightBool ? 1 : 0;
     if (operator === "or") return leftBool || rightBool ? 1 : 0;
+    if (operator === "xor") return leftBool !== rightBool ? 1 : 0;
     return 0;
   };
   if (granularity === "match") {
@@ -448,17 +449,31 @@ function recentSeriesEntries(result, recentEntryCount = 0) {
   return result.entries.slice(-recentEntryCount);
 }
 
-function averageSeriesValues(result, reducer, recentEntryCount = 0) {
+function filteredSeriesEntries(result, filterResult, recentEntryCount = 0) {
+  const entries = recentSeriesEntries(result, recentEntryCount);
+  if (!filterResult) return entries;
+  if (!isSeriesResult(filterResult)) return null;
+  const allowedKeys = new Map(
+    recentSeriesEntries(filterResult, recentEntryCount).map((entry) => [entry.key, truthyNumber(entry.value) === 1]),
+  );
+  return entries.filter((entry) => allowedKeys.get(entry.key));
+}
+
+function averageSeriesValues(result, reducer, recentEntryCount = 0, filterResult = null) {
   if (!isSeriesResult(result)) return errorResult("Averaging functions require a match-level expression.");
-  const values = recentSeriesEntries(result, recentEntryCount)
+  const entries = filteredSeriesEntries(result, filterResult, recentEntryCount);
+  if (entries === null) return errorResult("Optional filter arguments must evaluate to a match-level expression.");
+  const values = entries
     .map((entry) => Number(entry.value))
     .filter((value) => !Number.isNaN(value));
   return scalarResult(reducer(values), "event");
 }
 
-function sumSeriesValues(result, recentEntryCount = 0) {
+function sumSeriesValues(result, recentEntryCount = 0, filterResult = null) {
   if (!isSeriesResult(result)) return errorResult("sum requires a match-level expression.");
-  const values = recentSeriesEntries(result, recentEntryCount)
+  const entries = filteredSeriesEntries(result, filterResult, recentEntryCount);
+  if (entries === null) return errorResult("Optional filter arguments must evaluate to a match-level expression.");
+  const values = entries
     .map((entry) => Number(entry.value))
     .filter((value) => !Number.isNaN(value));
   return scalarResult(values.length ? roundValue(values.reduce((sum, value) => sum + value, 0), 1) : Number.NaN, "event");
@@ -475,12 +490,15 @@ function averageWhenPresentValues(values) {
   return roundValue(average(present), 1);
 }
 
-function averageOverAttemptValues(metricResult, attemptResult, recentEntryCount = 0) {
+function averageOverAttemptValues(metricResult, attemptResult, recentEntryCount = 0, filterResult = null) {
   if (!isSeriesResult(metricResult) || !isSeriesResult(attemptResult)) {
     return errorResult("averageOverAttempts requires match-level metric and attempt expressions.");
   }
-  const metricEntries = recentSeriesEntries(metricResult, recentEntryCount);
-  const attemptEntries = recentSeriesEntries(attemptResult, recentEntryCount);
+  const metricEntries = filteredSeriesEntries(metricResult, filterResult, recentEntryCount);
+  const attemptEntries = filteredSeriesEntries(attemptResult, filterResult, recentEntryCount);
+  if (metricEntries === null || attemptEntries === null) {
+    return errorResult("Optional filter arguments must evaluate to a match-level expression.");
+  }
   const metricMap = new Map(metricEntries.map((entry) => [entry.key, Number(entry.value)]));
   const attemptMap = new Map(attemptEntries.map((entry) => [entry.key, Number(entry.value)]));
   const keys = [...new Set([...metricMap.keys(), ...attemptMap.keys()])].sort((a, b) => a - b);
@@ -508,12 +526,12 @@ function tokenizeFormulaExpression(source) {
       continue;
     }
     const twoCharacterOperator = text.slice(index, index + 2);
-    if (["<=", ">=", "==", "!="].includes(twoCharacterOperator)) {
+    if (["<=", ">=", "==", "!=", "&&", "||"].includes(twoCharacterOperator)) {
       tokens.push({ type: twoCharacterOperator, value: twoCharacterOperator });
       index += 2;
       continue;
     }
-    if (/[()+\-*/,<>]/.test(char)) {
+    if (/[()+\-*/,<>!^]/.test(char)) {
       tokens.push({ type: char, value: char });
       index += 1;
       continue;
@@ -554,6 +572,19 @@ function parseFormulaExpression(source) {
     return token;
   }
 
+  function peekIdentifierValue() {
+    const token = peek();
+    return token?.type === "identifier" ? String(token.value || "").toLowerCase() : "";
+  }
+
+  function consumeLogicalKeyword(keyword) {
+    const token = peek();
+    if (!token || token.type !== "identifier") return null;
+    if (String(token.value || "").toLowerCase() !== keyword) return null;
+    index += 1;
+    return token;
+  }
+
   function parsePrimary() {
     const token = peek();
     if (!token) return null;
@@ -562,6 +593,11 @@ function parseFormulaExpression(source) {
       return { type: "number", value: Number(token.value) };
     }
     if (token.type === "identifier") {
+      const normalizedIdentifier = String(token.value || "").toLowerCase();
+      if (normalizedIdentifier === "true" || normalizedIdentifier === "false") {
+        consume("identifier");
+        return { type: "number", value: normalizedIdentifier === "true" ? 1 : 0 };
+      }
       consume("identifier");
       if (consume("(")) {
         const args = [];
@@ -591,6 +627,15 @@ function parseFormulaExpression(source) {
       const argument = parseUnary();
       return argument ? { type: "unary", operator: "-", argument } : null;
     }
+    if (consume("!")) {
+      const argument = parseUnary();
+      return argument ? { type: "unary", operator: "!", argument } : null;
+    }
+    if (peekIdentifierValue() === "not") {
+      consumeLogicalKeyword("not");
+      const argument = parseUnary();
+      return argument ? { type: "unary", operator: "!", argument } : null;
+    }
     return parsePrimary();
   }
 
@@ -604,10 +649,6 @@ function parseFormulaExpression(source) {
       left = { type: "binary", operator, left, right };
     }
     return left;
-  }
-
-  function parseExpression() {
-    return parseComparison();
   }
 
   function parseAdditive() {
@@ -634,6 +675,49 @@ function parseFormulaExpression(source) {
     return left;
   }
 
+  function parseAnd() {
+    let left = parseComparison();
+    if (!left) return null;
+    while (peek() && (peek().type === "&&" || peekIdentifierValue() === "and")) {
+      if (peek().type === "&&") consume("&&");
+      else consumeLogicalKeyword("and");
+      const right = parseComparison();
+      if (!right) return null;
+      left = { type: "logical", operator: "and", left, right };
+    }
+    return left;
+  }
+
+  function parseXor() {
+    let left = parseAnd();
+    if (!left) return null;
+    while (peek() && (peek().type === "^" || peekIdentifierValue() === "xor")) {
+      if (peek().type === "^") consume("^");
+      else consumeLogicalKeyword("xor");
+      const right = parseAnd();
+      if (!right) return null;
+      left = { type: "logical", operator: "xor", left, right };
+    }
+    return left;
+  }
+
+  function parseOr() {
+    let left = parseXor();
+    if (!left) return null;
+    while (peek() && (peek().type === "||" || peekIdentifierValue() === "or")) {
+      if (peek().type === "||") consume("||");
+      else consumeLogicalKeyword("or");
+      const right = parseXor();
+      if (!right) return null;
+      left = { type: "logical", operator: "or", left, right };
+    }
+    return left;
+  }
+
+  function parseExpression() {
+    return parseOr();
+  }
+
   const ast = parseExpression();
   if (!ast) return { ast: null, error: "Could not parse formula." };
   if (index < tokens.length) return { ast: null, error: `Unexpected token "${tokens[index].value}".` };
@@ -652,6 +736,10 @@ function collectFormulaIdentifiers(ast, values = new Set()) {
     collectFormulaIdentifiers(ast.left, values);
     collectFormulaIdentifiers(ast.right, values);
   }
+  if (ast.type === "logical") {
+    collectFormulaIdentifiers(ast.left, values);
+    collectFormulaIdentifiers(ast.right, values);
+  }
   if (ast.type === "call") ast.args.forEach((argument) => collectFormulaIdentifiers(argument, values));
   return values;
 }
@@ -664,7 +752,10 @@ function evaluateFormulaAst(ast, options = {}) {
     const resolved = resolveIdentifier(ast.name);
     return resolved || errorResult(`Unknown identifier "${ast.name}".`);
   }
-  if (ast.type === "unary") return negateFormulaResult(evaluateFormulaAst(ast.argument, options));
+  if (ast.type === "unary") {
+    if (ast.operator === "!") return negateBooleanResult(evaluateFormulaAst(ast.argument, options));
+    return negateFormulaResult(evaluateFormulaAst(ast.argument, options));
+  }
   if (ast.type === "binary") {
     return combineFormulaResults(
       evaluateFormulaAst(ast.left, options),
@@ -679,8 +770,21 @@ function evaluateFormulaAst(ast, options = {}) {
       ast.operator,
     );
   }
+  if (ast.type === "logical") {
+    return combineBooleanResults(
+      evaluateFormulaAst(ast.left, options),
+      evaluateFormulaAst(ast.right, options),
+      ast.operator,
+    );
+  }
   if (ast.type === "call") {
-    const normalizedName = String(ast.callee || "").trim();
+    const normalizedName = String(ast.callee || "").trim().toLowerCase();
+    const recentEntryCount = Number(options.recentEntryCount) || 0;
+    const optionalFilter = ast.args.length > 1 && ["average", "sum", "averagewhenpresent"].includes(normalizedName)
+      ? evaluateFormulaAst(ast.args[1], options)
+      : ast.args.length > 2 && normalizedName === "averageoverattempts"
+        ? evaluateFormulaAst(ast.args[2], options)
+        : null;
     if (normalizedName === "and") {
       if (ast.args.length < 2) return errorResult("and requires at least two arguments.");
       return ast.args
@@ -693,24 +797,31 @@ function evaluateFormulaAst(ast, options = {}) {
         .map((argument) => evaluateFormulaAst(argument, options))
         .reduce((left, right) => combineBooleanResults(left, right, "or"));
     }
+    if (normalizedName === "xor") {
+      if (ast.args.length < 2) return errorResult("xor requires at least two arguments.");
+      return ast.args
+        .map((argument) => evaluateFormulaAst(argument, options))
+        .reduce((left, right) => combineBooleanResults(left, right, "xor"));
+    }
     if (normalizedName === "not") {
       if (ast.args.length !== 1) return errorResult("not requires exactly one argument.");
       return negateBooleanResult(evaluateFormulaAst(ast.args[0], options));
     }
     if (normalizedName === "average") {
-      return averageSeriesValues(evaluateFormulaAst(ast.args[0], options), averageMatchValues, Number(options.recentEntryCount) || 0);
+      return averageSeriesValues(evaluateFormulaAst(ast.args[0], options), averageMatchValues, recentEntryCount, optionalFilter);
     }
     if (normalizedName === "sum") {
-      return sumSeriesValues(evaluateFormulaAst(ast.args[0], options), Number(options.recentEntryCount) || 0);
+      return sumSeriesValues(evaluateFormulaAst(ast.args[0], options), recentEntryCount, optionalFilter);
     }
-    if (normalizedName === "averageWhenPresent") {
-      return averageSeriesValues(evaluateFormulaAst(ast.args[0], options), averageWhenPresentValues, Number(options.recentEntryCount) || 0);
+    if (normalizedName === "averagewhenpresent") {
+      return averageSeriesValues(evaluateFormulaAst(ast.args[0], options), averageWhenPresentValues, recentEntryCount, optionalFilter);
     }
-    if (normalizedName === "averageOverAttempts") {
+    if (normalizedName === "averageoverattempts") {
       return averageOverAttemptValues(
         evaluateFormulaAst(ast.args[0], options),
         evaluateFormulaAst(ast.args[1], options),
-        Number(options.recentEntryCount) || 0,
+        recentEntryCount,
+        optionalFilter,
       );
     }
     return errorResult(`Unknown function "${normalizedName}".`);
