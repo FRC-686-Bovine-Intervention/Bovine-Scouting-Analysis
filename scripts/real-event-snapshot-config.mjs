@@ -4,10 +4,10 @@ export const realEventSourceConfig = [
     year: 2024,
     importProfileId: "",
     sheet: {
-      url: "https://docs.google.com/spreadsheets/d/1_A4oJxAZcONo1CTTkJSFweNlTHboWpIqm19zzLUuIpM/edit?gid=686539440#gid=686539440",
-      tab: "gid:686539440",
-      csvUrl: "https://docs.google.com/spreadsheets/d/1_A4oJxAZcONo1CTTkJSFweNlTHboWpIqm19zzLUuIpM/export?format=csv&gid=686539440",
-      access: "public_csv",
+      url: "https://docs.google.com/spreadsheets/d/1_m_WP_uByovhqm5-Ga_s2FMqqtMR9kxAaHPPr7UCWag/edit?gid=686539440#gid=686539440",
+      tab: "AnalysisExport",
+      csvUrl: "https://docs.google.com/spreadsheets/d/1_m_WP_uByovhqm5-Ga_s2FMqqtMR9kxAaHPPr7UCWag/export?format=csv&gid=686539440",
+      access: "private_csv",
     },
   },
   {
@@ -33,3 +33,4 @@ export const realEventSourceConfig = [
     },
   },
 ];
+

@@ -11,11 +11,13 @@ const buildSampleCsv = importFoundation.buildSampleCsv;
 const previewScoutingImport = importFoundation.previewScoutingImport;
 const seasonBuildMetrics = seasonFramework.buildMetrics || ((eventModel) => eventModel?.metrics || []);
 const seasonScouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((eventModel) => eventModel?.scoringComponents || []);
+const seasonFormulaFieldDefinitions = seasonFramework.formulaFieldDefinitions || seasonScouterMetricDefinitions;
 const seasonDerivedMetricDefinitions = seasonFramework.derivedMetricDefinitions || (() => []);
 const seasonMetricFieldId = seasonFramework.csvHeaderForMetric || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id));
 const sharedAdaptEventSheetCsv = sheetImportAdapters.adaptEventSheetCsv || ((eventModel, csvText) => csvText);
 const shouldRefreshSampleBackedScoutingSubmissions =
   scoutingImportRepair.shouldRefreshSampleBackedScoutingSubmissions || (() => false);
+const repairLegacySubmissionRawMetrics = scoutingImportRepair.repairLegacySubmissionRawMetrics || ((rawMetrics) => rawMetrics || {});
 const stampScoutingSubmissionMetadata = scoutingImportRepair.stampScoutingSubmissionMetadata || ((submissions) => submissions || []);
 const buildTeamScoutingOverlay = metricEngine.buildTeamScoutingOverlay;
 const engineMetricTrendValues = metricEngine.metricTrendValues;
@@ -83,7 +85,6 @@ const navItems = [
   { view: "quality", label: "Data Quality", icon: "quality" },
   { view: "analysis", label: "Analysis", icon: "analysis" },
   { view: "derivedBuilder", label: "Derived Builder", icon: "derivedBuilder" },
-  { view: "filterBuilder", label: "Filter Builder", icon: "bullseye" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
   { view: "alliance", label: "Alliance Selection", icon: "alliance" },
   { view: "admin", label: "Admin", icon: "admin" },
@@ -144,22 +145,52 @@ const state = {
   importResult: null,
   scoutingWindow: readStoredItem(storageKeys.scoutingWindow) || "all",
   recentMatchCount: Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount) || 12)),
-  seasonDerivedEquationCatalog: normalizeSeasonDerivedEquationCatalog(readStoredJson(storageKeys.seasonDerivedEquations, seededSeasonDerivedEquations)),
-  seasonFilterCatalog: normalizeSeasonFilterCatalog(readStoredJson(storageKeys.seasonFilters, seededSeasonFilters)),
+  seasonDerivedEquationCatalog: normalizeSeasonDerivedEquationCatalog(
+    mergeSeededSeasonCatalog(
+      readStoredJson(storageKeys.seasonDerivedEquations, {}),
+      seededSeasonDerivedEquations,
+    ),
+  ),
+  seasonFilterCatalog: normalizeSeasonFilterCatalog(
+    mergeSeededSeasonCatalog(
+      readStoredJson(storageKeys.seasonFilters, {}),
+      seededSeasonFilters,
+    ),
+  ),
   seasonProfileCatalog: normalizeSeasonProfileCatalog(readStoredJson(storageKeys.seasonProfiles, {})),
   activeDerivedEquationId: "",
   activeSeasonFilterId: "",
+  builderGridScroll: {
+    derivedBuilder: { shellLeft: 0, columnTops: {} },
+    filterBuilder: { shellLeft: 0, columnTops: {} },
+  },
   viewHistory: [],
 };
 globalThis.__scoutingAppState = state;
 globalThis.__scoutingActiveEventKey = state.activeEventKey;
 
-hydrateEventState(state.activeEventKey);
-
-document.documentElement.dataset.theme = state.theme;
-
 const app = document.querySelector("#app");
-render();
+installGlobalRecoveryGuards();
+bootstrapApp();
+
+function bootstrapApp() {
+  try {
+    hydrateEventState(state.activeEventKey);
+    document.documentElement.dataset.theme = state.theme;
+    renderSafely();
+  } catch (error) {
+    console.error("App bootstrap failed before first render", error);
+    state.activeView = "teams";
+    state.contextMenu = null;
+    state.inlineRename = null;
+    try {
+      document.documentElement.dataset.theme = state.theme || "light";
+    } catch (themeError) {
+      console.error("Failed to restore theme during recovery", themeError);
+    }
+    renderRecoveryScreen(error);
+  }
+}
 
 function eventModelByKey(key) {
   return globalEventCatalog.find((eventModel) => eventModel.key === key) || globalEventCatalog[0];
@@ -174,7 +205,17 @@ function currentEvent() {
 }
 
 function currentScoutingSubmissions() {
-  return state.scoutingSubmissions.filter((submission) => submission.eventKey === state.activeEventKey);
+  const allSubmissions = Array.isArray(state.scoutingSubmissions) ? state.scoutingSubmissions : [];
+  const eventScopedSubmissionCache = globalThis.__eventScopedSubmissionCache || (globalThis.__eventScopedSubmissionCache = new WeakMap());
+  if (!eventScopedSubmissionCache.has(allSubmissions)) {
+    eventScopedSubmissionCache.set(allSubmissions, new Map());
+  }
+  const cache = eventScopedSubmissionCache.get(allSubmissions);
+  const eventKey = state.activeEventKey;
+  if (!cache.has(eventKey)) {
+    cache.set(eventKey, allSubmissions.filter((submission) => submission.eventKey === eventKey));
+  }
+  return cache.get(eventKey);
 }
 
 function currentTeams() {
@@ -198,6 +239,10 @@ function currentDataSources() {
 
 function currentScouterMetricDefinitions(eventModel = currentEvent()) {
   return seasonScouterMetricDefinitions(eventModel);
+}
+
+function currentFormulaFieldDefinitions(eventModel = currentEvent()) {
+  return seasonFormulaFieldDefinitions(eventModel);
 }
 
 function currentAtomicScouterMetricDefinitions(eventModel = currentEvent()) {
@@ -294,7 +339,7 @@ function sanitizeFormulaReferenceToken(value) {
 function seasonFilterReferenceEntries(eventModel = currentEvent()) {
   const counts = new Map();
   return currentSeasonFilterList(eventModel).map((definition) => {
-    const baseToken = sanitizeFormulaReferenceToken(definition.name);
+    const baseToken = sanitizeFormulaReferenceToken(definition.id || definition.name);
     const nextCount = (counts.get(baseToken) || 0) + 1;
     counts.set(baseToken, nextCount);
     return {
@@ -335,36 +380,140 @@ function activeAnalysisFilter(eventModel = currentEvent()) {
   return seasonFilterDefinitionById(state.activeAnalysisFilterId, eventModel);
 }
 
+const tbaMatchMetricsCache = new WeakMap();
+
 function tbaMatchMetricsByTeam(teamNumber, eventModel = currentEvent()) {
-  return (eventModel.matches || [])
-    .filter((match) => match.red.includes(teamNumber) || match.blue.includes(teamNumber))
-    .map((match) => {
-      const allianceKey = match.red.includes(teamNumber) ? "red" : "blue";
-      const teams = allianceKey === "red" ? match.red : match.blue;
-      const index = teams.indexOf(teamNumber);
-      const breakdown = match.scoreBreakdown?.[allianceKey] || null;
-      const climbStatus = breakdown ? breakdown[`endGameRobot${index + 1}`] : "";
+  if (!tbaMatchMetricsCache.has(eventModel)) {
+    tbaMatchMetricsCache.set(eventModel, new Map());
+  }
+  const cache = tbaMatchMetricsCache.get(eventModel);
+  const normalizedTeamNumber = Number(teamNumber);
+  if (!cache.has(normalizedTeamNumber)) {
+    cache.set(
+      normalizedTeamNumber,
+      (eventModel.matches || [])
+        .filter((match) => match.red.includes(normalizedTeamNumber) || match.blue.includes(normalizedTeamNumber))
+        .map((match) => {
+          const allianceKey = match.red.includes(normalizedTeamNumber) ? "red" : "blue";
+          const teams = allianceKey === "red" ? match.red : match.blue;
+          const index = teams.indexOf(normalizedTeamNumber);
+          const breakdown = match.scoreBreakdown?.[allianceKey] || null;
+          const opponentAllianceKey = allianceKey === "red" ? "blue" : "red";
+          const opponentBreakdown = match.scoreBreakdown?.[opponentAllianceKey] || null;
+          const hubScore = breakdown?.hubScore || null;
+          const opponentHubScore = opponentBreakdown?.hubScore || null;
+          const climbStatus = breakdown ? breakdown[`endGameTowerRobot${index + 1}`] || breakdown[`endGameRobot${index + 1}`] || "" : "";
+          const autoClimbStatus = breakdown ? breakdown[`autoTowerRobot${index + 1}`] || breakdown[`autoRobot${index + 1}`] || "" : "";
+          return {
+            matchNumber: match.number,
+            allianceKey,
+            allianceTeams: teams,
+            allTeams: [...match.red, ...match.blue],
+            autoAllianceFuel: Number(hubScore?.autoPoints ?? breakdown?.auto_fuel ?? Number.NaN),
+            transitionAllianceFuel: Number(hubScore?.transitionPoints ?? breakdown?.transition_fuel ?? Number.NaN),
+            shift1AllianceFuel: Number(hubScore?.shift1Points ?? breakdown?.first_shift_fuel ?? Number.NaN),
+            shift2AllianceFuel: Number(hubScore?.shift2Points ?? breakdown?.second_shift_fuel ?? Number.NaN),
+            shift3AllianceFuel: Number(hubScore?.shift3Points ?? breakdown?.third_shift_fuel ?? Number.NaN),
+            shift4AllianceFuel: Number(hubScore?.shift4Points ?? breakdown?.fourth_shift_fuel ?? Number.NaN),
+            endgameAllianceFuel: Number(hubScore?.endgamePoints ?? breakdown?.endgame_fuel ?? Number.NaN),
+            autoClimbStatus,
+            teleopClimbStatus: climbStatus,
+            climbScore: Number(tbaClimbStatusPoints[climbStatus] ?? Number.NaN),
+            wonAuto: Number(hubScore?.autoPoints ?? breakdown?.auto_fuel ?? Number.NaN) > Number(opponentHubScore?.autoPoints ?? opponentBreakdown?.auto_fuel ?? Number.NaN) ? 1 : 0,
+          };
+        })
+        .sort((left, right) => left.matchNumber - right.matchNumber),
+    );
+  }
+  return cache.get(normalizedTeamNumber);
+}
+
+function preferredFormulaSubmission(submissions, scouterMetricIds = []) {
+  const metricIds = Array.isArray(scouterMetricIds) ? scouterMetricIds : [];
+  const usable = (submissions || [])
+    .filter((submission) => submission?.validity !== "excluded");
+  if (!usable.length) return null;
+  const scoreSubmission = (submission) => {
+    const validityRank = submission?.validity === "valid" ? 2 : 1;
+    const noShowPenalty = Number(submission?.rawMetrics?.noShow || 0) > 0 ? 0 : 1;
+    const populatedMetricCount = metricIds.filter((metricId) => {
+      const value = submission?.rawMetrics?.[metricId];
+      return value !== null && value !== undefined && value !== "";
+    }).length;
+    return validityRank * 100000 + noShowPenalty * 10000 + populatedMetricCount;
+  };
+  return usable
+    .slice()
+    .sort((left, right) => scoreSubmission(right) - scoreSubmission(left))
+    [0] || null;
+}
+
+function buildFormulaScoutingMatches(submissions, scoringComponents, scouterMetricIds) {
+  const grouped = new Map();
+  (submissions || []).forEach((submission) => {
+    const matchNumber = Number(submission?.matchNumber);
+    if (!Number.isFinite(matchNumber) || submission?.validity === "excluded") return;
+    if (!grouped.has(matchNumber)) grouped.set(matchNumber, []);
+    grouped.get(matchNumber).push(submission);
+  });
+  return [...grouped.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map(([matchNumber, matchSubmissions]) => {
+      const selectedSubmission = preferredFormulaSubmission(matchSubmissions, scouterMetricIds);
+      const components = Object.fromEntries(
+        scouterMetricIds.map((componentId) => {
+          const value = selectedSubmission?.rawMetrics?.[componentId];
+          const numeric = Number(value);
+          return [componentId, Number.isFinite(numeric) ? numeric : 0];
+        }),
+      );
+      const total = scoringComponents.reduce((sum, componentId) => sum + Number(components[componentId] || 0), 0);
       return {
-        matchNumber: match.number,
-        climbScore: Number(tbaClimbStatusPoints[climbStatus] ?? Number.NaN),
+        matchNumber,
+        submissions: matchSubmissions,
+        selectedSubmission,
+        components,
+        total,
       };
-    })
-    .sort((left, right) => left.matchNumber - right.matchNumber);
+    });
+}
+
+const formulaSubmissionTeamCache = new WeakMap();
+const teamFormulaContextCache = new WeakMap();
+
+function formulaSubmissionsForTeam(teamNumber, submissions) {
+  const source = Array.isArray(submissions) ? submissions : [];
+  if (!formulaSubmissionTeamCache.has(source)) {
+    formulaSubmissionTeamCache.set(source, new Map());
+  }
+  const cache = formulaSubmissionTeamCache.get(source);
+  const normalizedTeamNumber = Number(teamNumber);
+  if (!cache.has(normalizedTeamNumber)) {
+    cache.set(
+      normalizedTeamNumber,
+      source.filter((submission) => Number(submission.teamNumber) === normalizedTeamNumber),
+    );
+  }
+  return cache.get(normalizedTeamNumber);
 }
 
 function buildTeamFormulaContext(team, eventModel = currentEvent()) {
-  const baseTeam = team?.number ? team : currentEvent().teams.find((entry) => entry.number === Number(team)) || null;
+  const baseTeam = team?.number ? team : eventModel.teams.find((entry) => entry.number === Number(team)) || null;
   if (!baseTeam) return null;
-  const overlayTeam = overlayTeamWithScouting(baseTeam);
+  const eventSubmissions = currentScoutingSubmissions();
+  if (!teamFormulaContextCache.has(eventSubmissions)) {
+    teamFormulaContextCache.set(eventSubmissions, new Map());
+  }
+  const cache = teamFormulaContextCache.get(eventSubmissions);
+  const cacheKey = `${eventModel.key}:${baseTeam.number}`;
+  if (cache.has(cacheKey)) return cache.get(cacheKey);
+  const overlayTeam = baseTeam;
   const scoringComponents = (eventModel.scoringComponents || []).map((component) => component.id);
   const scouterMetricIds = currentScouterMetricDefinitions(eventModel).map((metricDefinition) => metricDefinition.id);
-  const scoutingMatches = aggregateSubmissionMatches(
-    currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === Number(baseTeam.number)),
-    {
-      scoringComponentIds: scoringComponents,
-      scouterMetricIds,
-      scouterMetricDefinitions: currentScouterMetricDefinitions(eventModel),
-    },
+  const scoutingMatches = buildFormulaScoutingMatches(
+    formulaSubmissionsForTeam(baseTeam.number, eventSubmissions),
+    scoringComponents,
+    scouterMetricIds,
   );
   const scoutingByMatch = new Map(scoutingMatches.map((match) => [match.matchNumber, match]));
   const tbaByMatch = new Map(tbaMatchMetricsByTeam(Number(baseTeam.number), eventModel).map((entry) => [entry.matchNumber, entry]));
@@ -380,12 +529,14 @@ function buildTeamFormulaContext(team, eventModel = currentEvent()) {
     scouting: scoutingByMatch.get(matchNumber) || null,
     tba: tbaByMatch.get(matchNumber) || null,
   }));
-  return {
+  const context = {
     baseTeam,
     overlayTeam,
     eventModel,
     matchRows,
   };
+  cache.set(cacheKey, context);
+  return context;
 }
 
 function formulaSeriesFromRows(matchRows, readValue) {
@@ -403,21 +554,138 @@ function formulaScalarValue(value, granularity = "event") {
   return {
     kind: "scalar",
     granularity,
-    value: Number(value),
+    value,
   };
 }
 
-function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, evaluationStack, filterEvaluationCache = new Map(), filterEvaluationStack = []) {
+function rawScoutingMetricValue(matchRow, fieldId) {
+  if (fieldId === "hasEntry") {
+    return matchRow.scouting?.selectedSubmission ? 1 : 0;
+  }
+  if (fieldId === "total") return matchRow.scouting?.total ?? Number.NaN;
+  if (Object.prototype.hasOwnProperty.call(matchRow.scouting?.components || {}, fieldId)) {
+    return matchRow.scouting.components[fieldId];
+  }
+  if (matchRow.scouting?.selectedSubmission?.rawMetrics && Object.prototype.hasOwnProperty.call(matchRow.scouting.selectedSubmission.rawMetrics, fieldId)) {
+    return matchRow.scouting.selectedSubmission.rawMetrics[fieldId];
+  }
+  const submissions = Array.isArray(matchRow.scouting?.submissions) ? matchRow.scouting.submissions : [];
+  const validSubmission = submissions.find((submission) => submission?.validity === "valid") || submissions[0] || null;
+  return validSubmission?.rawMetrics?.[fieldId] ?? null;
+}
+
+function extractSeriesEntryValue(result, matchNumber) {
+  if (result?.kind === "series") {
+    return (result.entries || []).find((entry) => entry.key === matchNumber)?.value;
+  }
+  return result?.value;
+}
+
+function aggregateGroupValues(name, values) {
+  const numericValues = values.map((value) => Number(value)).filter((value) => Number.isFinite(value));
+  if (name === "groupsum") return numericValues.length ? numericValues.reduce((sum, value) => sum + value, 0) : Number.NaN;
+  if (name === "groupaverage") return numericValues.length ? numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length : Number.NaN;
+  if (name === "groupcount") return values.filter((value) => value !== null && value !== undefined && value !== "" && value !== 0 && value !== "0").length;
+  return Number.NaN;
+}
+
+const formulaAstKeyCache = new WeakMap();
+let formulaAstKeySequence = 1;
+
+function formulaAstCacheKey(ast) {
+  if (!ast || typeof ast !== "object") return String(ast || "");
+  if (!formulaAstKeyCache.has(ast)) {
+    formulaAstKeyCache.set(ast, `ast:${formulaAstKeySequence++}`);
+  }
+  return formulaAstKeyCache.get(ast);
+}
+
+function evaluateGroupFormulaForContext(groupRequest, formulaContext, evaluationCache, evaluationStack, filterEvaluationCache, filterEvaluationStack, groupEvaluationCache = new Map()) {
+  const peerContextCache = new Map();
+  const peerOptionsCache = new Map();
+  const peerSeriesResultCache = new Map();
+  const peerFilterResultCache = new Map();
+  const evaluateGroup = ({ name, seriesAst, scopeId, filterAst, parentOptions }, context) => {
+    const cacheKey = [
+      context?.eventModel?.key || "",
+      context?.baseTeam?.number || "",
+      name,
+      scopeId,
+      formulaAstCacheKey(seriesAst),
+      filterAst ? formulaAstCacheKey(filterAst) : "",
+    ].join(":");
+    if (groupEvaluationCache.has(cacheKey)) return groupEvaluationCache.get(cacheKey);
+    const entries = context.matchRows.map((row) => {
+      const peerTeams = scopeId === "allianceMatch"
+        ? (row.tba?.allianceTeams || [])
+        : (row.tba?.allTeams || []);
+      const peerValues = peerTeams.flatMap((peerTeamNumber) => {
+        if (!peerContextCache.has(peerTeamNumber)) {
+          peerContextCache.set(peerTeamNumber, buildTeamFormulaContext(peerTeamNumber, context.eventModel));
+        }
+        const peerFormulaContext = peerContextCache.get(peerTeamNumber);
+        if (!peerFormulaContext) return [];
+        if (!peerOptionsCache.has(peerTeamNumber)) {
+          peerOptionsCache.set(peerTeamNumber, {
+            ...parentOptions,
+            groupEvaluationCache,
+            resolveIdentifier: (identifier) =>
+              resolveFormulaIdentifier(
+                identifier,
+                peerFormulaContext,
+                evaluationCache,
+                evaluationStack,
+                filterEvaluationCache,
+                filterEvaluationStack,
+                groupEvaluationCache,
+              ) || { kind: "error", error: `Unknown identifier "${identifier}".` },
+            evaluateGroupFunction: (nestedRequest) => evaluateGroup(nestedRequest, peerFormulaContext),
+          });
+        }
+        const peerOptions = peerOptionsCache.get(peerTeamNumber);
+        let peerSeriesCache = peerSeriesResultCache.get(peerTeamNumber);
+        if (!peerSeriesCache) {
+          peerSeriesCache = new Map();
+          peerSeriesResultCache.set(peerTeamNumber, peerSeriesCache);
+        }
+        if (!peerSeriesCache.has(seriesAst)) {
+          peerSeriesCache.set(seriesAst, metricEngine.evaluateFormulaAst(seriesAst, peerOptions));
+        }
+        const seriesResult = peerSeriesCache.get(seriesAst);
+        if (isErrorFormulaResult(seriesResult)) return [];
+        let filterResult = null;
+        if (filterAst) {
+          let peerFilterCache = peerFilterResultCache.get(peerTeamNumber);
+          if (!peerFilterCache) {
+            peerFilterCache = new Map();
+            peerFilterResultCache.set(peerTeamNumber, peerFilterCache);
+          }
+          if (!peerFilterCache.has(filterAst)) {
+            peerFilterCache.set(filterAst, metricEngine.evaluateFormulaAst(filterAst, peerOptions));
+          }
+          filterResult = peerFilterCache.get(filterAst);
+        }
+        if (isErrorFormulaResult(filterResult)) return [];
+        if (filterResult && !extractSeriesEntryValue(filterResult, row.matchNumber)) return [];
+        return [extractSeriesEntryValue(seriesResult, row.matchNumber)];
+      });
+      return { key: row.matchNumber, value: aggregateGroupValues(name, peerValues) };
+    });
+    const result = { kind: "series", granularity: "match", entries };
+    groupEvaluationCache.set(cacheKey, result);
+    return result;
+  };
+  return evaluateGroup(groupRequest, formulaContext);
+}
+
+function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, evaluationStack, filterEvaluationCache = new Map(), filterEvaluationStack = [], groupEvaluationCache = new Map()) {
   if (identifier.startsWith("scouting.")) {
     const fieldId = identifier.slice("scouting.".length);
-    if (fieldId === "total") {
-      return formulaSeriesFromRows(formulaContext.matchRows, (row) => Number(row.scouting?.total ?? Number.NaN));
-    }
-    return formulaSeriesFromRows(formulaContext.matchRows, (row) => Number(row.scouting?.components?.[fieldId] ?? Number.NaN));
+    return formulaSeriesFromRows(formulaContext.matchRows, (row) => rawScoutingMetricValue(row, fieldId));
   }
   if (identifier.startsWith("tba.")) {
     const fieldId = identifier.slice("tba.".length);
-    return formulaSeriesFromRows(formulaContext.matchRows, (row) => Number(row.tba?.[fieldId] ?? Number.NaN));
+    return formulaSeriesFromRows(formulaContext.matchRows, (row) => row.tba?.[fieldId] ?? Number.NaN);
   }
   if (identifier.startsWith("statbotics.")) {
     const componentId = identifier.slice("statbotics.".length);
@@ -444,6 +712,7 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
       evaluationStack: filterEvaluationStack,
       equationEvaluationCache: evaluationCache,
       equationEvaluationStack: evaluationStack,
+      groupEvaluationCache,
     }).result;
   }
   const referencedEquation = equationDefinitionById(identifier, formulaContext.eventModel);
@@ -454,6 +723,7 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
     evaluationStack,
     filterEvaluationCache,
     filterEvaluationStack,
+    groupEvaluationCache,
   }).result;
 }
 
@@ -464,6 +734,7 @@ function evaluateEquationForTeam(team, equationId, options = {}) {
   const evaluationStack = Array.isArray(options.evaluationStack) ? [...options.evaluationStack] : [];
   const filterEvaluationCache = options.filterEvaluationCache || new Map();
   const filterEvaluationStack = Array.isArray(options.filterEvaluationStack) ? [...options.filterEvaluationStack] : [];
+  const groupEvaluationCache = options.groupEvaluationCache || new Map();
   const cacheKey = `${formulaContext?.baseTeam?.number || team}:${equationId}:${eventModel.key}`;
   if (evaluationCache.has(cacheKey)) return evaluationCache.get(cacheKey);
   if (evaluationStack.includes(equationId)) {
@@ -487,7 +758,19 @@ function evaluateEquationForTeam(team, equationId, options = {}) {
         [...evaluationStack, equationId],
         filterEvaluationCache,
         filterEvaluationStack,
+        groupEvaluationCache,
       ) || { kind: "error", error: `Unknown identifier "${identifier}".` },
+    evaluateGroupFunction: ({ name, seriesAst, scopeId, filterAst, parentOptions }) =>
+      evaluateGroupFormulaForContext(
+        { name, seriesAst, scopeId, filterAst, parentOptions },
+        formulaContext,
+        evaluationCache,
+        [...evaluationStack, equationId],
+        filterEvaluationCache,
+        filterEvaluationStack,
+        groupEvaluationCache,
+      ),
+    groupEvaluationCache,
   });
   const evaluation = { definition, result, formulaContext };
   evaluationCache.set(cacheKey, evaluation);
@@ -556,6 +839,39 @@ function escapeAttribute(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+function builderGridScrollState(view = state.activeView) {
+  if (!state.builderGridScroll?.[view]) {
+    if (!state.builderGridScroll) state.builderGridScroll = {};
+    state.builderGridScroll[view] = { shellLeft: 0, columnTops: {} };
+  }
+  if (!state.builderGridScroll[view].columnTops) state.builderGridScroll[view].columnTops = {};
+  return state.builderGridScroll[view];
+}
+
+function captureBuilderGridScroll(view = state.activeView) {
+  const scrollState = builderGridScrollState(view);
+  const shell = document.querySelector("[data-builder-grid-shell]");
+  if (shell) scrollState.shellLeft = shell.scrollLeft;
+  document.querySelectorAll("[data-builder-grid-column-scroll]").forEach((column) => {
+    const key = column.dataset.builderGridColumnScroll;
+    if (!key) return;
+    scrollState.columnTops[key] = column.scrollTop;
+  });
+}
+
+function restoreBuilderGridScroll(view = state.activeView) {
+  const scrollState = builderGridScrollState(view);
+  requestAnimationFrame(() => {
+    const shell = document.querySelector("[data-builder-grid-shell]");
+    if (shell) shell.scrollLeft = Number(scrollState.shellLeft || 0);
+    document.querySelectorAll("[data-builder-grid-column-scroll]").forEach((column) => {
+      const key = column.dataset.builderGridColumnScroll;
+      if (!key) return;
+      column.scrollTop = Number(scrollState.columnTops?.[key] || 0);
+    });
+  });
 }
 
 function saveState() {
@@ -782,6 +1098,15 @@ function normalizeSeasonDerivedEquationCatalog(catalog) {
   return normalized;
 }
 
+function mergeSeededSeasonCatalog(storedCatalog, seededCatalog) {
+  return {
+    seasons: {
+      ...((storedCatalog && storedCatalog.seasons) || {}),
+      ...((seededCatalog && seededCatalog.seasons) || {}),
+    },
+  };
+}
+
 function normalizeSeasonProfileCatalog(catalog) {
   const normalized = {};
   Object.entries(catalog || {}).forEach(([seasonKey, profiles]) => {
@@ -835,7 +1160,7 @@ function reservedMetricIds() {
 }
 
 function normalizeView(view) {
-  if (view === "scoringMatrixBuilder" || view === "sortBuilder") return "derivedBuilder";
+  if (view === "scoringMatrixBuilder" || view === "sortBuilder" || view === "filterBuilder") return "derivedBuilder";
   return appViews.some((item) => item.view === view) ? view : "teams";
 }
 
@@ -880,7 +1205,7 @@ function userLabel(user) {
 }
 
 function canView(view) {
-  return !["admin", "filterBuilder"].includes(view) || isAdmin();
+  return view !== "admin" || isAdmin();
 }
 
 function visibleNavItems() {
@@ -1111,8 +1436,10 @@ function metricById(id) {
 
 function canonicalizeRawMetrics(rawMetrics, eventModel = currentEvent()) {
   if (!rawMetrics || typeof rawMetrics !== "object") return {};
+  const repairedRawMetrics = repairLegacySubmissionRawMetrics(rawMetrics, eventModel);
   const aliases = new Map();
-  currentScouterMetricDefinitions(eventModel).forEach((metricDefinition) => {
+  const numericFieldIds = new Set(currentScouterMetricDefinitions(eventModel).map((metricDefinition) => metricDefinition.id));
+  currentFormulaFieldDefinitions(eventModel).forEach((metricDefinition) => {
     const normalizedId = normalizeImportToken(metricDefinition.id);
     const normalizedLabel = normalizeImportToken(metricDefinition.label || metricDefinition.id);
     [
@@ -1130,11 +1457,19 @@ function canonicalizeRawMetrics(rawMetrics, eventModel = currentEvent()) {
     ].forEach((alias) => aliases.set(normalizeImportToken(alias), metricDefinition.id));
   });
 
-  return Object.entries(rawMetrics).reduce((next, [key, value]) => {
+  return Object.entries(repairedRawMetrics).reduce((next, [key, value]) => {
     const componentId = aliases.get(normalizeImportToken(key));
     if (!componentId) return next;
-    const numeric = Number(value);
-    next[componentId] = Number.isFinite(numeric) ? numeric : null;
+    if (numericFieldIds.has(componentId)) {
+      const numeric = Number(value);
+      next[componentId] = Number.isFinite(numeric) ? numeric : null;
+      return next;
+    }
+    if (value === null || value === undefined || value === "") {
+      next[componentId] = null;
+      return next;
+    }
+    next[componentId] = typeof value === "string" ? value : String(value);
     return next;
   }, {});
 }
@@ -1181,6 +1516,8 @@ function formatTimestamp(value) {
 }
 
 function formatMetricValue(value) {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "string") return value;
   const numeric = Number(value);
   if (Number.isNaN(numeric)) return "NaN";
   return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1);
@@ -1605,340 +1942,14 @@ async function loadScoutingData() {
   }
 }
 
-function parseCsvText(text) {
-  const rows = [];
-  let row = [];
-  let value = "";
-  let inQuotes = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    const next = text[index + 1];
-    if (char === '"') {
-      if (inQuotes && next === '"') {
-        value += '"';
-        index += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-    if (char === "," && !inQuotes) {
-      row.push(value);
-      value = "";
-      continue;
-    }
-    if ((char === "\n" || char === "\r") && !inQuotes) {
-      if (char === "\r" && next === "\n") index += 1;
-      row.push(value);
-      rows.push(row);
-      row = [];
-      value = "";
-      continue;
-    }
-    value += char;
-  }
-  if (value.length || row.length) {
-    row.push(value);
-    rows.push(row);
-  }
-  return rows.map((cells) => cells.map((cell) => String(cell ?? "").trim()));
-}
-
-function csvCell(value) {
-  const text = String(value ?? "");
-  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-}
-
-function toCsvText(rows) {
-  return rows.map((row) => row.map(csvCell).join(",")).join("\n");
-}
-
 function normalizeImportToken(value) {
   return String(value || "")
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "");
 }
-
-function numericValue(value) {
-  const numeric = Number(String(value || "").trim());
-  return Number.isFinite(numeric) ? numeric : 0;
-}
-
-function truthyValue(value) {
-  return ["true", "yes", "y", "1"].includes(normalizeImportToken(value));
-}
-
-function categoricalScore(value, mapping = {}) {
-  const normalized = normalizeImportToken(value);
-  return mapping[normalized] ?? 0;
-}
-
-function leadingNumericValue(value) {
-  const match = String(value || "").match(/-?\d+(\.\d+)?/);
-  return match ? Number(match[0]) : 0;
-}
-
-function defenseEffectivenessScore(value) {
-  return categoricalScore(value, {
-    none: 0,
-    na: 0,
-    n: 0,
-    noteffective: 1,
-    somewhateffective: 2,
-    effective: 3,
-    significantlyeffective: 4,
-    light: 1,
-    moderate: 2,
-    heavy: 3,
-  });
-}
-
-function eventSheetHeaderMap(headers) {
-  const map = new Map();
-  headers.forEach((header, index) => map.set(header, index));
-  return map;
-}
-
-function eventSheetCell(row, headerIndex, header) {
-  const position = headerIndex.get(header);
-  return position === undefined ? "" : String(row[position] ?? "").trim();
-}
-
-function buildCanonicalImportCsv(eventModel, records) {
-  const metadataRow = ["meta", "season", "eventKey", "schemaVersion", "templateProfileId"];
-  const valueRow = ["value", eventModel.season, eventModel.key, "match-v2", "match-current-v2"];
-  const metricDefinitions = currentScouterMetricDefinitions(eventModel);
-  const headerRow = [
-    "matchNumber",
-    "teamNumber",
-    "scoutUser",
-    "alliance",
-    "station",
-    "defensePlayed",
-    "robotStatus",
-    "notes",
-    ...metricDefinitions.map((metricDefinition) => scouterMetricFieldId(metricDefinition)),
-  ];
-  const dataRows = records.map((record) => [
-    record.matchNumber,
-    record.teamNumber,
-    record.scoutUser,
-    record.alliance,
-    record.station,
-    record.defensePlayed ? "yes" : "no",
-    record.robotStatus,
-    record.notes,
-    ...metricDefinitions.map((metricDefinition) => record.metrics[metricDefinition.id] ?? 0),
-  ]);
-  return toCsvText([metadataRow, valueRow, [], headerRow, ...dataRows]);
-}
-
-function parse2025TeamDescriptor(value) {
-  const [alliance = "", station = "", teamNumber = "", ...nameParts] = String(value || "").split(",");
-  return {
-    alliance: alliance.trim().toLowerCase(),
-    station: station.trim(),
-    teamNumber: Number(teamNumber),
-    name: nameParts.join(",").trim(),
-  };
-}
-
-function reefscape2025Count(row, headerIndex, header) {
-  return numericValue(eventSheetCell(row, headerIndex, header));
-}
-
-function reefscape2025ClimbPoints(value) {
-  const climbCode = numericValue(value);
-  return {
-    0: 0,
-    1: 2,
-    2: 6,
-    3: 8,
-    4: 12,
-  }[climbCode] ?? 0;
-}
-
-function adapt2025SheetCsv(eventModel, csvText) {
-  const rows = parseCsvText(csvText);
-  const headers = rows[0] || [];
-  const headerIndex = eventSheetHeaderMap(headers);
-  const records = rows.slice(1).filter((row) => row.some((cell) => cell)).map((row) => {
-    const team = parse2025TeamDescriptor(eventSheetCell(row, headerIndex, "Team"));
-    const autoPoints =
-      reefscape2025Count(row, headerIndex, "Auto-L4Make") * 7 +
-      reefscape2025Count(row, headerIndex, "Auto-L3Make") * 6 +
-      reefscape2025Count(row, headerIndex, "Auto-L2Make") * 4 +
-      reefscape2025Count(row, headerIndex, "Auto-TroughMake") * 3 +
-      reefscape2025Count(row, headerIndex, "Auto-ScoredProcessorMake") * 6 +
-      reefscape2025Count(row, headerIndex, "Auto-ScoredBargeMake") * 4;
-    const coralPoints =
-      reefscape2025Count(row, headerIndex, "Tele-Op-L4Make") * 5 +
-      reefscape2025Count(row, headerIndex, "Tele-Op-L3Make") * 4 +
-      reefscape2025Count(row, headerIndex, "Tele-Op-L2Make") * 3 +
-      reefscape2025Count(row, headerIndex, "Tele-Op-TroughMake") * 2;
-    const algaePoints =
-      reefscape2025Count(row, headerIndex, "Tele-Op-ScoredProcessorMake") * 6 +
-      reefscape2025Count(row, headerIndex, "Tele-Op-ScoredBargeMake") * 4;
-    const climbPoints = reefscape2025ClimbPoints(eventSheetCell(row, headerIndex, "Climbing"));
-    return {
-      matchNumber: numericValue(eventSheetCell(row, headerIndex, "MatchNumber")),
-      teamNumber: team.teamNumber,
-      scoutUser: eventSheetCell(row, headerIndex, "ScouterName") || "Imported Sheet",
-      alliance: team.alliance || "unknown",
-      station: team.station || String(numericValue(eventSheetCell(row, headerIndex, "StartingPosition")) || "sheet"),
-      defensePlayed: numericValue(eventSheetCell(row, headerIndex, "DidTheyPLAYDefense?HowEffective?")) > 0,
-      robotStatus: "ok",
-      notes: eventSheetCell(row, headerIndex, "Notes"),
-      metrics: {
-        auto: autoPoints,
-        coral: coralPoints,
-        algae: algaePoints,
-        climb: climbPoints,
-        autoL4Made: reefscape2025Count(row, headerIndex, "Auto-L4Make"),
-        autoL4Missed: reefscape2025Count(row, headerIndex, "Auto-L4Miss"),
-        autoL3Made: reefscape2025Count(row, headerIndex, "Auto-L3Make"),
-        autoL3Missed: reefscape2025Count(row, headerIndex, "Auto-L3Miss"),
-        autoL2Made: reefscape2025Count(row, headerIndex, "Auto-L2Make"),
-        autoL2Missed: reefscape2025Count(row, headerIndex, "Auto-L2Miss"),
-        autoTroughMade: reefscape2025Count(row, headerIndex, "Auto-TroughMake"),
-        autoTroughMissed: reefscape2025Count(row, headerIndex, "Auto-TroughMiss"),
-        autoRemovedAlgaeMade: reefscape2025Count(row, headerIndex, "Auto-RemovedAlgaeMake"),
-        autoRemovedAlgaeMissed: reefscape2025Count(row, headerIndex, "Auto-RemovedAlgaeMiss"),
-        autoProcessorMade: reefscape2025Count(row, headerIndex, "Auto-ScoredProcessorMake"),
-        autoProcessorMissed: reefscape2025Count(row, headerIndex, "Auto-ScoredProcessorMiss"),
-        autoBargeMade: reefscape2025Count(row, headerIndex, "Auto-ScoredBargeMake"),
-        autoBargeMissed: reefscape2025Count(row, headerIndex, "Auto-ScoredBargeMiss"),
-        teleL4Made: reefscape2025Count(row, headerIndex, "Tele-Op-L4Make"),
-        teleL4Missed: reefscape2025Count(row, headerIndex, "Tele-Op-L4Miss"),
-        teleL3Made: reefscape2025Count(row, headerIndex, "Tele-Op-L3Make"),
-        teleL3Missed: reefscape2025Count(row, headerIndex, "Tele-Op-L3Miss"),
-        teleL2Made: reefscape2025Count(row, headerIndex, "Tele-Op-L2Make"),
-        teleL2Missed: reefscape2025Count(row, headerIndex, "Tele-Op-L2Miss"),
-        teleTroughMade: reefscape2025Count(row, headerIndex, "Tele-Op-TroughMake"),
-        teleTroughMissed: reefscape2025Count(row, headerIndex, "Tele-Op-TroughMiss"),
-        teleRemovedAlgaeMade: reefscape2025Count(row, headerIndex, "Tele-Op-RemovedAlgaeMake"),
-        teleRemovedAlgaeMissed: reefscape2025Count(row, headerIndex, "Tele-Op-RemovedAlgaeMiss"),
-        teleProcessorMade: reefscape2025Count(row, headerIndex, "Tele-Op-ScoredProcessorMake"),
-        teleProcessorMissed: reefscape2025Count(row, headerIndex, "Tele-Op-ScoredProcessorMiss"),
-        teleBargeMade: reefscape2025Count(row, headerIndex, "Tele-Op-ScoredBargeMake"),
-        teleBargeMissed: reefscape2025Count(row, headerIndex, "Tele-Op-ScoredBargeMiss"),
-        climbLevel: numericValue(eventSheetCell(row, headerIndex, "Climbing")),
-        driverPerformance: numericValue(eventSheetCell(row, headerIndex, "DriverPerformance")),
-        playedDefenseRating: numericValue(eventSheetCell(row, headerIndex, "DidTheyPLAYDefense?HowEffective?")),
-        defenseOnThemRating: numericValue(eventSheetCell(row, headerIndex, "WasDefensePlayedONThem?HowEffective?")),
-      },
-    };
-  });
-  return buildCanonicalImportCsv(eventModel, records);
-}
-
-function adapt2024SheetCsv(eventModel, csvText) {
-  const rows = parseCsvText(csvText);
-  const headers = rows[0] || [];
-  const headerIndex = eventSheetHeaderMap(headers);
-  const records = rows.slice(1).filter((row) => row.some((cell) => cell)).map((row) => {
-    const autoSpeaker = numericValue(eventSheetCell(row, headerIndex, "AUTO scoring \n(uncheck all but final score before continuing) [Speaker score ✅]"));
-    const autoAmp = numericValue(eventSheetCell(row, headerIndex, "AUTO scoring \n(uncheck all but final score before continuing) [Amp score ✅]"));
-    const teleAmp = numericValue(eventSheetCell(row, headerIndex, "Tele-op scoring \n(uncheck all but final score before continuing) [Amp score ✅]"));
-    const teleSpeaker = numericValue(eventSheetCell(row, headerIndex, "Tele-op scoring \n(uncheck all but final score before continuing) [Speaker score ✅]"));
-    return {
-      matchNumber: numericValue(eventSheetCell(row, headerIndex, "Match #?")),
-      teamNumber: numericValue(eventSheetCell(row, headerIndex, "Team #?")),
-      scoutUser: eventSheetCell(row, headerIndex, "Timestamp") || "Imported Sheet",
-      alliance: "unknown",
-      station: eventSheetCell(row, headerIndex, "Starting location?") || "sheet",
-      defensePlayed: !["", "no", "none", "na", "n/a"].includes(normalizeImportToken(eventSheetCell(row, headerIndex, "Did this robot PLAY defence? If so how effectively?"))),
-      robotStatus: normalizeImportToken(eventSheetCell(row, headerIndex, "Did the robot break on the field?")) === "yes" ? "broken" : "ok",
-      notes: eventSheetCell(row, headerIndex, "Other notes?"),
-      metrics: {
-        auto: autoSpeaker + autoAmp + numericValue(eventSheetCell(row, headerIndex, "AUTO [Note passes]")),
-        speaker: teleSpeaker + numericValue(eventSheetCell(row, headerIndex, "Tele-op [Note passes]")),
-        amp: teleAmp,
-        trap:
-          categoricalScore(eventSheetCell(row, headerIndex, "Scored trap?"), { successfulattempt: 1 }) +
-          categoricalScore(eventSheetCell(row, headerIndex, "Harmony? (2 robots on the same chain)"), { successfulattempt: 1 }),
-        autoSpeakerMade: autoSpeaker,
-        autoSpeakerMissed: numericValue(eventSheetCell(row, headerIndex, "AUTO scoring \n(uncheck all but final score before continuing) [Speaker miss âŒ]")),
-        autoAmpMade: autoAmp,
-        autoAmpMissed: numericValue(eventSheetCell(row, headerIndex, "AUTO scoring \n(uncheck all but final score before continuing) [Amp miss âŒ]")),
-        teleSpeakerMade: teleSpeaker,
-        teleSpeakerMissed: numericValue(eventSheetCell(row, headerIndex, "Tele-op scoring \n(uncheck all but final score before continuing) [Speaker miss âŒ]")),
-        teleAmpMade: teleAmp,
-        teleAmpMissed: numericValue(eventSheetCell(row, headerIndex, "Tele-op scoring \n(uncheck all but final score before continuing) [Amp miss âŒ]")),
-        driverPerformance: leadingNumericValue(eventSheetCell(row, headerIndex, "Driver skill?")),
-        playedDefenseRating: defenseEffectivenessScore(eventSheetCell(row, headerIndex, "Did this robot PLAY defence? If so how effectively?")),
-        defenseOnThemRating: defenseEffectivenessScore(eventSheetCell(row, headerIndex, "Was defence played ON this robot? If so, how effectively?")),
-        climbSuccess: categoricalScore(eventSheetCell(row, headerIndex, "Climb?"), { successfulattempt: 1 }),
-        trapSuccess: categoricalScore(eventSheetCell(row, headerIndex, "Scored trap?"), { successfulattempt: 1 }),
-        harmonySuccess: categoricalScore(eventSheetCell(row, headerIndex, "Harmony? (2 robots on the same chain)"), { successfulattempt: 1 }),
-      },
-    };
-  });
-  return buildCanonicalImportCsv(eventModel, records);
-}
-
-function adapt2026SheetCsv(eventModel, csvText) {
-  const rows = parseCsvText(csvText);
-  const headers = rows[0] || [];
-  const headerIndex = eventSheetHeaderMap(headers);
-  const defenseHeaders = [
-    "Shifts Transition Defense On",
-    "Shifts Shift1 Defense On",
-    "Shifts Shift2 Defense On",
-    "Shifts Shift3 Defense On",
-    "Shifts Shift4 Defense On",
-    "Shifts Endgame Defense On",
-  ];
-  const records = rows.slice(1).filter((row) => row.some((cell) => cell)).map((row) => {
-    const autoFuel = numericValue(eventSheetCell(row, headerIndex, "Shifts Auto Fuel Pct"));
-    const cycleFuel = ["Shifts Transition Fuel Pct", "Shifts Shift1 Fuel Pct", "Shifts Shift2 Fuel Pct", "Shifts Shift3 Fuel Pct", "Shifts Shift4 Fuel Pct"].reduce(
-      (sum, header) => sum + numericValue(eventSheetCell(row, headerIndex, header)),
-      0,
-    );
-    const endgameFuel = numericValue(eventSheetCell(row, headerIndex, "Shifts Endgame Fuel Pct"));
-    const climbScore =
-      categoricalScore(eventSheetCell(row, headerIndex, "Shifts Auto Climb"), { climbed: 15, successfulattempt: 15 }) +
-      categoricalScore(eventSheetCell(row, headerIndex, "Shifts Endgame Climb"), { climbed: 20, successfulattempt: 20, parked: 8 });
-    return {
-      matchNumber: numericValue(eventSheetCell(row, headerIndex, "Match Number")),
-      teamNumber: numericValue(eventSheetCell(row, headerIndex, "Team Number")),
-      scoutUser: eventSheetCell(row, headerIndex, "Scouter") || "Imported Sheet",
-      alliance: eventSheetCell(row, headerIndex, "Alliance").toLowerCase() || "unknown",
-      station: eventSheetCell(row, headerIndex, "Shifts Auto Starting Position") || "sheet",
-      defensePlayed: defenseHeaders.some((header) => !["", "none"].includes(normalizeImportToken(eventSheetCell(row, headerIndex, header)))) || numericValue(eventSheetCell(row, headerIndex, "Overall Defense")) > 0,
-      robotStatus: truthyValue(eventSheetCell(row, headerIndex, "No Show")) ? "no_show" : "ok",
-      notes: eventSheetCell(row, headerIndex, "Overall Notes"),
-      metrics: {
-        auto: autoFuel,
-        cycle: cycleFuel,
-        endgame: endgameFuel + climbScore,
-        autoFuelPct: autoFuel,
-        transitionFuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Transition Fuel Pct")),
-        shift1FuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Shift1 Fuel Pct")),
-        shift2FuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Shift2 Fuel Pct")),
-        shift3FuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Shift3 Fuel Pct")),
-        shift4FuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Shift4 Fuel Pct")),
-        endgameFuelPct: endgameFuel,
-        overallShooter: numericValue(eventSheetCell(row, headerIndex, "Overall Shooter")),
-        overallPasser: numericValue(eventSheetCell(row, headerIndex, "Overall Passer")),
-        overallIntake: numericValue(eventSheetCell(row, headerIndex, "Overall Intake")),
-        overallDriver: numericValue(eventSheetCell(row, headerIndex, "Overall Driver")),
-        overallDefenseAvoidance: numericValue(eventSheetCell(row, headerIndex, "Overall Defense Avoidance")),
-        overallDefense: numericValue(eventSheetCell(row, headerIndex, "Overall Defense")),
-        noShow: truthyValue(eventSheetCell(row, headerIndex, "No Show")) ? 1 : 0,
-      },
-    };
-  });
-  return buildCanonicalImportCsv(eventModel, records);
-}
-
 function adaptEventSheetCsv(eventModel, csvText) {
-  if (!csvText) return "";
-  if (eventModel.key === "2024mdsev") return adapt2024SheetCsv(eventModel, csvText);
-  if (eventModel.key === "2025chcmp") return adapt2025SheetCsv(eventModel, csvText);
-  if (eventModel.key === "2026chcmp") return adapt2026SheetCsv(eventModel, csvText);
-  return csvText;
+  return sharedAdaptEventSheetCsv(eventModel, csvText);
 }
 
 function teamDetailMetric() {
@@ -1976,6 +1987,7 @@ function evaluateSeasonFilterDefinitionForTeam(team, definition, options = {}) {
   const evaluationStack = Array.isArray(options.evaluationStack) ? [...options.evaluationStack] : [];
   const equationEvaluationCache = options.equationEvaluationCache || new Map();
   const equationEvaluationStack = Array.isArray(options.equationEvaluationStack) ? [...options.equationEvaluationStack] : [];
+  const groupEvaluationCache = options.groupEvaluationCache || new Map();
   const cacheKey = `${formulaContext?.baseTeam?.number || team}:${definition.id}:${eventModel.key}`;
   if (evaluationCache.has(cacheKey)) return evaluationCache.get(cacheKey);
   if (evaluationStack.includes(definition.id)) {
@@ -1993,7 +2005,19 @@ function evaluateSeasonFilterDefinitionForTeam(team, definition, options = {}) {
         equationEvaluationStack,
         evaluationCache,
         [...evaluationStack, definition.id],
+        groupEvaluationCache,
       ) || { kind: "error", error: `Unknown identifier "${identifier}".` },
+    evaluateGroupFunction: ({ name, seriesAst, scopeId, filterAst, parentOptions }) =>
+      evaluateGroupFormulaForContext(
+        { name, seriesAst, scopeId, filterAst, parentOptions },
+        formulaContext,
+        equationEvaluationCache,
+        equationEvaluationStack,
+        evaluationCache,
+        [...evaluationStack, definition.id],
+        groupEvaluationCache,
+      ),
+    groupEvaluationCache,
   });
   const evaluation = { definition, result, formulaContext };
   evaluationCache.set(cacheKey, evaluation);
@@ -2198,6 +2222,15 @@ function render() {
   bindShellEvents();
 }
 
+function renderSafely() {
+  try {
+    render();
+  } catch (error) {
+    console.error("App bootstrap failed", error);
+    renderRecoveryScreen(error);
+  }
+}
+
 function renderLogin() {
   app.innerHTML = `
     <main class="login-shell">
@@ -2308,7 +2341,6 @@ function viewTitle(view) {
     rankings: "Rankings",
     analysis: "Analysis",
     derivedBuilder: "Derived Builder",
-    filterBuilder: "Filter Builder",
     schedule: "Match Schedule",
     matchup: "Matchup",
     quality: "Data Quality",
@@ -2342,6 +2374,23 @@ function bindShellEvents() {
     render();
   });
   bindViewEvents();
+  restoreBuilderGridScroll();
+}
+
+function installGlobalRecoveryGuards() {
+  if (globalThis.__scoutingRecoveryGuardsInstalled) return;
+  globalThis.__scoutingRecoveryGuardsInstalled = true;
+  window.addEventListener("error", (event) => {
+    if (!app) return;
+    console.error("Unhandled error", event.error || event.message || event);
+    renderRecoveryScreen(event.error || new Error(String(event.message || "Unexpected error")));
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    if (!app) return;
+    const reason = event.reason instanceof Error ? event.reason : new Error(String(event.reason || "Unexpected rejection"));
+    console.error("Unhandled rejection", reason);
+    renderRecoveryScreen(reason);
+  });
 }
 
 function renderView() {
@@ -2351,7 +2400,6 @@ function renderView() {
     rankings: renderRankings,
     analysis: renderAnalysis,
     derivedBuilder: renderDerivedBuilder,
-    filterBuilder: renderFilterBuilder,
     schedule: renderSchedule,
     matchup: renderMatchup,
     quality: renderQuality,
@@ -2613,18 +2661,13 @@ function analysisSeriesEntriesForMetric(team, metric) {
   return applyCurrentScoutingWindowToEntries(entries.filter((entry) => Number.isFinite(Number(entry.value))));
 }
 
-function filteredSeriesEntriesForMetric(team, metric, filterId = state.activeAnalysisFilterId) {
-  const metricEntries = analysisSeriesEntriesForMetric(team, metric);
-  if (!filterId || !metricEntries.length) return metricEntries;
-  const evaluation = evaluateSeasonFilterForTeam(team, filterId);
-  if (!isSeriesFormulaResult(evaluation.result) || !seriesResultLooksBoolean(evaluation.result)) return metricEntries;
-  const allowedEntries = new Map(filterResultEntries(evaluation.result).map((entry) => [entry.key, truthy(entry.value)]));
-  return metricEntries.filter((entry) => allowedEntries.get(entry.key));
+function filteredSeriesEntriesForMetric(team, metric) {
+  return analysisSeriesEntriesForMetric(team, metric);
 }
 
-function analysisScoreForTeam(team, metric, filterId = state.activeAnalysisFilterId) {
-  if (!metricUsesMatchDistribution(team, metric) || !filterId) return teamMetricValue(team, metric);
-  const values = filteredSeriesEntriesForMetric(team, metric, filterId)
+function analysisScoreForTeam(team, metric) {
+  if (!metricUsesMatchDistribution(team, metric)) return teamMetricValue(team, metric);
+  const values = filteredSeriesEntriesForMetric(team, metric)
     .map((entry) => Number(entry.value))
     .filter((value) => Number.isFinite(value));
   return values.length ? average(values) : Number.NaN;
@@ -2671,10 +2714,7 @@ function renderSparkline(team, metric) {
 
 function renderAnalysis() {
   const selection = analysisSelectionModel();
-  const selectedFilter = activeAnalysisFilter();
-  const selectedFilterStatus = selectedFilter && currentTeams()[0] ? filterStatusForTeam(currentTeams()[0], selectedFilter.id) : null;
-  const filterAffectsMetric = selectedFilter && metricUsesMatchDistribution(currentTeams()[0], selection.metric);
-  const scoreForTeam = (team) => analysisScoreForTeam(team, selection.metric, state.activeAnalysisFilterId);
+  const scoreForTeam = (team) => analysisScoreForTeam(team, selection.metric);
   const sortableScoreForTeam = (team) => {
     const value = scoreForTeam(team);
     return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
@@ -2705,23 +2745,9 @@ function renderAnalysis() {
           <option value="recent" ${currentScoutingWindow() === "recent" ? "selected" : ""}>Recent ${currentRecentMatchCount()}</option>
         </select>
       </label>
-      <label>
-        Filter
-        <select id="analysisFilterSelect">
-          <option value="">None</option>
-          ${currentSeasonFilterList().map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${item.name}</option>`).join("")}
-        </select>
-      </label>
       <div class="stat"><span>Event Average</span><strong>${eventAverage.toFixed(1)} ${selection.unit}</strong></div>
       ${renderBoxPlotLegend()}
     </div>
-    ${
-      selectedFilterStatus
-        ? `<p class="inline-hint danger">Filter <strong>${escapeHtml(selectedFilter.name)}</strong> is not applied: ${escapeHtml(selectedFilterStatus.detail)}</p>`
-        : selectedFilter && !filterAffectsMetric
-          ? `<p class="inline-hint">Selected filter <strong>${escapeHtml(selectedFilter.name)}</strong> only affects match-distribution metrics. ${escapeHtml(selection.label)} stays unfiltered.</p>`
-          : ""
-    }
     <div class="analysis-chart" style="margin-top: 8px;">
       ${ranked.map((team, index) => renderChartRow(team, selection, distributions[index], globalMin, globalMax, eventAverage, scoreForTeam(team))).join("")}
     </div>
@@ -2747,9 +2773,19 @@ function renderDerivedBuilder() {
   const identifiers = previewEvaluation?.result?.identifiers || [];
   const availableMetrics = [
     { id: "scouting.total" },
-    ...currentAtomicScouterMetricDefinitions().map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
+    ...currentFormulaFieldDefinitions().map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
     { id: "tba.climbScore" },
-    ...seasonFilterReferenceEntries().map((entry) => ({ id: entry.token })),
+    { id: "tba.allianceKey" },
+    { id: "tba.autoAllianceFuel" },
+    { id: "tba.transitionAllianceFuel" },
+    { id: "tba.shift1AllianceFuel" },
+    { id: "tba.shift2AllianceFuel" },
+    { id: "tba.shift3AllianceFuel" },
+    { id: "tba.shift4AllianceFuel" },
+    { id: "tba.endgameAllianceFuel" },
+    { id: "tba.autoClimbStatus" },
+    { id: "tba.teleopClimbStatus" },
+    { id: "tba.wonAuto" },
     ...currentEvent().scoringComponents.map((component) => ({ id: `statbotics.${component.id}` })),
     { id: "statbotics.total" },
     ...currentEvent().scoringComponents.map((component) => ({ id: `opr.${component.id}` })),
@@ -2770,28 +2806,54 @@ function renderDerivedBuilder() {
       formulaContext: context,
     }));
   });
+  const gridEquationCache = new Map();
+  const gridFilterCache = new Map();
+  const resultEvaluationCache = new Map();
+  const identifierResultCache = new Map();
+  const identifierSeriesMapCache = new Map();
+  const equationSeriesMapCache = new Map();
+  const teamEquationResultCache = new Map();
   const resolveGridCellValue = (identifier, rowModel) => {
-    const result = resolveFormulaIdentifier(identifier, rowModel.formulaContext, new Map(), []) || { kind: "error", error: `Unknown identifier "${identifier}".` };
+    const cacheKey = `${rowModel.teamNumber}:${identifier}`;
+    if (!identifierResultCache.has(cacheKey)) {
+      identifierResultCache.set(
+        cacheKey,
+        resolveFormulaIdentifier(identifier, rowModel.formulaContext, gridEquationCache, [], gridFilterCache, []) || { kind: "error", error: `Unknown identifier "${identifier}".` },
+      );
+    }
+    const result = identifierResultCache.get(cacheKey);
     if (isErrorFormulaResult(result)) return { text: "Invalid", className: "danger" };
     if (isSeriesFormulaResult(result)) {
-      const matchEntry = result.entries.find((entry) => entry.key === rowModel.matchNumber);
-      return { text: matchEntry && !Number.isNaN(matchEntry.value) ? formatMetricValue(matchEntry.value) : "", className: "" };
+      if (!identifierSeriesMapCache.has(cacheKey)) {
+        identifierSeriesMapCache.set(cacheKey, new Map((result.entries || []).map((entry) => [entry.key, entry.value])));
+      }
+      const entryValue = identifierSeriesMapCache.get(cacheKey).get(rowModel.matchNumber);
+      return { text: entryValue !== undefined ? formatMetricValue(entryValue) : "", className: "" };
     }
-    return { text: rowModel.rowIndex === 0 && !Number.isNaN(result.value) ? formatMetricValue(result.value) : "", className: rowModel.rowIndex === 0 ? "" : "muted" };
+    return { text: rowModel.rowIndex === 0 ? formatMetricValue(result.value) : "", className: rowModel.rowIndex === 0 ? "" : "muted" };
   };
   const resolveResultCellValue = (rowModel) => {
     if (!activeEquation) return { text: "", className: "" };
-    const evaluation = evaluateEquationForTeam(rowModel.formulaContext.baseTeam, activeEquation.id, {
-      formulaContext: rowModel.formulaContext,
-      eventModel: currentEvent(),
-      evaluationCache: new Map(),
-    });
-    if (isErrorFormulaResult(evaluation.result)) return { text: rowModel.rowIndex === 0 ? "Invalid" : "", className: "danger" };
-    if (isSeriesFormulaResult(evaluation.result)) {
-      const matchEntry = evaluation.result.entries.find((entry) => entry.key === rowModel.matchNumber);
-      return { text: matchEntry && !Number.isNaN(matchEntry.value) ? formatMetricValue(matchEntry.value) : "", className: "" };
+    const teamKey = `${rowModel.teamNumber}:${activeEquation.id}`;
+    if (!teamEquationResultCache.has(teamKey)) {
+      const evaluation = evaluateEquationForTeam(rowModel.formulaContext.baseTeam, activeEquation.id, {
+        formulaContext: rowModel.formulaContext,
+        eventModel: currentEvent(),
+        evaluationCache: resultEvaluationCache,
+        filterEvaluationCache: gridFilterCache,
+      });
+      teamEquationResultCache.set(teamKey, evaluation.result);
     }
-    return { text: rowModel.rowIndex === 0 && !Number.isNaN(evaluation.result.value) ? formatMetricValue(evaluation.result.value) : "", className: rowModel.rowIndex === 0 ? "" : "muted" };
+    const result = teamEquationResultCache.get(teamKey);
+    if (isErrorFormulaResult(result)) return { text: rowModel.rowIndex === 0 ? "Invalid" : "", className: "danger" };
+    if (isSeriesFormulaResult(result)) {
+      if (!equationSeriesMapCache.has(teamKey)) {
+        equationSeriesMapCache.set(teamKey, new Map((result.entries || []).map((entry) => [entry.key, entry.value])));
+      }
+      const matchValue = equationSeriesMapCache.get(teamKey).get(rowModel.matchNumber);
+      return { text: matchValue !== undefined && !Number.isNaN(matchValue) ? formatMetricValue(matchValue) : "", className: "" };
+    }
+    return { text: rowModel.rowIndex === 0 && !Number.isNaN(result.value) ? formatMetricValue(result.value) : "", className: rowModel.rowIndex === 0 ? "" : "muted" };
   };
   return `
     <div class="grid">
@@ -2809,11 +2871,11 @@ function renderDerivedBuilder() {
           <aside class="derived-builder-sidebar">
             <div class="derived-formula-name derived-formula-name-sidebar">
               <strong>${escapeHtml(activeEquation?.name || "New Equation")} =</strong>
-              <button type="button" id="addDerivedEquationButton">New</button>
             </div>
             <section class="derived-pane">
               <div class="derived-pane-header">
                 <h3>Derived Equations</h3>
+                <button type="button" id="addDerivedEquationButton">New</button>
               </div>
               <div class="builder-list">
                 ${currentSeasonEquationList()
@@ -2851,14 +2913,15 @@ function renderDerivedBuilder() {
           <section class="derived-builder-main">
             <div class="derived-formula-header">
               <div class="derived-formula-bar">
-                <input
+                <textarea
                   id="derivedEquationFormulaInput"
-                  class="admin-input"
-                  type="text"
-                  value="${escapeAttribute(activeEquation?.formula || "")}"
-                  placeholder="average(tba.climbScore)"
+                  class="admin-input derived-formula-input"
+                  placeholder="teamAverage(tba.climbScore)"
                   autocomplete="off"
-                />
+                  rows="2"
+                  spellcheck="false"
+                  wrap="soft"
+                >${escapeHtml(activeEquation?.formula || "")}</textarea>
                 <div id="derivedFormulaAutocomplete" class="formula-autocomplete" hidden></div>
               </div>
               <div class="formula-function-menu" aria-label="Built-in functions">
@@ -2870,200 +2933,39 @@ function renderDerivedBuilder() {
                 </div>
               </div>
             </div>
-            <p class="muted">${previewStatus ? escapeHtml(previewStatus.detail) : "Use `average()`, `sum()`, `averageWhenPresent()`, or `averageOverAttempts()` to lift match-level metrics into event-level results."}</p>
-            <div class="derived-grid-shell">
+            <div class="derived-grid-layout">
               <section class="derived-grid-column derived-grid-team">
                 <header>Team</header>
-                <div class="derived-grid-column-body" data-derived-scroll="team">
+                <div class="derived-grid-column-body" data-derived-scroll="team" data-builder-grid-column-scroll="derived:team">
                   ${gridRows.map((row) => `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""}">${row.teamNumber}</div>`).join("")}
                 </div>
               </section>
-              ${identifiers.map((identifier) => `
-                <section class="derived-grid-column">
-                  <header>${escapeHtml(identifier)}</header>
-                  <div class="derived-grid-column-body" data-derived-scroll="${escapeAttribute(identifier)}">
+              <div class="derived-grid-content">
+                <div class="derived-grid-shell" data-builder-grid-shell="derivedBuilder">
+                  <div class="derived-grid-strip">
+                    ${identifiers.map((identifier) => `
+                      <section class="derived-grid-column">
+                        <header>${escapeHtml(identifier)}</header>
+                        <div class="derived-grid-column-body" data-derived-scroll="${escapeAttribute(identifier)}" data-builder-grid-column-scroll="${escapeAttribute(`derived:${identifier}`)}">
+                          ${gridRows.map((row) => {
+                            const value = resolveGridCellValue(identifier, row);
+                            return `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""} ${value.className}">${escapeHtml(value.text)}</div>`;
+                          }).join("")}
+                        </div>
+                      </section>
+                    `).join("")}
+                  </div>
+                </div>
+                <section class="derived-grid-column derived-grid-result">
+                  <header>${escapeHtml(activeEquation?.name || "Result")}</header>
+                  <div class="derived-grid-column-body" data-derived-scroll="result" data-builder-grid-column-scroll="derived:result">
                     ${gridRows.map((row) => {
-                      const value = resolveGridCellValue(identifier, row);
+                      const value = resolveResultCellValue(row);
                       return `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""} ${value.className}">${escapeHtml(value.text)}</div>`;
                     }).join("")}
                   </div>
                 </section>
-              `).join("")}
-              <section class="derived-grid-column derived-grid-result">
-                <header>${escapeHtml(activeEquation?.name || "Result")}</header>
-                <div class="derived-grid-column-body" data-derived-scroll="result">
-                  ${gridRows.map((row) => {
-                    const value = resolveResultCellValue(row);
-                    return `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""} ${value.className}">${escapeHtml(value.text)}</div>`;
-                  }).join("")}
-                </div>
-              </section>
-            </div>
-          </section>
-        </div>
-        ${renderContextMenu()}
-      </article>
-    </div>
-  `;
-}
-
-function renderFilterBuilder() {
-  const activeFilter = activeSeasonFilter();
-  const teams = currentEvent().teams.slice().sort((left, right) => left.number - right.number);
-  const previewTeam = teams[0] || null;
-  const previewStatus = activeFilter && previewTeam ? filterStatusForTeam(previewTeam, activeFilter.id) : null;
-  const previewEvaluation = activeFilter && previewTeam ? evaluateSeasonFilterForTeam(previewTeam, activeFilter.id) : null;
-  const identifiers = previewEvaluation?.result?.identifiers || [];
-  const availableMetrics = [
-    { id: "scouting.total" },
-    ...currentAtomicScouterMetricDefinitions().map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
-    { id: "tba.climbScore" },
-  ];
-  const gridRows = teams.flatMap((team) => {
-    const context = buildTeamFormulaContext(team);
-    return (context?.matchRows || []).map((row, index, rows) => ({
-      teamNumber: team.number,
-      matchNumber: row.matchNumber,
-      teamStart: index === 0,
-      teamEnd: index === rows.length - 1,
-      rowIndex: index,
-      formulaContext: context,
-    }));
-  });
-  const resolveGridCellValue = (identifier, rowModel) => {
-    const result = resolveFormulaIdentifier(identifier, rowModel.formulaContext, new Map(), []) || { kind: "error", error: `Unknown identifier "${identifier}".` };
-    if (isErrorFormulaResult(result)) return { text: "Invalid", className: "danger" };
-    if (isSeriesFormulaResult(result)) {
-      const matchEntry = result.entries.find((entry) => entry.key === rowModel.matchNumber);
-      return { text: matchEntry && !Number.isNaN(matchEntry.value) ? formatMetricValue(matchEntry.value) : "", className: "" };
-    }
-    return { text: rowModel.rowIndex === 0 && !Number.isNaN(result.value) ? formatMetricValue(result.value) : "", className: rowModel.rowIndex === 0 ? "" : "muted" };
-  };
-  const resolveResultCellValue = (rowModel) => {
-    if (!activeFilter) return { text: "", className: "" };
-    const evaluation = evaluateSeasonFilterForTeam(rowModel.formulaContext.baseTeam, activeFilter.id, {
-      formulaContext: rowModel.formulaContext,
-      eventModel: currentEvent(),
-    });
-    if (isErrorFormulaResult(evaluation.result)) return { text: rowModel.rowIndex === 0 ? "Invalid" : "", className: "danger" };
-    if (!isSeriesFormulaResult(evaluation.result)) {
-      return { text: rowModel.rowIndex === 0 ? "Event" : "", className: "muted" };
-    }
-    const matchEntry = evaluation.result.entries.find((entry) => entry.key === rowModel.matchNumber);
-    const value = matchEntry ? truthy(matchEntry.value) : false;
-    return { text: value ? "Keep" : "", className: value ? "" : "muted" };
-  };
-  return `
-    <div class="grid">
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Filter Builder</h2>
-            <p class="muted">Admins define season-scoped reusable match filters here. Filters apply to Analysis box-and-whisker distributions and still respect the global Recent slider.</p>
-          </div>
-          <div class="derived-header-actions">
-            <button type="button" id="downloadSeasonFiltersButton">Download Season File</button>
-          </div>
-        </div>
-        <div class="derived-builder-layout">
-          <aside class="derived-builder-sidebar">
-            <div class="derived-formula-name derived-formula-name-sidebar">
-              <strong>${escapeHtml(activeFilter?.name || "New Filter")}</strong>
-              <button type="button" id="addSeasonFilterButton">New</button>
-            </div>
-            <section class="derived-pane">
-              <div class="derived-pane-header">
-                <h3>Season Filters</h3>
               </div>
-              <div class="builder-list">
-                ${currentSeasonFilterList()
-                  .map((definition, index) => {
-                    const status = previewTeam ? filterStatusForTeam(previewTeam, definition.id) : null;
-                    const rename = state.inlineRename?.kind === "seasonFilter" && state.inlineRename?.id === definition.id;
-                    return `
-                      <div
-                        class="builder-list-item ${definition.id === ensureActiveSeasonFilter() ? "active" : ""}"
-                        data-entity-row="seasonFilter:${definition.id}"
-                        data-entity-kind="seasonFilter"
-                        data-entity-id="${definition.id}"
-                        data-entity-index="${index}"
-                        draggable="false"
-                      >
-                        <span>
-                          ${rename ? `<input class="inline-rename-input" data-inline-rename="seasonFilter:${definition.id}" value="${escapeAttribute(state.inlineRename.value)}" autocomplete="off" />` : escapeHtml(definition.name)}
-                        </span>
-                        ${status ? `<span class="confidence-badge ${status.severity}">${escapeHtml(status.label)}</span>` : ""}
-                      </div>
-                    `;
-                  })
-                  .join("")}
-              </div>
-            </section>
-            <section class="derived-pane">
-              <div class="derived-pane-header">
-                <h3>Available Metrics</h3>
-              </div>
-              <div class="builder-list metric-catalog">
-                ${availableMetrics.map((item) => `<div class="builder-list-item">${escapeHtml(item.id)}</div>`).join("")}
-              </div>
-            </section>
-          </aside>
-          <section class="derived-builder-main">
-            <div class="derived-formula-header">
-              <div class="derived-formula-bar">
-                <input
-                  id="seasonFilterFormulaInput"
-                  class="admin-input"
-                  type="text"
-                  value="${escapeAttribute(activeFilter?.formula || "")}"
-                  placeholder="and(tba.climbScore > 0, scouting.climbAttempt > 0)"
-                  autocomplete="off"
-                />
-                <div id="seasonFilterAutocomplete" class="formula-autocomplete" hidden></div>
-              </div>
-              <div class="formula-function-menu" aria-label="Built-in filter functions">
-                <button type="button" class="formula-function-button" tabindex="-1">f(x)</button>
-                <div class="formula-function-popover">
-                  ${builtInFilterFunctionList()
-                    .map((entry) => `<div class="formula-function-item"><strong>${escapeHtml(entry.name)}</strong><span>${escapeHtml(entry.description)}</span></div>`)
-                    .join("")}
-                </div>
-              </div>
-            </div>
-            <p class="muted">${previewStatus ? escapeHtml(previewStatus.detail) : "Use comparisons like `scouting.climbAttempt > 0` and combine them with `and()`, `or()`, or `not()`."}</p>
-            <div class="derived-grid-shell">
-              <section class="derived-grid-column derived-grid-team">
-                <header>Team</header>
-                <div class="derived-grid-column-body">
-                  ${gridRows.map((row) => `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""}">${row.teamNumber}</div>`).join("")}
-                </div>
-              </section>
-              <section class="derived-grid-column">
-                <header>Match</header>
-                <div class="derived-grid-column-body">
-                  ${gridRows.map((row) => `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""}">Q${row.matchNumber}</div>`).join("")}
-                </div>
-              </section>
-              ${identifiers.map((identifier) => `
-                <section class="derived-grid-column">
-                  <header>${escapeHtml(identifier)}</header>
-                  <div class="derived-grid-column-body">
-                    ${gridRows.map((row) => {
-                      const value = resolveGridCellValue(identifier, row);
-                      return `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""} ${value.className}">${escapeHtml(value.text)}</div>`;
-                    }).join("")}
-                  </div>
-                </section>
-              `).join("")}
-              <section class="derived-grid-column derived-grid-result">
-                <header>${escapeHtml(activeFilter?.name || "Keep?")}</header>
-                <div class="derived-grid-column-body">
-                  ${gridRows.map((row) => {
-                    const value = resolveResultCellValue(row);
-                    return `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""} ${value.className}">${escapeHtml(value.text)}</div>`;
-                  }).join("")}
-                </div>
-              </section>
             </div>
           </section>
         </div>
@@ -4364,18 +4266,39 @@ function formulaAutocompleteCandidates(token) {
   const normalizedToken = String(token || "").toLowerCase();
   return [
     "scouting.total",
-    ...currentAtomicScouterMetricDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
+    ...currentFormulaFieldDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
     "tba.climbScore",
-    ...seasonFilterReferenceEntries().map((entry) => entry.token),
+    "tba.allianceKey",
+    "tba.autoAllianceFuel",
+    "tba.transitionAllianceFuel",
+    "tba.shift1AllianceFuel",
+    "tba.shift2AllianceFuel",
+    "tba.shift3AllianceFuel",
+    "tba.shift4AllianceFuel",
+    "tba.endgameAllianceFuel",
+    "tba.autoClimbStatus",
+    "tba.teleopClimbStatus",
+    "tba.wonAuto",
     ...currentEvent().scoringComponents.flatMap((component) => [`statbotics.${component.id}`, `opr.${component.id}`, `pridge.${component.id}`]),
     "statbotics.total",
     "opr.total",
     "pridge.total",
     ...currentSeasonEquationList().map((definition) => definition.id),
+    "allianceMatch",
+    "match",
+    "if",
+    "valueOr",
+    "contains",
+    "startsWith",
     "average",
+    "teamAverage",
     "sum",
-    "averageWhenPresent",
-    "averageOverAttempts",
+    "teamSum",
+    "count",
+    "teamCount",
+    "groupAverage",
+    "groupSum",
+    "groupCount",
   ].filter((candidate) => candidate.toLowerCase().startsWith(normalizedToken));
 }
 
@@ -4383,8 +4306,11 @@ function filterAutocompleteCandidates(token) {
   const normalizedToken = String(token || "").toLowerCase();
   return [
     "scouting.total",
-    ...currentAtomicScouterMetricDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
+    ...currentFormulaFieldDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
     "tba.climbScore",
+    "tba.wonAuto",
+    "contains",
+    "startsWith",
     "and",
     "or",
     "not",
@@ -4396,10 +4322,18 @@ function filterAutocompleteCandidates(token) {
 
 function builtInFunctionList() {
   return [
-    { name: "average(series, filter?)", description: "Average over the most recent matches in scope, optionally filtered." },
-    { name: "averageWhenPresent(series, filter?)", description: "Average only non-zero match values, optionally filtered." },
-    { name: "averageOverAttempts(metric, attempts, filter?)", description: "Average a match metric only where attempts are present, optionally filtered." },
-    { name: "sum(series, filter?)", description: "Sum over the most recent matches in scope, optionally filtered." },
+    { name: "teamAverage(series, filter?)", description: "Average a match-level series over the recent team matches, optionally filtered." },
+    { name: "teamSum(series, filter?)", description: "Sum a match-level series over the recent team matches, optionally filtered." },
+    { name: "teamCount(series, filter?)", description: "Count present nonblank nonzero entries in a match-level series, optionally filtered." },
+    { name: "groupAverage(series, scope, filter?)", description: "Average a peer series inside a scope such as allianceMatch() or match()." },
+    { name: "groupSum(series, scope, filter?)", description: "Sum a peer series inside a scope such as allianceMatch() or match()." },
+    { name: "groupCount(series, scope, filter?)", description: "Count present peer entries inside a scope such as allianceMatch() or match()." },
+    { name: "if(condition, whenTrue, whenFalse)", description: "Choose between two expressions using a scalar or match-level condition." },
+    { name: "valueOr(value, fallback)", description: "Use a fallback when the first value is blank, null, or invalid." },
+    { name: "startsWith(text, prefix)", description: "Case-insensitive string prefix check." },
+    { name: "contains(text, fragment)", description: "Case-insensitive string containment check." },
+    { name: "average / sum / count", description: "Compatibility aliases for teamAverage, teamSum, and teamCount." },
+    { name: "allianceMatch() / match()", description: "Scopes for group functions." },
   ].sort((left, right) => left.name.localeCompare(right.name));
 }
 
@@ -4704,10 +4638,6 @@ function handleBuilderKeyboard(event) {
       event.preventDefault();
       startInlineRename("derivedEquation", state.activeDerivedEquationId);
     }
-    if (state.activeView === "filterBuilder" && state.activeSeasonFilterId) {
-      event.preventDefault();
-      startInlineRename("seasonFilter", state.activeSeasonFilterId);
-    }
     if (state.activeView === "sortBuilder" && state.activeSortEquation && !isProtectedSortEquation(activeSortEquation())) {
       event.preventDefault();
       startInlineRename("sortEquation", state.activeSortEquation);
@@ -4765,11 +4695,6 @@ function handleBuilderKeyboard(event) {
 function bindViewEvents() {
   document.querySelector("#metricSelect")?.addEventListener("change", (event) => {
     state.metric = event.target.value;
-    saveState();
-    render();
-  });
-  document.querySelector("#analysisFilterSelect")?.addEventListener("change", (event) => {
-    state.activeAnalysisFilterId = normalizeAnalysisFilterSelection(event.target.value);
     saveState();
     render();
   });
@@ -4967,10 +4892,6 @@ function bindViewEvents() {
     if (!isAdmin()) return;
     addSeasonEquation();
   });
-  document.querySelector("#addSeasonFilterButton")?.addEventListener("click", () => {
-    if (!isAdmin()) return;
-    addSeasonFilter();
-  });
   document.querySelector("#derivedEquationFormulaInput")?.addEventListener("input", (event) => {
     const definition = activeDerivedEquation();
     if (!definition) return;
@@ -5058,93 +4979,6 @@ function bindViewEvents() {
       requestAnimationFrame(() => updateFormulaSuggestionList(input));
     });
   });
-  document.querySelector("#seasonFilterFormulaInput")?.addEventListener("input", (event) => {
-    const definition = activeSeasonFilter();
-    if (!definition) return;
-    updateSeasonFilterFormula(definition.id, event.target.value);
-    updateFilterSuggestionList(event.target);
-    saveState();
-  });
-  document.querySelector("#seasonFilterFormulaInput")?.addEventListener("change", () => {
-    saveState();
-    render();
-  });
-  document.querySelector("#seasonFilterFormulaInput")?.addEventListener("focus", (event) => {
-    updateFilterSuggestionList(event.target);
-  });
-  document.querySelector("#seasonFilterFormulaInput")?.addEventListener("blur", () => {
-    setTimeout(() => hideFilterAutocomplete(), 0);
-  });
-  document.querySelector("#seasonFilterFormulaInput")?.addEventListener("keydown", (event) => {
-    const input = event.target;
-    const autocomplete = filterAutocompleteState(input);
-    const selectedIndex = Number(document.querySelector("#seasonFilterAutocomplete")?.dataset.selectedIndex || "0");
-    if (event.key === "Tab") {
-      event.preventDefault();
-      event.stopPropagation();
-      if (!autocomplete.token) {
-        requestAnimationFrame(() => input.focus());
-        return;
-      }
-      const token = autocomplete.token;
-      const candidates = autocomplete.candidates.filter((candidate) => !stringsEqualIgnoreCase(candidate, token));
-      const replacement = longestSharedPrefix(candidates);
-      if (replacement && !stringsEqualIgnoreCase(replacement, token)) replaceFilterToken(input, token, replacement);
-      else if (autocomplete.candidates.length === 1 && autocomplete.candidates[0] !== token) replaceFilterToken(input, token, autocomplete.candidates[0]);
-      else requestAnimationFrame(() => input.focus());
-      requestAnimationFrame(() => updateFilterSuggestionList(input));
-      return;
-    }
-    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && autocomplete.candidates.length) {
-      event.preventDefault();
-      event.stopPropagation();
-      const direction = event.key === "ArrowDown" ? 1 : -1;
-      renderFilterAutocomplete(input, selectedIndex + direction);
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      event.stopPropagation();
-      let nextValue = input.value;
-      if (autocomplete.candidates.length) {
-        const replacement = selectedFilterAutocompleteCandidate() || autocomplete.candidates[0];
-        if (replacement && !stringsEqualIgnoreCase(replacement, autocomplete.token)) {
-          nextValue = `${input.value.slice(0, autocomplete.cursor - autocomplete.token.length)}${replacement}${input.value.slice(autocomplete.cursor)}`;
-          input.value = nextValue;
-          const nextCursor = autocomplete.cursor - autocomplete.token.length + replacement.length;
-          input.setSelectionRange(nextCursor, nextCursor);
-        }
-      }
-      const definition = activeSeasonFilter();
-      if (definition) updateSeasonFilterFormula(definition.id, nextValue);
-      saveState();
-      hideFilterAutocomplete();
-      render();
-      requestAnimationFrame(() => {
-        const nextInput = document.querySelector("#seasonFilterFormulaInput");
-        if (!nextInput) return;
-        const nextCursor = nextInput.value.length;
-        nextInput.focus();
-        nextInput.setSelectionRange(nextCursor, nextCursor);
-      });
-      return;
-    }
-    requestAnimationFrame(() => updateFilterSuggestionList(input));
-  });
-  document.querySelectorAll("[data-filter-formula-suggestion]").forEach((button) => {
-    button.addEventListener("mousedown", (event) => {
-      event.preventDefault();
-    });
-    button.addEventListener("click", () => {
-      const input = document.querySelector("#seasonFilterFormulaInput");
-      if (!input) return;
-      const autocomplete = filterAutocompleteState(input);
-      const replacement = button.dataset.filterFormulaSuggestion || "";
-      if (!autocomplete.token || !replacement) return;
-      replaceFilterToken(input, autocomplete.token, replacement);
-      requestAnimationFrame(() => updateFilterSuggestionList(input));
-    });
-  });
   document.querySelector("#downloadSeasonDerivedEquationsButton")?.addEventListener("click", () => {
     const blob = new Blob([seasonDerivedEquationsSourceText()], { type: "text/javascript;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -5154,17 +4988,21 @@ function bindViewEvents() {
     anchor.click();
     URL.revokeObjectURL(url);
   });
-  document.querySelector("#downloadSeasonFiltersButton")?.addEventListener("click", () => {
-    const blob = new Blob([seasonFiltersSourceText()], { type: "text/javascript;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `season-filters-${currentEvent().season}.js`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+  document.querySelector("[data-builder-grid-shell]")?.addEventListener("scroll", () => {
+    captureBuilderGridScroll();
+  });
+  document.querySelectorAll("[data-builder-grid-column-scroll]").forEach((column) => {
+    column.addEventListener("scroll", () => {
+      captureBuilderGridScroll();
+      const scrollTop = column.scrollTop;
+      document.querySelectorAll("[data-builder-grid-column-scroll]").forEach((other) => {
+        if (other !== column && Math.abs(other.scrollTop - scrollTop) > 1) other.scrollTop = scrollTop;
+      });
+    });
   });
   document.querySelectorAll("[data-entity-row]").forEach((row) => {
     row.addEventListener("click", () => {
+      captureBuilderGridScroll();
       const kind = row.dataset.entityKind;
       const id = row.dataset.entityId;
       if (kind === "sortEquation") {
@@ -5407,3 +5245,4 @@ function bindViewEvents() {
   });
   document.onkeydown = handleBuilderKeyboard;
 }
+

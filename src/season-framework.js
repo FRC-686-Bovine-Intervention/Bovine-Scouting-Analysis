@@ -3,6 +3,10 @@ function metric(id, label, unit = "pts", extra = {}) {
   return { id, label, unit, ...extra };
 }
 
+function formulaField(id, label, extra = {}) {
+  return { id, label, unit: "text", ...extra };
+}
+
 function rateMetric(id, label, madeFields, missFields, unit = "%") {
   return { id, label, unit, formula: "rate", madeFields, missFields };
 }
@@ -43,12 +47,10 @@ const seasonDefinitions = {
       metric("teleSpeakerMissed", "Teleop Speaker Missed", "notes"),
       metric("teleAmpMade", "Teleop Amp Made", "notes"),
       metric("teleAmpMissed", "Teleop Amp Missed", "notes"),
-      metric("driverPerformance", "Driver Performance", "rating"),
-      metric("playedDefenseRating", "Played Defense", "rating"),
-      metric("defenseOnThemRating", "Defense On Them", "rating"),
+      metric("climbAttempt", "Climb Attempt", "count", { aggregate: "max" }),
       metric("climbSuccess", "Climb Success", "count"),
-      metric("trapSuccess", "Trap Success", "count"),
-      metric("harmonySuccess", "Harmony Success", "count"),
+      metric("driverPerformance", "Driver Performance", "rating"),
+      metric("defenseOnThemRating", "Defense On Them", "rating"),
     ],
     derivedMetrics: [
       rateMetric("autoSpeakerAccuracy", "Auto Speaker Accuracy", ["autoSpeakerMade"], ["autoSpeakerMissed"]),
@@ -56,21 +58,19 @@ const seasonDefinitions = {
       rateMetric("teleSpeakerAccuracy", "Teleop Speaker Accuracy", ["teleSpeakerMade"], ["teleSpeakerMissed"]),
       rateMetric("teleAmpAccuracy", "Teleop Amp Accuracy", ["teleAmpMade"], ["teleAmpMissed"]),
       averageMetric("driverPerformanceAvg", "Driver Performance Average", ["driverPerformance"]),
-      averageMetric("playedDefenseAvg", "Played Defense Average", ["playedDefenseRating"]),
       averageMetric("defenseOnThemAvg", "Defense On Them Average", ["defenseOnThemRating"]),
     ],
     scoringMatrixPresets: [
       {
-        id: "crescendoNoteTrapPoints",
-        label: "Crescendo Note + Trap Points",
-        description: "Prefills note-scoring and trap rows that map directly to scouting counts.",
+        id: "crescendoNotePoints",
+        label: "Crescendo Note Points",
+        description: "Prefills note-scoring rows that map directly to scouting counts.",
         unit: "pts",
         weightedFields: [
           { field: "autoSpeakerMade", weight: 5 },
           { field: "autoAmpMade", weight: 2 },
           { field: "teleSpeakerMade", weight: 2 },
           { field: "teleAmpMade", weight: 1 },
-          { field: "trapSuccess", weight: 5 },
         ],
       },
     ],
@@ -192,6 +192,27 @@ const seasonDefinitions = {
       metric("overallDefense", "Overall Defense", "rating"),
       metric("noShow", "No Show", "count"),
     ],
+    formulaFields: [
+      formulaField("alliance", "Alliance"),
+      formulaField("startingPosition", "Starting Position"),
+      formulaField("autoPrimaryRole", "Auto Primary Role"),
+      formulaField("autoSecondaryRole", "Auto Secondary Role"),
+      formulaField("autoClimbAttempt", "Auto Climb Attempt"),
+      formulaField("transitionPrimaryRole", "Transition Primary Role"),
+      formulaField("transitionSecondaryRole", "Transition Secondary Role"),
+      formulaField("shift1PrimaryRole", "Shift 1 Primary Role"),
+      formulaField("shift1SecondaryRole", "Shift 1 Secondary Role"),
+      formulaField("shift2PrimaryRole", "Shift 2 Primary Role"),
+      formulaField("shift2SecondaryRole", "Shift 2 Secondary Role"),
+      formulaField("shift3PrimaryRole", "Shift 3 Primary Role"),
+      formulaField("shift3SecondaryRole", "Shift 3 Secondary Role"),
+      formulaField("shift4PrimaryRole", "Shift 4 Primary Role"),
+      formulaField("shift4SecondaryRole", "Shift 4 Secondary Role"),
+      formulaField("endgamePrimaryRole", "Endgame Primary Role"),
+      formulaField("endgameSecondaryRole", "Endgame Secondary Role"),
+      formulaField("teleopClimbAttempt", "Tele-Op Climb Attempt"),
+      formulaField("overallNotes", "Overall Notes"),
+    ],
     derivedMetrics: [
       averageMetric("fuelContributionAvg", "Fuel Contribution Average", ["autoFuelPct", "transitionFuelPct", "shift1FuelPct", "shift2FuelPct", "shift3FuelPct", "shift4FuelPct", "endgameFuelPct"], "%"),
       averageMetric("overallShooterAvg", "Overall Shooter Average", ["overallShooter"]),
@@ -227,6 +248,18 @@ function derivedMetricDefinitions(seasonOrEventModel) {
   if (!seasonOrEventModel) return [];
   if (Array.isArray(seasonOrEventModel.derivedMetricDefinitions)) return seasonOrEventModel.derivedMetricDefinitions;
   return seasonOrEventModel.derivedMetrics || [];
+}
+
+function formulaFieldDefinitions(seasonOrEventModel) {
+  if (!seasonOrEventModel) return [];
+  if (Array.isArray(seasonOrEventModel.formulaFieldDefinitions)) return seasonOrEventModel.formulaFieldDefinitions;
+  const seen = new Set();
+  return [...scouterMetricDefinitions(seasonOrEventModel), ...((seasonOrEventModel.formulaFields) || [])].filter((fieldDefinition) => {
+    const fieldId = String(fieldDefinition?.id || "");
+    if (!fieldId || seen.has(fieldId)) return false;
+    seen.add(fieldId);
+    return true;
+  });
 }
 
 function csvHeaderForMetric(metricDefinition) {
@@ -339,6 +372,8 @@ globalThis.SeasonFramework = {
   buildMetrics,
   csvHeaderForMetric,
   derivedMetricDefinitions,
+  formulaField,
+  formulaFieldDefinitions,
   metric,
   metricFieldId,
   rateMetric,

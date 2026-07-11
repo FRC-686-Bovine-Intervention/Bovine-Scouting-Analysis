@@ -1549,7 +1549,7 @@ button.pill {
 
 .derived-formula-header {
   align-items: stretch;
-  margin-bottom: 4px;
+  margin-bottom: 0;
 }
 
 .derived-formula-name {
@@ -1559,7 +1559,8 @@ button.pill {
 }
 
 .derived-formula-name-sidebar {
-  justify-items: start;
+  justify-items: end;
+  text-align: right;
 }
 
 .derived-formula-bar {
@@ -1567,9 +1568,15 @@ button.pill {
   position: relative;
 }
 
-.derived-formula-bar input {
+.derived-formula-input {
   width: 100%;
-  min-height: 42px;
+  min-height: calc(1.4em * 2 + 18px);
+  max-height: calc(1.4em * 2 + 18px);
+  line-height: 1.4;
+  overflow-y: auto;
+  resize: none;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .formula-autocomplete {
@@ -1672,15 +1679,40 @@ button.pill {
   color: #b91c1c;
 }
 
+.derived-grid-layout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-height: 0;
+}
+
+.derived-grid-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  justify-content: start;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .derived-grid-shell {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 8px;
+}
+
+.derived-grid-strip {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(160px, 1fr);
   gap: 12px;
-  overflow-x: auto;
   align-items: start;
-  padding-bottom: 8px;
   min-height: 0;
+  width: max-content;
 }
 
 .derived-grid-team {

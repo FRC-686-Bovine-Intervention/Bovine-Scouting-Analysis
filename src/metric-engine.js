@@ -256,11 +256,32 @@ function evaluateDerivedMetricDefinition(metricDefinition, values, context = {})
   return 0;
 }
 
+function isPresentValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "number") return Number.isFinite(value) && value !== 0;
+  if (typeof value === "string") return value.trim() !== "" && value.trim() !== "0";
+  return Boolean(value);
+}
+
+function numericValueOrNaN(value) {
+  if (value === null || value === undefined) return Number.NaN;
+  if (typeof value === "string" && value.trim() === "") return Number.NaN;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : Number.NaN;
+}
+
+function hasFallbackValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "string") return value.trim() !== "";
+  return true;
+}
+
 function scalarResult(value, granularity = "scalar") {
   return {
     kind: "scalar",
     granularity,
-    value: Number(value),
+    value,
   };
 }
 
@@ -284,7 +305,7 @@ function normalizeSeriesEntries(entries) {
   return (entries || [])
     .map((entry) => ({
       key: Number(entry?.key),
-      value: Number(entry?.value),
+      value: entry?.value,
     }))
     .filter((entry) => Number.isFinite(entry.key))
     .sort((left, right) => left.key - right.key);
@@ -302,6 +323,18 @@ function isScalarResult(result) {
   return result?.kind === "scalar";
 }
 
+function isScopeResult(result) {
+  return result?.kind === "scope";
+}
+
+function scopeResult(scopeId) {
+  return {
+    kind: "scope",
+    granularity: "scope",
+    scopeId,
+  };
+}
+
 function binaryGranularity(left, right) {
   if (left.granularity === "match" && right.granularity === "event") return null;
   if (left.granularity === "event" && right.granularity === "match") return null;
@@ -311,32 +344,65 @@ function binaryGranularity(left, right) {
 }
 
 function operateNumbers(left, right, operator) {
-  if (operator === "+") return left + right;
-  if (operator === "-") return left - right;
-  if (operator === "*") return left * right;
-  if (operator === "/") return right === 0 ? Number.NaN : left / right;
+  const normalizedLeft = numericValueOrNaN(left);
+  const normalizedRight = numericValueOrNaN(right);
+  if (Number.isNaN(normalizedLeft) || Number.isNaN(normalizedRight)) return Number.NaN;
+  if (operator === "+") return normalizedLeft + normalizedRight;
+  if (operator === "-") return normalizedLeft - normalizedRight;
+  if (operator === "*") return normalizedLeft * normalizedRight;
+  if (operator === "/") return normalizedRight === 0 ? Number.NaN : normalizedLeft / normalizedRight;
   return Number.NaN;
 }
 
-function compareNumbers(left, right, operator) {
-  if (operator === ">") return left > right ? 1 : 0;
-  if (operator === ">=") return left >= right ? 1 : 0;
-  if (operator === "<") return left < right ? 1 : 0;
-  if (operator === "<=") return left <= right ? 1 : 0;
-  if (operator === "==") return left === right ? 1 : 0;
-  if (operator === "!=") return left !== right ? 1 : 0;
+function compareValues(left, right, operator) {
+  const normalizedLeft = numericValueOrNaN(left);
+  const normalizedRight = numericValueOrNaN(right);
+  if (!Number.isNaN(normalizedLeft) && !Number.isNaN(normalizedRight)) {
+    if (operator === ">") return normalizedLeft > normalizedRight ? 1 : 0;
+    if (operator === ">=") return normalizedLeft >= normalizedRight ? 1 : 0;
+    if (operator === "<") return normalizedLeft < normalizedRight ? 1 : 0;
+    if (operator === "<=") return normalizedLeft <= normalizedRight ? 1 : 0;
+    if (operator === "==") return normalizedLeft === normalizedRight ? 1 : 0;
+    if (operator === "!=") return normalizedLeft !== normalizedRight ? 1 : 0;
+    return Number.NaN;
+  }
+  if (operator === "==") return String(left ?? "") === String(right ?? "") ? 1 : 0;
+  if (operator === "!=") return String(left ?? "") !== String(right ?? "") ? 1 : 0;
   return Number.NaN;
 }
 
 function truthyNumber(value) {
-  return Number.isFinite(Number(value)) && Number(value) !== 0 ? 1 : 0;
+  return isPresentValue(value) ? 1 : 0;
 }
 
 function seriesEntryMap(result) {
-  return new Map((result?.entries || []).map((entry) => [entry.key, Number(entry.value)]));
+  return new Map((result?.entries || []).map((entry) => [entry.key, entry.value]));
+}
+
+function normalizeScalarLikeResult(result) {
+  if (isErrorResult(result)) return result;
+  if (isScopeResult(result)) return errorResult("Scope values can only be used inside group functions.");
+  return result;
+}
+
+function coalescedEntryKeys(...results) {
+  const keys = new Set();
+  results.forEach((result) => {
+    (result?.entries || []).forEach((entry) => keys.add(entry.key));
+  });
+  return [...keys].sort((left, right) => left - right);
+}
+
+function valueForKey(result, key) {
+  if (isSeriesResult(result)) {
+    const entryMap = seriesEntryMap(result);
+    return entryMap.get(key);
+  }
+  return result?.value;
 }
 
 function combineFormulaResults(left, right, operator) {
+  if (isScopeResult(left) || isScopeResult(right)) return errorResult("Scope values can only be used inside group functions.");
   if (isErrorResult(left)) return left;
   if (isErrorResult(right)) return right;
   const granularity = binaryGranularity(left, right);
@@ -344,26 +410,13 @@ function combineFormulaResults(left, right, operator) {
     return errorResult("Cannot mix match-level and event-level values without an averaging function.");
   }
   if (granularity === "match") {
-    const keys = new Set();
-    const leftMap = isSeriesResult(left) ? seriesEntryMap(left) : null;
-    const rightMap = isSeriesResult(right) ? seriesEntryMap(right) : null;
-    (left?.entries || []).forEach((entry) => keys.add(entry.key));
-    (right?.entries || []).forEach((entry) => keys.add(entry.key));
-    const entries = [...keys]
-      .sort((a, b) => a - b)
-      .map((key) => {
-        const leftValue = leftMap ? leftMap.get(key) : Number(left.value);
-        const rightValue = rightMap ? rightMap.get(key) : Number(right.value);
-        return {
-          key,
-          value: Number.isFinite(leftValue) && Number.isFinite(rightValue)
-            ? operateNumbers(leftValue, rightValue, operator)
-            : Number.NaN,
-        };
-      });
+    const entries = coalescedEntryKeys(left, right).map((key) => ({
+      key,
+      value: operateNumbers(valueForKey(left, key), valueForKey(right, key), operator),
+    }));
     return seriesResult(entries);
   }
-  return scalarResult(operateNumbers(Number(left.value), Number(right.value), operator), granularity);
+  return scalarResult(operateNumbers(left.value, right.value, operator), granularity);
 }
 
 function comparisonGranularity(left, right) {
@@ -373,33 +426,22 @@ function comparisonGranularity(left, right) {
 }
 
 function compareFormulaResults(left, right, operator) {
+  if (isScopeResult(left) || isScopeResult(right)) return errorResult("Scope values can only be used inside group functions.");
   if (isErrorResult(left)) return left;
   if (isErrorResult(right)) return right;
   const granularity = comparisonGranularity(left, right);
   if (granularity === "match") {
-    const keys = new Set();
-    const leftMap = isSeriesResult(left) ? seriesEntryMap(left) : null;
-    const rightMap = isSeriesResult(right) ? seriesEntryMap(right) : null;
-    (left?.entries || []).forEach((entry) => keys.add(entry.key));
-    (right?.entries || []).forEach((entry) => keys.add(entry.key));
-    const entries = [...keys]
-      .sort((a, b) => a - b)
-      .map((key) => {
-        const leftValue = leftMap ? leftMap.get(key) : Number(left.value);
-        const rightValue = rightMap ? rightMap.get(key) : Number(right.value);
-        return {
-          key,
-          value: Number.isFinite(leftValue) && Number.isFinite(rightValue)
-            ? compareNumbers(leftValue, rightValue, operator)
-            : 0,
-        };
-      });
+    const entries = coalescedEntryKeys(left, right).map((key) => ({
+      key,
+      value: compareValues(valueForKey(left, key), valueForKey(right, key), operator),
+    }));
     return seriesResult(entries);
   }
-  return scalarResult(compareNumbers(Number(left.value), Number(right.value), operator), granularity);
+  return scalarResult(compareValues(left.value, right.value, operator), granularity);
 }
 
 function combineBooleanResults(left, right, operator) {
+  if (isScopeResult(left) || isScopeResult(right)) return errorResult("Scope values can only be used inside group functions.");
   if (isErrorResult(left)) return left;
   if (isErrorResult(right)) return right;
   const granularity = comparisonGranularity(left, right);
@@ -412,15 +454,10 @@ function combineBooleanResults(left, right, operator) {
     return 0;
   };
   if (granularity === "match") {
-    const keys = new Set();
-    const leftMap = isSeriesResult(left) ? seriesEntryMap(left) : null;
-    const rightMap = isSeriesResult(right) ? seriesEntryMap(right) : null;
-    (left?.entries || []).forEach((entry) => keys.add(entry.key));
-    (right?.entries || []).forEach((entry) => keys.add(entry.key));
     return seriesResult(
-      [...keys].sort((a, b) => a - b).map((key) => ({
+      coalescedEntryKeys(left, right).map((key) => ({
         key,
-        value: applyOperator(leftMap ? leftMap.get(key) : left.value, rightMap ? rightMap.get(key) : right.value),
+        value: applyOperator(valueForKey(left, key), valueForKey(right, key)),
       })),
     );
   }
@@ -437,10 +474,11 @@ function negateBooleanResult(result) {
 
 function negateFormulaResult(result) {
   if (isErrorResult(result)) return result;
+  if (isScopeResult(result)) return errorResult("Scope values can only be used inside group functions.");
   if (isSeriesResult(result)) {
-    return seriesResult(result.entries.map((entry) => ({ key: entry.key, value: -Number(entry.value) })));
+    return seriesResult(result.entries.map((entry) => ({ key: entry.key, value: -numericValueOrNaN(entry.value) })));
   }
-  return scalarResult(-Number(result.value), result.granularity);
+  return scalarResult(-numericValueOrNaN(result.value), result.granularity);
 }
 
 function recentSeriesEntries(result, recentEntryCount = 0) {
@@ -460,23 +498,34 @@ function filteredSeriesEntries(result, filterResult, recentEntryCount = 0) {
 }
 
 function averageSeriesValues(result, reducer, recentEntryCount = 0, filterResult = null) {
+  if (isScopeResult(result) || isScopeResult(filterResult)) return errorResult("Scope values can only be used inside group functions.");
   if (!isSeriesResult(result)) return errorResult("Averaging functions require a match-level expression.");
   const entries = filteredSeriesEntries(result, filterResult, recentEntryCount);
   if (entries === null) return errorResult("Optional filter arguments must evaluate to a match-level expression.");
   const values = entries
-    .map((entry) => Number(entry.value))
+    .map((entry) => numericValueOrNaN(entry.value))
     .filter((value) => !Number.isNaN(value));
   return scalarResult(reducer(values), "event");
 }
 
 function sumSeriesValues(result, recentEntryCount = 0, filterResult = null) {
+  if (isScopeResult(result) || isScopeResult(filterResult)) return errorResult("Scope values can only be used inside group functions.");
   if (!isSeriesResult(result)) return errorResult("sum requires a match-level expression.");
   const entries = filteredSeriesEntries(result, filterResult, recentEntryCount);
   if (entries === null) return errorResult("Optional filter arguments must evaluate to a match-level expression.");
   const values = entries
-    .map((entry) => Number(entry.value))
+    .map((entry) => numericValueOrNaN(entry.value))
     .filter((value) => !Number.isNaN(value));
   return scalarResult(values.length ? roundValue(values.reduce((sum, value) => sum + value, 0), 1) : Number.NaN, "event");
+}
+
+function countSeriesValues(result, recentEntryCount = 0, filterResult = null) {
+  if (isScopeResult(result) || isScopeResult(filterResult)) return errorResult("Scope values can only be used inside group functions.");
+  if (!isSeriesResult(result)) return errorResult("count requires a match-level expression.");
+  const entries = filteredSeriesEntries(result, filterResult, recentEntryCount);
+  if (entries === null) return errorResult("Optional filter arguments must evaluate to a match-level expression.");
+  const count = entries.filter((entry) => isPresentValue(entry.value)).length;
+  return scalarResult(count, "event");
 }
 
 function averageMatchValues(values) {
@@ -484,35 +533,69 @@ function averageMatchValues(values) {
   return roundValue(average(values), 1);
 }
 
-function averageWhenPresentValues(values) {
-  const present = values.filter((value) => value !== 0);
-  if (!present.length) return Number.NaN;
-  return roundValue(average(present), 1);
+function applyPerKey(conditionResult, whenTrue, whenFalse, mapper) {
+  const keys = coalescedEntryKeys(conditionResult, whenTrue, whenFalse);
+  return seriesResult(
+    keys.map((key) => ({
+      key,
+      value: mapper(key, valueForKey(conditionResult, key), valueForKey(whenTrue, key), valueForKey(whenFalse, key)),
+    })),
+  );
 }
 
-function averageOverAttemptValues(metricResult, attemptResult, recentEntryCount = 0, filterResult = null) {
-  if (!isSeriesResult(metricResult) || !isSeriesResult(attemptResult)) {
-    return errorResult("averageOverAttempts requires match-level metric and attempt expressions.");
+function ifFormulaResult(conditionResult, whenTrue, whenFalse) {
+  if (isErrorResult(conditionResult)) return conditionResult;
+  if (isErrorResult(whenTrue)) return whenTrue;
+  if (isErrorResult(whenFalse)) return whenFalse;
+  if (isScopeResult(conditionResult) || isScopeResult(whenTrue) || isScopeResult(whenFalse)) {
+    return errorResult("Scope values can only be used inside group functions.");
   }
-  const metricEntries = filteredSeriesEntries(metricResult, filterResult, recentEntryCount);
-  const attemptEntries = filteredSeriesEntries(attemptResult, filterResult, recentEntryCount);
-  if (metricEntries === null || attemptEntries === null) {
-    return errorResult("Optional filter arguments must evaluate to a match-level expression.");
-  }
-  const metricMap = new Map(metricEntries.map((entry) => [entry.key, Number(entry.value)]));
-  const attemptMap = new Map(attemptEntries.map((entry) => [entry.key, Number(entry.value)]));
-  const keys = [...new Set([...metricMap.keys(), ...attemptMap.keys()])].sort((a, b) => a - b);
-  let numerator = 0;
-  let denominator = 0;
-  keys.forEach((key) => {
-    const metricValue = Number(metricMap.get(key));
-    const attemptValue = Number(attemptMap.get(key));
-    if (!Number.isNaN(attemptValue) && attemptValue > 0) {
-      denominator += attemptValue;
-      if (!Number.isNaN(metricValue)) numerator += metricValue;
+  if (conditionResult.granularity === "match" || whenTrue.granularity === "match" || whenFalse.granularity === "match") {
+    if (whenTrue.granularity === "event" || whenFalse.granularity === "event") {
+      return errorResult("if cannot mix match-level and event-level values.");
     }
-  });
-  return scalarResult(denominator === 0 ? Number.NaN : roundValue(numerator / denominator, 1), "event");
+    return applyPerKey(conditionResult, whenTrue, whenFalse, (key, conditionValue, trueValue, falseValue) =>
+      truthyNumber(conditionValue) ? trueValue : falseValue);
+  }
+  return truthyNumber(conditionResult.value) ? whenTrue : whenFalse;
+}
+
+function valueOrFormulaResult(primaryResult, fallbackResult) {
+  if (isErrorResult(primaryResult)) return primaryResult;
+  if (isErrorResult(fallbackResult)) return fallbackResult;
+  if (isScopeResult(primaryResult) || isScopeResult(fallbackResult)) {
+    return errorResult("Scope values can only be used inside group functions.");
+  }
+  if (primaryResult.granularity === "match" || fallbackResult.granularity === "match") {
+    if (primaryResult.granularity === "event" || fallbackResult.granularity === "event") {
+      return errorResult("valueOr cannot mix match-level and event-level values.");
+    }
+    return applyPerKey(primaryResult, primaryResult, fallbackResult, (key, primaryValue, trueValue, fallbackValue) =>
+      hasFallbackValue(primaryValue) ? trueValue : fallbackValue);
+  }
+  return hasFallbackValue(primaryResult.value) ? primaryResult : fallbackResult;
+}
+
+function stringPredicateResult(name, textResult, queryResult, predicate) {
+  if (isErrorResult(textResult)) return textResult;
+  if (isErrorResult(queryResult)) return queryResult;
+  if (isScopeResult(textResult) || isScopeResult(queryResult)) {
+    return errorResult("Scope values can only be used inside group functions.");
+  }
+  const granularity = comparisonGranularity(textResult, queryResult);
+  const evaluateValue = (textValue, queryValue) => predicate(String(textValue ?? ""), String(queryValue ?? "")) ? 1 : 0;
+  if (granularity === "match") {
+    if (textResult.granularity === "event" || queryResult.granularity === "event") {
+      return errorResult(`${name} cannot mix match-level and event-level values.`);
+    }
+    return seriesResult(
+      coalescedEntryKeys(textResult, queryResult).map((key) => ({
+        key,
+        value: evaluateValue(valueForKey(textResult, key), valueForKey(queryResult, key)),
+      })),
+    );
+  }
+  return scalarResult(evaluateValue(textResult.value, queryResult.value), granularity);
 }
 
 function tokenizeFormulaExpression(source) {
@@ -534,6 +617,28 @@ function tokenizeFormulaExpression(source) {
     if (/[()+\-*/,<>!^]/.test(char)) {
       tokens.push({ type: char, value: char });
       index += 1;
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      const quote = char;
+      let end = index + 1;
+      let value = "";
+      while (end < text.length) {
+        const nextChar = text[end];
+        if (nextChar === "\\") {
+          const escapedChar = text[end + 1];
+          if (escapedChar === undefined) return { tokens: [], error: "Unterminated string literal." };
+          value += escapedChar;
+          end += 2;
+          continue;
+        }
+        if (nextChar === quote) break;
+        value += nextChar;
+        end += 1;
+      }
+      if (end >= text.length || text[end] !== quote) return { tokens: [], error: "Unterminated string literal." };
+      tokens.push({ type: "string", value });
+      index = end + 1;
       continue;
     }
     if (/\d|\./.test(char)) {
@@ -591,6 +696,10 @@ function parseFormulaExpression(source) {
     if (token.type === "number") {
       consume("number");
       return { type: "number", value: Number(token.value) };
+    }
+    if (token.type === "string") {
+      consume("string");
+      return { type: "string", value: String(token.value || "") };
     }
     if (token.type === "identifier") {
       const normalizedIdentifier = String(token.value || "").toLowerCase();
@@ -746,11 +855,13 @@ function collectFormulaIdentifiers(ast, values = new Set()) {
 
 function evaluateFormulaAst(ast, options = {}) {
   const resolveIdentifier = typeof options.resolveIdentifier === "function" ? options.resolveIdentifier : (() => errorResult("Identifier resolver is required."));
+  const evaluateGroupFunction = typeof options.evaluateGroupFunction === "function" ? options.evaluateGroupFunction : null;
   if (!ast) return errorResult("Formula AST is required.");
   if (ast.type === "number") return scalarResult(ast.value, "scalar");
+  if (ast.type === "string") return scalarResult(ast.value, "scalar");
   if (ast.type === "identifier") {
     const resolved = resolveIdentifier(ast.name);
-    return resolved || errorResult(`Unknown identifier "${ast.name}".`);
+    return normalizeScalarLikeResult(resolved || errorResult(`Unknown identifier "${ast.name}".`));
   }
   if (ast.type === "unary") {
     if (ast.operator === "!") return negateBooleanResult(evaluateFormulaAst(ast.argument, options));
@@ -780,11 +891,7 @@ function evaluateFormulaAst(ast, options = {}) {
   if (ast.type === "call") {
     const normalizedName = String(ast.callee || "").trim().toLowerCase();
     const recentEntryCount = Number(options.recentEntryCount) || 0;
-    const optionalFilter = ast.args.length > 1 && ["average", "sum", "averagewhenpresent"].includes(normalizedName)
-      ? evaluateFormulaAst(ast.args[1], options)
-      : ast.args.length > 2 && normalizedName === "averageoverattempts"
-        ? evaluateFormulaAst(ast.args[2], options)
-        : null;
+    const evaluateOptionalFilter = (filterAst) => (filterAst ? evaluateFormulaAst(filterAst, options) : null);
     if (normalizedName === "and") {
       if (ast.args.length < 2) return errorResult("and requires at least two arguments.");
       return ast.args
@@ -807,22 +914,77 @@ function evaluateFormulaAst(ast, options = {}) {
       if (ast.args.length !== 1) return errorResult("not requires exactly one argument.");
       return negateBooleanResult(evaluateFormulaAst(ast.args[0], options));
     }
-    if (normalizedName === "average") {
-      return averageSeriesValues(evaluateFormulaAst(ast.args[0], options), averageMatchValues, recentEntryCount, optionalFilter);
+    if (normalizedName === "match") {
+      if (ast.args.length !== 0) return errorResult("match takes no arguments.");
+      return scopeResult("match");
     }
-    if (normalizedName === "sum") {
-      return sumSeriesValues(evaluateFormulaAst(ast.args[0], options), recentEntryCount, optionalFilter);
+    if (normalizedName === "alliancematch") {
+      if (ast.args.length !== 0) return errorResult("allianceMatch takes no arguments.");
+      return scopeResult("allianceMatch");
     }
-    if (normalizedName === "averagewhenpresent") {
-      return averageSeriesValues(evaluateFormulaAst(ast.args[0], options), averageWhenPresentValues, recentEntryCount, optionalFilter);
-    }
-    if (normalizedName === "averageoverattempts") {
-      return averageOverAttemptValues(
+    if (normalizedName === "if") {
+      if (ast.args.length !== 3) return errorResult("if requires exactly three arguments.");
+      return ifFormulaResult(
         evaluateFormulaAst(ast.args[0], options),
         evaluateFormulaAst(ast.args[1], options),
-        recentEntryCount,
-        optionalFilter,
+        evaluateFormulaAst(ast.args[2], options),
       );
+    }
+    if (normalizedName === "valueor") {
+      if (ast.args.length !== 2) return errorResult("valueOr requires exactly two arguments.");
+      return valueOrFormulaResult(
+        evaluateFormulaAst(ast.args[0], options),
+        evaluateFormulaAst(ast.args[1], options),
+      );
+    }
+    if (normalizedName === "startswith") {
+      if (ast.args.length !== 2) return errorResult("startsWith requires exactly two arguments.");
+      return stringPredicateResult("startsWith", evaluateFormulaAst(ast.args[0], options), evaluateFormulaAst(ast.args[1], options), (textValue, queryValue) =>
+        textValue.toLowerCase().startsWith(queryValue.toLowerCase()));
+    }
+    if (normalizedName === "contains") {
+      if (ast.args.length !== 2) return errorResult("contains requires exactly two arguments.");
+      return stringPredicateResult("contains", evaluateFormulaAst(ast.args[0], options), evaluateFormulaAst(ast.args[1], options), (textValue, queryValue) =>
+        textValue.toLowerCase().includes(queryValue.toLowerCase()));
+    }
+    if (["average", "teamaverage"].includes(normalizedName)) {
+      if (ast.args.length < 1 || ast.args.length > 2) return errorResult("teamAverage requires one series argument and an optional filter.");
+      return averageSeriesValues(
+        evaluateFormulaAst(ast.args[0], options),
+        averageMatchValues,
+        recentEntryCount,
+        evaluateOptionalFilter(ast.args[1] || null),
+      );
+    }
+    if (["sum", "teamsum"].includes(normalizedName)) {
+      if (ast.args.length < 1 || ast.args.length > 2) return errorResult("teamSum requires one series argument and an optional filter.");
+      return sumSeriesValues(
+        evaluateFormulaAst(ast.args[0], options),
+        recentEntryCount,
+        evaluateOptionalFilter(ast.args[1] || null),
+      );
+    }
+    if (["count", "teamcount"].includes(normalizedName)) {
+      if (ast.args.length < 1 || ast.args.length > 2) return errorResult("teamCount requires one series argument and an optional filter.");
+      return countSeriesValues(
+        evaluateFormulaAst(ast.args[0], options),
+        recentEntryCount,
+        evaluateOptionalFilter(ast.args[1] || null),
+      );
+    }
+    if (["groupaverage", "groupsum", "groupcount"].includes(normalizedName)) {
+      if (!evaluateGroupFunction) return errorResult(`${ast.callee} is not available in this context.`);
+      if (ast.args.length < 2 || ast.args.length > 3) return errorResult(`${ast.callee} requires series, scope, and an optional filter.`);
+      const scopeValue = evaluateFormulaAst(ast.args[1], options);
+      if (isErrorResult(scopeValue)) return scopeValue;
+      if (!isScopeResult(scopeValue)) return errorResult(`${ast.callee} requires a scope like match() or allianceMatch().`);
+      return evaluateGroupFunction({
+        name: normalizedName,
+        seriesAst: ast.args[0],
+        scopeId: scopeValue.scopeId,
+        filterAst: ast.args[2] || null,
+        parentOptions: options,
+      });
     }
     return errorResult(`Unknown function "${normalizedName}".`);
   }
@@ -830,7 +992,13 @@ function evaluateFormulaAst(ast, options = {}) {
 }
 
 function evaluateFormulaExpression(source, options = {}) {
-  const parsed = parseFormulaExpression(source);
+  if (!evaluateFormulaExpression.cache) evaluateFormulaExpression.cache = new Map();
+  const cacheKey = String(source || "");
+  let parsed = evaluateFormulaExpression.cache.get(cacheKey);
+  if (!parsed) {
+    parsed = parseFormulaExpression(source);
+    if (!parsed.error) evaluateFormulaExpression.cache.set(cacheKey, parsed);
+  }
   if (parsed.error) return errorResult(parsed.error);
   const result = evaluateFormulaAst(parsed.ast, options);
   result.ast = parsed.ast;
@@ -1098,6 +1266,7 @@ globalThis.MetricEngine = {
   evaluateFormulaExpression,
   errorResult,
   isErrorResult,
+  isScopeResult,
   isScalarResult,
   isSeriesResult,
   metricTrendValues,
@@ -1107,6 +1276,7 @@ globalThis.MetricEngine = {
   scalarResult,
   seriesResult,
   sliceRecentMatches,
+  scopeResult,
   standardDeviation,
   summarizeScoutingWindow,
   teamMetricValue,
