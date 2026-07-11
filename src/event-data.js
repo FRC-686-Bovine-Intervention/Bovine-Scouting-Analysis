@@ -409,7 +409,6 @@ function trendScale(values, target) {
 function buildMetrics(season) {
   const seasonComponents = season.scoringComponents;
   const sourceMetricOrder = [
-    { sourceId: "scouter", label: "Scouter Total" },
     { sourceId: "epa", label: "EPA" },
     { sourceId: "opr", label: "OPR" },
     { sourceId: "pridge", label: "pRidge" },
@@ -461,7 +460,6 @@ function buildCriteriaSources(season) {
   const components = [{ id: "total", label: "Total" }, ...season.scoringComponents.map((component) => ({ id: component.id, label: component.label }))];
   return [
     { id: "epa", label: sourceLabels.epa, components },
-    { id: "scouter", label: sourceLabels.scouter, components },
     { id: "opr", label: sourceLabels.opr, components },
     { id: "pridge", label: sourceLabels.pridge, components },
     {
@@ -551,13 +549,12 @@ function buildEventModel(spec) {
     teams,
     teamNumbers: teams.map((team) => team.number).sort((a, b) => a - b),
     defaultMetricId: "source:epa:total",
-    defaultTeamDetailMetricId: "source:scouter:total",
+    defaultTeamDetailMetricId: "source:epa:total",
     seedSortEquations: [
       {
         id: "sort-defense-backup",
         name: "Defense / Backup Formula",
         terms: [
-          { operator: "+", weight: 0.05, source: "scouter", component: "total" },
           { operator: "+", weight: 0.75, source: "derived", component: "defenseImpact" },
           { operator: "+", weight: 0.2, source: "derived", component: "consistency" },
         ],

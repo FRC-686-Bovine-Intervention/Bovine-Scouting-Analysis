@@ -1,7 +1,9 @@
 (function () {
 const seasonFramework = globalThis.SeasonFramework || {};
+const sheetImportAdapters = globalThis.SheetImportAdapters || {};
 const scouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((eventModel) => eventModel?.scoringComponents || []);
 const formulaFieldDefinitions = seasonFramework.formulaFieldDefinitions || scouterMetricDefinitions;
+const importTranslationVersionForEvent = sheetImportAdapters.importTranslationVersionForEvent || (() => "");
 
 function schemaFieldEntries(eventModel) {
   return formulaFieldDefinitions(eventModel).map((fieldDefinition) => ({
@@ -24,11 +26,13 @@ function shouldRefreshSampleBackedScoutingSubmissions(submissions, eventModel) {
   if (!Array.isArray(submissions) || !submissions.length) return false;
   if (!eventModel?.sheet?.sampleCsvText) return false;
   const expectedSignature = buildScoutingSchemaSignature(eventModel);
-  if (submissions.every((submission) => String(submission?.scoutingSchemaSignature || "").trim() === expectedSignature)) return false;
+  const expectedTranslationVersion = importTranslationVersionForEvent(eventModel);
   return submissions.some((submission) => {
     const rawMetrics = submission?.rawMetrics || {};
     const signature = String(submission?.scoutingSchemaSignature || "").trim();
     if (!signature || !submission?.schemaVersion || !submission?.templateProfileId) return true;
+    if (signature !== expectedSignature) return true;
+    if (expectedTranslationVersion && submission?.importTranslationVersion !== expectedTranslationVersion) return true;
     return schemaFieldEntries(eventModel).some((fieldDefinition) => !Object.prototype.hasOwnProperty.call(rawMetrics, fieldDefinition.id));
   });
 }
@@ -43,14 +47,23 @@ function repairLegacySubmissionRawMetrics(rawMetrics, eventModel) {
   ) {
     repaired.climbAttempt = Number(repaired.climbSuccess) > 0 ? 1 : 0;
   }
+  if (
+    Number(eventModel?.season) === 2025 &&
+    !Object.prototype.hasOwnProperty.call(repaired, "climbAttempt") &&
+    Object.prototype.hasOwnProperty.call(repaired, "climbLevel")
+  ) {
+    repaired.climbAttempt = Number(repaired.climbLevel) > 0 ? 1 : 0;
+  }
   return repaired;
 }
 
 function stampScoutingSubmissionMetadata(submissions, eventModel, extra = {}) {
   const signature = buildScoutingSchemaSignature(eventModel);
+  const importTranslationVersion = importTranslationVersionForEvent(eventModel);
   return (submissions || []).map((submission) => ({
     ...submission,
     ...extra,
+    importTranslationVersion,
     scoutingSchemaSignature: signature,
   }));
 }

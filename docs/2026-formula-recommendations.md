@@ -28,42 +28,53 @@
 - `filter.<filterId>` for reusable match-level filters.
 - Derived equations remain addressable by their equation id.
 
-## Scopes
-
-- `match()` for the current match peer group.
-- `allianceMatch()` for the current alliance within the current match.
-
-These scopes are intended for group functions.
-
 ## Team-Level Functions
 
-- `teamAverage(series, filter?)`
-- `teamSum(series, filter?)`
-- `teamCount(series, filter?)`
+- `average(series, filter?)`
+- `sum(series, filter?)`
+- `count(series, filter?)`
 
 Behavior:
 
-- `teamAverage` averages numeric match values after optional filtering.
-- `teamSum` sums numeric match values after optional filtering.
-- `teamCount` counts present, nonblank, nonzero values after optional filtering.
+- `average` averages numeric match values after optional filtering.
+- `sum` sums numeric match values after optional filtering.
+- `count` counts present, nonblank, nonzero values after optional filtering.
 
-Compatibility aliases may remain:
+## Match-Scoped Functions
 
-- `average(...)` -> `teamAverage(...)`
-- `sum(...)` -> `teamSum(...)`
-- `count(...)` -> `teamCount(...)`
-
-## Group Functions
-
-- `groupAverage(series, scope, filter?)`
-- `groupSum(series, scope, filter?)`
-- `groupCount(series, scope, filter?)`
+- `matchAverage(series, filter?)`
+- `matchSum(series, filter?)`
+- `matchCount(series, filter?)`
 
 Behavior:
 
-- Evaluate the `series` expression for peers inside the requested scope.
+- Evaluate the `series` expression for all six robots in the current match.
+- Optional `filter` is evaluated against the same peer set.
+
+## Alliance-Scoped Functions
+
+- `allianceAverage(series, filter?)`
+- `allianceSum(series, filter?)`
+- `allianceCount(series, filter?)`
+
+Behavior:
+
+- Evaluate the `series` expression for peers on the current alliance.
 - Optional `filter` is evaluated against the same peer set.
 - These functions are the reusable replacement for season-specific share-allocation helpers.
+
+## Event-Scoped Functions
+
+- `eventAverage(value, filter?)`
+- `eventSum(value, filter?)`
+- `eventCount(value, filter?)`
+
+Behavior:
+
+- The first argument must already be a per-team event value.
+- Good inputs include `statbotics.auto`, `pridge.total`, `opr.endgame`, or `average(scouting.autoSpeakerMade)`.
+- Do not pass a raw match-level series such as `scouting.autoSpeakerMade`; wrap it first, for example `eventAverage(average(scouting.autoSpeakerMade))`.
+- Optional `filter` must also resolve to a per-team event value such as `average(scouting.autoSpeakerMade) > 0`.
 
 ## Scalar and String Functions
 
@@ -83,7 +94,7 @@ Behavior:
 - Remove `allocateShare`.
 - Remove `averageWhenPresent`.
 - Remove `averageOverAttempts`.
-- Prefer filter-based expressions with `teamAverage`, `teamSum`, and `teamCount`.
+- Prefer filter-based expressions with `average`, `sum`, and `count`.
 
 ## 2026 MatchCalculations Strategy
 
@@ -91,7 +102,7 @@ Behavior:
 - Expose the corresponding TBA alliance totals and climb statuses through `tba.*`.
 - Recreate `MatchCalculations` as derived equations and filters using:
   - raw string comparisons for role/climb states
-  - `group*` functions over `match()` and `allianceMatch()`
+  - `match*` and `alliance*` functions
   - `valueOr()` and `if()` for fallback logic
 
 ## Notes

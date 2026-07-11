@@ -84,7 +84,7 @@ const navItems = [
   { view: "matchup", label: "Matchup", icon: "matchup" },
   { view: "quality", label: "Data Quality", icon: "quality" },
   { view: "analysis", label: "Analysis", icon: "analysis" },
-  { view: "derivedBuilder", label: "Derived Builder", icon: "derivedBuilder" },
+  { view: "derivedBuilder", label: "Derived Equation Builder", icon: "derivedBuilder" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
   { view: "alliance", label: "Alliance Selection", icon: "alliance" },
   { view: "admin", label: "Admin", icon: "admin" },
@@ -136,7 +136,7 @@ const state = {
   inlineRename: null,
   picklistSelectedTeam: null,
   picklistCompareTeams: normalizePicklistCompareTeams([], initialEvent),
-  builderFocus: { sortBuilder: "list", picklistBuilder: "list" },
+  builderFocus: { sortBuilder: "list", picklistBuilder: "list", derivedBuilder: "equations" },
   scoutingSubmissions: [],
   activityLog: [],
   importCsvText: "",
@@ -160,6 +160,7 @@ const state = {
   seasonProfileCatalog: normalizeSeasonProfileCatalog(readStoredJson(storageKeys.seasonProfiles, {})),
   activeDerivedEquationId: "",
   activeSeasonFilterId: "",
+  activeDerivedPreviewMetricId: "",
   builderGridScroll: {
     derivedBuilder: { shellLeft: 0, columnTops: {} },
     filterBuilder: { shellLeft: 0, columnTops: {} },
@@ -252,6 +253,11 @@ function currentAtomicScouterMetricDefinitions(eventModel = currentEvent()) {
   }
   const scoringComponentIds = new Set((eventModel?.scoringComponents || []).map((component) => component.id));
   return currentScouterMetricDefinitions(eventModel).filter((metricDefinition) => !scoringComponentIds.has(metricDefinition.id));
+}
+
+function currentAvailableScoutingFieldDefinitions(eventModel = currentEvent()) {
+  const scoringComponentIds = new Set((eventModel?.scoringComponents || []).map((component) => component.id));
+  return currentFormulaFieldDefinitions(eventModel).filter((fieldDefinition) => !scoringComponentIds.has(fieldDefinition.id));
 }
 
 function importedProfileScopeKey(eventModel = currentEvent()) {
@@ -363,6 +369,32 @@ function ensureActiveDerivedEquation(eventModel = currentEvent()) {
 
 function activeDerivedEquation(eventModel = currentEvent()) {
   return equationDefinitionById(ensureActiveDerivedEquation(eventModel), eventModel);
+}
+
+function currentDerivedAvailableMetrics(eventModel = currentEvent(), activeEquation = activeDerivedEquation(eventModel)) {
+  return [
+    { id: "scouting.total" },
+    ...currentAvailableScoutingFieldDefinitions(eventModel).map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
+    { id: "tba.climbScore" },
+    { id: "tba.allianceKey" },
+    { id: "tba.autoAllianceFuel" },
+    { id: "tba.transitionAllianceFuel" },
+    { id: "tba.shift1AllianceFuel" },
+    { id: "tba.shift2AllianceFuel" },
+    { id: "tba.shift3AllianceFuel" },
+    { id: "tba.shift4AllianceFuel" },
+    { id: "tba.endgameAllianceFuel" },
+    { id: "tba.autoClimbStatus" },
+    { id: "tba.teleopClimbStatus" },
+    { id: "tba.wonAuto" },
+    ...eventModel.scoringComponents.map((component) => ({ id: `statbotics.${component.id}` })),
+    { id: "statbotics.total" },
+    ...eventModel.scoringComponents.map((component) => ({ id: `opr.${component.id}` })),
+    { id: "opr.total" },
+    ...eventModel.scoringComponents.map((component) => ({ id: `pridge.${component.id}` })),
+    { id: "pridge.total" },
+    ...currentSeasonEquationList(eventModel).filter((definition) => definition.id !== activeEquation?.id).map((definition) => ({ id: definition.id })),
+  ];
 }
 
 function ensureActiveSeasonFilter(eventModel = currentEvent()) {
@@ -558,6 +590,20 @@ function formulaScalarValue(value, granularity = "event") {
   };
 }
 
+function formulaResultForEventAggregate(value) {
+  if (metricEngine.isErrorResult(value)) return { valid: false, reason: value.error || "Invalid event aggregate input." };
+  if (metricEngine.isSeriesResult(value)) {
+    return {
+      valid: false,
+      reason: "event* requires a per-team event value such as statbotics.total or average(scouting.autoSpeakerMade), not a raw match-level series.",
+    };
+  }
+  if (!metricEngine.isScalarResult(value)) {
+    return { valid: false, reason: "event* requires a per-team event value." };
+  }
+  return { valid: true, value: value.value };
+}
+
 function rawScoutingMetricValue(matchRow, fieldId) {
   if (fieldId === "hasEntry") {
     return matchRow.scouting?.selectedSubmission ? 1 : 0;
@@ -606,11 +652,13 @@ function evaluateGroupFormulaForContext(groupRequest, formulaContext, evaluation
   const peerSeriesResultCache = new Map();
   const peerFilterResultCache = new Map();
   const evaluateGroup = ({ name, seriesAst, scopeId, filterAst, parentOptions }, context) => {
+    const recentEntryCount = Number(parentOptions?.recentEntryCount) || currentRecentMatchCount();
     const cacheKey = [
       context?.eventModel?.key || "",
       context?.baseTeam?.number || "",
       name,
       scopeId,
+      recentEntryCount,
       formulaAstCacheKey(seriesAst),
       filterAst ? formulaAstCacheKey(filterAst) : "",
     ].join(":");
@@ -678,7 +726,102 @@ function evaluateGroupFormulaForContext(groupRequest, formulaContext, evaluation
   return evaluateGroup(groupRequest, formulaContext);
 }
 
-function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, evaluationStack, filterEvaluationCache = new Map(), filterEvaluationStack = [], groupEvaluationCache = new Map()) {
+function evaluateEventFormulaForContext(eventRequest, formulaContext, evaluationCache, evaluationStack, filterEvaluationCache, filterEvaluationStack, groupEvaluationCache = new Map(), eventEvaluationCache = new Map()) {
+  const peerContextCache = new Map();
+  const peerOptionsCache = new Map();
+  const peerValueResultCache = new Map();
+  const peerFilterResultCache = new Map();
+  const evaluateEvent = ({ name, valueAst, filterAst, parentOptions }, context) => {
+    const recentEntryCount = Number(parentOptions?.recentEntryCount) || currentRecentMatchCount();
+    const cacheKey = [
+      context?.eventModel?.key || "",
+      context?.baseTeam?.number || "",
+      name,
+      recentEntryCount,
+      formulaAstCacheKey(valueAst),
+      filterAst ? formulaAstCacheKey(filterAst) : "",
+    ].join(":");
+    if (eventEvaluationCache.has(cacheKey)) return eventEvaluationCache.get(cacheKey);
+    const numericValues = [];
+    const countableValues = [];
+    for (const peerTeam of context.eventModel?.teams || []) {
+      const peerTeamNumber = Number(peerTeam?.number);
+      if (!Number.isFinite(peerTeamNumber)) continue;
+      if (!peerContextCache.has(peerTeamNumber)) peerContextCache.set(peerTeamNumber, buildTeamFormulaContext(peerTeamNumber, context.eventModel));
+      const peerFormulaContext = peerContextCache.get(peerTeamNumber);
+      if (!peerFormulaContext) continue;
+      if (!peerOptionsCache.has(peerTeamNumber)) {
+        peerOptionsCache.set(peerTeamNumber, {
+          ...parentOptions,
+          groupEvaluationCache,
+          eventEvaluationCache,
+          resolveIdentifier: (identifier) =>
+            resolveFormulaIdentifier(
+              identifier,
+              peerFormulaContext,
+              evaluationCache,
+              evaluationStack,
+              filterEvaluationCache,
+              filterEvaluationStack,
+              groupEvaluationCache,
+              eventEvaluationCache,
+            ) || { kind: "error", error: `Unknown identifier "${identifier}".` },
+          evaluateGroupFunction: (nestedRequest) => evaluateGroupFormulaForContext(
+            nestedRequest,
+            peerFormulaContext,
+            evaluationCache,
+            evaluationStack,
+            filterEvaluationCache,
+            filterEvaluationStack,
+            groupEvaluationCache,
+          ),
+          evaluateEventFunction: (nestedRequest) => evaluateEvent(nestedRequest, peerFormulaContext),
+        });
+      }
+      const peerOptions = peerOptionsCache.get(peerTeamNumber);
+      if (!peerValueResultCache.has(peerTeamNumber)) peerValueResultCache.set(peerTeamNumber, new Map());
+      const peerValueCache = peerValueResultCache.get(peerTeamNumber);
+      if (!peerValueCache.has(valueAst)) peerValueCache.set(valueAst, metricEngine.evaluateFormulaAst(valueAst, peerOptions));
+      const valueResult = peerValueCache.get(valueAst);
+      const normalizedValue = formulaResultForEventAggregate(valueResult);
+      if (!normalizedValue.valid) {
+        const result = { kind: "error", error: normalizedValue.reason };
+        eventEvaluationCache.set(cacheKey, result);
+        return result;
+      }
+      let include = true;
+      if (filterAst) {
+        if (!peerFilterResultCache.has(peerTeamNumber)) peerFilterResultCache.set(peerTeamNumber, new Map());
+        const peerFilterCache = peerFilterResultCache.get(peerTeamNumber);
+        if (!peerFilterCache.has(filterAst)) peerFilterCache.set(filterAst, metricEngine.evaluateFormulaAst(filterAst, peerOptions));
+        const filterResult = peerFilterCache.get(filterAst);
+        const normalizedFilter = formulaResultForEventAggregate(filterResult);
+        if (!normalizedFilter.valid) {
+          const result = {
+            kind: "error",
+            error: "event* optional filters must resolve to a per-team scalar condition such as average(scouting.autoSpeakerMade) > 0.",
+          };
+          eventEvaluationCache.set(cacheKey, result);
+          return result;
+        }
+        include = Number(normalizedFilter.value) !== 0;
+      }
+      if (!include) continue;
+      countableValues.push(normalizedValue.value);
+      const numeric = Number(normalizedValue.value);
+      if (Number.isFinite(numeric)) numericValues.push(numeric);
+    }
+    let result = formulaScalarValue(Number.NaN, "event");
+    if (name === "eventsum") result = formulaScalarValue(numericValues.length ? roundValue(numericValues.reduce((sum, value) => sum + value, 0), 1) : Number.NaN, "event");
+    else if (name === "eventaverage") result = formulaScalarValue(numericValues.length ? roundValue(average(numericValues), 1) : Number.NaN, "event");
+    else if (name === "eventcount") result = formulaScalarValue(countableValues.filter((value) => value !== null && value !== undefined && value !== "" && value !== 0 && value !== "0").length, "event");
+    eventEvaluationCache.set(cacheKey, result);
+    return result;
+  };
+  return evaluateEvent(eventRequest, formulaContext);
+}
+
+function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, evaluationStack, filterEvaluationCache = new Map(), filterEvaluationStack = [], groupEvaluationCache = new Map(), eventEvaluationCache = new Map()) {
   if (identifier.startsWith("scouting.")) {
     const fieldId = identifier.slice("scouting.".length);
     return formulaSeriesFromRows(formulaContext.matchRows, (row) => rawScoutingMetricValue(row, fieldId));
@@ -713,6 +856,7 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
       equationEvaluationCache: evaluationCache,
       equationEvaluationStack: evaluationStack,
       groupEvaluationCache,
+      eventEvaluationCache,
     }).result;
   }
   const referencedEquation = equationDefinitionById(identifier, formulaContext.eventModel);
@@ -724,6 +868,7 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
     filterEvaluationCache,
     filterEvaluationStack,
     groupEvaluationCache,
+    eventEvaluationCache,
   }).result;
 }
 
@@ -735,7 +880,9 @@ function evaluateEquationForTeam(team, equationId, options = {}) {
   const filterEvaluationCache = options.filterEvaluationCache || new Map();
   const filterEvaluationStack = Array.isArray(options.filterEvaluationStack) ? [...options.filterEvaluationStack] : [];
   const groupEvaluationCache = options.groupEvaluationCache || new Map();
-  const cacheKey = `${formulaContext?.baseTeam?.number || team}:${equationId}:${eventModel.key}`;
+  const eventEvaluationCache = options.eventEvaluationCache || new Map();
+  const recentEntryCount = currentRecentMatchCount();
+  const cacheKey = `${formulaContext?.baseTeam?.number || team}:${equationId}:${eventModel.key}:${recentEntryCount}`;
   if (evaluationCache.has(cacheKey)) return evaluationCache.get(cacheKey);
   if (evaluationStack.includes(equationId)) {
     const circular = { definition: equationDefinitionById(equationId, eventModel), result: { kind: "error", error: `Circular derived equation reference: ${[...evaluationStack, equationId].join(" -> ")}.` } };
@@ -749,7 +896,7 @@ function evaluateEquationForTeam(team, equationId, options = {}) {
     return missing;
   }
   const result = evaluateFormulaExpression(definition.formula, {
-    recentEntryCount: currentRecentMatchCount(),
+    recentEntryCount,
     resolveIdentifier: (identifier) =>
       resolveFormulaIdentifier(
         identifier,
@@ -759,6 +906,7 @@ function evaluateEquationForTeam(team, equationId, options = {}) {
         filterEvaluationCache,
         filterEvaluationStack,
         groupEvaluationCache,
+        eventEvaluationCache,
       ) || { kind: "error", error: `Unknown identifier "${identifier}".` },
     evaluateGroupFunction: ({ name, seriesAst, scopeId, filterAst, parentOptions }) =>
       evaluateGroupFormulaForContext(
@@ -770,7 +918,19 @@ function evaluateEquationForTeam(team, equationId, options = {}) {
         filterEvaluationStack,
         groupEvaluationCache,
       ),
+    evaluateEventFunction: ({ name, valueAst, filterAst, parentOptions }) =>
+      evaluateEventFormulaForContext(
+        { name, valueAst, filterAst, parentOptions },
+        formulaContext,
+        evaluationCache,
+        [...evaluationStack, equationId],
+        filterEvaluationCache,
+        filterEvaluationStack,
+        groupEvaluationCache,
+        eventEvaluationCache,
+      ),
     groupEvaluationCache,
+    eventEvaluationCache,
   });
   const evaluation = { definition, result, formulaContext };
   evaluationCache.set(cacheKey, evaluation);
@@ -823,6 +983,105 @@ function readLegacyJson(key, fallback) {
 
 function createId(prefix) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeStoredFormula(value, fallback = "0") {
+  const trimmed = String(value || "").trim();
+  const normalized = trimmed.replace(/^=\s*/, "").trim();
+  return normalized || fallback;
+}
+
+function formulaAstPrecedence(ast) {
+  if (!ast || typeof ast !== "object") return 99;
+  if (["number", "string", "identifier", "call"].includes(ast.type)) return 99;
+  if (ast.type === "unary") return 80;
+  if (ast.type === "binary") return ["*", "/"].includes(ast.operator) ? 70 : 60;
+  if (ast.type === "comparison") return 50;
+  if (ast.type === "logical") {
+    if (ast.operator === "and") return 40;
+    if (ast.operator === "xor") return 30;
+    return 20;
+  }
+  return 99;
+}
+
+function canonicalFormulaCall(ast) {
+  const normalizedName = String(ast?.callee || "").trim().toLowerCase();
+  const args = Array.isArray(ast?.args) ? ast.args : [];
+  if (normalizedName === "teamaverage") return { name: "average", args };
+  if (normalizedName === "teamsum") return { name: "sum", args };
+  if (normalizedName === "teamcount") return { name: "count", args };
+  if (["groupaverage", "groupsum", "groupcount"].includes(normalizedName) && args.length >= 2 && args[1]?.type === "call") {
+    const scopeName = String(args[1].callee || "").trim().toLowerCase();
+    const scopedNameMap = {
+      groupaverage: { match: "matchAverage", alliancematch: "allianceAverage" },
+      groupsum: { match: "matchSum", alliancematch: "allianceSum" },
+      groupcount: { match: "matchCount", alliancematch: "allianceCount" },
+    };
+    const nextName = scopedNameMap[normalizedName]?.[scopeName];
+    if (nextName) return { name: nextName, args: [args[0], ...args.slice(2)] };
+  }
+  const canonicalNameMap = {
+    average: "average",
+    sum: "sum",
+    count: "count",
+    matchaverage: "matchAverage",
+    matchsum: "matchSum",
+    matchcount: "matchCount",
+    allianceaverage: "allianceAverage",
+    alliancesum: "allianceSum",
+    alliancecount: "allianceCount",
+    eventaverage: "eventAverage",
+    eventsum: "eventSum",
+    eventcount: "eventCount",
+    groupaverage: "groupAverage",
+    groupsum: "groupSum",
+    groupcount: "groupCount",
+    alliancematch: "allianceMatch",
+    match: "match",
+    if: "if",
+    valueor: "valueOr",
+    startswith: "startsWith",
+    contains: "contains",
+    and: "and",
+    or: "or",
+    xor: "xor",
+    not: "not",
+  };
+  return { name: canonicalNameMap[normalizedName] || ast.callee, args };
+}
+
+function serializeFormulaAst(ast, parentPrecedence = -1) {
+  if (!ast) return "";
+  if (ast.type === "number") return String(ast.value);
+  if (ast.type === "string") return JSON.stringify(ast.value);
+  if (ast.type === "identifier") return ast.name;
+  if (ast.type === "call") {
+    const canonical = canonicalFormulaCall(ast);
+    return `${canonical.name}(${canonical.args.map((argument) => serializeFormulaAst(argument)).join(", ")})`;
+  }
+  if (ast.type === "unary") {
+    const precedence = formulaAstPrecedence(ast);
+    const text = `${ast.operator}${serializeFormulaAst(ast.argument, precedence)}`;
+    return precedence < parentPrecedence ? `(${text})` : text;
+  }
+  if (ast.type === "binary" || ast.type === "comparison" || ast.type === "logical") {
+    const precedence = formulaAstPrecedence(ast);
+    const operator = ast.type === "logical"
+      ? { and: "&&", or: "||", xor: "^" }[ast.operator] || ast.operator
+      : ast.operator;
+    const text = `${serializeFormulaAst(ast.left, precedence)} ${operator} ${serializeFormulaAst(ast.right, precedence + 1)}`;
+    return precedence < parentPrecedence ? `(${text})` : text;
+  }
+  return "";
+}
+
+function canonicalizeStoredFormula(value, fallback = "0") {
+  const normalized = normalizeStoredFormula(value, fallback);
+  const parsed = metricEngine.parseFormulaExpression(normalized);
+  if (parsed?.error || !parsed?.ast) return normalized || fallback;
+  const serialized = serializeFormulaAst(parsed.ast).trim();
+  return serialized || fallback;
 }
 
 function roundValue(value, digits = 1) {
@@ -1004,29 +1263,30 @@ function rebuildSampleBackedScoutingSubmissions(eventModel = currentEvent()) {
 }
 
 function hydrateEventState(eventKey) {
-  state.activeEventKey = resolveEventKey(eventKey);
+  const resolvedEventKey = resolveEventKey(eventKey);
+  state.activeEventKey = resolvedEventKey;
   globalThis.__scoutingActiveEventKey = state.activeEventKey;
   const eventModel = currentEvent();
-  state.activeView = normalizeView(readStoredItem(storageKeys.activeView, eventKey));
-  state.metric = normalizeAnalysisSelection(readStoredItem(storageKeys.metric, eventKey), eventModel);
-  state.activeAnalysisFilterId = normalizeAnalysisFilterSelection(readStoredItem(storageKeys.analysisFilter, eventKey), eventModel);
-  state.teamDetailMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.teamDetailMetric, eventKey), eventModel);
-  state.picklistCompareMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.picklistCompareMetric, eventKey), eventModel);
-  state.selectedTeam = Number(readStoredItem(storageKeys.selectedTeam, eventKey)) || eventModel.teams[0].number;
-  state.selectedMatch = Number(readStoredItem(storageKeys.selectedMatch, eventKey)) || eventModel.matches[0].number;
-  state.picklists = normalizePicklists(readStoredJson(storageKeys.picklists, eventModel.seedPicklists, eventKey), eventModel);
-  state.sortEquations = normalizeSortEquations(readStoredJson(storageKeys.sortEquations, eventModel.seedSortEquations, eventKey), eventModel);
-  state.activePicklist = resolvePicklistId(readStoredItem(storageKeys.activePicklist, eventKey), state.picklists) || state.picklists[0]?.id || "";
+  state.activeView = normalizeView(readStoredItem(storageKeys.activeView, resolvedEventKey));
+  state.metric = normalizeAnalysisSelection(readStoredItem(storageKeys.metric, resolvedEventKey), eventModel);
+  state.activeAnalysisFilterId = normalizeAnalysisFilterSelection(readStoredItem(storageKeys.analysisFilter, resolvedEventKey), eventModel);
+  state.teamDetailMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.teamDetailMetric, resolvedEventKey), eventModel);
+  state.picklistCompareMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.picklistCompareMetric, resolvedEventKey), eventModel);
+  state.selectedTeam = Number(readStoredItem(storageKeys.selectedTeam, resolvedEventKey)) || eventModel.teams[0].number;
+  state.selectedMatch = Number(readStoredItem(storageKeys.selectedMatch, resolvedEventKey)) || eventModel.matches[0].number;
+  state.picklists = normalizePicklists(readStoredJson(storageKeys.picklists, eventModel.seedPicklists, resolvedEventKey), eventModel);
+  state.sortEquations = normalizeSortEquations(readStoredJson(storageKeys.sortEquations, eventModel.seedSortEquations, resolvedEventKey), eventModel);
+  state.activePicklist = resolvePicklistId(readStoredItem(storageKeys.activePicklist, resolvedEventKey), state.picklists) || state.picklists[0]?.id || "";
   state.activeSortEquation =
-    resolveSortEquationId(readStoredItem(storageKeys.activeSortEquation, eventKey), state.sortEquations) || state.sortEquations[0]?.id || "";
-  state.loadedSources = normalizeLoadedSources(readStoredJson(storageKeys.loadedPicklists, [`picklist:${eventModel.seedPicklists[0].id}`], eventKey));
-  state.picklistColumns = normalizePicklistColumns(readStoredJson(storageKeys.picklistColumns, Array(picklistColumnCount).fill(""), eventKey));
-  state.allianceBoard = normalizeBoard(readStoredJson(storageKeys.allianceBoard, defaultAllianceBoard, eventKey), eventModel);
-  state.picklistCompareTeams = normalizePicklistCompareTeams(readStoredJson(storageKeys.picklistCompareTeams, [], eventKey), eventModel);
-  state.scoutingSubmissions = normalizeScoutingSubmissions(readStoredScoutingSubmissions(eventKey, eventModel), eventModel);
+    resolveSortEquationId(readStoredItem(storageKeys.activeSortEquation, resolvedEventKey), state.sortEquations) || state.sortEquations[0]?.id || "";
+  state.loadedSources = normalizeLoadedSources(readStoredJson(storageKeys.loadedPicklists, [`picklist:${eventModel.seedPicklists[0].id}`], resolvedEventKey));
+  state.picklistColumns = normalizePicklistColumns(readStoredJson(storageKeys.picklistColumns, Array(picklistColumnCount).fill(""), resolvedEventKey));
+  state.allianceBoard = normalizeBoard(readStoredJson(storageKeys.allianceBoard, defaultAllianceBoard, resolvedEventKey), eventModel);
+  state.picklistCompareTeams = normalizePicklistCompareTeams(readStoredJson(storageKeys.picklistCompareTeams, [], resolvedEventKey), eventModel);
+  state.scoutingSubmissions = normalizeScoutingSubmissions(readStoredScoutingSubmissions(resolvedEventKey, eventModel), eventModel);
   backfillSeasonProfilesFromSubmissions(eventModel);
-  state.activityLog = normalizeActivityLog(readStoredJson(storageKeys.activityLog, [], eventKey));
-  state.importSourceUrl = readStoredItem(storageKeys.importSourceUrl, eventKey) || eventModel.sheet?.url || "";
+  state.activityLog = normalizeActivityLog(readStoredJson(storageKeys.activityLog, [], resolvedEventKey));
+  state.importSourceUrl = readStoredItem(storageKeys.importSourceUrl, resolvedEventKey) || eventModel.sheet?.url || "";
   let repairedScoutingSubmissions = false;
   if (state.scoutingSubmissions.length && shouldRefreshSampleBackedScoutingSubmissions(state.scoutingSubmissions, eventModel)) {
     const refreshed = rebuildSampleBackedScoutingSubmissions(eventModel);
@@ -1036,8 +1296,8 @@ function hydrateEventState(eventKey) {
       repairedScoutingSubmissions = true;
     }
   }
-  state.scoutingWindow = readStoredItem(storageKeys.scoutingWindow, eventKey) || "all";
-  state.recentMatchCount = Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount, eventKey) || state.recentMatchCount || 12));
+  state.scoutingWindow = readStoredItem(storageKeys.scoutingWindow, resolvedEventKey) || "all";
+  state.recentMatchCount = Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount, resolvedEventKey) || state.recentMatchCount || 12));
   ensureActiveDerivedEquation(eventModel);
   ensureActiveSeasonFilter(eventModel);
   if (!state.loadedSources.length && state.picklists.length) state.loadedSources = [`picklist:${state.picklists[0].id}`];
@@ -1046,8 +1306,60 @@ function hydrateEventState(eventKey) {
   state.contextMenu = null;
   state.inlineRename = null;
   state.picklistSelectedTeam = null;
+  state.activeDerivedPreviewMetricId = "";
   state.importResult = null;
   if (repairedScoutingSubmissions) saveState();
+}
+
+function resetTransientEventState() {
+  state.contextMenu = null;
+  state.inlineRename = null;
+  state.picklistSelectedTeam = null;
+  state.activeDerivedPreviewMetricId = "";
+  state.builderFocus.derivedBuilder = "equations";
+  state.viewHistory = [];
+}
+
+function switchActiveEvent(eventKey, options = {}) {
+  if (!eventKey) return false;
+  const resolvedEventKey = resolveEventKey(eventKey);
+  const previousEventKey = state.activeEventKey;
+  const previousImportCsvText = state.importCsvText;
+  const previousImportSelectedProfileId = state.importSelectedProfileId;
+  const previousImportResult = state.importResult;
+  const previousViewHistory = Array.isArray(state.viewHistory) ? [...state.viewHistory] : [];
+  try {
+    hydrateEventState(resolvedEventKey);
+    resetTransientEventState();
+    if (options.activeView) state.activeView = normalizeView(options.activeView);
+    if (!options.preserveImportDraft) {
+      state.importCsvText = "";
+      state.importSelectedProfileId = "";
+    }
+    saveState();
+    if (options.rerunImportPreview) {
+      state.importResult = null;
+      runImportPreview();
+      return true;
+    }
+    renderSafely();
+    return true;
+  } catch (error) {
+    console.error("Failed to switch active event", resolvedEventKey, error);
+    state.importCsvText = previousImportCsvText;
+    state.importSelectedProfileId = previousImportSelectedProfileId;
+    state.importResult = previousImportResult;
+    state.viewHistory = previousViewHistory;
+    try {
+      hydrateEventState(previousEventKey);
+      saveState();
+      renderSafely();
+    } catch (rollbackError) {
+      console.error("Failed to recover previous event after switch failure", rollbackError);
+      renderRecoveryScreen(rollbackError);
+    }
+    return false;
+  }
 }
 
 function createDerivedMetricDraft(eventModel = currentEvent()) {
@@ -1087,7 +1399,7 @@ function normalizeSeasonDerivedEquationCatalog(catalog) {
       nextDefinitions.push({
         id,
         name,
-        formula,
+        formula: canonicalizeStoredFormula(formula, "0"),
         unit: String(definition?.unit || "pts").trim() || "pts",
         description: String(definition?.description || "").trim(),
         sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
@@ -1139,7 +1451,7 @@ function normalizeSeasonFilterCatalog(catalog) {
       nextDefinitions.push({
         id,
         name,
-        formula: String(definition?.formula || "").trim() || "0 > 1",
+        formula: canonicalizeStoredFormula(String(definition?.formula || "").trim() || "0 > 1", "0 > 1"),
         description: String(definition?.description || "").trim(),
         sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
       });
@@ -1340,8 +1652,8 @@ function updateSortEquation(id, updater) {
 
 function termsFromLegacyWeights(weights = {}) {
   const mappings = {
-    scouterTotal: { metricId: "source:scouter:total" },
-    "source:scouter:total": { metricId: "source:scouter:total" },
+    scouterTotal: { metricId: "source:epa:total" },
+    "source:scouter:total": { metricId: "source:epa:total" },
     epa: { metricId: "source:epa:total" },
     "source:epa:total": { metricId: "source:epa:total" },
     opr: { metricId: "source:opr:total" },
@@ -1688,15 +2000,101 @@ function usableSubmission(submission) {
   return submission.validity !== "excluded";
 }
 
+function equationResultToTrendValues(result, baseTrend = []) {
+  if (!isSeriesFormulaResult(result)) {
+    const total = Number(result?.value);
+    if (!Number.isFinite(total)) return Array.isArray(baseTrend) ? baseTrend.map(() => 0) : [];
+    const baseline = average(Array.isArray(baseTrend) ? baseTrend : []) || 1;
+    return (Array.isArray(baseTrend) ? baseTrend : []).map((value) => roundValue((value / baseline) * total));
+  }
+  return (result.entries || []).map((entry) => {
+    const numeric = Number(entry.value);
+    return Number.isFinite(numeric) ? roundValue(numeric) : 0;
+  });
+}
+
+function applyEquationBackedScoutingRollups(baseTeam, overlaidTeam, eventModel = currentEvent()) {
+  const scoringComponents = Array.isArray(eventModel?.scoringComponents) ? eventModel.scoringComponents : [];
+  if (!scoringComponents.length) return overlaidTeam;
+  const componentValues = {};
+  const componentTrend = {};
+  scoringComponents.forEach((component) => {
+    const evaluation = evaluateEquationForTeam(baseTeam, component.id, { eventModel });
+    const result = evaluation?.result;
+    if (isErrorFormulaResult(result)) {
+      componentValues[component.id] = 0;
+      componentTrend[component.id] = Array.isArray(baseTeam.matches) ? baseTeam.matches.map(() => 0) : [];
+      return;
+    }
+    if (isSeriesFormulaResult(result)) {
+      const values = (result.entries || [])
+        .map((entry) => Number(entry.value))
+        .filter((value) => Number.isFinite(value));
+      componentValues[component.id] = values.length ? roundValue(average(values)) : 0;
+      componentTrend[component.id] = equationResultToTrendValues(result, baseTeam.matches);
+      return;
+    }
+    const scalar = Number(result?.value);
+    componentValues[component.id] = Number.isFinite(scalar) ? roundValue(scalar) : 0;
+    componentTrend[component.id] = equationResultToTrendValues(result, baseTeam.matches);
+  });
+  const total = roundValue(Object.values(componentValues).reduce((sum, value) => sum + Number(value || 0), 0));
+  const totalTrend = Array.isArray(baseTeam.matches) ? equationResultToTrendValues({ value: total }, baseTeam.matches) : [];
+  return {
+    ...overlaidTeam,
+    sources: {
+      ...overlaidTeam.sources,
+      scouter: {
+        ...(overlaidTeam.sources?.scouter || {}),
+        total,
+        components: {
+          ...Object.fromEntries(scoringComponents.map((component) => [component.id, 0])),
+          ...(overlaidTeam.sources?.scouter?.components || {}),
+          ...componentValues,
+        },
+        trend: totalTrend,
+        componentTrend: {
+          ...(overlaidTeam.sources?.scouter?.componentTrend || {}),
+          ...componentTrend,
+        },
+      },
+    },
+    recentWindow: overlaidTeam.recentWindow
+      ? {
+        ...overlaidTeam.recentWindow,
+        sources: {
+          ...overlaidTeam.recentWindow.sources,
+          scouter: {
+            ...(overlaidTeam.recentWindow.sources?.scouter || {}),
+            total,
+            components: {
+              ...Object.fromEntries(scoringComponents.map((component) => [component.id, 0])),
+              ...(overlaidTeam.recentWindow.sources?.scouter?.components || {}),
+              ...componentValues,
+            },
+            trend: totalTrend,
+            componentTrend: {
+              ...(overlaidTeam.recentWindow.sources?.scouter?.componentTrend || {}),
+              ...componentTrend,
+            },
+          },
+        },
+      }
+      : overlaidTeam.recentWindow,
+    matches: totalTrend.length ? totalTrend : overlaidTeam.matches,
+  };
+}
+
 function overlayTeamWithScouting(baseTeam) {
   if (!buildTeamScoutingOverlay) return baseTeam;
-  return buildTeamScoutingOverlay(baseTeam, {
+  const overlaidTeam = buildTeamScoutingOverlay(baseTeam, {
     submissions: currentScoutingSubmissions(),
     scoringComponents: currentEvent().scoringComponents,
     scouterMetricDefinitions: currentScouterMetricDefinitions(),
     derivedMetricDefinitions: currentDerivedMetricDefinitions(),
     recentMatchCount: state.recentMatchCount,
   });
+  return applyEquationBackedScoutingRollups(baseTeam, overlaidTeam, currentEvent());
 }
 
 function currentScoutingWindow() {
@@ -1836,9 +2234,6 @@ function commitImportPreview() {
     currentEvent(),
   );
   state.activityLog = normalizeActivityLog(committed.activity);
-  if (state.importResult.summary.rowCount > 0 && state.teamDetailMetric === "source:epa:total") {
-    state.teamDetailMetric = "source:scouter:total";
-  }
   registerSeasonScoutingProfile(currentEvent().season, {
     id: state.importResult.summary.profileId,
     label: state.importResult.summary.profileLabel,
@@ -1852,9 +2247,11 @@ function commitImportPreview() {
 
 function switchImportContext(eventKey) {
   if (!eventKey) return;
-  hydrateEventState(eventKey);
-  saveState();
-  runImportPreview();
+  switchActiveEvent(eventKey, {
+    activeView: "admin",
+    preserveImportDraft: true,
+    rerunImportPreview: true,
+  });
 }
 
 function normalizeSourceUrl(value) {
@@ -1988,7 +2385,9 @@ function evaluateSeasonFilterDefinitionForTeam(team, definition, options = {}) {
   const equationEvaluationCache = options.equationEvaluationCache || new Map();
   const equationEvaluationStack = Array.isArray(options.equationEvaluationStack) ? [...options.equationEvaluationStack] : [];
   const groupEvaluationCache = options.groupEvaluationCache || new Map();
-  const cacheKey = `${formulaContext?.baseTeam?.number || team}:${definition.id}:${eventModel.key}`;
+  const eventEvaluationCache = options.eventEvaluationCache || new Map();
+  const recentEntryCount = currentRecentMatchCount();
+  const cacheKey = `${formulaContext?.baseTeam?.number || team}:${definition.id}:${eventModel.key}:${recentEntryCount}`;
   if (evaluationCache.has(cacheKey)) return evaluationCache.get(cacheKey);
   if (evaluationStack.includes(definition.id)) {
     const circular = { definition, result: { kind: "error", error: `Circular filter reference: ${[...evaluationStack, definition.id].join(" -> ")}.` }, formulaContext };
@@ -1996,7 +2395,7 @@ function evaluateSeasonFilterDefinitionForTeam(team, definition, options = {}) {
     return circular;
   }
   const result = evaluateFormulaExpression(definition.formula, {
-    recentEntryCount: currentRecentMatchCount(),
+    recentEntryCount,
     resolveIdentifier: (identifier) =>
       resolveFormulaIdentifier(
         identifier,
@@ -2006,6 +2405,7 @@ function evaluateSeasonFilterDefinitionForTeam(team, definition, options = {}) {
         evaluationCache,
         [...evaluationStack, definition.id],
         groupEvaluationCache,
+        eventEvaluationCache,
       ) || { kind: "error", error: `Unknown identifier "${identifier}".` },
     evaluateGroupFunction: ({ name, seriesAst, scopeId, filterAst, parentOptions }) =>
       evaluateGroupFormulaForContext(
@@ -2017,7 +2417,19 @@ function evaluateSeasonFilterDefinitionForTeam(team, definition, options = {}) {
         [...evaluationStack, definition.id],
         groupEvaluationCache,
       ),
+    evaluateEventFunction: ({ name, valueAst, filterAst, parentOptions }) =>
+      evaluateEventFormulaForContext(
+        { name, valueAst, filterAst, parentOptions },
+        formulaContext,
+        equationEvaluationCache,
+        equationEvaluationStack,
+        evaluationCache,
+        [...evaluationStack, definition.id],
+        groupEvaluationCache,
+        eventEvaluationCache,
+      ),
     groupEvaluationCache,
+    eventEvaluationCache,
   });
   const evaluation = { definition, result, formulaContext };
   evaluationCache.set(cacheKey, evaluation);
@@ -2310,7 +2722,7 @@ function icon(name) {
     rankings: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
     analysis: '<path d="M4 19h16"/><path d="M6 15h10"/><path d="M8 11h12"/><path d="M5 7h7"/><path d="M14 7h4"/>',
     derivedBuilder:
-      '<text x="12" y="16" text-anchor="middle" font-size="9" font-weight="700" fill="currentColor" stroke="none">f(x)</text>',
+      '<path d="M10.75 6.5h-1.4a2.1 2.1 0 0 0-2.1 2.1v8.9"/><path d="M6.7 10.5h4.2"/><path d="M13.8 10.4l4 5"/><path d="M17.8 10.4l-4 5"/>',
     bullseye: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>',
     schedule: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/>',
     matchup: '<path d="M7 7h10"/><path d="M7 17h10"/><path d="M9 7a3 3 0 1 1 0 6"/><path d="M15 17a3 3 0 1 1 0-6"/>',
@@ -2340,7 +2752,7 @@ function viewTitle(view) {
     teamDetail: "Team Detail",
     rankings: "Rankings",
     analysis: "Analysis",
-    derivedBuilder: "Derived Builder",
+    derivedBuilder: "Derived Equation Builder",
     schedule: "Match Schedule",
     matchup: "Matchup",
     quality: "Data Quality",
@@ -2540,7 +2952,7 @@ function renderTeams() {
 
 function renderTeamDetail(team) {
   const selectedMetric = teamDetailMetric();
-  const scouterMetric = metricById("source:scouter:total");
+  const scoutingConfidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
   const epaMetric = metricById("source:epa:total");
   const oprMetric = metricById("source:opr:total");
   const pridgeMetric = metricById("source:pridge:total");
@@ -2559,7 +2971,7 @@ function renderTeamDetail(team) {
       </div>
       <div class="stat-grid">
         <div class="stat"><span>${escapeHtml(selectedMetric.label)}</span><strong>${teamMetricValue(team, selectedMetric).toFixed(selectedMetric.unit === "%" ? 0 : 1)}${selectedMetric.unit === "%" ? "%" : ""}</strong></div>
-        <div class="stat"><span>Scouter Total (${scoutingWindowLabel()})</span><strong>${teamMetricValue(team, scouterMetric).toFixed(1)}</strong></div>
+        <div class="stat"><span>Scouting Confidence</span><strong>${escapeHtml(confidenceLabel(scoutingConfidence.tier))}</strong></div>
         <div class="stat"><span>EPA</span><strong>${teamMetricValue(team, epaMetric).toFixed(1)}</strong></div>
         <div class="stat"><span>OPR</span><strong>${teamMetricValue(team, oprMetric).toFixed(1)}</strong></div>
       </div>
@@ -2568,6 +2980,7 @@ function renderTeamDetail(team) {
           <div class="section-heading">
             <div>
               <h3>Match Trend</h3>
+              <p class="muted">Scouting window only applies to scouting-backed and derived metrics.</p>
             </div>
             <label class="team-trend-metric">
               <span class="muted">Metric</span>
@@ -2590,6 +3003,7 @@ function renderTeamDetail(team) {
           <p><strong>pRidge:</strong> ${teamMetricValue(team, pridgeMetric).toFixed(1)}</p>
           <p><strong>Rank:</strong> ${team.eventRank || "Unranked"}</p>
           <p><strong>Imported scouting matches:</strong> ${team.scouting?.importedMatches || 0}</p>
+          <p><strong>Scouting confidence:</strong> ${escapeHtml(confidenceLabel(scoutingConfidence.tier))}</p>
           ${team.flags.length ? team.flags.map((flag) => `<p><span class="flag ${flag.severity}">${flag.label}</span> <span class="flag-evidence">${flag.evidence}</span></p>`).join("") : `<p class="muted">No active flags.</p>`}
         </div>
       </div>
@@ -2638,13 +3052,18 @@ function applyCurrentScoutingWindowToEntries(entries) {
   return normalized.slice(-currentRecentMatchCount());
 }
 
-function analysisSeriesEntriesForMetric(team, metric) {
+function applyRecentMatchCountToEntries(entries, recentMatchCount = currentRecentMatchCount()) {
+  const normalized = Array.isArray(entries) ? entries : [];
+  return normalized.slice(-Math.max(1, Number(recentMatchCount) || currentRecentMatchCount()));
+}
+
+function analysisSeriesEntriesForMetric(team, metric, options = {}) {
   if (!team || !metric || !metricUsesMatchDistribution(team, metric)) return [];
+  const useRecentWindow = options.window === "recent";
   if (metric?.kind === "derived" && metric.definition?.expression) {
     const evaluation = evaluateEquationForTeam(team, metric.componentId);
-    return applyCurrentScoutingWindowToEntries(
-      filterResultEntries(evaluation.result).filter((entry) => Number.isFinite(Number(entry.value))),
-    );
+    const normalizedEntries = filterResultEntries(evaluation.result).filter((entry) => Number.isFinite(Number(entry.value)));
+    return useRecentWindow ? applyRecentMatchCountToEntries(normalizedEntries, options.recentMatchCount) : normalizedEntries;
   }
   const aggregatedMatches = aggregateSubmissionMatches(
     currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === Number(team.number)),
@@ -2658,16 +3077,17 @@ function analysisSeriesEntriesForMetric(team, metric) {
     key: match.matchNumber,
     value: metric.componentId === "total" ? match.total : Number(match.components?.[metric.componentId]),
   }));
-  return applyCurrentScoutingWindowToEntries(entries.filter((entry) => Number.isFinite(Number(entry.value))));
+  const normalizedEntries = entries.filter((entry) => Number.isFinite(Number(entry.value)));
+  return useRecentWindow ? applyRecentMatchCountToEntries(normalizedEntries, options.recentMatchCount) : normalizedEntries;
 }
 
-function filteredSeriesEntriesForMetric(team, metric) {
-  return analysisSeriesEntriesForMetric(team, metric);
+function filteredSeriesEntriesForMetric(team, metric, options = {}) {
+  return analysisSeriesEntriesForMetric(team, metric, options);
 }
 
-function analysisScoreForTeam(team, metric) {
+function analysisScoreForTeam(team, metric, options = {}) {
   if (!metricUsesMatchDistribution(team, metric)) return teamMetricValue(team, metric);
-  const values = filteredSeriesEntriesForMetric(team, metric)
+  const values = filteredSeriesEntriesForMetric(team, metric, options)
     .map((entry) => Number(entry.value))
     .filter((value) => Number.isFinite(value));
   return values.length ? average(values) : Number.NaN;
@@ -2714,14 +3134,15 @@ function renderSparkline(team, metric) {
 
 function renderAnalysis() {
   const selection = analysisSelectionModel();
-  const scoreForTeam = (team) => analysisScoreForTeam(team, selection.metric);
+  const analysisWindowOptions = { window: "recent", recentMatchCount: currentRecentMatchCount() };
+  const scoreForTeam = (team) => analysisScoreForTeam(team, selection.metric, analysisWindowOptions);
   const sortableScoreForTeam = (team) => {
     const value = scoreForTeam(team);
     return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
   };
   const ranked = [...currentTeams()].sort((a, b) => sortableScoreForTeam(b) - sortableScoreForTeam(a) || a.number - b.number);
   const allScores = ranked.map((team) => scoreForTeam(team));
-  const distributions = ranked.map((team) => distributionForMetric(team, selection.metric.id));
+  const distributions = ranked.map((team) => distributionForMetric(team, selection.metric.id, analysisWindowOptions));
   const finiteScores = allScores.filter((value) => Number.isFinite(value));
   const finiteDistributions = distributions.filter(
     (item) => Number.isFinite(item.min) && Number.isFinite(item.max) && Number.isFinite(item.mean) && Number.isFinite(item.median) && Number.isFinite(item.q1) && Number.isFinite(item.q3),
@@ -2736,13 +3157,6 @@ function renderAnalysis() {
         Metric
         <select id="metricSelect">
           ${analysisMetricOptions().map((item) => `<option value="${item.id}" ${item.id === state.metric ? "selected" : ""}>${item.label}</option>`).join("")}
-        </select>
-      </label>
-      <label>
-        Scouting Window
-        <select id="analysisScoutingWindowSelect">
-          <option value="all" ${currentScoutingWindow() === "all" ? "selected" : ""}>All Matches</option>
-          <option value="recent" ${currentScoutingWindow() === "recent" ? "selected" : ""}>Recent ${currentRecentMatchCount()}</option>
         </select>
       </label>
       <div class="stat"><span>Event Average</span><strong>${eventAverage.toFixed(1)} ${selection.unit}</strong></div>
@@ -2766,34 +3180,16 @@ function renderAnalysis() {
 
 function renderDerivedBuilder() {
   const activeEquation = activeDerivedEquation();
+  const activePreviewMetricId = String(state.activeDerivedPreviewMetricId || "");
+  const equationListSelected = !activePreviewMetricId;
+  const formulaTitle = activePreviewMetricId || activeEquation?.name || "New Equation";
+  const formulaInputValue = activePreviewMetricId || activeEquation?.formula || "";
   const teams = currentEvent().teams.slice().sort((left, right) => left.number - right.number);
   const previewTeam = teams[0] || null;
-  const previewStatus = activeEquation && previewTeam ? equationStatusForTeam(previewTeam, activeEquation.id) : null;
-  const previewEvaluation = activeEquation && previewTeam ? evaluateEquationForTeam(previewTeam, activeEquation.id) : null;
+  const previewStatus = !activePreviewMetricId && activeEquation && previewTeam ? equationStatusForTeam(previewTeam, activeEquation.id) : null;
+  const previewEvaluation = !activePreviewMetricId && activeEquation && previewTeam ? evaluateEquationForTeam(previewTeam, activeEquation.id) : null;
   const identifiers = previewEvaluation?.result?.identifiers || [];
-  const availableMetrics = [
-    { id: "scouting.total" },
-    ...currentFormulaFieldDefinitions().map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
-    { id: "tba.climbScore" },
-    { id: "tba.allianceKey" },
-    { id: "tba.autoAllianceFuel" },
-    { id: "tba.transitionAllianceFuel" },
-    { id: "tba.shift1AllianceFuel" },
-    { id: "tba.shift2AllianceFuel" },
-    { id: "tba.shift3AllianceFuel" },
-    { id: "tba.shift4AllianceFuel" },
-    { id: "tba.endgameAllianceFuel" },
-    { id: "tba.autoClimbStatus" },
-    { id: "tba.teleopClimbStatus" },
-    { id: "tba.wonAuto" },
-    ...currentEvent().scoringComponents.map((component) => ({ id: `statbotics.${component.id}` })),
-    { id: "statbotics.total" },
-    ...currentEvent().scoringComponents.map((component) => ({ id: `opr.${component.id}` })),
-    { id: "opr.total" },
-    ...currentEvent().scoringComponents.map((component) => ({ id: `pridge.${component.id}` })),
-    { id: "pridge.total" },
-    ...currentSeasonEquationList().filter((definition) => definition.id !== activeEquation?.id).map((definition) => ({ id: definition.id })),
-  ];
+  const availableMetrics = currentDerivedAvailableMetrics(currentEvent(), activeEquation);
   const gridRows = teams.flatMap((team) => {
     const context = buildTeamFormulaContext(team);
     return (context?.matchRows || []).map((row, index, rows) => ({
@@ -2833,6 +3229,7 @@ function renderDerivedBuilder() {
     return { text: rowModel.rowIndex === 0 ? formatMetricValue(result.value) : "", className: rowModel.rowIndex === 0 ? "" : "muted" };
   };
   const resolveResultCellValue = (rowModel) => {
+    if (activePreviewMetricId) return resolveGridCellValue(activePreviewMetricId, rowModel);
     if (!activeEquation) return { text: "", className: "" };
     const teamKey = `${rowModel.teamNumber}:${activeEquation.id}`;
     if (!teamEquationResultCache.has(teamKey)) {
@@ -2855,22 +3252,14 @@ function renderDerivedBuilder() {
     }
     return { text: rowModel.rowIndex === 0 && !Number.isNaN(result.value) ? formatMetricValue(result.value) : "", className: rowModel.rowIndex === 0 ? "" : "muted" };
   };
+  const resultColumnLabel = activePreviewMetricId || activeEquation?.name || "Result";
   return `
     <div class="grid">
       <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Derived Metric Builder</h2>
-            <p class="muted">Admins define season-specific derived equations here. Match-level formulas must use an averaging function before they can behave like event-level metrics elsewhere. Reloads seed from the checked-in season file.</p>
-          </div>
-          <div class="derived-header-actions">
-            <button type="button" id="downloadSeasonDerivedEquationsButton">Download Season File</button>
-          </div>
-        </div>
         <div class="derived-builder-layout">
           <aside class="derived-builder-sidebar">
             <div class="derived-formula-name derived-formula-name-sidebar">
-              <strong>${escapeHtml(activeEquation?.name || "New Equation")} =</strong>
+              <strong>${escapeHtml(formulaTitle)} =</strong>
             </div>
             <section class="derived-pane">
               <div class="derived-pane-header">
@@ -2884,7 +3273,7 @@ function renderDerivedBuilder() {
                     const rename = state.inlineRename?.kind === "derivedEquation" && state.inlineRename?.id === definition.id;
                     return `
                       <div
-                        class="builder-list-item ${definition.id === ensureActiveDerivedEquation() ? "active" : ""}"
+                        class="builder-list-item ${equationListSelected && definition.id === ensureActiveDerivedEquation() ? "active" : ""}"
                         data-entity-row="derivedEquation:${definition.id}"
                         data-entity-kind="derivedEquation"
                         data-entity-id="${definition.id}"
@@ -2906,7 +3295,7 @@ function renderDerivedBuilder() {
                 <h3>Available Metrics</h3>
               </div>
               <div class="builder-list metric-catalog">
-                ${availableMetrics.map((item) => `<div class="builder-list-item">${escapeHtml(item.id)}</div>`).join("")}
+                ${availableMetrics.map((item) => `<div class="builder-list-item ${item.id === activePreviewMetricId ? "active" : ""}" data-derived-preview-metric="${escapeAttribute(item.id)}">${escapeHtml(item.id)}</div>`).join("")}
               </div>
             </section>
           </aside>
@@ -2916,20 +3305,18 @@ function renderDerivedBuilder() {
                 <textarea
                   id="derivedEquationFormulaInput"
                   class="admin-input derived-formula-input"
-                  placeholder="teamAverage(tba.climbScore)"
+                  placeholder="average(tba.climbScore)"
                   autocomplete="off"
                   rows="2"
                   spellcheck="false"
                   wrap="soft"
-                >${escapeHtml(activeEquation?.formula || "")}</textarea>
+                >${escapeHtml(formulaInputValue)}</textarea>
                 <div id="derivedFormulaAutocomplete" class="formula-autocomplete" hidden></div>
               </div>
               <div class="formula-function-menu" aria-label="Built-in functions">
-                <button type="button" class="formula-function-button" tabindex="-1">f(x)</button>
+                <button type="button" class="formula-function-button" id="formulaFunctionHelpButton" title="Open function help" aria-label="Open function help">f(x)</button>
                 <div class="formula-function-popover">
-                  ${builtInFunctionList()
-                    .map((entry) => `<div class="formula-function-item"><strong>${escapeHtml(entry.name)}</strong><span>${escapeHtml(entry.description)}</span></div>`)
-                    .join("")}
+                  ${renderHoverFormulaFunctionEntries()}
                 </div>
               </div>
             </div>
@@ -2938,6 +3325,12 @@ function renderDerivedBuilder() {
                 <header>Team</header>
                 <div class="derived-grid-column-body" data-derived-scroll="team" data-builder-grid-column-scroll="derived:team">
                   ${gridRows.map((row) => `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""}">${row.teamNumber}</div>`).join("")}
+                </div>
+              </section>
+              <section class="derived-grid-column derived-grid-match">
+                <header>Match</header>
+                <div class="derived-grid-column-body" data-derived-scroll="match" data-builder-grid-column-scroll="derived:match">
+                  ${gridRows.map((row) => `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""}">${row.matchNumber}</div>`).join("")}
                 </div>
               </section>
               <div class="derived-grid-content">
@@ -2957,7 +3350,7 @@ function renderDerivedBuilder() {
                   </div>
                 </div>
                 <section class="derived-grid-column derived-grid-result">
-                  <header>${escapeHtml(activeEquation?.name || "Result")}</header>
+                  <header>${escapeHtml(resultColumnLabel)}</header>
                   <div class="derived-grid-column-body" data-derived-scroll="result" data-builder-grid-column-scroll="derived:result">
                     ${gridRows.map((row) => {
                       const value = resolveResultCellValue(row);
@@ -2987,10 +3380,10 @@ function renderBoxPlotLegend() {
   `;
 }
 
-function distributionForMetric(team, metricId) {
+function distributionForMetric(team, metricId, options = {}) {
   const metric = metricById(metricId);
   const values = metricUsesMatchDistribution(team, metric)
-    ? filteredSeriesEntriesForMetric(team, metric).map((entry) => Number(entry.value)).filter((value) => Number.isFinite(Number(value)))
+    ? filteredSeriesEntriesForMetric(team, metric, options).map((entry) => Number(entry.value)).filter((value) => Number.isFinite(Number(value)))
     : [];
   if (values.length > 1) {
     return {
@@ -3195,8 +3588,8 @@ function renderQuality() {
         </div>
         <div class="confidence-review-list">
           ${currentTeams()
-            .filter((team) => metricConfidenceModel(team, metricById("source:scouter:total")).tier !== "high")
-            .sort((left, right) => confidenceRank(metricConfidenceModel(right, metricById("source:scouter:total")).tier) - confidenceRank(metricConfidenceModel(left, metricById("source:scouter:total")).tier) || left.number - right.number)
+            .filter((team) => (team.scouting?.confidence?.tier || "medium") !== "high")
+            .sort((left, right) => confidenceRank(right.scouting?.confidence?.tier || "medium") - confidenceRank(left.scouting?.confidence?.tier || "medium") || left.number - right.number)
             .map((team) => renderConfidenceReviewRow(team))
             .join("") || `<div class="empty-state">All teams currently have high scouting confidence.</div>`}
         </div>
@@ -3287,7 +3680,7 @@ function renderSortBuilder() {
 }
 
 function renderConfidenceReviewRow(team) {
-  const confidence = metricConfidenceModel(team, metricById("source:scouter:total"));
+  const confidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
   const reasons = uniqueValues((confidence.reasons || []).map(confidenceReasonLabel));
   return `
     <div class="review-submission-row confidence-review-row">
@@ -4187,11 +4580,14 @@ function renameSeasonEquation(id, requestedName) {
 }
 
 function updateSeasonEquationFormula(id, formula) {
-  updateSeasonEquationList(currentSeasonEquationList().map((item) => (item.id === id ? { ...item, formula } : item)));
+  updateSeasonEquationList(currentSeasonEquationList().map((item) => (
+    item.id === id ? { ...item, formula: normalizeStoredFormula(formula, "0") } : item
+  )));
 }
 
 function seasonDerivedEquationsSourceText() {
-  return `(function () {\nglobalThis.SeasonDerivedEquations = ${JSON.stringify(state.seasonDerivedEquationCatalog, null, 2)};\n})();\n`;
+  const canonicalCatalog = normalizeSeasonDerivedEquationCatalog(state.seasonDerivedEquationCatalog);
+  return `(function () {\nglobalThis.SeasonDerivedEquations = ${JSON.stringify(canonicalCatalog, null, 2)};\n})();\n`;
 }
 
 function updateSeasonFilterList(definitions, eventModel = currentEvent()) {
@@ -4255,7 +4651,9 @@ function renameSeasonFilter(id, requestedName) {
 }
 
 function updateSeasonFilterFormula(id, formula) {
-  updateSeasonFilterList(currentSeasonFilterList().map((item) => (item.id === id ? { ...item, formula } : item)));
+  updateSeasonFilterList(currentSeasonFilterList().map((item) => (
+    item.id === id ? { ...item, formula: normalizeStoredFormula(formula, "0 > 1") } : item
+  )));
 }
 
 function seasonFiltersSourceText() {
@@ -4266,7 +4664,7 @@ function formulaAutocompleteCandidates(token) {
   const normalizedToken = String(token || "").toLowerCase();
   return [
     "scouting.total",
-    ...currentFormulaFieldDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
+    ...currentAvailableScoutingFieldDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
     "tba.climbScore",
     "tba.allianceKey",
     "tba.autoAllianceFuel",
@@ -4291,14 +4689,17 @@ function formulaAutocompleteCandidates(token) {
     "contains",
     "startsWith",
     "average",
-    "teamAverage",
     "sum",
-    "teamSum",
     "count",
-    "teamCount",
-    "groupAverage",
-    "groupSum",
-    "groupCount",
+    "matchAverage",
+    "matchSum",
+    "matchCount",
+    "allianceAverage",
+    "allianceSum",
+    "allianceCount",
+    "eventAverage",
+    "eventSum",
+    "eventCount",
   ].filter((candidate) => candidate.toLowerCase().startsWith(normalizedToken));
 }
 
@@ -4306,7 +4707,7 @@ function filterAutocompleteCandidates(token) {
   const normalizedToken = String(token || "").toLowerCase();
   return [
     "scouting.total",
-    ...currentFormulaFieldDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
+    ...currentAvailableScoutingFieldDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
     "tba.climbScore",
     "tba.wonAuto",
     "contains",
@@ -4320,21 +4721,68 @@ function filterAutocompleteCandidates(token) {
   ].filter((candidate) => candidate.toLowerCase().startsWith(normalizedToken));
 }
 
-function builtInFunctionList() {
+function builtInFunctionGroups() {
+  const sortEntries = (entries) => entries.slice().sort((left, right) => left.name.localeCompare(right.name));
   return [
-    { name: "teamAverage(series, filter?)", description: "Average a match-level series over the recent team matches, optionally filtered." },
-    { name: "teamSum(series, filter?)", description: "Sum a match-level series over the recent team matches, optionally filtered." },
-    { name: "teamCount(series, filter?)", description: "Count present nonblank nonzero entries in a match-level series, optionally filtered." },
-    { name: "groupAverage(series, scope, filter?)", description: "Average a peer series inside a scope such as allianceMatch() or match()." },
-    { name: "groupSum(series, scope, filter?)", description: "Sum a peer series inside a scope such as allianceMatch() or match()." },
-    { name: "groupCount(series, scope, filter?)", description: "Count present peer entries inside a scope such as allianceMatch() or match()." },
-    { name: "if(condition, whenTrue, whenFalse)", description: "Choose between two expressions using a scalar or match-level condition." },
-    { name: "valueOr(value, fallback)", description: "Use a fallback when the first value is blank, null, or invalid." },
-    { name: "startsWith(text, prefix)", description: "Case-insensitive string prefix check." },
-    { name: "contains(text, fragment)", description: "Case-insensitive string containment check." },
-    { name: "average / sum / count", description: "Compatibility aliases for teamAverage, teamSum, and teamCount." },
-    { name: "allianceMatch() / match()", description: "Scopes for group functions." },
-  ].sort((left, right) => left.name.localeCompare(right.name));
+    {
+      id: "common",
+      label: "Common",
+      expandedByDefault: true,
+      entries: sortEntries([
+        { name: "average(series, filter?)", description: "Average a match-level series over this team's recent matches, optionally filtered." },
+        { name: "count(series, filter?)", description: "Count present nonblank nonzero entries in a match-level series, optionally filtered." },
+        { name: "sum(series, filter?)", description: "Sum a match-level series over this team's recent matches, optionally filtered." },
+      ]),
+    },
+    {
+      id: "conditional",
+      label: "Conditional And Fallback",
+      expandedByDefault: true,
+      entries: sortEntries([
+        { name: "if(condition, whenTrue, whenFalse)", description: "Choose between two expressions using a scalar or match-level condition." },
+        { name: "valueOr(value, fallback)", description: "Use a fallback when the first value is blank, null, or invalid." },
+      ]),
+    },
+    {
+      id: "text",
+      label: "Text",
+      expandedByDefault: true,
+      entries: sortEntries([
+        { name: "contains(text, fragment)", description: "Case-insensitive string containment check." },
+        { name: "startsWith(text, prefix)", description: "Case-insensitive string prefix check." },
+      ]),
+    },
+    {
+      id: "alliance",
+      label: "Alliance Scoped",
+      expandedByDefault: true,
+      entries: sortEntries([
+        { name: "allianceAverage(series, filter?)", description: "Average peer values across the current alliance in each match row." },
+        { name: "allianceCount(series, filter?)", description: "Count present peer values across the current alliance in each match row." },
+        { name: "allianceSum(series, filter?)", description: "Sum peer values across the current alliance in each match row." },
+      ]),
+    },
+    {
+      id: "match",
+      label: "Match Scoped",
+      expandedByDefault: true,
+      entries: sortEntries([
+        { name: "matchAverage(series, filter?)", description: "Average peer values across all six robots in each match row." },
+        { name: "matchCount(series, filter?)", description: "Count present peer values across all six robots in each match row." },
+        { name: "matchSum(series, filter?)", description: "Sum peer values across all six robots in each match row." },
+      ]),
+    },
+    {
+      id: "event",
+      label: "Event Scoped",
+      expandedByDefault: true,
+      entries: sortEntries([
+        { name: "eventAverage(value, filter?)", description: "Average a per-team event value such as statbotics.total or average(scouting.autoSpeakerMade) across teams at the event." },
+        { name: "eventCount(value, filter?)", description: "Count teams whose per-team event value is present and nonzero. Do not pass raw match-level series like scouting.autoSpeakerMade." },
+        { name: "eventSum(value, filter?)", description: "Sum a per-team event value such as pridge.total or average(scouting.autoSpeakerMade) across teams at the event." },
+      ]),
+    },
+  ];
 }
 
 function builtInFilterFunctionList() {
@@ -4346,6 +4794,163 @@ function builtInFilterFunctionList() {
     { name: "xor(left, right, ...)", description: "Keep matches where an odd number of conditions are true." },
     { name: "<, >, ==, !=, <=, >=", description: "Comparison operators for numeric and boolean-style checks." },
   ].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function renderHoverFormulaFunctionEntries() {
+  return builtInFunctionGroups()
+    .map((group) => `
+      <details class="formula-function-group" ${group.expandedByDefault ? "open" : ""}>
+        <summary class="formula-function-group-summary">${escapeHtml(group.label)}</summary>
+        <div class="formula-function-group-list">
+          ${group.entries
+            .map((entry) => `<div class="formula-function-item formula-function-item-compact"><strong>${escapeHtml(entry.name)}</strong></div>`)
+            .join("")}
+        </div>
+      </details>
+    `)
+    .join("");
+}
+
+function renderFormulaHelpStandaloneEntries() {
+  const groupsById = Object.fromEntries(builtInFunctionGroups().map((group) => [group.id, group]));
+  const orderedGroups = ["common", "match", "conditional", "alliance", "text", "event"]
+    .map((id) => groupsById[id])
+    .filter(Boolean);
+  return orderedGroups
+    .map((group) => `
+      <section class="formula-help-section">
+        <h2>${escapeHtml(group.label)}</h2>
+        <div class="formula-help-section-list">
+          ${group.entries
+            .map((entry) => `<div class="formula-function-item"><strong>${escapeHtml(entry.name)}</strong><span>${escapeHtml(entry.description)}</span></div>`)
+            .join("")}
+        </div>
+      </section>
+    `)
+    .join("");
+}
+
+function renderFormulaHelpStandaloneDocument() {
+  const currentTheme = state.theme === "dark" ? "dark" : "light";
+  return `<!doctype html>
+<html lang="en" data-theme="${currentTheme}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Function Help</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fa;
+        --panel: #ffffff;
+        --panel-soft: #eef2f6;
+        --text: #17202a;
+        --muted: #657181;
+        --line: #d8dee7;
+        --accent: #0f766e;
+        --accent-strong: #115e59;
+        --accent-soft: #d9f3ef;
+        --warn: #b45309;
+        --danger: #b42318;
+        --info: #2563eb;
+        --good: #15803d;
+        --shadow: 0 8px 24px rgba(23, 32, 42, 0.08);
+      }
+      [data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #111418;
+        --panel: #191f27;
+        --panel-soft: #222a34;
+        --text: #eef3f8;
+        --muted: #a8b2bf;
+        --line: #303a46;
+        --accent: #2dd4bf;
+        --accent-strong: #5eead4;
+        --accent-soft: #173c39;
+        --warn: #f59e0b;
+        --danger: #f87171;
+        --info: #60a5fa;
+        --good: #4ade80;
+        --shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .formula-help-page {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+      .formula-help-page h1 {
+        margin: 0 0 6px;
+        font-size: 1.4rem;
+      }
+      .formula-help-page p {
+        margin: 0;
+        color: var(--muted);
+      }
+      .formula-help-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px 22px;
+        margin-top: 18px;
+      }
+      .formula-help-section {
+        display: grid;
+        align-content: start;
+        gap: 10px;
+      }
+      .formula-help-section h2 {
+        margin: 0;
+        font-size: 0.98rem;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 6px;
+      }
+      .formula-help-section-list {
+        display: grid;
+        gap: 10px;
+      }
+      .formula-function-item {
+        display: grid;
+        gap: 2px;
+      }
+      .formula-function-item strong {
+        font-family: ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
+        font-size: 0.92rem;
+      }
+      .formula-function-item span {
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <article class="formula-help-page">
+      <h1>Formula Functions</h1>
+      <p>Built-in helpers for derived equations. Keep this tab open as a reference while editing formulas.</p>
+      <div class="formula-help-list">
+        ${renderFormulaHelpStandaloneEntries()}
+      </div>
+    </article>
+  </body>
+</html>`;
+}
+
+function openFormulaHelpTab() {
+  const helpWindow = window.open("", "scouting-formula-help");
+  if (!helpWindow) return;
+  helpWindow.document.open();
+  helpWindow.document.write(renderFormulaHelpStandaloneDocument());
+  helpWindow.document.close();
+  helpWindow.focus();
 }
 
 function analysisMetricOptions() {
@@ -4634,7 +5239,7 @@ function handleBuilderKeyboard(event) {
   if (target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) return;
 
   if (event.key === "F2") {
-    if (state.activeView === "derivedBuilder" && state.activeDerivedEquationId) {
+    if (state.activeView === "derivedBuilder" && state.builderFocus.derivedBuilder === "equations" && !state.activeDerivedPreviewMetricId && state.activeDerivedEquationId) {
       event.preventDefault();
       startInlineRename("derivedEquation", state.activeDerivedEquationId);
     }
@@ -4657,6 +5262,35 @@ function handleBuilderKeyboard(event) {
       const next = state.sortEquations[Math.max(0, Math.min(state.sortEquations.length - 1, index + direction))];
       if (!next) return;
       state.activeSortEquation = next.id;
+      saveState();
+      render();
+    }
+    return;
+  }
+
+  if (state.activeView === "derivedBuilder") {
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      const direction = event.key === "ArrowUp" ? -1 : 1;
+      if (state.builderFocus.derivedBuilder === "metrics") {
+        const availableMetrics = currentDerivedAvailableMetrics();
+        const activeMetricId = String(state.activeDerivedPreviewMetricId || "");
+        const index = activeMetricId ? availableMetrics.findIndex((item) => item.id === activeMetricId) : -1;
+        const next = availableMetrics[Math.max(0, Math.min(availableMetrics.length - 1, index + direction))];
+        if (!next) return;
+        state.activeDerivedPreviewMetricId = next.id;
+        saveState();
+        render();
+        return;
+      }
+      const equations = currentSeasonEquationList();
+      const activeEquationId = ensureActiveDerivedEquation();
+      const index = equations.findIndex((item) => item.id === activeEquationId);
+      const next = equations[Math.max(0, Math.min(equations.length - 1, index + direction))];
+      if (!next) return;
+      state.activeDerivedEquationId = next.id;
+      state.activeDerivedPreviewMetricId = "";
+      state.builderFocus.derivedBuilder = "equations";
       saveState();
       render();
     }
@@ -4713,11 +5347,6 @@ function bindViewEvents() {
     saveState();
     render();
   });
-  document.querySelector("#analysisScoutingWindowSelect")?.addEventListener("change", (event) => {
-    state.scoutingWindow = event.target.value === "recent" ? "recent" : "all";
-    saveState();
-    render();
-  });
   document.querySelector("#picklistScoutingWindowSelect")?.addEventListener("change", (event) => {
     state.scoutingWindow = event.target.value === "recent" ? "recent" : "all";
     saveState();
@@ -4732,20 +5361,12 @@ function bindViewEvents() {
   document.querySelector("#adminEventSelect")?.addEventListener("change", (event) => {
     const nextEventKey = event.target.value;
     if (!nextEventKey) return;
-    hydrateEventState(nextEventKey);
-    state.activeView = "admin";
-    state.viewHistory = [];
-    saveState();
-    render();
+    switchActiveEvent(nextEventKey, { activeView: "admin" });
   });
   document.querySelector("#switchAdminEventButton")?.addEventListener("click", () => {
     const nextEventKey = document.querySelector("#adminEventSelect")?.value;
     if (!nextEventKey) return;
-    hydrateEventState(nextEventKey);
-    state.activeView = "admin";
-    state.viewHistory = [];
-    saveState();
-    render();
+    switchActiveEvent(nextEventKey, { activeView: "admin" });
   });
   document.querySelector("#clearAllianceBoardButton")?.addEventListener("click", clearAllianceBoard);
   document.querySelectorAll("[data-team], [data-team-link]").forEach((element) => {
@@ -4921,8 +5542,9 @@ function bindViewEvents() {
         return;
       }
       const token = autocomplete.token;
+      const selectedCandidate = selectedFormulaAutocompleteCandidate();
       const candidates = autocomplete.candidates.filter((candidate) => !stringsEqualIgnoreCase(candidate, token));
-      const replacement = longestSharedPrefix(candidates);
+      const replacement = selectedCandidate || longestSharedPrefix(candidates);
       if (replacement && !stringsEqualIgnoreCase(replacement, token)) replaceFormulaToken(input, token, replacement);
       else if (autocomplete.candidates.length === 1 && autocomplete.candidates[0] !== token) replaceFormulaToken(input, token, autocomplete.candidates[0]);
       else requestAnimationFrame(() => input.focus());
@@ -4979,14 +5601,16 @@ function bindViewEvents() {
       requestAnimationFrame(() => updateFormulaSuggestionList(input));
     });
   });
-  document.querySelector("#downloadSeasonDerivedEquationsButton")?.addEventListener("click", () => {
-    const blob = new Blob([seasonDerivedEquationsSourceText()], { type: "text/javascript;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `season-derived-equations-${currentEvent().season}.js`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+  document.querySelectorAll("[data-derived-preview-metric]").forEach((item) => {
+    item.addEventListener("click", () => {
+      state.activeDerivedPreviewMetricId = item.dataset.derivedPreviewMetric || "";
+      state.builderFocus.derivedBuilder = "metrics";
+      saveState();
+      render();
+    });
+  });
+  document.querySelector("#formulaFunctionHelpButton")?.addEventListener("click", () => {
+    openFormulaHelpTab();
   });
   document.querySelector("[data-builder-grid-shell]")?.addEventListener("scroll", () => {
     captureBuilderGridScroll();
@@ -5010,6 +5634,8 @@ function bindViewEvents() {
         state.builderFocus.sortBuilder = "list";
       } else if (kind === "derivedEquation") {
         state.activeDerivedEquationId = id;
+        state.activeDerivedPreviewMetricId = "";
+        state.builderFocus.derivedBuilder = "equations";
       } else if (kind === "seasonFilter") {
         state.activeSeasonFilterId = id;
       } else {

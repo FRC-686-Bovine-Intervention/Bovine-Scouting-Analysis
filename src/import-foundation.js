@@ -337,7 +337,7 @@ function parseRows(rows, headers, profile, eventModel, metadata) {
       }
       const parsedValue = parseImportedMetricValue(row[cellIndex]);
       baseRecord.rawMetrics[fieldDefinition.id] = parsedValue;
-      if (parsedValue === null) baseRecord.confidenceReasons.push("missing_metric");
+      if (parsedValue === null && fieldDefinition.optional !== true) baseRecord.confidenceReasons.push("missing_metric");
     });
 
     const missingIdentity = requiredIdentityFields.filter((field) => {
