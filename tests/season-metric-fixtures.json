@@ -4,7 +4,10 @@
     "teamNumber": 111,
     "baseTeam": {
       "flags": [],
-      "matches": [28, 30],
+      "matches": [
+        28,
+        30
+      ],
       "sources": {},
       "derived": {}
     },
@@ -29,11 +32,9 @@
           "teleAmpMade": 2,
           "teleAmpMissed": 0,
           "driverPerformance": 3,
-          "playedDefenseRating": 1,
           "defenseOnThemRating": 2,
           "climbSuccess": 1,
-          "trapSuccess": 0,
-          "harmonySuccess": 0
+          "climbAttempt": 1
         }
       },
       {
@@ -56,11 +57,9 @@
           "teleAmpMade": 1,
           "teleAmpMissed": 1,
           "driverPerformance": 5,
-          "playedDefenseRating": 2,
           "defenseOnThemRating": 4,
           "climbSuccess": 1,
-          "trapSuccess": 1,
-          "harmonySuccess": 1
+          "climbAttempt": 1
         }
       }
     ],
@@ -73,7 +72,6 @@
         "teleSpeakerAccuracy": 75,
         "teleAmpAccuracy": 75,
         "driverPerformanceAvg": 4,
-        "playedDefenseAvg": 1.5,
         "defenseOnThemAvg": 3
       }
     }
@@ -83,7 +81,10 @@
     "teamNumber": 222,
     "baseTeam": {
       "flags": [],
-      "matches": [51, 82],
+      "matches": [
+        51,
+        82
+      ],
       "sources": {},
       "derived": {}
     },
@@ -206,7 +207,10 @@
     "teamNumber": 333,
     "baseTeam": {
       "flags": [],
-      "matches": [120, 150],
+      "matches": [
+        120,
+        150
+      ],
       "sources": {},
       "derived": {}
     },

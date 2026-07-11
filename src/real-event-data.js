@@ -4,6 +4,7 @@ const seasonDefinitions = seasonFramework.seasonDefinitions || {};
 const buildMetrics = seasonFramework.buildMetrics;
 const buildCriteriaSources = seasonFramework.buildCriteriaSources;
 const scouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((season) => season?.scoringComponents || []);
+const formulaFieldDefinitions = seasonFramework.formulaFieldDefinitions || scouterMetricDefinitions;
 const derivedMetricDefinitions = seasonFramework.derivedMetricDefinitions || ((season) => season?.derivedMetrics || []);
 
 function round(value, digits = 1) {
@@ -151,6 +152,7 @@ function buildEventModel(snapshot) {
     matches,
     scoringComponents: season.scoringComponents,
     scouterMetricDefinitions: scouterMetricDefinitions(season),
+    formulaFieldDefinitions: formulaFieldDefinitions(season),
     derivedMetricDefinitions: derivedMetricDefinitions(season),
     metrics: buildMetrics(season),
     criteriaSources: buildCriteriaSources(season),

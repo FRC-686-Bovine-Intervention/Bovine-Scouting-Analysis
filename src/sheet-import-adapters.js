@@ -1,6 +1,7 @@
 (function () {
 const seasonFramework = globalThis.SeasonFramework || {};
 const seasonScouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((eventModel) => eventModel?.scoringComponents || []);
+const seasonFormulaFieldDefinitions = seasonFramework.formulaFieldDefinitions || seasonScouterMetricDefinitions;
 const seasonMetricFieldId = seasonFramework.csvHeaderForMetric || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id));
 
 function parseCsvText(text) {
@@ -77,21 +78,9 @@ function leadingNumericValue(value) {
   return match ? Number(match[0]) : 0;
 }
 
-function defenseEffectivenessScore(value) {
-  return categoricalScore(value, {
-    none: 0,
-    na: 0,
-    n: 0,
-    noteffective: 1,
-    somewhateffective: 2,
-    effective: 3,
-    significantlyeffective: 4,
-    light: 1,
-    moderate: 2,
-    heavy: 3,
-  });
+function noteIndicatesNoShow(value) {
+  return normalizeImportToken(value).includes("noshow");
 }
-
 function eventSheetHeaderMap(headers) {
   const map = new Map();
   headers.forEach((header, index) => map.set(header, index));
@@ -106,7 +95,7 @@ function eventSheetCell(row, headerIndex, header) {
 function buildCanonicalImportCsv(eventModel, records) {
   const metadataRow = ["meta", "season", "eventKey", "schemaVersion", "templateProfileId"];
   const valueRow = ["value", eventModel.season, eventModel.key, "match-v2", "match-current-v2"];
-  const metricDefinitions = seasonScouterMetricDefinitions(eventModel);
+  const metricDefinitions = seasonFormulaFieldDefinitions(eventModel);
   const headerRow = [
     "matchNumber",
     "teamNumber",
@@ -127,7 +116,7 @@ function buildCanonicalImportCsv(eventModel, records) {
     record.defensePlayed ? "yes" : "no",
     record.robotStatus,
     record.notes,
-    ...metricDefinitions.map((metricDefinition) => record.metrics[metricDefinition.id] ?? 0),
+    ...metricDefinitions.map((metricDefinition) => record.metrics[metricDefinition.id] ?? ""),
   ]);
   return toCsvText([metadataRow, valueRow, [], headerRow, ...dataRows]);
 }
@@ -233,44 +222,52 @@ function adapt2024SheetCsv(eventModel, csvText) {
   const rows = parseCsvText(csvText);
   const headers = rows[0] || [];
   const headerIndex = eventSheetHeaderMap(headers);
-  const records = rows.slice(1).filter((row) => row.some((cell) => cell)).map((row) => {
-    const autoSpeaker = numericValue(eventSheetCell(row, headerIndex, "AUTO scoring \n(uncheck all but final score before continuing) [Speaker score âœ…]"));
-    const autoAmp = numericValue(eventSheetCell(row, headerIndex, "AUTO scoring \n(uncheck all but final score before continuing) [Amp score âœ…]"));
-    const teleAmp = numericValue(eventSheetCell(row, headerIndex, "Tele-op scoring \n(uncheck all but final score before continuing) [Amp score âœ…]"));
-    const teleSpeaker = numericValue(eventSheetCell(row, headerIndex, "Tele-op scoring \n(uncheck all but final score before continuing) [Speaker score âœ…]"));
-    return {
-      matchNumber: numericValue(eventSheetCell(row, headerIndex, "Match #?")),
-      teamNumber: numericValue(eventSheetCell(row, headerIndex, "Team #?")),
-      scoutUser: eventSheetCell(row, headerIndex, "Timestamp") || "Imported Sheet",
-      alliance: "unknown",
-      station: eventSheetCell(row, headerIndex, "Starting location?") || "sheet",
-      defensePlayed: !["", "no", "none", "na", "n/a"].includes(normalizeImportToken(eventSheetCell(row, headerIndex, "Did this robot PLAY defence? If so how effectively?"))),
-      robotStatus: normalizeImportToken(eventSheetCell(row, headerIndex, "Did the robot break on the field?")) === "yes" ? "broken" : "ok",
-      notes: eventSheetCell(row, headerIndex, "Other notes?"),
-      metrics: {
-        auto: autoSpeaker + autoAmp + numericValue(eventSheetCell(row, headerIndex, "AUTO [Note passes]")),
-        speaker: teleSpeaker + numericValue(eventSheetCell(row, headerIndex, "Tele-op [Note passes]")),
-        amp: teleAmp,
-        trap:
-          categoricalScore(eventSheetCell(row, headerIndex, "Scored trap?"), { successfulattempt: 1 }) +
-          categoricalScore(eventSheetCell(row, headerIndex, "Harmony? (2 robots on the same chain)"), { successfulattempt: 1 }),
-        autoSpeakerMade: autoSpeaker,
-        autoSpeakerMissed: numericValue(eventSheetCell(row, headerIndex, "AUTO scoring \n(uncheck all but final score before continuing) [Speaker miss Ã¢ÂÅ’]")),
-        autoAmpMade: autoAmp,
-        autoAmpMissed: numericValue(eventSheetCell(row, headerIndex, "AUTO scoring \n(uncheck all but final score before continuing) [Amp miss Ã¢ÂÅ’]")),
-        teleSpeakerMade: teleSpeaker,
-        teleSpeakerMissed: numericValue(eventSheetCell(row, headerIndex, "Tele-op scoring \n(uncheck all but final score before continuing) [Speaker miss Ã¢ÂÅ’]")),
-        teleAmpMade: teleAmp,
-        teleAmpMissed: numericValue(eventSheetCell(row, headerIndex, "Tele-op scoring \n(uncheck all but final score before continuing) [Amp miss Ã¢ÂÅ’]")),
-        driverPerformance: leadingNumericValue(eventSheetCell(row, headerIndex, "Driver skill?")),
-        playedDefenseRating: defenseEffectivenessScore(eventSheetCell(row, headerIndex, "Did this robot PLAY defence? If so how effectively?")),
-        defenseOnThemRating: defenseEffectivenessScore(eventSheetCell(row, headerIndex, "Was defence played ON this robot? If so, how effectively?")),
-        climbSuccess: categoricalScore(eventSheetCell(row, headerIndex, "Climb?"), { successfulattempt: 1 }),
-        trapSuccess: categoricalScore(eventSheetCell(row, headerIndex, "Scored trap?"), { successfulattempt: 1 }),
-        harmonySuccess: categoricalScore(eventSheetCell(row, headerIndex, "Harmony? (2 robots on the same chain)"), { successfulattempt: 1 }),
-      },
-    };
-  });
+  const records = rows
+    .slice(1)
+    .filter((row) => row.some((cell) => cell))
+    .map((row) => {
+      const matchNumber = leadingNumericValue(eventSheetCell(row, headerIndex, "Match #"));
+      const teamNumber = leadingNumericValue(eventSheetCell(row, headerIndex, "Team #"));
+      if (!matchNumber || !teamNumber) return null;
+      const autoSpeaker = numericValue(eventSheetCell(row, headerIndex, "Auto Speaker"));
+      const autoSpeakerMissed = numericValue(eventSheetCell(row, headerIndex, "Auto Speaker Miss"));
+      const autoAmp = numericValue(eventSheetCell(row, headerIndex, "Auto Amp"));
+      const autoAmpMissed = numericValue(eventSheetCell(row, headerIndex, "Auto Amp Miss"));
+      const teleAmp = numericValue(eventSheetCell(row, headerIndex, "Tele-op Amp score"));
+      const teleAmpMissed = numericValue(eventSheetCell(row, headerIndex, "Tele-op Amp miss"));
+      const teleSpeaker = numericValue(eventSheetCell(row, headerIndex, "Tele-op Speaker"));
+      const teleSpeakerMissed = numericValue(eventSheetCell(row, headerIndex, "Tele-op Speaker miss"));
+      const notes = eventSheetCell(row, headerIndex, "Notes");
+      return {
+        matchNumber,
+        teamNumber,
+        scoutUser: eventSheetCell(row, headerIndex, "Timestamp") || "Imported Sheet",
+        alliance: "unknown",
+        station: eventSheetCell(row, headerIndex, "Starting location") || "sheet",
+        defensePlayed: false,
+        robotStatus: noteIndicatesNoShow(notes) ? "no_show" : "ok",
+        notes,
+        metrics: {
+          auto: autoSpeaker + autoAmp,
+          speaker: teleSpeaker,
+          amp: teleAmp,
+          trap: 0,
+          autoSpeakerMade: autoSpeaker,
+          autoSpeakerMissed,
+          autoAmpMade: autoAmp,
+          autoAmpMissed,
+          teleSpeakerMade: teleSpeaker,
+          teleSpeakerMissed,
+          teleAmpMade: teleAmp,
+          teleAmpMissed,
+          climbAttempt: numericValue(eventSheetCell(row, headerIndex, "Climb Attempt")),
+          climbSuccess: numericValue(eventSheetCell(row, headerIndex, "Climb Sucess")),
+          driverPerformance: numericValue(eventSheetCell(row, headerIndex, "Driver Performance")),
+          defenseOnThemRating: numericValue(eventSheetCell(row, headerIndex, "Defense Played On")),
+        },
+      };
+    })
+    .filter(Boolean);
   return buildCanonicalImportCsv(eventModel, records);
 }
 
@@ -286,7 +283,12 @@ function adapt2026SheetCsv(eventModel, csvText) {
     "Shifts Shift4 Defense On",
     "Shifts Endgame Defense On",
   ];
-  const records = rows.slice(1).filter((row) => row.some((cell) => cell)).map((row) => {
+  const records = rows
+    .slice(1)
+    .filter((row) => row.some((cell) => cell))
+    .map((row) => {
+      const rowEventKey = eventSheetCell(row, headerIndex, "Event Key");
+      if (rowEventKey && rowEventKey !== eventModel.key) return null;
     const autoFuel = numericValue(eventSheetCell(row, headerIndex, "Shifts Auto Fuel Pct"));
     const cycleFuel = ["Shifts Transition Fuel Pct", "Shifts Shift1 Fuel Pct", "Shifts Shift2 Fuel Pct", "Shifts Shift3 Fuel Pct", "Shifts Shift4 Fuel Pct"].reduce(
       (sum, header) => sum + numericValue(eventSheetCell(row, headerIndex, header)),
@@ -306,26 +308,46 @@ function adapt2026SheetCsv(eventModel, csvText) {
       robotStatus: truthyValue(eventSheetCell(row, headerIndex, "No Show")) ? "no_show" : "ok",
       notes: eventSheetCell(row, headerIndex, "Overall Notes"),
       metrics: {
+        alliance: eventSheetCell(row, headerIndex, "Alliance"),
+        startingPosition: eventSheetCell(row, headerIndex, "Shifts Auto Starting Position"),
         auto: autoFuel,
         cycle: cycleFuel,
         endgame: endgameFuel + climbScore,
+        autoPrimaryRole: eventSheetCell(row, headerIndex, "Shifts Auto Primary Role"),
+        autoSecondaryRole: eventSheetCell(row, headerIndex, "Shifts Auto Secondary Role"),
         autoFuelPct: autoFuel,
+        autoClimbAttempt: eventSheetCell(row, headerIndex, "Shifts Auto Climb"),
+        transitionPrimaryRole: eventSheetCell(row, headerIndex, "Shifts Transition Primary Role"),
+        transitionSecondaryRole: eventSheetCell(row, headerIndex, "Shifts Transition Secondary Role"),
         transitionFuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Transition Fuel Pct")),
+        shift1PrimaryRole: eventSheetCell(row, headerIndex, "Shifts Shift1 Primary Role"),
+        shift1SecondaryRole: eventSheetCell(row, headerIndex, "Shifts Shift1 Secondary Role"),
         shift1FuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Shift1 Fuel Pct")),
+        shift2PrimaryRole: eventSheetCell(row, headerIndex, "Shifts Shift2 Primary Role"),
+        shift2SecondaryRole: eventSheetCell(row, headerIndex, "Shifts Shift2 Secondary Role"),
         shift2FuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Shift2 Fuel Pct")),
+        shift3PrimaryRole: eventSheetCell(row, headerIndex, "Shifts Shift3 Primary Role"),
+        shift3SecondaryRole: eventSheetCell(row, headerIndex, "Shifts Shift3 Secondary Role"),
         shift3FuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Shift3 Fuel Pct")),
+        shift4PrimaryRole: eventSheetCell(row, headerIndex, "Shifts Shift4 Primary Role"),
+        shift4SecondaryRole: eventSheetCell(row, headerIndex, "Shifts Shift4 Secondary Role"),
         shift4FuelPct: numericValue(eventSheetCell(row, headerIndex, "Shifts Shift4 Fuel Pct")),
+        endgamePrimaryRole: eventSheetCell(row, headerIndex, "Shifts Endgame Primary Role"),
+        endgameSecondaryRole: eventSheetCell(row, headerIndex, "Shifts Endgame Secondary Role"),
         endgameFuelPct: endgameFuel,
+        teleopClimbAttempt: eventSheetCell(row, headerIndex, "Shifts Endgame Climb"),
         overallShooter: numericValue(eventSheetCell(row, headerIndex, "Overall Shooter")),
         overallPasser: numericValue(eventSheetCell(row, headerIndex, "Overall Passer")),
         overallIntake: numericValue(eventSheetCell(row, headerIndex, "Overall Intake")),
         overallDriver: numericValue(eventSheetCell(row, headerIndex, "Overall Driver")),
         overallDefenseAvoidance: numericValue(eventSheetCell(row, headerIndex, "Overall Defense Avoidance")),
         overallDefense: numericValue(eventSheetCell(row, headerIndex, "Overall Defense")),
+        overallNotes: eventSheetCell(row, headerIndex, "Overall Notes"),
         noShow: truthyValue(eventSheetCell(row, headerIndex, "No Show")) ? 1 : 0,
       },
     };
-  });
+  })
+    .filter(Boolean);
   return buildCanonicalImportCsv(eventModel, records);
 }
 
@@ -346,3 +368,4 @@ globalThis.SheetImportAdapters = {
   parseCsvText,
 };
 })();
+

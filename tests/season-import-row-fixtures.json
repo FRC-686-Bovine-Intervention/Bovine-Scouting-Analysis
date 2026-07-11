@@ -5,7 +5,9 @@
     "teamNumber": 1719,
     "baseTeam": {
       "flags": [],
-      "matches": [2],
+      "matches": [
+        2
+      ],
       "sources": {},
       "derived": {}
     },
@@ -30,11 +32,9 @@
           "teleAmpMade": 0,
           "teleAmpMissed": 0,
           "driverPerformance": 0,
-          "playedDefenseRating": 0,
           "defenseOnThemRating": 0,
           "climbSuccess": 1,
-          "trapSuccess": 0,
-          "harmonySuccess": 1
+          "climbAttempt": 1
         }
       }
     ],
@@ -47,7 +47,6 @@
         "teleSpeakerAccuracy": 100,
         "teleAmpAccuracy": 0,
         "driverPerformanceAvg": 0,
-        "playedDefenseAvg": 0,
         "defenseOnThemAvg": 0
       }
     }
@@ -58,7 +57,9 @@
     "teamNumber": 686,
     "baseTeam": {
       "flags": [],
-      "matches": [7],
+      "matches": [
+        7
+      ],
       "sources": {},
       "derived": {}
     },
@@ -83,11 +84,9 @@
           "teleAmpMade": 4,
           "teleAmpMissed": 0,
           "driverPerformance": 0,
-          "playedDefenseRating": 0,
           "defenseOnThemRating": 0,
           "climbSuccess": 0,
-          "trapSuccess": 0,
-          "harmonySuccess": 0
+          "climbAttempt": 0
         }
       }
     ],
@@ -100,7 +99,6 @@
         "teleSpeakerAccuracy": 100,
         "teleAmpAccuracy": 100,
         "driverPerformanceAvg": 0,
-        "playedDefenseAvg": 0,
         "defenseOnThemAvg": 0
       }
     }
@@ -111,7 +109,9 @@
     "teamNumber": 8590,
     "baseTeam": {
       "flags": [],
-      "matches": [37],
+      "matches": [
+        37
+      ],
       "sources": {},
       "derived": {}
     },
@@ -121,7 +121,9 @@
         "matchNumber": 1,
         "validity": "flagged",
         "defensePlayed": false,
-        "confidenceReasons": ["duplicate_submission"],
+        "confidenceReasons": [
+          "duplicate_submission"
+        ],
         "rawMetrics": {
           "auto": 3,
           "coral": 34,
@@ -166,7 +168,9 @@
       "scouterTotal": 0,
       "confidenceTier": "low",
       "flaggedCount": 1,
-      "flagLabels": ["Duplicates"],
+      "flagLabels": [
+        "Duplicates"
+      ],
       "derived": {
         "teleopTotal": 0,
         "endgameTotal": 0,
@@ -192,7 +196,9 @@
     "teamNumber": 9072,
     "baseTeam": {
       "flags": [],
-      "matches": [34],
+      "matches": [
+        34
+      ],
       "sources": {},
       "derived": {}
     },
@@ -271,7 +277,9 @@
     "teamNumber": 346,
     "baseTeam": {
       "flags": [],
-      "matches": [140],
+      "matches": [
+        140
+      ],
       "sources": {},
       "derived": {}
     },
@@ -323,7 +331,9 @@
     "teamNumber": 3939,
     "baseTeam": {
       "flags": [],
-      "matches": [240],
+      "matches": [
+        240
+      ],
       "sources": {},
       "derived": {}
     },
@@ -375,7 +385,9 @@
     "teamNumber": 122,
     "baseTeam": {
       "flags": [],
-      "matches": [250],
+      "matches": [
+        250
+      ],
       "sources": {},
       "derived": {}
     },
@@ -385,7 +397,9 @@
         "matchNumber": 93,
         "validity": "flagged",
         "defensePlayed": false,
-        "confidenceReasons": ["duplicate_submission"],
+        "confidenceReasons": [
+          "duplicate_submission"
+        ],
         "rawMetrics": {
           "auto": 0,
           "cycle": 230,
@@ -411,7 +425,9 @@
       "scouterTotal": 0,
       "confidenceTier": "low",
       "flaggedCount": 1,
-      "flagLabels": ["Duplicates"],
+      "flagLabels": [
+        "Duplicates"
+      ],
       "derived": {
         "fuelContributionAvg": 0,
         "overallShooterAvg": 0,

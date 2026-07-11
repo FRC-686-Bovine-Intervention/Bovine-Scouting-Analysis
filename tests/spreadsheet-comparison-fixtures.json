@@ -7,7 +7,9 @@
     "tolerance": 0.001,
     "baseTeam": {
       "flags": [],
-      "matches": [7],
+      "matches": [
+        7
+      ],
       "sources": {},
       "derived": {}
     },
@@ -32,11 +34,9 @@
           "teleAmpMade": 4,
           "teleAmpMissed": 0,
           "driverPerformance": 0,
-          "playedDefenseRating": 0,
           "defenseOnThemRating": 0,
           "climbSuccess": 0,
-          "trapSuccess": 0,
-          "harmonySuccess": 0
+          "climbAttempt": 0
         }
       }
     ],
@@ -56,7 +56,9 @@
     "tolerance": 0.001,
     "baseTeam": {
       "flags": [],
-      "matches": [34],
+      "matches": [
+        34
+      ],
       "sources": {},
       "derived": {}
     },
@@ -124,7 +126,9 @@
     "tolerance": 0.001,
     "baseTeam": {
       "flags": [],
-      "matches": [240],
+      "matches": [
+        240
+      ],
       "sources": {},
       "derived": {}
     },

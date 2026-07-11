@@ -1,13 +1,14 @@
 (function () {
 const seasonFramework = globalThis.SeasonFramework || {};
 const scouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((eventModel) => eventModel?.scoringComponents || []);
+const formulaFieldDefinitions = seasonFramework.formulaFieldDefinitions || scouterMetricDefinitions;
 
-function schemaMetricEntries(eventModel) {
-  return scouterMetricDefinitions(eventModel).map((metricDefinition) => ({
-    id: metricDefinition.id,
-    label: metricDefinition.label || metricDefinition.id,
-    unit: metricDefinition.unit || "",
-    aggregate: metricDefinition.aggregate || "average",
+function schemaFieldEntries(eventModel) {
+  return formulaFieldDefinitions(eventModel).map((fieldDefinition) => ({
+    id: fieldDefinition.id,
+    label: fieldDefinition.label || fieldDefinition.id,
+    unit: fieldDefinition.unit || "",
+    aggregate: fieldDefinition.aggregate || "average",
   }));
 }
 
@@ -15,7 +16,7 @@ function buildScoutingSchemaSignature(eventModel) {
   return JSON.stringify({
     eventKey: eventModel?.key || "",
     season: Number(eventModel?.season) || 0,
-    metrics: schemaMetricEntries(eventModel),
+    fields: schemaFieldEntries(eventModel),
   });
 }
 
@@ -28,8 +29,21 @@ function shouldRefreshSampleBackedScoutingSubmissions(submissions, eventModel) {
     const rawMetrics = submission?.rawMetrics || {};
     const signature = String(submission?.scoutingSchemaSignature || "").trim();
     if (!signature || !submission?.schemaVersion || !submission?.templateProfileId) return true;
-    return schemaMetricEntries(eventModel).some((metricDefinition) => !Object.prototype.hasOwnProperty.call(rawMetrics, metricDefinition.id));
+    return schemaFieldEntries(eventModel).some((fieldDefinition) => !Object.prototype.hasOwnProperty.call(rawMetrics, fieldDefinition.id));
   });
+}
+
+function repairLegacySubmissionRawMetrics(rawMetrics, eventModel) {
+  if (!rawMetrics || typeof rawMetrics !== "object") return {};
+  const repaired = { ...rawMetrics };
+  if (
+    Number(eventModel?.season) === 2024 &&
+    !Object.prototype.hasOwnProperty.call(repaired, "climbAttempt") &&
+    Object.prototype.hasOwnProperty.call(repaired, "climbSuccess")
+  ) {
+    repaired.climbAttempt = Number(repaired.climbSuccess) > 0 ? 1 : 0;
+  }
+  return repaired;
 }
 
 function stampScoutingSubmissionMetadata(submissions, eventModel, extra = {}) {
@@ -43,6 +57,7 @@ function stampScoutingSubmissionMetadata(submissions, eventModel, extra = {}) {
 
 globalThis.ScoutingImportRepair = {
   buildScoutingSchemaSignature,
+  repairLegacySubmissionRawMetrics,
   shouldRefreshSampleBackedScoutingSubmissions,
   stampScoutingSubmissionMetadata,
 };

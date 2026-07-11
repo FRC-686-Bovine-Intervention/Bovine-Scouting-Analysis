@@ -112,6 +112,10 @@ function scouterMetricDefinitions(eventModel) {
   return (seasonFramework.scouterMetricDefinitions || ((model) => model?.scoringComponents || []))(eventModel);
 }
 
+function formulaFieldDefinitions(eventModel) {
+  return (seasonFramework.formulaFieldDefinitions || seasonFramework.scouterMetricDefinitions || ((model) => model?.scoringComponents || []))(eventModel);
+}
+
 function csvHeaderForMetric(component) {
   return (seasonFramework.csvHeaderForMetric || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id)))(component);
 }
@@ -126,7 +130,7 @@ function currentHeaderLabels(eventModel) {
     "defensePlayed",
     "robotStatus",
     "notes",
-    ...scouterMetricDefinitions(eventModel).map((component) => csvHeaderForMetric(component)),
+    ...formulaFieldDefinitions(eventModel).map((component) => csvHeaderForMetric(component)),
   ];
 }
 
@@ -140,13 +144,13 @@ function legacyHeaderLabels(eventModel) {
     "played defense",
     "robot state",
     "comments",
-    ...scouterMetricDefinitions(eventModel).map((component) => component.label),
+    ...formulaFieldDefinitions(eventModel).map((component) => component.label),
   ];
 }
 
 function buildProfiles(eventModel) {
   const componentSynonyms = Object.fromEntries(
-    scouterMetricDefinitions(eventModel).map((component) => [
+    formulaFieldDefinitions(eventModel).map((component) => [
       componentFieldId(component),
       [component.id, csvHeaderForMetric(component), `${component.label} pts`, `${component.label} score`, component.label, ...(component.aliases || [])],
     ]),
@@ -207,6 +211,44 @@ function toNumber(value) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function parseImportedMetricValue(value) {
+  if (value === "") return null;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric;
+  return value;
+}
+
+function importedValueType(value) {
+  if (value === null || value === undefined) return "null";
+  if (typeof value === "number") return "number";
+  return "string";
+}
+
+function dominantTypeWarnings(parsedRows, fieldDefinitions) {
+  const warnings = [];
+  (fieldDefinitions || []).forEach((fieldDefinition) => {
+    const samples = parsedRows
+      .map((row) => ({ rowNumber: row.rowNumber, value: row.rawMetrics?.[fieldDefinition.id] }))
+      .filter((entry) => entry.value !== null && entry.value !== undefined);
+    if (!samples.length) return;
+    const counts = samples.reduce((map, entry) => {
+      const type = importedValueType(entry.value);
+      map.set(type, (map.get(type) || 0) + 1);
+      return map;
+    }, new Map());
+    const dominantEntry = [...counts.entries()].sort((left, right) => right[1] - left[1])[0];
+    if (!dominantEntry) return;
+    const [dominantType, dominantCount] = dominantEntry;
+    if (dominantCount / samples.length < 0.9) return;
+    samples
+      .filter((entry) => importedValueType(entry.value) !== dominantType)
+      .forEach((entry) => {
+        warnings.push(`Row ${entry.rowNumber} has ${fieldDefinition.label} as ${importedValueType(entry.value)} but most of that column is ${dominantType}.`);
+      });
+  });
+  return warnings;
+}
+
 function buildHeaderIndex(headers) {
   const index = new Map();
   headers.forEach((header, position) => {
@@ -257,9 +299,9 @@ function parseRows(rows, headers, profile, eventModel, metadata) {
   const index = buildHeaderIndex(headers);
   const warnings = [];
   const parsedRows = [];
-  const componentHeaders = scouterMetricDefinitions(eventModel).map((component) => ({
-    component,
-    normalizedHeader: normalizeHeader(profile.kind === "current" ? csvHeaderForMetric(component) : component.label, profile.synonyms),
+  const metricHeaders = formulaFieldDefinitions(eventModel).map((fieldDefinition) => ({
+    fieldDefinition,
+    normalizedHeader: normalizeHeader(profile.kind === "current" ? csvHeaderForMetric(fieldDefinition) : fieldDefinition.label, profile.synonyms),
   }));
 
   rows.forEach((row, rowOffset) => {
@@ -287,19 +329,15 @@ function parseRows(rows, headers, profile, eventModel, metadata) {
       rowNumber,
     };
 
-    componentHeaders.forEach(({ component, normalizedHeader }) => {
+    metricHeaders.forEach(({ fieldDefinition, normalizedHeader }) => {
       const cellIndex = index.get(normalizedHeader);
       if (cellIndex === undefined) {
-        warnings.push(`Missing mapped column for ${component.label} in row ${rowNumber}.`);
+        warnings.push(`Missing mapped column for ${fieldDefinition.label} in row ${rowNumber}.`);
         return;
       }
-      const numeric = toNumber(row[cellIndex]);
-      if (numeric === null) {
-        baseRecord.rawMetrics[component.id] = null;
-        baseRecord.confidenceReasons.push("missing_metric");
-      } else {
-        baseRecord.rawMetrics[component.id] = numeric;
-      }
+      const parsedValue = parseImportedMetricValue(row[cellIndex]);
+      baseRecord.rawMetrics[fieldDefinition.id] = parsedValue;
+      if (parsedValue === null) baseRecord.confidenceReasons.push("missing_metric");
     });
 
     const missingIdentity = requiredIdentityFields.filter((field) => {
@@ -320,6 +358,7 @@ function parseRows(rows, headers, profile, eventModel, metadata) {
     parsedRows.push(baseRecord);
   });
 
+  warnings.push(...dominantTypeWarnings(parsedRows, formulaFieldDefinitions(eventModel)));
   return { parsedRows, warnings };
 }
 
@@ -383,7 +422,7 @@ function buildSampleCsv(eventModel, profileId) {
     const baseCells = profile.kind === "current"
       ? [matchNumber, team.number, `Scout ${index + 1}`, index % 2 === 0 ? "red" : "blue", index + 1, index === 1 ? "yes" : "no", "ok", `Imported sample row ${index + 1}`]
       : [matchNumber, team.number, `Scout ${index + 1}`, index % 2 === 0 ? "red" : "blue", index + 1, index === 1 ? "yes" : "no", "ok", `Legacy sample row ${index + 1}`];
-    const componentCells = scouterMetricDefinitions(eventModel).map((component) => team.sources.scouter.components[component.id] ?? "");
+    const componentCells = formulaFieldDefinitions(eventModel).map((component) => team.sources.scouter.components[component.id] ?? "");
     return [...baseCells, ...componentCells];
   });
   return [metaRow, valueRow, [], headerRow, ...rows]
@@ -425,7 +464,7 @@ function previewScoutingImport({ csvText, eventModel, activeEventKey, existingSu
   }
 
   const normalizedHeaders = headerRow.map((header) => normalizeHeader(header, synonymMap(Object.fromEntries(
-    scouterMetricDefinitions(eventModel).map((component) => [componentFieldId(component), [component.id, csvHeaderForMetric(component), `${component.label} pts`, `${component.label} score`, component.label, ...(component.aliases || [])]]),
+    formulaFieldDefinitions(eventModel).map((component) => [componentFieldId(component), [component.id, csvHeaderForMetric(component), `${component.label} pts`, `${component.label} score`, component.label, ...(component.aliases || [])]]),
   ))));
 
   let profile = null;
