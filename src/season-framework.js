@@ -226,7 +226,7 @@ const seasonDefinitions = {
 };
 
 const sourceLabels = {
-  scouter: "Scouter Total",
+  scouter: "Scouting",
   epa: "EPA",
   opr: "OPR",
   pridge: "pRidge",
@@ -238,10 +238,7 @@ function scouterMetricDefinitions(seasonOrEventModel) {
   if (Array.isArray(seasonOrEventModel.scouterMetricDefinitions) && seasonOrEventModel.scouterMetricDefinitions.length) {
     return seasonOrEventModel.scouterMetricDefinitions;
   }
-  if (Array.isArray(seasonOrEventModel.scoringComponents)) {
-    return [...seasonOrEventModel.scoringComponents, ...(seasonOrEventModel.scouterMetrics || [])];
-  }
-  return [];
+  return Array.isArray(seasonOrEventModel.scouterMetrics) ? seasonOrEventModel.scouterMetrics : [];
 }
 
 function derivedMetricDefinitions(seasonOrEventModel) {
@@ -277,21 +274,12 @@ function metricFieldId(metricDefinition) {
 function buildMetrics(season) {
   const scouterMetrics = scouterMetricDefinitions(season);
   return [
-    {
-      id: "source:scouter:total",
-      kind: "source",
-      sourceId: "scouter",
-      componentId: "total",
-      label: "Scouter Total",
-      shortLabel: "Scouter Total",
-      unit: "pts",
-    },
     ...scouterMetrics.map((component) => ({
       id: `source:scouter:${component.id}`,
       kind: "source",
       sourceId: "scouter",
       componentId: component.id,
-      label: `Scouter ${component.label}`,
+      label: `Scouting ${component.label}`,
       shortLabel: component.label,
       unit: component.unit,
     })),
@@ -348,7 +336,7 @@ function buildMetrics(season) {
 
 function buildCriteriaSources(season) {
   const scoringComponents = [{ id: "total", label: "Total" }, ...season.scoringComponents.map((component) => ({ id: component.id, label: component.label }))];
-  const scouterComponents = [{ id: "total", label: "Total" }, ...scouterMetricDefinitions(season).map((component) => ({ id: component.id, label: component.label }))];
+  const scouterComponents = scouterMetricDefinitions(season).map((component) => ({ id: component.id, label: component.label }));
   return [
     { id: "epa", label: sourceLabels.epa, components: scoringComponents },
     { id: "scouter", label: sourceLabels.scouter, components: scouterComponents },

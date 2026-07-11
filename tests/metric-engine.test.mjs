@@ -77,8 +77,8 @@ runTest("evaluateDerivedMetricDefinition supports sum, weighted sum, average, an
   );
 });
 
-runTest("evaluateFormulaExpression supports nested team averages with inline filters", () => {
-  const result = metricEngine.evaluateFormulaExpression("teamAverage(tba.climbScore, scouting.climbAttempt > 0) + teamAverage(scouting.teleL3Made)", {
+runTest("evaluateFormulaExpression supports nested averages with inline filters", () => {
+  const result = metricEngine.evaluateFormulaExpression("average(tba.climbScore, scouting.climbAttempt > 0) + average(scouting.teleL3Made)", {
     recentEntryCount: 3,
     resolveIdentifier(identifier) {
       if (identifier === "tba.climbScore") {
@@ -110,8 +110,8 @@ runTest("evaluateFormulaExpression supports nested team averages with inline fil
   assert.equal(result.value, 11);
 });
 
-runTest("teamAverage can exclude zero-attempt matches with an inline filter", () => {
-  const result = metricEngine.evaluateFormulaExpression("teamAverage(tba.climbScore, scouting.climbAttempt > 0)", {
+runTest("average can exclude zero-attempt matches with an inline filter", () => {
+  const result = metricEngine.evaluateFormulaExpression("average(tba.climbScore, scouting.climbAttempt > 0)", {
     recentEntryCount: 3,
     resolveIdentifier(identifier) {
       if (identifier === "tba.climbScore") {
@@ -155,8 +155,8 @@ runTest("sum aggregates recent match-level values", () => {
   assert.equal(result.value, 12);
 });
 
-runTest("teamAverage supports an optional inline filter expression", () => {
-  const result = metricEngine.evaluateFormulaExpression("teamAverage(scouting.teleL3Made, scouting.climbAttempt > 0)", {
+runTest("average supports an optional inline filter expression", () => {
+  const result = metricEngine.evaluateFormulaExpression("average(scouting.teleL3Made, scouting.climbAttempt > 0)", {
     recentEntryCount: 3,
     resolveIdentifier(identifier) {
       if (identifier === "scouting.teleL3Made") {
@@ -471,8 +471,8 @@ runTest("valueOr preserves real zero values", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(result.entries)), [{ key: 1, value: 0 }, { key: 2, value: 99 }]);
 });
 
-runTest("evaluateFormulaExpression delegates group functions with scopes", () => {
-  const result = metricEngine.evaluateFormulaExpression("groupSum(scouting.autoFuelPct / 100, allianceMatch())", {
+runTest("evaluateFormulaExpression delegates alliance-scoped functions", () => {
+  const result = metricEngine.evaluateFormulaExpression("allianceSum(scouting.autoFuelPct / 100)", {
     resolveIdentifier(identifier) {
       if (identifier === "scouting.autoFuelPct") {
         return metricEngine.seriesResult([{ key: 3, value: 40 }]);
@@ -490,6 +490,30 @@ runTest("evaluateFormulaExpression delegates group functions with scopes", () =>
 
   assert.equal(result.granularity, "match");
   assert.deepEqual(JSON.parse(JSON.stringify(result.entries)), [{ key: 3, value: 1.25 }]);
+});
+
+runTest("evaluateFormulaExpression delegates event-scoped functions", () => {
+  const result = metricEngine.evaluateFormulaExpression("eventAverage(average(scouting.autoFuelPct), statbotics.total > 0)", {
+    resolveIdentifier(identifier) {
+      if (identifier === "scouting.autoFuelPct") {
+        return metricEngine.seriesResult([{ key: 3, value: 40 }]);
+      }
+      if (identifier === "statbotics.total") {
+        return metricEngine.scalarResult(10, "event");
+      }
+      return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+    },
+    evaluateEventFunction({ name, valueAst, filterAst }) {
+      assert.equal(name, "eventaverage");
+      assert.equal(valueAst.type, "call");
+      assert.equal(valueAst.callee, "average");
+      assert.equal(filterAst.type, "comparison");
+      return metricEngine.scalarResult(7.5, "event");
+    },
+  });
+
+  assert.equal(result.granularity, "event");
+  assert.equal(result.value, 7.5);
 });
 
 runTest("evaluateFormulaExpression rejects mixed granularity without averaging", () => {

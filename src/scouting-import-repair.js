@@ -47,6 +47,13 @@ function repairLegacySubmissionRawMetrics(rawMetrics, eventModel) {
   ) {
     repaired.climbAttempt = Number(repaired.climbSuccess) > 0 ? 1 : 0;
   }
+  if (
+    Number(eventModel?.season) === 2025 &&
+    !Object.prototype.hasOwnProperty.call(repaired, "climbAttempt") &&
+    Object.prototype.hasOwnProperty.call(repaired, "climbLevel")
+  ) {
+    repaired.climbAttempt = Number(repaired.climbLevel) > 0 ? 1 : 0;
+  }
   return repaired;
 }
 

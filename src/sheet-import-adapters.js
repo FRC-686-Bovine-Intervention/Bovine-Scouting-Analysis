@@ -31,10 +31,6 @@ const seasonSheetTranslators = {
         robotStatus: noteIndicatesNoShow(notes) ? "no_show" : "ok",
         notes,
         metrics: {
-          auto: autoSpeaker + autoAmp,
-          speaker: teleSpeaker,
-          amp: teleAmp,
-          trap: 0,
           autoSpeakerMade: autoSpeaker,
           autoSpeakerMissed,
           autoAmpMade: autoAmp,
@@ -54,20 +50,6 @@ const seasonSheetTranslators = {
   2025: {
     version: "2025-thin-v2",
     translateRow(rowTools) {
-      const autoPoints =
-        rowTools.number("Auto-L3Make") * 6 +
-        rowTools.number("Auto-L2Make") * 4 +
-        rowTools.number("Auto-TroughMake") * 3 +
-        rowTools.number("Auto-ScoredProcessorMake") * 6 +
-        rowTools.number("Auto-ScoredBargeMake") * 4;
-      const coralPoints =
-        rowTools.number("Tele-Op-L4Make") * 5 +
-        rowTools.number("Tele-Op-L3Make") * 4 +
-        rowTools.number("Tele-Op-L2Make") * 3 +
-        rowTools.number("Tele-Op-TroughMake") * 2;
-      const algaePoints =
-        rowTools.number("Tele-Op-ScoredProcessorMake") * 6 +
-        rowTools.number("Tele-Op-ScoredBargeMake") * 4;
       const climbLevel = rowTools.number("Climbing");
 
       return {
@@ -80,10 +62,6 @@ const seasonSheetTranslators = {
         robotStatus: "ok",
         notes: rowTools.text("Notes"),
         metrics: {
-          auto: autoPoints,
-          coral: coralPoints,
-          algae: algaePoints,
-          climb: reefscape2025ClimbPoints(climbLevel),
           autoL4Made: rowTools.number("Auto-L4Make"),
           autoL4Missed: rowTools.number("Auto-L4Miss"),
           autoL3Made: rowTools.number("Auto-L3Make"),
@@ -135,9 +113,6 @@ const seasonSheetTranslators = {
       const shift3Fuel = rowTools.number("Shifts Shift3 Fuel Pct");
       const shift4Fuel = rowTools.number("Shifts Shift4 Fuel Pct");
       const endgameFuel = rowTools.number("Shifts Endgame Fuel Pct");
-      const climbScore =
-        rowTools.categoricalScore("Shifts Auto Climb", { climbed: 15, successfulattempt: 15 }) +
-        rowTools.categoricalScore("Shifts Endgame Climb", { climbed: 20, successfulattempt: 20, parked: 8 });
 
       return {
         matchNumber: rowTools.number("Match Number"),
@@ -160,9 +135,6 @@ const seasonSheetTranslators = {
         metrics: {
           alliance: rowTools.text("Alliance"),
           startingPosition: rowTools.text("Shifts Auto Starting Position"),
-          auto: autoFuel,
-          cycle: transitionFuel + shift1Fuel + shift2Fuel + shift3Fuel + shift4Fuel,
-          endgame: endgameFuel + climbScore,
           autoPrimaryRole: rowTools.text("Shifts Auto Primary Role"),
           autoSecondaryRole: rowTools.text("Shifts Auto Secondary Role"),
           autoFuelPct: autoFuel,

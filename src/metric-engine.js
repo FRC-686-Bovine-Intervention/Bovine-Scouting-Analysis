@@ -967,7 +967,7 @@ function evaluateFormulaAst(ast, options = {}) {
         textValue.toLowerCase().includes(queryValue.toLowerCase()));
     }
     if (["average", "teamaverage"].includes(normalizedName)) {
-      if (ast.args.length < 1 || ast.args.length > 2) return errorResult("teamAverage requires one series argument and an optional filter.");
+      if (ast.args.length < 1 || ast.args.length > 2) return errorResult("average requires one series argument and an optional filter.");
       return averageSeriesValues(
         evaluateFormulaAst(ast.args[0], options),
         averageMatchValues,
@@ -976,7 +976,7 @@ function evaluateFormulaAst(ast, options = {}) {
       );
     }
     if (["sum", "teamsum"].includes(normalizedName)) {
-      if (ast.args.length < 1 || ast.args.length > 2) return errorResult("teamSum requires one series argument and an optional filter.");
+      if (ast.args.length < 1 || ast.args.length > 2) return errorResult("sum requires one series argument and an optional filter.");
       return sumSeriesValues(
         evaluateFormulaAst(ast.args[0], options),
         recentEntryCount,
@@ -984,12 +984,50 @@ function evaluateFormulaAst(ast, options = {}) {
       );
     }
     if (["count", "teamcount"].includes(normalizedName)) {
-      if (ast.args.length < 1 || ast.args.length > 2) return errorResult("teamCount requires one series argument and an optional filter.");
+      if (ast.args.length < 1 || ast.args.length > 2) return errorResult("count requires one series argument and an optional filter.");
       return countSeriesValues(
         evaluateFormulaAst(ast.args[0], options),
         recentEntryCount,
         evaluateOptionalFilter(ast.args[1] || null),
       );
+    }
+    if (["matchaverage", "matchsum", "matchcount", "allianceaverage", "alliancesum", "alliancecount"].includes(normalizedName)) {
+      if (!evaluateGroupFunction) return errorResult(`${ast.callee} is not available in this context.`);
+      if (ast.args.length < 1 || ast.args.length > 2) return errorResult(`${ast.callee} requires series and an optional filter.`);
+      const nameMap = {
+        matchaverage: "groupaverage",
+        matchsum: "groupsum",
+        matchcount: "groupcount",
+        allianceaverage: "groupaverage",
+        alliancesum: "groupsum",
+        alliancecount: "groupcount",
+      };
+      const scopeMap = {
+        matchaverage: "match",
+        matchsum: "match",
+        matchcount: "match",
+        allianceaverage: "allianceMatch",
+        alliancesum: "allianceMatch",
+        alliancecount: "allianceMatch",
+      };
+      return evaluateGroupFunction({
+        name: nameMap[normalizedName],
+        seriesAst: ast.args[0],
+        scopeId: scopeMap[normalizedName],
+        filterAst: ast.args[1] || null,
+        parentOptions: options,
+      });
+    }
+    if (["eventaverage", "eventsum", "eventcount"].includes(normalizedName)) {
+      const evaluateEventFunction = typeof options.evaluateEventFunction === "function" ? options.evaluateEventFunction : null;
+      if (!evaluateEventFunction) return errorResult(`${ast.callee} is not available in this context.`);
+      if (ast.args.length < 1 || ast.args.length > 2) return errorResult(`${ast.callee} requires a per-team event value and an optional team-level filter.`);
+      return evaluateEventFunction({
+        name: normalizedName,
+        valueAst: ast.args[0],
+        filterAst: ast.args[1] || null,
+        parentOptions: options,
+      });
     }
     if (["groupaverage", "groupsum", "groupcount"].includes(normalizedName)) {
       if (!evaluateGroupFunction) return errorResult(`${ast.callee} is not available in this context.`);
