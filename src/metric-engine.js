@@ -11,6 +11,17 @@ function average(values) {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 }
 
+function averagePresentNumbers(values) {
+  return average((values || []).filter((value) => Number.isFinite(value)));
+}
+
+function finiteNumberOrNaN(value) {
+  if (value === null || value === undefined) return Number.NaN;
+  if (typeof value === "string" && value.trim() === "") return Number.NaN;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : Number.NaN;
+}
+
 function standardDeviation(values) {
   if (!values.length) return 0;
   const mean = average(values);
@@ -56,6 +67,7 @@ function aggregateSubmissionMatches(submissions, options = {}) {
           matchNumber,
           submissions: [],
           componentSums: Object.fromEntries(scouterMetricIds.map((componentId) => [componentId, 0])),
+          componentCounts: Object.fromEntries(scouterMetricIds.map((componentId) => [componentId, 0])),
           count: 0,
           order: index,
         });
@@ -65,7 +77,10 @@ function aggregateSubmissionMatches(submissions, options = {}) {
       group.count += 1;
       scouterMetricIds.forEach((componentId) => {
         const value = submission.rawMetrics?.[componentId];
-        group.componentSums[componentId] += Number.isFinite(Number(value)) ? Number(value) : 0;
+        const numericValue = finiteNumberOrNaN(value);
+        if (!Number.isFinite(numericValue)) return;
+        group.componentSums[componentId] += numericValue;
+        group.componentCounts[componentId] += 1;
       });
     });
 
@@ -80,9 +95,9 @@ function aggregateSubmissionMatches(submissions, options = {}) {
                 const submissionValue = Number(submission.rawMetrics?.[componentId] || 0);
                 return Number.isFinite(submissionValue) ? Math.max(maxValue, submissionValue) : maxValue;
               }, 0)
-              : group.count
-                ? group.componentSums[componentId] / group.count
-                : 0;
+              : group.componentCounts[componentId]
+                ? group.componentSums[componentId] / group.componentCounts[componentId]
+                : null;
           return [componentId, value];
         }),
       );
@@ -179,7 +194,7 @@ function summarizeScoutingWindow(aggregatedMatches, scouterMetricDefinitions, de
   const preciseScouterComponents = Object.fromEntries(
     scouterMetricDefinitions.map((metricDefinition) => [
       metricDefinition.id,
-      average(aggregatedMatches.map((match) => Number(match.components[metricDefinition.id] || 0))),
+      averagePresentNumbers(aggregatedMatches.map((match) => finiteNumberOrNaN(match.components[metricDefinition.id]))),
     ]),
   );
   const scouterComponents = Object.fromEntries(
@@ -244,7 +259,10 @@ function evaluateDerivedMetricDefinition(metricDefinition, values, context = {})
     return denominator ? roundValue(numerator / denominator, metricDefinition.unit === "%" ? 0 : 1) : 0;
   }
   if (metricDefinition.formula === "average") {
-    const fields = (metricDefinition.fields || []).map((field) => Number(values?.[field] || 0)).filter((value) => Number.isFinite(value));
+    const fields = (metricDefinition.fields || [])
+      .map((field) => values?.[field])
+      .map((value) => finiteNumberOrNaN(value))
+      .filter((value) => Number.isFinite(value));
     return fields.length ? roundValue(average(fields), metricDefinition.unit === "%" ? 0 : 1) : 0;
   }
   if (metricDefinition.formula === "rate") {
@@ -661,7 +679,8 @@ function tokenizeFormulaExpression(source) {
 }
 
 function parseFormulaExpression(source) {
-  const tokenized = tokenizeFormulaExpression(source);
+  const normalizedSource = String(source || "").trim().replace(/^=\s*/, "");
+  const tokenized = tokenizeFormulaExpression(normalizedSource);
   if (tokenized.error) return { ast: null, error: tokenized.error };
   const tokens = tokenized.tokens;
   let index = 0;

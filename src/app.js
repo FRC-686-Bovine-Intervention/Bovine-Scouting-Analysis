@@ -606,11 +606,13 @@ function evaluateGroupFormulaForContext(groupRequest, formulaContext, evaluation
   const peerSeriesResultCache = new Map();
   const peerFilterResultCache = new Map();
   const evaluateGroup = ({ name, seriesAst, scopeId, filterAst, parentOptions }, context) => {
+    const recentEntryCount = Number(parentOptions?.recentEntryCount) || currentRecentMatchCount();
     const cacheKey = [
       context?.eventModel?.key || "",
       context?.baseTeam?.number || "",
       name,
       scopeId,
+      recentEntryCount,
       formulaAstCacheKey(seriesAst),
       filterAst ? formulaAstCacheKey(filterAst) : "",
     ].join(":");
@@ -735,7 +737,8 @@ function evaluateEquationForTeam(team, equationId, options = {}) {
   const filterEvaluationCache = options.filterEvaluationCache || new Map();
   const filterEvaluationStack = Array.isArray(options.filterEvaluationStack) ? [...options.filterEvaluationStack] : [];
   const groupEvaluationCache = options.groupEvaluationCache || new Map();
-  const cacheKey = `${formulaContext?.baseTeam?.number || team}:${equationId}:${eventModel.key}`;
+  const recentEntryCount = currentRecentMatchCount();
+  const cacheKey = `${formulaContext?.baseTeam?.number || team}:${equationId}:${eventModel.key}:${recentEntryCount}`;
   if (evaluationCache.has(cacheKey)) return evaluationCache.get(cacheKey);
   if (evaluationStack.includes(equationId)) {
     const circular = { definition: equationDefinitionById(equationId, eventModel), result: { kind: "error", error: `Circular derived equation reference: ${[...evaluationStack, equationId].join(" -> ")}.` } };
@@ -749,7 +752,7 @@ function evaluateEquationForTeam(team, equationId, options = {}) {
     return missing;
   }
   const result = evaluateFormulaExpression(definition.formula, {
-    recentEntryCount: currentRecentMatchCount(),
+    recentEntryCount,
     resolveIdentifier: (identifier) =>
       resolveFormulaIdentifier(
         identifier,
@@ -823,6 +826,12 @@ function readLegacyJson(key, fallback) {
 
 function createId(prefix) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeStoredFormula(value, fallback = "0") {
+  const trimmed = String(value || "").trim();
+  const normalized = trimmed.replace(/^=\s*/, "").trim();
+  return normalized || fallback;
 }
 
 function roundValue(value, digits = 1) {
@@ -1988,7 +1997,8 @@ function evaluateSeasonFilterDefinitionForTeam(team, definition, options = {}) {
   const equationEvaluationCache = options.equationEvaluationCache || new Map();
   const equationEvaluationStack = Array.isArray(options.equationEvaluationStack) ? [...options.equationEvaluationStack] : [];
   const groupEvaluationCache = options.groupEvaluationCache || new Map();
-  const cacheKey = `${formulaContext?.baseTeam?.number || team}:${definition.id}:${eventModel.key}`;
+  const recentEntryCount = currentRecentMatchCount();
+  const cacheKey = `${formulaContext?.baseTeam?.number || team}:${definition.id}:${eventModel.key}:${recentEntryCount}`;
   if (evaluationCache.has(cacheKey)) return evaluationCache.get(cacheKey);
   if (evaluationStack.includes(definition.id)) {
     const circular = { definition, result: { kind: "error", error: `Circular filter reference: ${[...evaluationStack, definition.id].join(" -> ")}.` }, formulaContext };
@@ -1996,7 +2006,7 @@ function evaluateSeasonFilterDefinitionForTeam(team, definition, options = {}) {
     return circular;
   }
   const result = evaluateFormulaExpression(definition.formula, {
-    recentEntryCount: currentRecentMatchCount(),
+    recentEntryCount,
     resolveIdentifier: (identifier) =>
       resolveFormulaIdentifier(
         identifier,
@@ -2638,13 +2648,18 @@ function applyCurrentScoutingWindowToEntries(entries) {
   return normalized.slice(-currentRecentMatchCount());
 }
 
-function analysisSeriesEntriesForMetric(team, metric) {
+function applyRecentMatchCountToEntries(entries, recentMatchCount = currentRecentMatchCount()) {
+  const normalized = Array.isArray(entries) ? entries : [];
+  return normalized.slice(-Math.max(1, Number(recentMatchCount) || currentRecentMatchCount()));
+}
+
+function analysisSeriesEntriesForMetric(team, metric, options = {}) {
   if (!team || !metric || !metricUsesMatchDistribution(team, metric)) return [];
+  const useRecentWindow = options.window === "recent";
   if (metric?.kind === "derived" && metric.definition?.expression) {
     const evaluation = evaluateEquationForTeam(team, metric.componentId);
-    return applyCurrentScoutingWindowToEntries(
-      filterResultEntries(evaluation.result).filter((entry) => Number.isFinite(Number(entry.value))),
-    );
+    const normalizedEntries = filterResultEntries(evaluation.result).filter((entry) => Number.isFinite(Number(entry.value)));
+    return useRecentWindow ? applyRecentMatchCountToEntries(normalizedEntries, options.recentMatchCount) : normalizedEntries;
   }
   const aggregatedMatches = aggregateSubmissionMatches(
     currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === Number(team.number)),
@@ -2658,16 +2673,17 @@ function analysisSeriesEntriesForMetric(team, metric) {
     key: match.matchNumber,
     value: metric.componentId === "total" ? match.total : Number(match.components?.[metric.componentId]),
   }));
-  return applyCurrentScoutingWindowToEntries(entries.filter((entry) => Number.isFinite(Number(entry.value))));
+  const normalizedEntries = entries.filter((entry) => Number.isFinite(Number(entry.value)));
+  return useRecentWindow ? applyRecentMatchCountToEntries(normalizedEntries, options.recentMatchCount) : normalizedEntries;
 }
 
-function filteredSeriesEntriesForMetric(team, metric) {
-  return analysisSeriesEntriesForMetric(team, metric);
+function filteredSeriesEntriesForMetric(team, metric, options = {}) {
+  return analysisSeriesEntriesForMetric(team, metric, options);
 }
 
-function analysisScoreForTeam(team, metric) {
+function analysisScoreForTeam(team, metric, options = {}) {
   if (!metricUsesMatchDistribution(team, metric)) return teamMetricValue(team, metric);
-  const values = filteredSeriesEntriesForMetric(team, metric)
+  const values = filteredSeriesEntriesForMetric(team, metric, options)
     .map((entry) => Number(entry.value))
     .filter((value) => Number.isFinite(value));
   return values.length ? average(values) : Number.NaN;
@@ -2714,14 +2730,15 @@ function renderSparkline(team, metric) {
 
 function renderAnalysis() {
   const selection = analysisSelectionModel();
-  const scoreForTeam = (team) => analysisScoreForTeam(team, selection.metric);
+  const analysisWindowOptions = { window: "recent", recentMatchCount: currentRecentMatchCount() };
+  const scoreForTeam = (team) => analysisScoreForTeam(team, selection.metric, analysisWindowOptions);
   const sortableScoreForTeam = (team) => {
     const value = scoreForTeam(team);
     return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
   };
   const ranked = [...currentTeams()].sort((a, b) => sortableScoreForTeam(b) - sortableScoreForTeam(a) || a.number - b.number);
   const allScores = ranked.map((team) => scoreForTeam(team));
-  const distributions = ranked.map((team) => distributionForMetric(team, selection.metric.id));
+  const distributions = ranked.map((team) => distributionForMetric(team, selection.metric.id, analysisWindowOptions));
   const finiteScores = allScores.filter((value) => Number.isFinite(value));
   const finiteDistributions = distributions.filter(
     (item) => Number.isFinite(item.min) && Number.isFinite(item.max) && Number.isFinite(item.mean) && Number.isFinite(item.median) && Number.isFinite(item.q1) && Number.isFinite(item.q3),
@@ -2736,13 +2753,6 @@ function renderAnalysis() {
         Metric
         <select id="metricSelect">
           ${analysisMetricOptions().map((item) => `<option value="${item.id}" ${item.id === state.metric ? "selected" : ""}>${item.label}</option>`).join("")}
-        </select>
-      </label>
-      <label>
-        Scouting Window
-        <select id="analysisScoutingWindowSelect">
-          <option value="all" ${currentScoutingWindow() === "all" ? "selected" : ""}>All Matches</option>
-          <option value="recent" ${currentScoutingWindow() === "recent" ? "selected" : ""}>Recent ${currentRecentMatchCount()}</option>
         </select>
       </label>
       <div class="stat"><span>Event Average</span><strong>${eventAverage.toFixed(1)} ${selection.unit}</strong></div>
@@ -2987,10 +2997,10 @@ function renderBoxPlotLegend() {
   `;
 }
 
-function distributionForMetric(team, metricId) {
+function distributionForMetric(team, metricId, options = {}) {
   const metric = metricById(metricId);
   const values = metricUsesMatchDistribution(team, metric)
-    ? filteredSeriesEntriesForMetric(team, metric).map((entry) => Number(entry.value)).filter((value) => Number.isFinite(Number(value)))
+    ? filteredSeriesEntriesForMetric(team, metric, options).map((entry) => Number(entry.value)).filter((value) => Number.isFinite(Number(value)))
     : [];
   if (values.length > 1) {
     return {
@@ -4187,7 +4197,9 @@ function renameSeasonEquation(id, requestedName) {
 }
 
 function updateSeasonEquationFormula(id, formula) {
-  updateSeasonEquationList(currentSeasonEquationList().map((item) => (item.id === id ? { ...item, formula } : item)));
+  updateSeasonEquationList(currentSeasonEquationList().map((item) => (
+    item.id === id ? { ...item, formula: normalizeStoredFormula(formula, "0") } : item
+  )));
 }
 
 function seasonDerivedEquationsSourceText() {
@@ -4255,7 +4267,9 @@ function renameSeasonFilter(id, requestedName) {
 }
 
 function updateSeasonFilterFormula(id, formula) {
-  updateSeasonFilterList(currentSeasonFilterList().map((item) => (item.id === id ? { ...item, formula } : item)));
+  updateSeasonFilterList(currentSeasonFilterList().map((item) => (
+    item.id === id ? { ...item, formula: normalizeStoredFormula(formula, "0 > 1") } : item
+  )));
 }
 
 function seasonFiltersSourceText() {
@@ -4709,11 +4723,6 @@ function bindViewEvents() {
     render();
   });
   document.querySelector("#scoutingWindowSelect")?.addEventListener("change", (event) => {
-    state.scoutingWindow = event.target.value === "recent" ? "recent" : "all";
-    saveState();
-    render();
-  });
-  document.querySelector("#analysisScoutingWindowSelect")?.addEventListener("change", (event) => {
     state.scoutingWindow = event.target.value === "recent" ? "recent" : "all";
     saveState();
     render();

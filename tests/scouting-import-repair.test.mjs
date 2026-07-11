@@ -176,3 +176,36 @@ runTest("repairLegacySubmissionRawMetrics preserves explicit 2024 climbAttempt",
     },
   );
 });
+
+runTest("sample-backed submissions refresh when the thin translation version changes", () => {
+  const context = loadBrowserContext(["src/season-framework.js", "src/sheet-import-adapters.js", "src/scouting-import-repair.js"]);
+  const season = context.SeasonFramework.seasonDefinitions[2026];
+  const eventModel = {
+    key: "2026chcmp",
+    season: 2026,
+    sheet: { sampleCsvText: "header\nvalue" },
+    scoringComponents: season.scoringComponents,
+    scouterMetricDefinitions: context.SeasonFramework.scouterMetricDefinitions(season),
+    formulaFieldDefinitions: context.SeasonFramework.formulaFieldDefinitions(season),
+  };
+
+  assert.equal(
+    context.ScoutingImportRepair.shouldRefreshSampleBackedScoutingSubmissions(
+      [
+        {
+          teamNumber: 346,
+          matchNumber: 3,
+          schemaVersion: "match-v2",
+          templateProfileId: "match-current-v2",
+          importTranslationVersion: "2026-thin-v1",
+          scoutingSchemaSignature: context.ScoutingImportRepair.buildScoutingSchemaSignature(eventModel),
+          rawMetrics: Object.fromEntries(
+            context.SeasonFramework.formulaFieldDefinitions(season).map((metricDefinition) => [metricDefinition.id, 0]),
+          ),
+        },
+      ],
+      eventModel,
+    ),
+    true,
+  );
+});
