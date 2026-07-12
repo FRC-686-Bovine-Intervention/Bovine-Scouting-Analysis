@@ -58,6 +58,7 @@ Primary references:
 - The native implementation should be regression-tested against stable event snapshots and against public reference outputs whenever they match the event-level contract.
 - `fit_event_pridge("2026chcmp")` remains a strong event-level validation target.
 - The Blair `prior_ridge/data/epa_pridge_mse.csv` artifact provides usable event-level regression vectors, including `2024mdsev`, whose published `lambda_opt` and `pridge_mse` can be checked against cached event inputs.
+- Blair's `all_epas_for_all_teams.csv` and `real_scores.csv` artifacts are sufficient to reconstruct additional offline pRidge validation fixtures without depending on live Statbotics or TBA availability.
 - The published 2026 Newton and Curie charts from Gabe Krotkov are useful references, but they are labeled `Season-Max pRidge`, so they are not direct parity vectors for event-level `fit_event_pridge("<eventCode>")`.
 
 ## Consequences

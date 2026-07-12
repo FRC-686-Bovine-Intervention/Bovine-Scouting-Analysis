@@ -40,6 +40,10 @@ function assertClose(actual, expected, tolerance, message) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${message}: expected ${expected}, got ${actual}`);
 }
 
+function loadJson(relativePath) {
+  return JSON.parse(fs.readFileSync(path.resolve(relativePath), "utf8"));
+}
+
 function bruteForcePriorRidgeMse(design, response, priors, lambda) {
   function invertMatrix(matrix) {
     const size = matrix.length;
@@ -196,8 +200,8 @@ runTest("fitPriorRidge matches brute-force leave-one-out lambda selection on a s
 
 runTest("computeEventPridge produces stable totals for the cached 2026chcmp event snapshot", () => {
   const context = loadBrowserContext(["src/prior-ridge.js"]);
-  const matches = JSON.parse(fs.readFileSync(path.resolve("src/real-source-cache/2026chcmp-tba-matches.json"), "utf8"));
-  const teamEvents = JSON.parse(fs.readFileSync(path.resolve("src/real-source-cache/2026chcmp-statbotics-team-events.json"), "utf8"));
+  const matches = loadJson("src/real-source-cache/2026chcmp-tba-matches.json");
+  const teamEvents = loadJson("src/real-source-cache/2026chcmp-statbotics-team-events.json");
   const result = context.PriorRidge.computeEventPridge(matches, teamEvents);
   const top = Object.entries(result.ratings).sort((left, right) => right[1] - left[1]).slice(0, 5);
 
@@ -213,17 +217,61 @@ runTest("computeEventPridge produces stable totals for the cached 2026chcmp even
   ]);
 });
 
-runTest("computeEventPridge ignores placeholder quals and stays aligned with Blair's 2024mdsev CSV vector", () => {
-  const context = loadBrowserContext(["src/prior-ridge.js"]);
-  const matches = JSON.parse(fs.readFileSync(path.resolve("src/real-source-cache/2024mdsev-tba-matches.json"), "utf8"));
-  const teamEvents = JSON.parse(fs.readFileSync(path.resolve("src/real-source-cache/2024mdsev-statbotics-team-events.json"), "utf8"));
-  const input = context.PriorRidge.buildPriorRidgeInput(matches, teamEvents);
-  const result = context.PriorRidge.computeEventPridge(matches, teamEvents);
+[
+  {
+    eventKey: "2024mdsev",
+    matchesPath: "tests/fixtures/prior-ridge/2024mdsev-tba-matches.json",
+    teamEventsPath: "tests/fixtures/prior-ridge/2024mdsev-team-events.json",
+    expectedMatchCount: 72,
+    expectedAllianceRowCount: 144,
+    expectedLambda: 4.14414414414414,
+    lambdaTolerance: 0.2,
+    expectedMse: 174.056856500531,
+    mseTolerance: 0.05,
+  },
+  {
+    eventKey: "2024txfor",
+    matchesPath: "tests/fixtures/prior-ridge/2024txfor-tba-matches.json",
+    teamEventsPath: "tests/fixtures/prior-ridge/2024txfor-team-events.json",
+    expectedLambda: 6.26626626626627,
+    lambdaTolerance: 0.2,
+    expectedMse: 224.850434585234,
+    mseTolerance: 0.05,
+  },
+  {
+    eventKey: "2025mdsev",
+    matchesPath: "tests/fixtures/prior-ridge/2025mdsev-tba-matches.json",
+    teamEventsPath: "tests/fixtures/prior-ridge/2025mdsev-team-events.json",
+    expectedLambda: 4.64464464464464,
+    lambdaTolerance: 0.2,
+    expectedMse: 479.895516410544,
+    mseTolerance: 0.05,
+  },
+].forEach(({ eventKey, matchesPath, teamEventsPath, expectedMatchCount, expectedAllianceRowCount, expectedLambda, lambdaTolerance, expectedMse, mseTolerance }) => {
+  runTest(`computeEventPridge stays aligned with Blair's ${eventKey} CSV vector`, () => {
+    const context = loadBrowserContext(["src/prior-ridge.js"]);
+    const matches = loadJson(matchesPath);
+    const teamEvents = loadJson(teamEventsPath);
+    const input = context.PriorRidge.buildPriorRidgeInput(matches, teamEvents);
+    const result = context.PriorRidge.computeEventPridge(matches, teamEvents);
 
-  assert.equal(input.matches.length, 72);
-  assert.equal(input.teamNumbers.includes(0), false);
-  assert.equal(result.matchCount, 72);
-  assert.equal(result.allianceRowCount, 144);
-  assertClose(result.lambda, 4.14414414414414, 0.2, "lambda should stay close to Blair CSV lambda_opt");
-  assertClose(result.mse, 174.056856500531, 0.05, "LOOCV MSE should stay close to Blair CSV pridge_mse");
+    if (expectedMatchCount !== undefined) {
+      assert.equal(input.matches.length, expectedMatchCount);
+    } else {
+      assert.ok(input.matches.length > 0, "Blair vector fixture should contain qualification matches");
+    }
+    assert.equal(input.teamNumbers.includes(0), false);
+    if (expectedMatchCount !== undefined) {
+      assert.equal(result.matchCount, expectedMatchCount);
+    } else {
+      assert.ok(result.matchCount > 0, "Blair vector result should contain qualification matches");
+    }
+    if (expectedAllianceRowCount !== undefined) {
+      assert.equal(result.allianceRowCount, expectedAllianceRowCount);
+    } else {
+      assert.equal(result.allianceRowCount, result.matchCount * 2);
+    }
+    assertClose(result.lambda, expectedLambda, lambdaTolerance, "lambda should stay close to Blair CSV lambda_opt");
+    assertClose(result.mse, expectedMse, mseTolerance, "LOOCV MSE should stay close to Blair CSV pridge_mse");
+  });
 });

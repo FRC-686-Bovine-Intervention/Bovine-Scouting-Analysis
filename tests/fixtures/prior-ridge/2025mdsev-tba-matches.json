@@ -1,0 +1,1234 @@
+[
+  {
+    "key": "2025mdsev_qm1",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc404",
+          "frc7886",
+          "frc10679"
+        ],
+        "score": 65
+      },
+      "red": {
+        "team_keys": [
+          "frc2106",
+          "frc5587",
+          "frc7770"
+        ],
+        "score": 118
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm2",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1111",
+          "frc2537",
+          "frc8622"
+        ],
+        "score": 35
+      },
+      "red": {
+        "team_keys": [
+          "frc339",
+          "frc2421",
+          "frc3714"
+        ],
+        "score": 35
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm3",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc449",
+          "frc10224",
+          "frc10449"
+        ],
+        "score": 128
+      },
+      "red": {
+        "team_keys": [
+          "frc623",
+          "frc1885",
+          "frc2377"
+        ],
+        "score": 31
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm4",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1727",
+          "frc4464",
+          "frc9403"
+        ],
+        "score": 62
+      },
+      "red": {
+        "team_keys": [
+          "frc1811",
+          "frc2199",
+          "frc3793"
+        ],
+        "score": 102
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm5",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc2537",
+          "frc3748",
+          "frc9709"
+        ],
+        "score": 84
+      },
+      "red": {
+        "team_keys": [
+          "frc888",
+          "frc4541",
+          "frc7886"
+        ],
+        "score": 89
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm6",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc2106",
+          "frc2421",
+          "frc7770"
+        ],
+        "score": 98
+      },
+      "red": {
+        "team_keys": [
+          "frc404",
+          "frc1111",
+          "frc10224"
+        ],
+        "score": 100
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm7",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc2199",
+          "frc4464",
+          "frc5587"
+        ],
+        "score": 52
+      },
+      "red": {
+        "team_keys": [
+          "frc1811",
+          "frc3714",
+          "frc10449"
+        ],
+        "score": 19
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm8",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1727",
+          "frc1885",
+          "frc3793"
+        ],
+        "score": 129
+      },
+      "red": {
+        "team_keys": [
+          "frc339",
+          "frc3748",
+          "frc4541"
+        ],
+        "score": 111
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm9",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc2377",
+          "frc8622",
+          "frc10679"
+        ],
+        "score": 59
+      },
+      "red": {
+        "team_keys": [
+          "frc623",
+          "frc888",
+          "frc9709"
+        ],
+        "score": 61
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm10",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc2199",
+          "frc2421",
+          "frc9403"
+        ],
+        "score": 93
+      },
+      "red": {
+        "team_keys": [
+          "frc404",
+          "frc449",
+          "frc2537"
+        ],
+        "score": 128
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm11",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1885",
+          "frc3714",
+          "frc4541"
+        ],
+        "score": 67
+      },
+      "red": {
+        "team_keys": [
+          "frc1111",
+          "frc5587",
+          "frc7886"
+        ],
+        "score": 37
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm12",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc623",
+          "frc2106",
+          "frc3748"
+        ],
+        "score": 68
+      },
+      "red": {
+        "team_keys": [
+          "frc1811",
+          "frc4464",
+          "frc10679"
+        ],
+        "score": 40
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm13",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc449",
+          "frc888",
+          "frc2377"
+        ],
+        "score": 100
+      },
+      "red": {
+        "team_keys": [
+          "frc339",
+          "frc7770",
+          "frc9403"
+        ],
+        "score": 26
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm14",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc3793",
+          "frc9709",
+          "frc10224"
+        ],
+        "score": 61
+      },
+      "red": {
+        "team_keys": [
+          "frc1727",
+          "frc8622",
+          "frc10449"
+        ],
+        "score": 77
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm15",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc404",
+          "frc2421",
+          "frc4541"
+        ],
+        "score": 72
+      },
+      "red": {
+        "team_keys": [
+          "frc1885",
+          "frc2106",
+          "frc2199"
+        ],
+        "score": 135
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm16",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc449",
+          "frc1111",
+          "frc1811"
+        ],
+        "score": 129
+      },
+      "red": {
+        "team_keys": [
+          "frc2377",
+          "frc9403",
+          "frc10679"
+        ],
+        "score": 31
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm17",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc3748",
+          "frc10224",
+          "frc10449"
+        ],
+        "score": 74
+      },
+      "red": {
+        "team_keys": [
+          "frc888",
+          "frc2537",
+          "frc3793"
+        ],
+        "score": 78
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm18",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc7770",
+          "frc7886",
+          "frc8622"
+        ],
+        "score": 57
+      },
+      "red": {
+        "team_keys": [
+          "frc339",
+          "frc623",
+          "frc4464"
+        ],
+        "score": 37
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm19",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc404",
+          "frc1727",
+          "frc3714"
+        ],
+        "score": 70
+      },
+      "red": {
+        "team_keys": [
+          "frc2377",
+          "frc5587",
+          "frc9709"
+        ],
+        "score": 37
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm20",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1885",
+          "frc3748",
+          "frc10679"
+        ],
+        "score": 63
+      },
+      "red": {
+        "team_keys": [
+          "frc1811",
+          "frc9403",
+          "frc10449"
+        ],
+        "score": 39
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm21",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc623",
+          "frc8622",
+          "frc10224"
+        ],
+        "score": 66
+      },
+      "red": {
+        "team_keys": [
+          "frc888",
+          "frc1111",
+          "frc2199"
+        ],
+        "score": 83
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm22",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc3714",
+          "frc3793",
+          "frc5587"
+        ],
+        "score": 12
+      },
+      "red": {
+        "team_keys": [
+          "frc2421",
+          "frc7770",
+          "frc7886"
+        ],
+        "score": 49
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm23",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc449",
+          "frc2106",
+          "frc4464"
+        ],
+        "score": 102
+      },
+      "red": {
+        "team_keys": [
+          "frc1727",
+          "frc2537",
+          "frc4541"
+        ],
+        "score": 96
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm24",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc404",
+          "frc9709",
+          "frc10449"
+        ],
+        "score": 86
+      },
+      "red": {
+        "team_keys": [
+          "frc339",
+          "frc10224",
+          "frc10679"
+        ],
+        "score": 106
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm25",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc623",
+          "frc1111",
+          "frc3793"
+        ],
+        "score": 47
+      },
+      "red": {
+        "team_keys": [
+          "frc888",
+          "frc3714",
+          "frc9403"
+        ],
+        "score": 90
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm26",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1727",
+          "frc2377",
+          "frc7770"
+        ],
+        "score": 66
+      },
+      "red": {
+        "team_keys": [
+          "frc2537",
+          "frc5587",
+          "frc8622"
+        ],
+        "score": 27
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm27",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc339",
+          "frc449",
+          "frc9709"
+        ],
+        "score": 87
+      },
+      "red": {
+        "team_keys": [
+          "frc1811",
+          "frc3748",
+          "frc7886"
+        ],
+        "score": 79
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm28",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1885",
+          "frc2421",
+          "frc4464"
+        ],
+        "score": 68
+      },
+      "red": {
+        "team_keys": [
+          "frc2106",
+          "frc2199",
+          "frc4541"
+        ],
+        "score": 134
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm29",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc623",
+          "frc2537",
+          "frc9403"
+        ],
+        "score": 85
+      },
+      "red": {
+        "team_keys": [
+          "frc404",
+          "frc3793",
+          "frc7770"
+        ],
+        "score": 111
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm30",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc888",
+          "frc3748",
+          "frc5587"
+        ],
+        "score": 101
+      },
+      "red": {
+        "team_keys": [
+          "frc3714",
+          "frc8622",
+          "frc9709"
+        ],
+        "score": 35
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm31",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1727",
+          "frc1811",
+          "frc2421"
+        ],
+        "score": 88
+      },
+      "red": {
+        "team_keys": [
+          "frc449",
+          "frc1885",
+          "frc10224"
+        ],
+        "score": 145
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm32",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc339",
+          "frc1111",
+          "frc10449"
+        ],
+        "score": 60
+      },
+      "red": {
+        "team_keys": [
+          "frc2377",
+          "frc4464",
+          "frc4541"
+        ],
+        "score": 37
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm33",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc2106",
+          "frc3793",
+          "frc7886"
+        ],
+        "score": 95
+      },
+      "red": {
+        "team_keys": [
+          "frc2199",
+          "frc9709",
+          "frc10679"
+        ],
+        "score": 78
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm34",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc888",
+          "frc7770",
+          "frc10224"
+        ],
+        "score": 109
+      },
+      "red": {
+        "team_keys": [
+          "frc449",
+          "frc2421",
+          "frc3748"
+        ],
+        "score": 128
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm35",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc404",
+          "frc623",
+          "frc1811"
+        ],
+        "score": 109
+      },
+      "red": {
+        "team_keys": [
+          "frc1111",
+          "frc1727",
+          "frc3714"
+        ],
+        "score": 116
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm36",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc339",
+          "frc2199",
+          "frc2537"
+        ],
+        "score": 74
+      },
+      "red": {
+        "team_keys": [
+          "frc4541",
+          "frc8622",
+          "frc10679"
+        ],
+        "score": 77
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm37",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc2106",
+          "frc7886",
+          "frc9403"
+        ],
+        "score": 124
+      },
+      "red": {
+        "team_keys": [
+          "frc1885",
+          "frc5587",
+          "frc10449"
+        ],
+        "score": 46
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm38",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc404",
+          "frc2377",
+          "frc2421"
+        ],
+        "score": 97
+      },
+      "red": {
+        "team_keys": [
+          "frc3793",
+          "frc4464",
+          "frc9709"
+        ],
+        "score": 63
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm39",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc623",
+          "frc4541",
+          "frc10679"
+        ],
+        "score": 91
+      },
+      "red": {
+        "team_keys": [
+          "frc449",
+          "frc3714",
+          "frc10224"
+        ],
+        "score": 110
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm40",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc339",
+          "frc888",
+          "frc5587"
+        ],
+        "score": 82
+      },
+      "red": {
+        "team_keys": [
+          "frc1727",
+          "frc2106",
+          "frc10449"
+        ],
+        "score": 108
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm41",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1811",
+          "frc8622",
+          "frc9403"
+        ],
+        "score": 89
+      },
+      "red": {
+        "team_keys": [
+          "frc2537",
+          "frc4464",
+          "frc7886"
+        ],
+        "score": 36
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm42",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc2199",
+          "frc2377",
+          "frc3748"
+        ],
+        "score": 124
+      },
+      "red": {
+        "team_keys": [
+          "frc1111",
+          "frc1885",
+          "frc7770"
+        ],
+        "score": 85
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm43",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc339",
+          "frc2106",
+          "frc9709"
+        ],
+        "score": 84
+      },
+      "red": {
+        "team_keys": [
+          "frc449",
+          "frc623",
+          "frc5587"
+        ],
+        "score": 100
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm44",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc3714",
+          "frc10449",
+          "frc10679"
+        ],
+        "score": 48
+      },
+      "red": {
+        "team_keys": [
+          "frc404",
+          "frc888",
+          "frc4464"
+        ],
+        "score": 126
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm45",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1111",
+          "frc2377",
+          "frc7886"
+        ],
+        "score": 70
+      },
+      "red": {
+        "team_keys": [
+          "frc1727",
+          "frc2199",
+          "frc10224"
+        ],
+        "score": 103
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm46",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1811",
+          "frc4541",
+          "frc7770"
+        ],
+        "score": 80
+      },
+      "red": {
+        "team_keys": [
+          "frc3748",
+          "frc3793",
+          "frc8622"
+        ],
+        "score": 82
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm47",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1885",
+          "frc9403",
+          "frc9709"
+        ],
+        "score": 49
+      },
+      "red": {
+        "team_keys": [
+          "frc2421",
+          "frc2537",
+          "frc10449"
+        ],
+        "score": 32
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm48",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc339",
+          "frc1727",
+          "frc7886"
+        ],
+        "score": 98
+      },
+      "red": {
+        "team_keys": [
+          "frc404",
+          "frc623",
+          "frc2199"
+        ],
+        "score": 94
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm49",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc449",
+          "frc3793",
+          "frc8622"
+        ],
+        "score": 67
+      },
+      "red": {
+        "team_keys": [
+          "frc1111",
+          "frc2106",
+          "frc10679"
+        ],
+        "score": 110
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm50",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc3714",
+          "frc3748",
+          "frc4464"
+        ],
+        "score": 70
+      },
+      "red": {
+        "team_keys": [
+          "frc4541",
+          "frc9403",
+          "frc10224"
+        ],
+        "score": 74
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm51",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc888",
+          "frc1811",
+          "frc1885"
+        ],
+        "score": 116
+      },
+      "red": {
+        "team_keys": [
+          "frc2377",
+          "frc2537",
+          "frc7770"
+        ],
+        "score": 93
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm52",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1727",
+          "frc5587",
+          "frc10679"
+        ],
+        "score": 79
+      },
+      "red": {
+        "team_keys": [
+          "frc1111",
+          "frc2421",
+          "frc9709"
+        ],
+        "score": 66
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm53",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc449",
+          "frc2199",
+          "frc7886"
+        ],
+        "score": 134
+      },
+      "red": {
+        "team_keys": [
+          "frc404",
+          "frc3748",
+          "frc9403"
+        ],
+        "score": 103
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm54",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1885",
+          "frc2106",
+          "frc2537"
+        ],
+        "score": 124
+      },
+      "red": {
+        "team_keys": [
+          "frc623",
+          "frc3714",
+          "frc7770"
+        ],
+        "score": 78
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm55",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc4464",
+          "frc4541",
+          "frc10449"
+        ],
+        "score": 34
+      },
+      "red": {
+        "team_keys": [
+          "frc888",
+          "frc2421",
+          "frc8622"
+        ],
+        "score": 90
+      }
+    }
+  },
+  {
+    "key": "2025mdsev_qm56",
+    "comp_level": "qm",
+    "alliances": {
+      "blue": {
+        "team_keys": [
+          "frc1811",
+          "frc5587",
+          "frc10224"
+        ],
+        "score": 78
+      },
+      "red": {
+        "team_keys": [
+          "frc339",
+          "frc2377",
+          "frc3793"
+        ],
+        "score": 45
+      }
+    }
+  }
+]

@@ -1,0 +1,17 @@
+[
+  {
+    "eventKey": "2024mdsev",
+    "expectedLambda": 4.14414414414414,
+    "expectedMse": 174.056856500531
+  },
+  {
+    "eventKey": "2024txfor",
+    "expectedLambda": 6.26626626626627,
+    "expectedMse": 224.850434585234
+  },
+  {
+    "eventKey": "2025mdsev",
+    "expectedLambda": 4.64464464464464,
+    "expectedMse": 479.895516410544
+  }
+]
