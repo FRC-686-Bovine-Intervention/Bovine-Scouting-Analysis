@@ -283,7 +283,7 @@ function buildMetrics(season) {
       shortLabel: component.label,
       unit: component.unit,
     })),
-    ...["epa", "opr", "pridge"].flatMap((sourceId) => [
+    ...["epa", "opr"].flatMap((sourceId) => [
       {
         id: `source:${sourceId}:total`,
         kind: "source",
@@ -303,6 +303,15 @@ function buildMetrics(season) {
         unit: component.unit,
       })),
     ]),
+    {
+      id: "source:pridge:total",
+      kind: "source",
+      sourceId: "pridge",
+      componentId: "total",
+      label: sourceLabels.pridge,
+      shortLabel: sourceLabels.pridge,
+      unit: "pts",
+    },
     {
       id: "derived:defenseImpact",
       kind: "derived",
@@ -341,7 +350,7 @@ function buildCriteriaSources(season) {
     { id: "epa", label: sourceLabels.epa, components: scoringComponents },
     { id: "scouter", label: sourceLabels.scouter, components: scouterComponents },
     { id: "opr", label: sourceLabels.opr, components: scoringComponents },
-    { id: "pridge", label: sourceLabels.pridge, components: scoringComponents },
+    { id: "pridge", label: sourceLabels.pridge, components: [{ id: "total", label: "Total" }] },
     {
       id: "derived",
       label: sourceLabels.derived,

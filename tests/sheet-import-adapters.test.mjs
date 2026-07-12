@@ -1,0 +1,66 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import vm from "node:vm";
+
+function runTest(name, fn) {
+  try {
+    fn();
+    console.log(`PASS ${name}`);
+  } catch (error) {
+    console.error(`FAIL ${name}`);
+    throw error;
+  }
+}
+
+function loadBrowserContext(relativePaths, extras = {}) {
+  const context = {
+    globalThis: {},
+    console,
+    Set,
+    Map,
+    Math,
+    Number,
+    Array,
+    Object,
+    String,
+    JSON,
+    ...extras,
+  };
+  context.globalThis = context;
+  relativePaths.forEach((relativePath) => {
+    const sourcePath = path.resolve(relativePath);
+    const source = fs.readFileSync(sourcePath, "utf8");
+    vm.runInNewContext(source, context, { filename: sourcePath });
+  });
+  return context;
+}
+
+runTest("translateEventSheetToCanonical emits canonical dataset metadata and entries for 2026 sheets", () => {
+  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
+  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const eventModel = {
+    ...season2026,
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: season2026.label,
+    sheet: { recommendedProfileId: "match-current-v2" },
+  };
+  const rawSheetCsv = [
+    "Shifts Auto Primary Role,Shifts Auto Secondary Role,Shifts Auto Fuel Pct,Shifts Auto Starting Position,Shifts Auto Climb,Shifts Transition Primary Role,Shifts Transition Secondary Role,Shifts Transition Fuel Pct,Shifts Transition Defense On,Shifts Shift1 Primary Role,Shifts Shift1 Secondary Role,Shifts Shift1 Fuel Pct,Shifts Shift1 Defense On,Shifts Shift2 Primary Role,Shifts Shift2 Secondary Role,Shifts Shift2 Fuel Pct,Shifts Shift2 Defense On,Shifts Shift3 Primary Role,Shifts Shift3 Secondary Role,Shifts Shift3 Fuel Pct,Shifts Shift3 Defense On,Shifts Shift4 Primary Role,Shifts Shift4 Secondary Role,Shifts Shift4 Fuel Pct,Shifts Shift4 Defense On,Shifts Endgame Primary Role,Shifts Endgame Secondary Role,Shifts Endgame Fuel Pct,Shifts Endgame Defense On,Shifts Endgame Climb,_id,_uuid,__v,Alliance,Created At,Event Key,Match Key,Match Number,No Show,Overall Defense Avoidance,Overall Defense,Overall Driver,Overall Intake,Overall Notes,Overall Passer,Overall Shooter,Scouter,Team Number,Updated At",
+    "\"Score\",\"None\",\"20\",\"Hub\",\"Not Attempted\",\"Score\",\"None\",\"30\",\"None\",\"Score\",\"None\",\"30\",\"None\",\"Score\",\"None\",\"30\",\"None\",\"Score\",\"None\",\"30\",\"None\",\"Score\",\"None\",\"30\",\"None\",\"Score\",\"None\",\"20\",\"None\",\"Not Attempted\",\"1\",\"2\",\"\",\"red\",\"2026-04-10T20:22:54.392Z\",\"2026chcmp\",\"2026chcmp_qm25\",\"25\",\"\",\"\",\"\",\"3\",\"3\",\"\",\"\",\"\",\"Scout\",\"1262\",\"2026-04-10T20:22:54.392Z\"",
+  ].join("\n");
+
+  const dataset = context.SheetImportAdapters.translateEventSheetToCanonical(eventModel, rawSheetCsv, {
+    templateProfileId: "match-legacy-v1",
+  });
+
+  assert.equal(dataset.meta.format, "frc-scouting-analysis/v1");
+  assert.equal(dataset.meta.templateProfileId, "match-legacy-v1");
+  assert.equal(dataset.meta.translationVersion, "2026-thin-v2");
+  assert.equal(dataset.schema.schemaId, "match-v1");
+  assert.equal(dataset.entries.length, 1);
+  assert.equal(dataset.entries[0].teamNumber, 1262);
+  assert.equal(dataset.entries[0].rawMetrics.autoPrimaryRole, "Score");
+  assert.equal(dataset.entries[0].rawMetrics.overallShooter, null);
+});

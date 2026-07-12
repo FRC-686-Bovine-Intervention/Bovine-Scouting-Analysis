@@ -392,6 +392,27 @@ select {
   gap: 10px;
 }
 
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.checkbox-row input {
+  width: auto;
+  min-height: auto;
+}
+
+.attachment-status-card,
+.attachment-metadata-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.attachment-metadata-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .review-group-list,
 .review-submission-list {
   display: grid;
@@ -583,6 +604,18 @@ select {
   color: var(--warn);
   font-size: 0.74rem;
   font-weight: 800;
+}
+
+.source-status-stack {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+
+.source-actions-stack {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
 }
 
 .stat span,

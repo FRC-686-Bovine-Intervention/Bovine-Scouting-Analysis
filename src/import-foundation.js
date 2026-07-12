@@ -1,5 +1,6 @@
 (function () {
 const seasonFramework = globalThis.SeasonFramework || {};
+const scoutingSourceUtils = globalThis.ScoutingSourceUtils || {};
 const templateProfileSpecs = [
   {
     id: "match-current-v2",
@@ -114,6 +115,16 @@ function scouterMetricDefinitions(eventModel) {
 
 function formulaFieldDefinitions(eventModel) {
   return (seasonFramework.formulaFieldDefinitions || seasonFramework.scouterMetricDefinitions || ((model) => model?.scoringComponents || []))(eventModel);
+}
+
+function schemaFieldEntries(eventModel) {
+  return formulaFieldDefinitions(eventModel).map((fieldDefinition) => ({
+    id: fieldDefinition.id,
+    label: fieldDefinition.label || fieldDefinition.id,
+    type: String(fieldDefinition?.type || "").trim() || (String(fieldDefinition.unit || "").trim().toLowerCase() === "text" ? "string" : "number"),
+    unit: fieldDefinition.unit || "",
+    aggregate: fieldDefinition.aggregate || "average",
+  }));
 }
 
 function csvHeaderForMetric(component) {
@@ -362,38 +373,10 @@ function parseRows(rows, headers, profile, eventModel, metadata) {
   return { parsedRows, warnings };
 }
 
-function duplicateKey(submission) {
-  return `${submission.eventKey}:${submission.matchNumber}:${submission.teamNumber}`;
-}
-
-function applyDuplicateFlags(existingSubmissions, incomingSubmissions) {
-  const grouped = new Map();
-  [...existingSubmissions, ...incomingSubmissions].forEach((submission) => {
-    const key = duplicateKey(submission);
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key).push(submission);
-  });
-
-  const impactedTeams = new Set();
-  const duplicateGroups = [];
-
-  incomingSubmissions.forEach((submission) => {
-    const group = grouped.get(duplicateKey(submission)) || [];
-    if (group.length > 1) {
-      submission.validity = "flagged";
-      submission.confidenceTier = "low";
-      if (!submission.confidenceReasons.includes("duplicate_submission")) {
-        submission.confidenceReasons.push("duplicate_submission");
-      }
-      impactedTeams.add(submission.teamNumber);
-      duplicateGroups.push(duplicateKey(submission));
-    }
-  });
-
-  return {
-    impactedTeams: [...impactedTeams],
-    duplicateGroups: [...new Set(duplicateGroups)],
-  };
+function assessDuplicateSubmissions(existingSubmissions, incomingSubmissions) {
+  return scoutingSourceUtils.assessDuplicateSubmissions
+    ? scoutingSourceUtils.assessDuplicateSubmissions(existingSubmissions, incomingSubmissions)
+    : { impactedTeams: [], duplicateGroups: [] };
 }
 
 function validateSeasonPackage(eventModel) {
@@ -514,7 +497,7 @@ function previewScoutingImport({ csvText, eventModel, activeEventKey, existingSu
   const dataRows = rows.slice(metadataRead.headerIndex + 1);
   const parsed = parseRows(dataRows, normalizedHeaders, profile, eventModel, metadataRead.metadata);
   warnings.push(...parsed.warnings);
-  const duplicateAssessment = applyDuplicateFlags(existingSubmissions, parsed.parsedRows);
+  const duplicateAssessment = assessDuplicateSubmissions(existingSubmissions, parsed.parsedRows);
   const flaggedRows = parsed.parsedRows.filter((submission) => submission.validity === "flagged");
   const excludedRows = parsed.parsedRows.filter((submission) => submission.validity === "excluded");
   const impactedTeams = [...new Set([...duplicateAssessment.impactedTeams, ...flaggedRows.map((submission) => submission.teamNumber)])];
@@ -530,6 +513,7 @@ function previewScoutingImport({ csvText, eventModel, activeEventKey, existingSu
       rowCount: parsed.parsedRows.length,
       newRows: parsed.parsedRows.length,
       duplicateGroups: duplicateAssessment.duplicateGroups.length,
+      duplicateGroupKeys: duplicateAssessment.duplicateGroups.map((group) => group.key),
       flaggedRows: flaggedRows.length,
       excludedRows: excludedRows.length,
       impactedTeams,
@@ -539,7 +523,9 @@ function previewScoutingImport({ csvText, eventModel, activeEventKey, existingSu
         eventKey: metadataRead.metadata.eventKey || eventModel.key,
         schemaVersion: metadataRead.metadata.schemaVersion || profile.schemaVersion,
         templateProfileId: metadataRead.metadata.templateProfileId || profile.id,
+        translationVersion: metadataRead.metadata.translationVersion || "",
       },
+      schemaFields: schemaFieldEntries(eventModel),
       submissions: parsed.parsedRows,
     },
   };

@@ -9,6 +9,7 @@ function schemaFieldEntries(eventModel) {
   return formulaFieldDefinitions(eventModel).map((fieldDefinition) => ({
     id: fieldDefinition.id,
     label: fieldDefinition.label || fieldDefinition.id,
+    type: String(fieldDefinition?.type || "").trim() || (String(fieldDefinition?.unit || "").trim().toLowerCase() === "text" ? "string" : "number"),
     unit: fieldDefinition.unit || "",
     aggregate: fieldDefinition.aggregate || "average",
   }));

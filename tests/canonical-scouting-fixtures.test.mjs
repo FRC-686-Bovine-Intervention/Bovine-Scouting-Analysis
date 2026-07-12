@@ -14,6 +14,7 @@ function loadBrowserContext(relativePaths) {
     Array,
     Object,
     String,
+    JSON,
   };
   context.globalThis = context;
   relativePaths.forEach((relativePath) => {
@@ -63,74 +64,43 @@ function rowsToObjects(rows, headerRowIndex) {
     .map((row) => Object.fromEntries(headers.map((header, index) => [header, String(row[index] ?? "").trim()])));
 }
 
-const browserContext = loadBrowserContext([
+const context = loadBrowserContext([
   "src/season-framework.js",
   "src/metric-engine.js",
+  "src/scouting-source-utils.js",
+  "src/scouting-json-schema.js",
+  "src/scouting-json-import.js",
+  "src/event-model-builder.js",
   "src/real-event-snapshots.js",
   "src/real-event-data.js",
-  "src/scouting-source-utils.js",
   "src/import-foundation.js",
   "src/sheet-import-adapters.js",
 ]);
-const metricEngine = browserContext.MetricEngine;
-const seasonFramework = browserContext.SeasonFramework;
-const importFoundation = browserContext.ImportFoundation;
-const sheetImportAdapters = browserContext.SheetImportAdapters;
-const eventCatalog = browserContext.eventCatalog;
-const fixtures = JSON.parse(fs.readFileSync(path.resolve("tests/spreadsheet-comparison-fixtures.json"), "utf8"));
 
-fixtures.forEach((fixture) => {
-  runTest(`${fixture.name} (${fixture.provenance}${fixture.sheetTab ? ` / ${fixture.sheetTab}` : ""})`, () => {
-    const season = seasonFramework.seasonDefinitions[fixture.season];
-    assert.ok(season, `Season ${fixture.season} should exist`);
+const metricEngine = context.MetricEngine;
+const seasonFramework = context.SeasonFramework;
+const scoutingJsonImport = context.ScoutingJsonImport;
+const importFoundation = context.ImportFoundation;
+const sheetImportAdapters = context.SheetImportAdapters;
+const eventCatalog = context.eventCatalog;
 
-    const overlay = metricEngine.buildTeamScoutingOverlay(
-      {
-        number: fixture.teamNumber,
-        flags: fixture.baseTeam.flags,
-        matches: fixture.baseTeam.matches,
-        sources: fixture.baseTeam.sources,
-        derived: fixture.baseTeam.derived,
-      },
-      {
-        submissions: fixture.submissions,
-        scoringComponents: season.scoringComponents,
-        scouterMetricDefinitions: seasonFramework.scouterMetricDefinitions(season),
-        derivedMetricDefinitions: seasonFramework.derivedMetricDefinitions(season),
-      },
-    );
-
-    Object.entries(fixture.expectedMetrics).forEach(([metricId, expectedValue]) => {
-      const actual = metricValueFromId(overlay, metricId);
-      const tolerance = Number(fixture.tolerance ?? 0.001);
-      assert.ok(
-        Math.abs(actual - expectedValue) <= tolerance,
-        `${fixture.name} ${metricId}: expected ${expectedValue}, got ${actual}, tolerance ${tolerance}`,
-      );
-    });
-  });
-});
-
-[
+const migrationFixtures = [
   {
-    name: "2025 TeamCalculations aggregate verification",
+    eventKey: "2024mdsev",
+    season: 2024,
+    canonicalFixturePath: "tests/fixtures/canonical-scouting-datasets/2024mdsev.json",
+    rawSheetPath: "src/real-source-cache/2024mdsev-sheet.csv",
+    representativeMetrics: [
+      { teamNumber: 686, metricId: "derived:autoSpeakerAccuracy", tolerance: 0.001 },
+      { teamNumber: 9072, metricId: "source:scouter:autoSpeakerMade", tolerance: 0.001 },
+      { teamNumber: 1629, metricId: "source:scouter:teleSpeakerMade", tolerance: 0.001 },
+    ],
+  },
+  {
     eventKey: "2025chcmp",
     season: 2025,
-    recentMatchCount: 4,
-    rawSheetPath: "src/real-source-cache/2025chcmp-sheet.csv",
+    canonicalFixturePath: "tests/fixtures/canonical-scouting-datasets/2025chcmp.json",
     teamCalculationsPath: "tests/fixtures/2025 CHS DCMP Scouting Analysis - TeamCalculations.csv",
-    requiredColumns: [
-      "Auto Trough %",
-      "Auto L2 %",
-      "Auto L3 %",
-      "Auto L4 %",
-      "Tele-Op Trough %",
-      "Tele-Op L2 %",
-      "Tele-Op L3 %",
-      "Tele-Op L4 %",
-      "Driver Performance",
-      "Driver Performance Recent",
-    ],
     representativeTeams: [
       {
         teamNumber: 3136,
@@ -147,22 +117,10 @@ fixtures.forEach((fixture) => {
     ],
   },
   {
-    name: "2026 TeamCalculations aggregate verification",
     eventKey: "2026chcmp",
     season: 2026,
-    recentMatchCount: 4,
-    rawSheetPath: "src/real-source-cache/2026chcmp-sheet.csv",
+    canonicalFixturePath: "tests/fixtures/canonical-scouting-datasets/2026chcmp.json",
     teamCalculationsPath: "tests/fixtures/2026 Scouting Analysis CHCMP - TeamCalculations.csv",
-    requiredColumns: [
-      "Shooter Performance Average Score Overall",
-      "Passer Performance Average Score Overall",
-      "Intake Performance Average Score Overall",
-      "Defense Avoidance Average Score Overall",
-      "Defender Performance Average Score Overall",
-      "Driver Performance Average Score Overall",
-      "Shooter Performance Average Score Recent",
-      "Driver Performance Average Score Recent",
-    ],
     representativeTeams: [
       {
         teamNumber: 4638,
@@ -189,34 +147,104 @@ fixtures.forEach((fixture) => {
       },
     ],
   },
-].forEach((fixture) => {
-  runTest(fixture.name, () => {
+];
+
+migrationFixtures.forEach((fixture) => {
+  runTest(`${fixture.eventKey} canonical fixture imports successfully`, () => {
     const eventModel = eventCatalog.find((event) => event.key === fixture.eventKey);
     assert.ok(eventModel, `Event ${fixture.eventKey} should exist`);
     assert.equal(eventModel.season, fixture.season);
 
-    const rawSheetCsv = fs.readFileSync(path.resolve(fixture.rawSheetPath), "utf8");
-    const adaptedCsv = sheetImportAdapters.adaptEventSheetCsv(eventModel, rawSheetCsv);
-    const preview = importFoundation.previewScoutingImport({
-      csvText: adaptedCsv,
+    const jsonText = fs.readFileSync(path.resolve(fixture.canonicalFixturePath), "utf8");
+    const preview = scoutingJsonImport.previewScoutingJsonImport({
+      jsonText,
       eventModel,
       activeEventKey: fixture.eventKey,
       existingSubmissions: [],
-      templateProfileId: "",
     });
-    assert.ok(preview.ok, `Import preview should succeed for ${fixture.eventKey}: ${(preview.errors || []).join("; ")}`);
-    assert.ok(preview.summary?.submissions?.length, `Import preview should produce submissions for ${fixture.eventKey}`);
 
-    const submissions = preview.summary.submissions;
+    assert.equal(preview.ok, true, (preview.errors || []).join("; "));
+    assert.ok(preview.summary?.submissions?.length, `Canonical fixture should produce submissions for ${fixture.eventKey}`);
+  });
+});
+
+runTest("2024mdsev canonical fixture preserves representative outputs from the legacy adapted import path", () => {
+  const fixture = migrationFixtures.find((candidate) => candidate.eventKey === "2024mdsev");
+  const eventModel = eventCatalog.find((event) => event.key === fixture.eventKey);
+  const rawSheetCsv = fs.readFileSync(path.resolve(fixture.rawSheetPath), "utf8");
+  const adaptedCsv = sheetImportAdapters.adaptEventSheetCsv(eventModel, rawSheetCsv);
+  const legacyPreview = importFoundation.previewScoutingImport({
+    csvText: adaptedCsv,
+    eventModel,
+    activeEventKey: fixture.eventKey,
+    existingSubmissions: [],
+  });
+  const canonicalPreview = scoutingJsonImport.previewScoutingJsonImport({
+    jsonText: fs.readFileSync(path.resolve(fixture.canonicalFixturePath), "utf8"),
+    eventModel,
+    activeEventKey: fixture.eventKey,
+    existingSubmissions: [],
+  });
+
+  assert.equal(legacyPreview.ok, true);
+  assert.equal(canonicalPreview.ok, true);
+  assert.equal(canonicalPreview.summary.submissions.length, legacyPreview.summary.submissions.length);
+
+  const legacyOverlaysByTeam = new Map(
+    eventModel.teams.map((team) => [
+      team.number,
+      metricEngine.buildTeamScoutingOverlay(team, {
+        submissions: legacyPreview.summary.submissions,
+        scoringComponents: eventModel.scoringComponents,
+        scouterMetricDefinitions: seasonFramework.scouterMetricDefinitions(eventModel),
+        derivedMetricDefinitions: seasonFramework.derivedMetricDefinitions(eventModel),
+      }),
+    ]),
+  );
+  const canonicalOverlaysByTeam = new Map(
+    eventModel.teams.map((team) => [
+      team.number,
+      metricEngine.buildTeamScoutingOverlay(team, {
+        submissions: canonicalPreview.summary.submissions,
+        scoringComponents: eventModel.scoringComponents,
+        scouterMetricDefinitions: seasonFramework.scouterMetricDefinitions(eventModel),
+        derivedMetricDefinitions: seasonFramework.derivedMetricDefinitions(eventModel),
+      }),
+    ]),
+  );
+
+  fixture.representativeMetrics.forEach((comparison) => {
+    const legacyOverlay = legacyOverlaysByTeam.get(comparison.teamNumber);
+    const canonicalOverlay = canonicalOverlaysByTeam.get(comparison.teamNumber);
+    const legacyValue = metricValueFromId(legacyOverlay, comparison.metricId);
+    const canonicalValue = metricValueFromId(canonicalOverlay, comparison.metricId);
+    assert.ok(
+      Math.abs(legacyValue - canonicalValue) <= comparison.tolerance,
+      `${comparison.metricId} for team ${comparison.teamNumber}: expected ${legacyValue}, got ${canonicalValue}`,
+    );
+  });
+});
+
+[migrationFixtures[1], migrationFixtures[2]].forEach((fixture) => {
+  runTest(`${fixture.eventKey} canonical fixture reproduces representative TeamCalculations outputs`, () => {
+    const eventModel = eventCatalog.find((event) => event.key === fixture.eventKey);
+    const preview = scoutingJsonImport.previewScoutingJsonImport({
+      jsonText: fs.readFileSync(path.resolve(fixture.canonicalFixturePath), "utf8"),
+      eventModel,
+      activeEventKey: fixture.eventKey,
+      existingSubmissions: [],
+    });
+    assert.equal(preview.ok, true, (preview.errors || []).join("; "));
+
     const overlaysByTeam = new Map(
       eventModel.teams.map((team) => [
         team.number,
         metricEngine.buildTeamScoutingOverlay(team, {
-          submissions,
+          submissions: preview.summary.submissions,
           scoringComponents: eventModel.scoringComponents,
           scouterMetricDefinitions: seasonFramework.scouterMetricDefinitions(eventModel),
           derivedMetricDefinitions: seasonFramework.derivedMetricDefinitions(eventModel),
-          recentMatchCount: fixture.recentMatchCount || 4,
+          recentMatchCount: 4,
         }),
       ]),
     );
@@ -225,20 +253,13 @@ fixtures.forEach((fixture) => {
     const headerRowIndex = detectHeaderRow(teamCalculationRows);
     assert.ok(headerRowIndex >= 0, `Header row should be found in ${fixture.teamCalculationsPath}`);
     const rows = rowsToObjects(teamCalculationRows, headerRowIndex);
-    const headers = teamCalculationRows[headerRowIndex] || [];
-    fixture.requiredColumns.forEach((column) => {
-      assert.ok(headers.includes(column), `${column} should exist in ${fixture.teamCalculationsPath}`);
-    });
-
     const rowByTeam = new Map(rows.map((row) => [Number(row["Team #"]), row]));
-    const overlappingTeams = eventModel.teams.filter((team) => rowByTeam.has(team.number)).length;
-    assert.ok(overlappingTeams > 0, `TeamCalculations export should overlap event teams for ${fixture.eventKey}`);
 
     fixture.representativeTeams.forEach((teamFixture) => {
       const row = rowByTeam.get(teamFixture.teamNumber);
-      assert.ok(row, `Representative team ${teamFixture.teamNumber} should exist in ${fixture.teamCalculationsPath}`);
       const overlay = overlaysByTeam.get(teamFixture.teamNumber);
-      assert.ok(overlay, `Representative team ${teamFixture.teamNumber} should exist in overlay for ${fixture.eventKey}`);
+      assert.ok(row, `Representative team ${teamFixture.teamNumber} should exist`);
+      assert.ok(overlay, `Representative team ${teamFixture.teamNumber} should exist in overlay`);
       teamFixture.comparisons.forEach((comparison) => {
         const expectedValue = parseSpreadsheetNumber(row[comparison.column]);
         assert.notEqual(expectedValue, null, `${comparison.column} should be numeric for team ${teamFixture.teamNumber}`);

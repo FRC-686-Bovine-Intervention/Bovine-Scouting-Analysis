@@ -37,7 +37,7 @@ function loadBrowserContext(relativePaths, extras = {}) {
 }
 
 runTest("commitScoutingImport can replace existing submissions for source-of-truth imports", () => {
-  const context = loadBrowserContext(["src/import-foundation.js"]);
+  const context = loadBrowserContext(["src/scouting-source-utils.js", "src/import-foundation.js"]);
   const existingSubmissions = [{ id: "old-1", teamNumber: 686, matchNumber: 1 }];
   const preview = {
     ok: true,
@@ -67,7 +67,7 @@ runTest("commitScoutingImport can replace existing submissions for source-of-tru
 });
 
 runTest("previewScoutingImport preserves raw strings and warns on type outliers", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/import-foundation.js"]);
+  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
   const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
   const eventModel = {
     ...season2026,
@@ -126,7 +126,7 @@ runTest("previewScoutingImport preserves raw strings and warns on type outliers"
 });
 
 runTest("season sheet adapters preserve blank subjective ratings as missing values", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/sheet-import-adapters.js", "src/import-foundation.js"]);
+  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/sheet-import-adapters.js", "src/import-foundation.js"]);
   const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
   const eventModel = {
     ...season2026,
@@ -153,4 +153,78 @@ runTest("season sheet adapters preserve blank subjective ratings as missing valu
   assert.equal(preview.summary.submissions[0].rawMetrics.overallShooter, null);
   assert.equal(preview.summary.submissions[0].rawMetrics.overallPasser, null);
   assert.equal(preview.summary.submissions[0].rawMetrics.overallDriver, 3);
+});
+
+runTest("season sheet adapters honor an explicit attachment profile in canonical metadata", () => {
+  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/sheet-import-adapters.js", "src/import-foundation.js"]);
+  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const eventModel = {
+    ...season2026,
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: season2026.label,
+    sheet: {
+      recommendedProfileId: "match-current-v2",
+    },
+    metrics: context.SeasonFramework.buildMetrics(season2026),
+    criteriaSources: context.SeasonFramework.buildCriteriaSources(season2026),
+  };
+  const rawSheetCsv = [
+    "Shifts Auto Primary Role,Shifts Auto Secondary Role,Shifts Auto Fuel Pct,Shifts Auto Starting Position,Shifts Auto Climb,Shifts Transition Primary Role,Shifts Transition Secondary Role,Shifts Transition Fuel Pct,Shifts Transition Defense On,Shifts Shift1 Primary Role,Shifts Shift1 Secondary Role,Shifts Shift1 Fuel Pct,Shifts Shift1 Defense On,Shifts Shift2 Primary Role,Shifts Shift2 Secondary Role,Shifts Shift2 Fuel Pct,Shifts Shift2 Defense On,Shifts Shift3 Primary Role,Shifts Shift3 Secondary Role,Shifts Shift3 Fuel Pct,Shifts Shift3 Defense On,Shifts Shift4 Primary Role,Shifts Shift4 Secondary Role,Shifts Shift4 Fuel Pct,Shifts Shift4 Defense On,Shifts Endgame Primary Role,Shifts Endgame Secondary Role,Shifts Endgame Fuel Pct,Shifts Endgame Defense On,Shifts Endgame Climb,_id,_uuid,__v,Alliance,Created At,Event Key,Match Key,Match Number,No Show,Overall Defense Avoidance,Overall Defense,Overall Driver,Overall Intake,Overall Notes,Overall Passer,Overall Shooter,Scouter,Team Number,Updated At",
+    "\"Score\",\"None\",\"20\",\"Hub\",\"Not Attempted\",\"Score\",\"None\",\"30\",\"None\",\"Score\",\"None\",\"30\",\"None\",\"Score\",\"None\",\"30\",\"None\",\"Score\",\"None\",\"30\",\"None\",\"Score\",\"None\",\"30\",\"None\",\"Score\",\"None\",\"20\",\"None\",\"Not Attempted\",\"1\",\"2\",\"\",\"red\",\"2026-04-10T20:22:54.392Z\",\"2026chcmp\",\"2026chcmp_qm25\",\"25\",\"\",\"\",\"\",\"3\",\"3\",\"\",\"\",\"\",\"Scout\",\"1262\",\"2026-04-10T20:22:54.392Z\"",
+  ].join("\n");
+
+  const adaptedCsv = context.SheetImportAdapters.adaptEventSheetCsv(eventModel, rawSheetCsv, {
+    templateProfileId: "match-legacy-v1",
+  });
+  const preview = context.ImportFoundation.previewScoutingImport({
+    csvText: adaptedCsv,
+    eventModel,
+    activeEventKey: "2026chcmp",
+    existingSubmissions: [],
+    templateProfileId: "match-legacy-v1",
+  });
+
+  assert.equal(preview.ok, true);
+  assert.equal(preview.summary.metadata.schemaVersion, "match-v1");
+  assert.equal(preview.summary.metadata.templateProfileId, "match-legacy-v1");
+  assert.equal(preview.summary.metadata.translationVersion, "2026-thin-v2");
+});
+
+runTest("previewScoutingImport flags duplicate groups but keeps rows reviewable in the preview summary", () => {
+  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
+  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const eventModel = {
+    ...season2026,
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: season2026.label,
+    metrics: context.SeasonFramework.buildMetrics(season2026),
+    criteriaSources: context.SeasonFramework.buildCriteriaSources(season2026),
+  };
+  const metricHeaders = context.SeasonFramework.formulaFieldDefinitions(eventModel).map((metricDefinition) =>
+    context.SeasonFramework.csvHeaderForMetric(metricDefinition));
+  const csvText = [
+    "meta,season,eventKey,schemaVersion,templateProfileId",
+    "value,2026,2026chcmp,match-v2,match-current-v2",
+    "",
+    ["matchNumber", "teamNumber", "scoutUser", "alliance", "station", "defensePlayed", "robotStatus", "notes", ...metricHeaders].join(","),
+    ["12", "686", "Scout A", "Blue", "1", "no", "ok", "", ...metricHeaders.map((header) => (header === "autoFuelPct" ? "40" : ""))].join(","),
+    ["12", "686", "Scout B", "Blue", "1", "no", "ok", "", ...metricHeaders.map((header) => (header === "autoFuelPct" ? "42" : ""))].join(","),
+  ].join("\n");
+
+  const preview = context.ImportFoundation.previewScoutingImport({
+    csvText,
+    eventModel,
+    activeEventKey: "2026chcmp",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, true);
+  assert.equal(preview.summary.duplicateGroups, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(preview.summary.duplicateGroupKeys)), ["2026chcmp:12:686"]);
+  assert.equal(preview.summary.submissions.length, 2);
+  assert.equal(preview.summary.submissions[0].validity, "flagged");
+  assert.equal(preview.summary.submissions[1].validity, "flagged");
+  assert.ok(preview.summary.submissions.every((submission) => submission.confidenceReasons.includes("duplicate_submission")));
 });

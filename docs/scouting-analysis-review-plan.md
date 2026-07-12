@@ -20,7 +20,8 @@ The system should be season-adaptable. Game-specific scoring components are conf
 - External metric sources are app-managed syncs:
   - Statbotics EPA: https://www.statbotics.io/docs/rest
   - TBA OPR/DPR/CCWM and event data: https://www.thebluealliance.com/apidocs
-  - pRidge via `scoutR`, referenced from: https://www.chiefdelphi.com/t/introducing-prior-ridge-regularization-for-frc-rating/519531
+- pRidge via `scoutR`, referenced from: https://www.chiefdelphi.com/t/introducing-prior-ridge-regularization-for-frc-rating/519531
+  - Treat pRidge as a per-event total-only external artifact, not a locally synthesized component model.
 - TBA credentials are stored in admin settings.
 - External refresh is manually triggered by admins to avoid rankings changing unexpectedly during strategy discussion.
 - All imports and syncs record provenance, timestamps, validation status, and source metadata.
@@ -80,7 +81,7 @@ The system should be season-adaptable. Game-specific scoring components are conf
 ## Test Plan
 - Import accepts a known-good scouting spreadsheet and rejects rows missing event/team/match identity.
 - External sync stores Statbotics and TBA data with provenance and visible refresh status.
-- pRidge computation stores values that work like any other metric.
+- pRidge sync stores an event-total value that works like any other numeric metric, while missing pRidge remains an explicit source-gap state.
 - Weighted criteria produce consistent rankings across Analysis and Picklists.
 - Defense-marked matches do not unfairly penalize offensive trend or consistency.
 - Analysis handles complete data, sparse data, no-data teams, outliers, and suspect entries.

@@ -1,24 +1,102 @@
 const globalEventCatalog = globalThis.eventCatalog || [];
+const externalEventLoader = globalThis.ExternalEventLoader || {};
 const importFoundation = globalThis.ImportFoundation || {};
+const externalSourceSnapshots = globalThis.ExternalSourceSnapshots || {};
+const dynamicScoutingFields = globalThis.DynamicScoutingFields || {};
+const localFileAccess = globalThis.LocalFileAccess || {};
+const scoutingDependencyDiagnostics = globalThis.ScoutingDependencyDiagnostics || {};
+const scoutingDiagnosticsState = globalThis.ScoutingDiagnosticsState || {};
+const scoutingSourceUtils = globalThis.ScoutingSourceUtils || {};
+const scoutingJsonImport = globalThis.ScoutingJsonImport || {};
+const sourceRefresh = globalThis.SourceRefresh || {};
 const seasonFramework = globalThis.SeasonFramework || {};
 const metricEngine = globalThis.MetricEngine || {};
 const sheetImportAdapters = globalThis.SheetImportAdapters || {};
 const scoutingImportRepair = globalThis.ScoutingImportRepair || {};
+const eventWorkspaceApi = globalThis.EventWorkspace || {};
 const seededSeasonDerivedEquations = globalThis.SeasonDerivedEquations || { seasons: {} };
 const seededSeasonFilters = globalThis.SeasonFilters || { seasons: {} };
 const commitScoutingImport = importFoundation.commitScoutingImport;
 const buildSampleCsv = importFoundation.buildSampleCsv;
 const previewScoutingImport = importFoundation.previewScoutingImport;
+const buildExternalSourceSnapshot = externalSourceSnapshots.buildExternalSourceSnapshot || ((sourceId, eventModel) => ({ eventKey: eventModel?.key, sourceId }));
+const buildExternalSnapshotFingerprint = externalSourceSnapshots.buildSnapshotFingerprint || ((value) => JSON.stringify(value || null));
+const seedWorkspaceExternalSourceFingerprints = externalSourceSnapshots.seedExternalSourceFingerprints || ((workspace) => workspace);
+const localAttachmentFilesSupported = localFileAccess.supportsPersistentLocalFiles || (() => false);
+const pickLocalAttachmentFile = localFileAccess.pickAttachmentFile || (async () => {
+  throw new Error("Persistent local scouting files are unavailable in this browser.");
+});
+const readLocalAttachmentText = localFileAccess.readAttachmentText || (async () => {
+  throw new Error("Persistent local scouting files are unavailable in this browser.");
+});
+const clearLocalAttachmentFile = localFileAccess.removeAttachment || (async () => false);
+const normalizeScoutingSourceUrl = scoutingSourceUtils.normalizeSourceUrl || ((value) => String(value || "").trim());
+const describeGoogleSheetInfo = scoutingSourceUtils.googleSheetInfo || (() => null);
+const matchesEventSheetSourceUrl = scoutingSourceUtils.sourceUrlMatchesEventSheet || (() => false);
+const shouldFallbackToCachedEventSheetSample = scoutingSourceUtils.shouldFallbackToEventSheetSample || (() => false);
+const sharedDuplicateSubmissionKey =
+  scoutingSourceUtils.duplicateSubmissionKey ||
+  ((submission) => `${submission?.eventKey || ""}:${submission?.matchNumber || ""}:${submission?.teamNumber || ""}`);
+const previewScoutingJsonImport = scoutingJsonImport.previewScoutingJsonImport;
+const defaultRefreshPolicyForSource = sourceRefresh.defaultPolicyForSource || (() => ({ baseIntervalMs: 60 * 1000, staleAfterMs: 5 * 60 * 1000, maxBackoffMs: 20 * 60 * 1000 }));
+const freshnessForSource = sourceRefresh.freshnessForSource || ((source) => source?.freshness || "unknown");
+const shouldPollRefreshSource = sourceRefresh.shouldPollSource || (() => false);
 const seasonBuildMetrics = seasonFramework.buildMetrics || ((eventModel) => eventModel?.metrics || []);
 const seasonScouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((eventModel) => eventModel?.scoringComponents || []);
 const seasonFormulaFieldDefinitions = seasonFramework.formulaFieldDefinitions || seasonScouterMetricDefinitions;
+const buildDynamicScoutingFieldDefinitions =
+  dynamicScoutingFields.buildDynamicScoutingFieldDefinitions ||
+  ((options = {}) => seasonFormulaFieldDefinitions(options.eventModel));
+const buildScoutingDependencyDiagnostics =
+  scoutingDependencyDiagnostics.buildScoutingDependencyDiagnostics ||
+  (() => ({ schemaDiff: { added: [], removed: [], typeChanged: [] }, diagnostics: { roots: [], equations: [], filters: [], sortEquations: [] } }));
+const buildScoutingDiagnosticsState =
+  scoutingDiagnosticsState.buildScoutingDiagnosticsState ||
+  ((options = {}) => ({
+    committedFields: [],
+    currentDiagnostics: buildScoutingDependencyDiagnostics(options),
+    pendingDiagnostics: null,
+  }));
 const seasonDerivedMetricDefinitions = seasonFramework.derivedMetricDefinitions || (() => []);
 const seasonMetricFieldId = seasonFramework.csvHeaderForMetric || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id));
 const sharedAdaptEventSheetCsv = sheetImportAdapters.adaptEventSheetCsv || ((eventModel, csvText) => csvText);
+const sharedTranslateEventSheetToCanonical = sheetImportAdapters.translateEventSheetToCanonical || null;
+const buildCanonicalSheetJsonText = sheetImportAdapters.buildCanonicalJsonText || ((dataset) => JSON.stringify(dataset || {}));
 const shouldRefreshSampleBackedScoutingSubmissions =
   scoutingImportRepair.shouldRefreshSampleBackedScoutingSubmissions || (() => false);
 const repairLegacySubmissionRawMetrics = scoutingImportRepair.repairLegacySubmissionRawMetrics || ((rawMetrics) => rawMetrics || {});
 const stampScoutingSubmissionMetadata = scoutingImportRepair.stampScoutingSubmissionMetadata || ((submissions) => submissions || []);
+const createEventWorkspace = eventWorkspaceApi.createEventWorkspace || ((eventModel) => ({ eventKey: eventModel?.key || "", season: Number(eventModel?.season || 0), identity: { key: eventModel?.key || "", name: eventModel?.name || "", seasonLabel: eventModel?.seasonLabel || "" }, sources: { tba: {}, statbotics: {}, pridge: {}, scouting: [] }, activeScoutingAttachmentId: "" }));
+const markEventWorkspaceScoutingAttachmentAttempt = eventWorkspaceApi.markActiveScoutingAttachmentAttempt || ((workspace) => workspace);
+const markEventWorkspaceScoutingAttachmentFailure = eventWorkspaceApi.markActiveScoutingAttachmentFailure || ((workspace) => workspace);
+const markEventWorkspaceScoutingAttachmentSuccess = eventWorkspaceApi.markActiveScoutingAttachmentSuccess || ((workspace) => workspace);
+const markEventWorkspaceExternalSourceAttempt = eventWorkspaceApi.markExternalSourceAttempt || ((workspace) => workspace);
+const markEventWorkspaceExternalSourceFailure = eventWorkspaceApi.markExternalSourceFailure || ((workspace) => workspace);
+const markEventWorkspaceExternalSourceSuccess = eventWorkspaceApi.markExternalSourceSuccess || ((workspace) => workspace);
+const rebuildSampleBackedEventWorkspaceState = eventWorkspaceApi.rebuildSampleBackedScoutingState || (() => null);
+const describeEventWorkspaceScoutingAttachmentLoad = eventWorkspaceApi.describeActiveScoutingAttachmentLoad || (() => ({ kind: "none", format: "", url: "", path: "", sampleKey: "", canLoad: false }));
+const resolveEventWorkspaceScoutingSourceUrl =
+  eventWorkspaceApi.resolveScoutingImportSourceUrl || ((_workspace, eventModel, storedUrl = "") => normalizeScoutingSourceUrl(storedUrl || eventModel?.sheet?.url || ""));
+const eventWorkspaceUsesSample = eventWorkspaceApi.activeScoutingAttachmentUsesSample || (() => false);
+const activeEventWorkspaceScoutingAttachment = eventWorkspaceApi.activeScoutingAttachment || (() => null);
+const eventWorkspaceProfileId = eventWorkspaceApi.activeScoutingAttachmentProfileId || (() => "");
+const activeEventWorkspaceScoutingAttachmentFormat = eventWorkspaceApi.activeScoutingAttachmentFormat || (() => "legacy-sheet-url");
+const removeEventWorkspaceScoutingAttachment = eventWorkspaceApi.removeScoutingAttachment || ((workspace) => workspace);
+const setEventWorkspaceExternalSourcePollingEnabled = eventWorkspaceApi.setExternalSourcePollingEnabled || ((workspace) => workspace);
+const setEventWorkspaceScoutingAttachmentPollingEnabled = eventWorkspaceApi.setActiveScoutingAttachmentPollingEnabled || ((workspace) => workspace);
+const setActiveEventWorkspaceScoutingAttachment = eventWorkspaceApi.setActiveScoutingAttachment || ((workspace) => workspace);
+const setEventWorkspaceScoutingSourceLocation = eventWorkspaceApi.setScoutingSourceLocation || ((workspace) => workspace);
+const setEventWorkspaceScoutingSourceUrl = eventWorkspaceApi.setScoutingSourceUrl || ((workspace) => workspace);
+const shouldAutoLoadEventWorkspaceScoutingAttachment = eventWorkspaceApi.shouldAutoLoadScoutingAttachment || (() => false);
+const upsertEventWorkspaceScoutingAttachment = eventWorkspaceApi.upsertScoutingAttachment || ((workspace) => workspace);
+const activeEventWorkspaceScoutingAttachmentSourceValue =
+  eventWorkspaceApi.activeScoutingAttachmentSourceValue || ((_workspace, eventModel) => normalizeScoutingSourceUrl(eventModel?.sheet?.url || ""));
+const loadExternalEventByCode =
+  externalEventLoader.loadEventByCode ||
+  (async () => {
+    throw new Error("External event loading is unavailable.");
+  });
+const normalizeExternalEventCode = externalEventLoader.normalizeEventCode || ((value) => String(value || "").trim().toLowerCase());
 const buildTeamScoutingOverlay = metricEngine.buildTeamScoutingOverlay;
 const engineMetricTrendValues = metricEngine.metricTrendValues;
 const engineTeamMetricValue = metricEngine.teamMetricValue;
@@ -57,6 +135,8 @@ const storageKeys = {
   seasonProfiles: "frc-scouting-season-profiles",
   seasonDerivedEquations: "frc-scouting-season-derived-equations",
   seasonFilters: "frc-scouting-season-filters",
+  eventWorkspace: "frc-scouting-event-workspace",
+  dynamicEvents: "frc-scouting-dynamic-events",
 };
 
 const globalStorageKeys = new Set([
@@ -68,6 +148,7 @@ const globalStorageKeys = new Set([
   storageKeys.seasonProfiles,
   storageKeys.seasonDerivedEquations,
   storageKeys.seasonFilters,
+  storageKeys.dynamicEvents,
 ]);
 const seedUsers = ["Avery", "Jordan", "Morgan"];
 const adminUsers = ["Avery"];
@@ -96,6 +177,30 @@ const picklistColumnCount = 4;
 const picklistCompareLimit = 4;
 const protectedEpaSortId = "sort-epa";
 const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
+
+function readBootstrapStoredJson(key, fallback) {
+  try {
+    if (!globalThis.localStorage) return fallback;
+    const raw = globalThis.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function mergePersistedDynamicEventsIntoCatalog() {
+  const persistedEvents = readBootstrapStoredJson(storageKeys.dynamicEvents, []);
+  if (!Array.isArray(persistedEvents) || !persistedEvents.length) return;
+  const catalogKeys = new Set(globalEventCatalog.map((eventModel) => eventModel?.key));
+  persistedEvents.forEach((eventModel) => {
+    const eventKey = String(eventModel?.key || "").trim();
+    if (!eventKey || catalogKeys.has(eventKey)) return;
+    globalEventCatalog.push(eventModel);
+    catalogKeys.add(eventKey);
+  });
+}
+
+mergePersistedDynamicEventsIntoCatalog();
 
 const defaultAllianceBoard = Array(24).fill(null);
 const protectedEpaSortEquation = {
@@ -141,7 +246,8 @@ const state = {
   activityLog: [],
   importCsvText: "",
   importSelectedProfileId: "",
-  importSourceUrl: initialEvent.sheet?.url || "",
+  importDraftSource: "",
+  importSourceUrl: activeEventWorkspaceScoutingAttachmentSourceValue(initialWorkspace, initialEvent),
   importResult: null,
   scoutingWindow: readStoredItem(storageKeys.scoutingWindow) || "all",
   recentMatchCount: Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount) || 12)),
@@ -161,6 +267,9 @@ const state = {
   activeDerivedEquationId: "",
   activeSeasonFilterId: "",
   activeDerivedPreviewMetricId: "",
+  eventWorkspace: null,
+  eventLookupPending: false,
+  eventLookupResult: null,
   builderGridScroll: {
     derivedBuilder: { shellLeft: 0, columnTops: {} },
     filterBuilder: { shellLeft: 0, columnTops: {} },
@@ -169,16 +278,21 @@ const state = {
 };
 globalThis.__scoutingAppState = state;
 globalThis.__scoutingActiveEventKey = state.activeEventKey;
+let pendingScoutingAutoloadToken = "";
+let attemptedScoutingAutoloadToken = "";
+const pendingExternalRefreshSourceIds = new Set();
+let sourceRefreshIntervalId = null;
 
 const app = document.querySelector("#app");
 installGlobalRecoveryGuards();
-bootstrapApp();
 
 function bootstrapApp() {
   try {
     hydrateEventState(state.activeEventKey);
     document.documentElement.dataset.theme = state.theme;
     renderSafely();
+    maybeAutoloadScoutingAttachment();
+    ensureSourceRefreshLoop();
   } catch (error) {
     console.error("App bootstrap failed before first render", error);
     state.activeView = "teams";
@@ -203,6 +317,386 @@ function resolveEventKey(value) {
 
 function currentEvent() {
   return eventModelByKey(state?.activeEventKey || initialEventKey);
+}
+
+function normalizeText(value) {
+  return String(value ?? "").trim();
+}
+
+function currentEventWorkspace() {
+  return state?.eventWorkspace || createEventWorkspace(currentEvent());
+}
+
+function mergeProviderSourceState(currentSource = {}, nextSource = {}) {
+  return {
+    ...currentSource,
+    ...nextSource,
+    provenance: {
+      ...(currentSource.provenance || {}),
+      ...(nextSource.provenance || {}),
+    },
+  };
+}
+
+function currentDynamicEvents() {
+  return globalEventCatalog.filter((eventModel) => eventModel?.catalogSource === "dynamic-external");
+}
+
+function persistDynamicEvents() {
+  localStorage.setItem(eventStorageKey(storageKeys.dynamicEvents), JSON.stringify(currentDynamicEvents()));
+}
+
+function registerEventModel(eventModel) {
+  const eventKey = normalizeText(eventModel?.key);
+  if (!eventKey) return null;
+  const existingIndex = globalEventCatalog.findIndex((candidate) => candidate?.key === eventKey);
+  if (existingIndex >= 0) {
+    globalEventCatalog.splice(existingIndex, 1, eventModel);
+  } else {
+    globalEventCatalog.push(eventModel);
+  }
+  persistDynamicEvents();
+  return eventModelByKey(eventKey);
+}
+
+function applyLoadedExternalSourceState(loadResult, options = {}) {
+  const eventModel = loadResult?.eventModel || currentEvent();
+  const eventKey = normalizeText(eventModel?.key) || state.activeEventKey;
+  const storedWorkspace = readStoredJson(storageKeys.eventWorkspace, null, eventKey);
+  const seededWorkspace = createEventWorkspace(eventModel, storedWorkspace);
+  const nextSources = { ...(seededWorkspace.sources || {}) };
+  Object.entries(loadResult?.sourceStates || {}).forEach(([sourceId, sourceState]) => {
+    nextSources[sourceId] = mergeProviderSourceState(nextSources[sourceId], sourceState);
+  });
+  state.eventWorkspace = {
+    ...seededWorkspace,
+    sources: nextSources,
+  };
+  state.importSourceUrl = currentScoutingSourceInputValue(
+    state.eventWorkspace,
+    eventModel,
+    readStoredItem(storageKeys.importSourceUrl, eventKey),
+  );
+  if (Array.isArray(loadResult?.warnings) && loadResult.warnings.length) {
+    loadResult.warnings.forEach((warning) => pushActivity(warning));
+  }
+  saveState();
+  if (options.render !== false) render();
+}
+
+function currentScoutingAttachment() {
+  return activeEventWorkspaceScoutingAttachment(currentEventWorkspace());
+}
+
+function currentScoutingSourceInputValue(workspace = currentEventWorkspace(), eventModel = currentEvent(), storedValue = state.importSourceUrl) {
+  const normalizedStored = normalizeText(storedValue);
+  if (normalizedStored) return normalizedStored;
+  return activeEventWorkspaceScoutingAttachmentSourceValue(workspace, eventModel);
+}
+
+function currentScoutingSourceUrl() {
+  return normalizeScoutingSourceUrl(resolveEventWorkspaceScoutingSourceUrl(currentEventWorkspace(), currentEvent(), state.importSourceUrl));
+}
+
+function setCurrentScoutingSourceUrl(url, options = {}) {
+  const normalizedUrl = normalizeScoutingSourceUrl(url);
+  state.importSourceUrl = normalizedUrl;
+  state.eventWorkspace = setEventWorkspaceScoutingSourceLocation(currentEventWorkspace(), normalizedUrl);
+  if (options.save) saveState();
+}
+
+function buildScoutingSourceFingerprint(text) {
+  const input = String(text || "");
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv1a:${(hash >>> 0).toString(16)}:${input.length}`;
+}
+
+function currentScoutingAttachmentFingerprint() {
+  return normalizeText(currentScoutingAttachment()?.sourceFingerprint);
+}
+
+function currentExternalSourceFingerprint(sourceId) {
+  return normalizeText(currentEventWorkspace()?.sources?.[sourceId]?.sourceFingerprint);
+}
+
+function shouldSkipUnchangedAttachedSource(text, options = {}) {
+  if (!options.skipUnchanged) return false;
+  if (state.importDraftSource !== "attached" && options.importDraftSource !== "attached") return false;
+  return currentScoutingAttachmentFingerprint() === buildScoutingSourceFingerprint(text);
+}
+
+function markCurrentScoutingAttachmentAttempt(update = {}) {
+  state.eventWorkspace = markEventWorkspaceScoutingAttachmentAttempt(currentEventWorkspace(), update);
+}
+
+function markCurrentScoutingAttachmentFailure(message, update = {}) {
+  state.eventWorkspace = markEventWorkspaceScoutingAttachmentFailure(currentEventWorkspace(), {
+    ...update,
+    error: message,
+  });
+}
+
+function markCurrentScoutingAttachmentSuccess(preview, csvText, update = {}) {
+  state.eventWorkspace = markEventWorkspaceScoutingAttachmentSuccess(currentEventWorkspace(), {
+    ...update,
+    schemaSignature: preview?.summary?.metadata?.schemaId || preview?.summary?.metadata?.schemaVersion || preview?.summary?.profileId || "",
+    translatorVersion: preview?.summary?.metadata?.translationVersion || "",
+    sourceFingerprint: buildScoutingSourceFingerprint(csvText),
+  });
+}
+
+function markExternalSourceAttempt(sourceId, update = {}) {
+  state.eventWorkspace = markEventWorkspaceExternalSourceAttempt(currentEventWorkspace(), sourceId, update);
+}
+
+function markExternalSourceSuccess(sourceId, update = {}) {
+  state.eventWorkspace = markEventWorkspaceExternalSourceSuccess(currentEventWorkspace(), sourceId, update);
+}
+
+function markExternalSourceFailure(sourceId, message, update = {}) {
+  state.eventWorkspace = markEventWorkspaceExternalSourceFailure(currentEventWorkspace(), sourceId, {
+    ...update,
+    error: message,
+  });
+}
+
+function maybeAutoloadScoutingAttachment() {
+  const eventModel = currentEvent();
+  const attachmentId = currentScoutingAttachment()?.attachmentId || "";
+  const autoloadToken = `${eventModel.key}:${attachmentId}`;
+  if (!shouldAutoLoadEventWorkspaceScoutingAttachment(currentEventWorkspace(), eventModel, state.scoutingSubmissions)) return;
+  if (attemptedScoutingAutoloadToken === autoloadToken) return;
+  if (pendingScoutingAutoloadToken === autoloadToken) return;
+  pendingScoutingAutoloadToken = autoloadToken;
+  attemptedScoutingAutoloadToken = autoloadToken;
+  Promise.resolve(loadScoutingData({ autoCommit: true, scoutingImportSource: "attached-autoload" }))
+    .catch((error) => {
+      console.error("Automatic scouting attachment load failed", eventModel.key, error);
+    })
+    .finally(() => {
+      if (pendingScoutingAutoloadToken === autoloadToken) pendingScoutingAutoloadToken = "";
+    });
+}
+
+function maybePollActiveScoutingAttachment() {
+  const eventModel = currentEvent();
+  const attachment = currentScoutingAttachment();
+  if (!attachment?.attachmentId || attachment.pollingEnabled === false) return;
+  if (pendingScoutingAutoloadToken === `${eventModel.key}:${attachment.attachmentId}`) return;
+  const policy = defaultRefreshPolicyForSource({ kind: "scouting", sourceId: attachment.attachmentId });
+  if (!shouldPollRefreshSource(attachment, policy, Date.now())) return;
+  const pollToken = `${eventModel.key}:${attachment.attachmentId}`;
+  pendingScoutingAutoloadToken = pollToken;
+  Promise.resolve(loadScoutingData({ autoCommit: true, scoutingImportSource: "poll-refresh", skipUnchanged: true, importDraftSource: "attached" }))
+    .catch((error) => {
+      console.error("Polling scouting attachment failed", eventModel.key, error);
+    })
+    .finally(() => {
+      if (pendingScoutingAutoloadToken === pollToken) pendingScoutingAutoloadToken = "";
+    });
+}
+
+function maybePollExternalSources() {
+  const workspace = currentEventWorkspace();
+  ["tba", "statbotics", "pridge"].forEach((sourceId) => {
+    const source = workspace.sources?.[sourceId];
+    if (!source || source.pollingEnabled === false || pendingExternalRefreshSourceIds.has(sourceId)) return;
+    const policy = defaultRefreshPolicyForSource({ kind: "external", sourceId });
+    if (!shouldPollRefreshSource(source, policy, Date.now())) return;
+    pendingExternalRefreshSourceIds.add(sourceId);
+    Promise.resolve(refreshDataSource(sourceId, { trigger: "poll" }))
+      .catch((error) => {
+        console.error("Polling external source failed", sourceId, error);
+        markExternalSourceFailure(sourceId, error?.message || `Unable to refresh ${sourceId}.`);
+        saveState();
+        render();
+      })
+      .finally(() => {
+        pendingExternalRefreshSourceIds.delete(sourceId);
+      });
+  });
+}
+
+function ensureSourceRefreshLoop() {
+  if (sourceRefreshIntervalId !== null) return;
+  sourceRefreshIntervalId = globalThis.setInterval(() => {
+    maybePollActiveScoutingAttachment();
+    maybePollExternalSources();
+  }, 30000);
+}
+
+async function refreshDataSource(sourceId, options = {}) {
+  if (sourceId === "scouting") {
+    saveCurrentScoutingAttachmentDraftFromDom({ render: false });
+    await loadScoutingData({ autoCommit: true, scoutingImportSource: "manual-refresh", skipUnchanged: true, importDraftSource: "attached" });
+    return;
+  }
+  if (currentEvent()?.catalogSource === "dynamic-external") {
+    await loadArbitraryEventCode(currentEvent().key, {
+      activeView: state.activeView,
+    });
+    return;
+  }
+  const event = currentEvent();
+  const label = { tba: "The Blue Alliance", statbotics: "Statbotics EPA", pridge: "pRidge" }[sourceId] || sourceId;
+  const trigger = options.trigger || "manual";
+  const snapshot = buildExternalSourceSnapshot(sourceId, event);
+  const nextFingerprint = buildExternalSnapshotFingerprint(snapshot);
+  const didChange = nextFingerprint !== currentExternalSourceFingerprint(sourceId);
+  markExternalSourceAttempt(sourceId);
+  markExternalSourceSuccess(sourceId, {
+    sourceFingerprint: nextFingerprint,
+    provenance: {
+      mode: "local-snapshot",
+      notes: didChange
+        ? `${label} snapshot changed and was reloaded from the current local event model.`
+        : `${label} refresh checked the current local event snapshot and found no content changes.`,
+    },
+  });
+  if (didChange) {
+    pushActivity(`Updated ${label} for ${event.name} from the current local snapshot.`);
+  } else if (trigger === "manual") {
+    pushActivity(`Checked ${label} for ${event.name}. No snapshot changes detected.`);
+  }
+  saveState();
+  render();
+}
+
+async function refreshAllDataSources() {
+  for (const sourceId of ["scouting", "tba", "statbotics", "pridge"]) {
+    await refreshDataSource(sourceId);
+  }
+}
+
+function setDataSourcePollingEnabled(sourceId, pollingEnabled) {
+  if (sourceId === "scouting") {
+    state.eventWorkspace = setEventWorkspaceScoutingAttachmentPollingEnabled(currentEventWorkspace(), pollingEnabled);
+  } else {
+    state.eventWorkspace = setEventWorkspaceExternalSourcePollingEnabled(currentEventWorkspace(), sourceId, pollingEnabled);
+  }
+  saveState();
+  render();
+}
+
+function setCurrentScoutingAttachment(attachmentId) {
+  state.eventWorkspace = setActiveEventWorkspaceScoutingAttachment(currentEventWorkspace(), attachmentId);
+  state.importSourceUrl = activeEventWorkspaceScoutingAttachmentSourceValue(state.eventWorkspace, currentEvent());
+  state.importDraftSource = "";
+  state.importResult = null;
+  saveState();
+  render();
+}
+
+function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
+  const activeAttachment = currentScoutingAttachment();
+  if (!activeAttachment) return;
+  const normalizedFormat = normalizeText(draft.format) || activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent());
+  const normalizedSource = normalizeScoutingSourceUrl(draft.source);
+  const isRemoteSource = /^https?:\/\//i.test(normalizedSource);
+  state.eventWorkspace = upsertEventWorkspaceScoutingAttachment(
+    currentEventWorkspace(),
+    {
+      ...activeAttachment,
+      label: normalizeText(draft.label) || activeAttachment.label,
+      format: normalizedFormat,
+      locationKind: normalizedSource ? (isRemoteSource ? "url" : "path") : activeAttachment.locationKind,
+      location: {
+        ...(activeAttachment.location || {}),
+        url: isRemoteSource ? normalizedSource : "",
+        path: normalizedSource && !isRemoteSource ? normalizedSource : "",
+      },
+      translatorId: normalizeText(draft.translatorId) || activeAttachment.translatorId,
+      autoLoad: Boolean(draft.autoLoad),
+    },
+    currentEvent(),
+  );
+  state.importSourceUrl = currentScoutingSourceInputValue();
+  state.importDraftSource = "";
+  state.importResult = null;
+  saveState();
+  if (options.render !== false) render();
+}
+
+function addScoutingAttachmentDraft() {
+  const event = currentEvent();
+  const defaultLabel = `${event.name} Attachment ${currentEventWorkspace().sources?.scouting?.length || 1}`;
+  state.eventWorkspace = upsertEventWorkspaceScoutingAttachment(
+    currentEventWorkspace(),
+    {
+      attachmentId: createId("scouting"),
+      eventKey: event.key,
+      label: defaultLabel,
+      format: "scouting-json",
+      locationKind: "url",
+      location: { url: "" },
+      translatorId: "canonical-json-v1",
+      status: "manual",
+      freshness: "unknown",
+      autoLoad: false,
+    },
+    event,
+  );
+  state.importSourceUrl = currentScoutingSourceInputValue();
+  state.importDraftSource = "";
+  state.importResult = null;
+  saveState();
+  render();
+}
+
+async function chooseLocalScoutingAttachmentFile() {
+  const attachment = currentScoutingAttachment();
+  if (!attachment?.attachmentId) return;
+  try {
+    const selected = await pickLocalAttachmentFile({
+      attachmentId: attachment.attachmentId,
+      format: activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+      path: attachment.location?.path,
+    });
+    saveCurrentScoutingAttachmentDraft(
+      {
+        label: attachment.label,
+        format: activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+        translatorId: attachment.translatorId,
+        source: selected.path,
+        autoLoad: true,
+      },
+      { render: false },
+    );
+    pushActivity(`Bound local scouting file ${selected.path} to ${attachment.label || attachment.attachmentId}.`);
+    saveState();
+    render();
+  } catch (error) {
+    markCurrentScoutingAttachmentFailure(error?.message || "Unable to bind a local scouting file.");
+    setImportError(`Unable to bind a local scouting file. ${error?.message || "Try again or use a remote source instead."}`);
+  }
+}
+
+async function deleteScoutingAttachment(attachmentId) {
+  await clearLocalAttachmentFile(attachmentId).catch(() => {});
+  state.eventWorkspace = removeEventWorkspaceScoutingAttachment(currentEventWorkspace(), attachmentId);
+  state.importSourceUrl = currentScoutingSourceInputValue();
+  state.importDraftSource = "";
+  state.importResult = null;
+  saveState();
+  render();
+}
+
+function readCurrentScoutingAttachmentDraftFromDom() {
+  return {
+    label: document.querySelector("#scoutingAttachmentLabel")?.value,
+    format: document.querySelector("#scoutingAttachmentFormatSelect")?.value,
+    translatorId: document.querySelector("#scoutingAttachmentTranslatorId")?.value,
+    source: document.querySelector("#importSourceUrl")?.value,
+    autoLoad: document.querySelector("#scoutingAttachmentAutoLoad")?.checked,
+  };
+}
+
+function saveCurrentScoutingAttachmentDraftFromDom(options = {}) {
+  saveCurrentScoutingAttachmentDraft(readCurrentScoutingAttachmentDraftFromDom(), options);
 }
 
 function currentScoutingSubmissions() {
@@ -235,7 +729,45 @@ function currentMetrics() {
 }
 
 function currentDataSources() {
-  return currentEvent().dataSources;
+  const event = currentEvent();
+  const workspace = currentEventWorkspace();
+  const now = Date.now();
+  const externalSources = [
+    { sourceId: "tba", label: "The Blue Alliance" },
+    { sourceId: "statbotics", label: "Statbotics EPA" },
+    { sourceId: "pridge", label: "pRidge" },
+  ].map((definition) => {
+    const sourceState = workspace.sources?.[definition.sourceId] || {};
+    const policy = defaultRefreshPolicyForSource({ kind: "external", sourceId: definition.sourceId });
+    const dataSourceNote = (event.dataSources || []).find((source) => String(source.name || "").includes(definition.label)) || {};
+    return {
+      sourceId: definition.sourceId,
+      name: definition.label,
+      status: sourceState.status || dataSourceNote.status || "ready",
+      updated: sourceState.lastSuccessfulAt ? formatTimestamp(sourceState.lastSuccessfulAt) : (dataSourceNote.updated || "Pending"),
+      freshness: freshnessForSource(sourceState, policy, now),
+      notes: sourceState.error || sourceState.provenance?.notes || dataSourceNote.notes || "",
+      kind: "external",
+      nextPollAt: sourceState.nextPollAt ? formatTimestamp(sourceState.nextPollAt) : "Pending",
+      pollingEnabled: sourceState.pollingEnabled !== false,
+    };
+  });
+  const activeAttachment = currentScoutingAttachment();
+  const scoutingPolicy = defaultRefreshPolicyForSource({ kind: "scouting", sourceId: activeAttachment?.attachmentId });
+  return [
+    {
+      sourceId: "scouting",
+      name: activeAttachment?.label || "Scouting Attachment",
+      status: activeAttachment?.status || "manual",
+      updated: activeAttachment?.lastSuccessfulAt ? formatTimestamp(activeAttachment.lastSuccessfulAt) : "Pending",
+      freshness: freshnessForSource(activeAttachment || {}, scoutingPolicy, now),
+      notes: activeAttachment?.error || currentScoutingSourceUrl() || "No attachment source configured.",
+      kind: "scouting",
+      nextPollAt: activeAttachment?.nextPollAt ? formatTimestamp(activeAttachment.nextPollAt) : "Pending",
+      pollingEnabled: activeAttachment?.pollingEnabled !== false,
+    },
+    ...externalSources,
+  ];
 }
 
 function currentScouterMetricDefinitions(eventModel = currentEvent()) {
@@ -243,7 +775,10 @@ function currentScouterMetricDefinitions(eventModel = currentEvent()) {
 }
 
 function currentFormulaFieldDefinitions(eventModel = currentEvent()) {
-  return seasonFormulaFieldDefinitions(eventModel);
+  return buildDynamicScoutingFieldDefinitions({
+    eventModel,
+    submissions: currentScoutingSubmissions(),
+  });
 }
 
 function currentAtomicScouterMetricDefinitions(eventModel = currentEvent()) {
@@ -291,6 +826,22 @@ function currentSeasonDerivedEquationDefinitions(eventModel = currentEvent()) {
 
 function currentDerivedMetricDefinitions(eventModel = currentEvent()) {
   return [...seasonDerivedMetricDefinitions(eventModel), ...currentSeasonDerivedEquationDefinitions(eventModel)];
+}
+
+function currentScoutingDiagnosticsState() {
+  const committedSignature = normalizeText(state.scoutingSubmissions.find((submission) => submission?.eventKey === state.activeEventKey)?.scoutingSchemaSignature);
+  const currentFieldDefinitions = currentAvailableScoutingFieldDefinitions();
+  const previewFieldDefinitions = Array.isArray(state.importResult?.summary?.schemaFields)
+    ? state.importResult.summary.schemaFields
+    : [];
+  return buildScoutingDiagnosticsState({
+    committedSchemaSignature: committedSignature,
+    currentFieldDefinitions,
+    previewFieldDefinitions,
+    equations: currentSeasonEquationList(),
+    filters: currentSeasonFilterList(),
+    sortEquations: state.sortEquations.filter((equation) => !isProtectedSortEquation(equation)),
+  });
 }
 
 function currentRankableMetrics(eventModel = currentEvent()) {
@@ -391,7 +942,6 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent(), activeEquat
     { id: "statbotics.total" },
     ...eventModel.scoringComponents.map((component) => ({ id: `opr.${component.id}` })),
     { id: "opr.total" },
-    ...eventModel.scoringComponents.map((component) => ({ id: `pridge.${component.id}` })),
     { id: "pridge.total" },
     ...currentSeasonEquationList(eventModel).filter((definition) => definition.id !== activeEquation?.id).map((definition) => ({ id: definition.id })),
   ];
@@ -1162,6 +1712,7 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.seasonProfiles), JSON.stringify(state.seasonProfileCatalog));
   localStorage.setItem(eventStorageKey(storageKeys.seasonDerivedEquations), JSON.stringify(state.seasonDerivedEquationCatalog));
   localStorage.setItem(eventStorageKey(storageKeys.seasonFilters), JSON.stringify(state.seasonFilterCatalog));
+  localStorage.setItem(eventStorageKey(storageKeys.eventWorkspace), JSON.stringify(state.eventWorkspace));
 }
 
 function clearAppStorage() {
@@ -1237,36 +1788,15 @@ function backfillSeasonProfilesFromSubmissions(eventModel = currentEvent()) {
   });
 }
 
-function rebuildSampleBackedScoutingSubmissions(eventModel = currentEvent()) {
-  const sampleCsvText = eventModel.sheet?.sampleCsvText;
-  if (!sampleCsvText) return null;
-  const preview = previewScoutingImport({
-    csvText: sharedAdaptEventSheetCsv(eventModel, sampleCsvText),
-    eventModel,
-    activeEventKey: eventModel.key,
-    existingSubmissions: [],
-    templateProfileId: eventModel.sheet?.recommendedProfileId || "",
-  });
-  if (!preview?.ok || !preview.summary) return null;
-  const committed = commitScoutingImport({
-    preview,
-    existingSubmissions: [],
-    existingActivity: state.activityLog,
-    replaceExisting: true,
-  });
-  return {
-    submissions: stampScoutingSubmissionMetadata(committed.submissions, eventModel, {
-      scoutingImportSource: "event-sheet-sample",
-    }),
-    activity: normalizeActivityLog(committed.activity),
-  };
-}
-
 function hydrateEventState(eventKey) {
   const resolvedEventKey = resolveEventKey(eventKey);
   state.activeEventKey = resolvedEventKey;
   globalThis.__scoutingActiveEventKey = state.activeEventKey;
   const eventModel = currentEvent();
+  state.eventWorkspace = createEventWorkspace(eventModel, readStoredJson(storageKeys.eventWorkspace, null, resolvedEventKey));
+  const seededWorkspace = seedWorkspaceExternalSourceFingerprints(state.eventWorkspace, eventModel);
+  const repairedWorkspaceFingerprints = seededWorkspace !== state.eventWorkspace;
+  state.eventWorkspace = seededWorkspace;
   state.activeView = normalizeView(readStoredItem(storageKeys.activeView, resolvedEventKey));
   state.metric = normalizeAnalysisSelection(readStoredItem(storageKeys.metric, resolvedEventKey), eventModel);
   state.activeAnalysisFilterId = normalizeAnalysisFilterSelection(readStoredItem(storageKeys.analysisFilter, resolvedEventKey), eventModel);
@@ -1286,15 +1816,29 @@ function hydrateEventState(eventKey) {
   state.scoutingSubmissions = normalizeScoutingSubmissions(readStoredScoutingSubmissions(resolvedEventKey, eventModel), eventModel);
   backfillSeasonProfilesFromSubmissions(eventModel);
   state.activityLog = normalizeActivityLog(readStoredJson(storageKeys.activityLog, [], resolvedEventKey));
-  state.importSourceUrl = readStoredItem(storageKeys.importSourceUrl, resolvedEventKey) || eventModel.sheet?.url || "";
+  state.importSourceUrl = currentScoutingSourceInputValue(
+    state.eventWorkspace,
+    eventModel,
+    readStoredItem(storageKeys.importSourceUrl, resolvedEventKey),
+  );
   let repairedScoutingSubmissions = false;
-  if (state.scoutingSubmissions.length && shouldRefreshSampleBackedScoutingSubmissions(state.scoutingSubmissions, eventModel)) {
-    const refreshed = rebuildSampleBackedScoutingSubmissions(eventModel);
-    if (refreshed) {
-      state.scoutingSubmissions = normalizeScoutingSubmissions(refreshed.submissions, eventModel);
-      state.activityLog = refreshed.activity;
-      repairedScoutingSubmissions = true;
-    }
+  const refreshedWorkspaceState = rebuildSampleBackedEventWorkspaceState({
+    workspace: state.eventWorkspace,
+    eventModel,
+    submissions: state.scoutingSubmissions,
+    activity: state.activityLog,
+    shouldRefreshSampleBackedSubmissions: shouldRefreshSampleBackedScoutingSubmissions,
+    adaptEventSheetCsv: sharedAdaptEventSheetCsv,
+    translateEventSheetToCanonical: sharedTranslateEventSheetToCanonical,
+    previewScoutingImport,
+    previewScoutingJsonImport,
+    commitScoutingImport,
+    stampScoutingSubmissionMetadata,
+  });
+  if (refreshedWorkspaceState) {
+    state.scoutingSubmissions = normalizeScoutingSubmissions(refreshedWorkspaceState.submissions, eventModel);
+    state.activityLog = normalizeActivityLog(refreshedWorkspaceState.activity);
+    repairedScoutingSubmissions = true;
   }
   state.scoutingWindow = readStoredItem(storageKeys.scoutingWindow, resolvedEventKey) || "all";
   state.recentMatchCount = Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount, resolvedEventKey) || state.recentMatchCount || 12));
@@ -1308,7 +1852,9 @@ function hydrateEventState(eventKey) {
   state.picklistSelectedTeam = null;
   state.activeDerivedPreviewMetricId = "";
   state.importResult = null;
-  if (repairedScoutingSubmissions) saveState();
+  state.eventLookupPending = false;
+  state.eventLookupResult = null;
+  if (repairedScoutingSubmissions || repairedWorkspaceFingerprints) saveState();
 }
 
 function resetTransientEventState() {
@@ -1335,6 +1881,7 @@ function switchActiveEvent(eventKey, options = {}) {
     if (!options.preserveImportDraft) {
       state.importCsvText = "";
       state.importSelectedProfileId = "";
+      state.importDraftSource = "";
     }
     saveState();
     if (options.rerunImportPreview) {
@@ -1343,6 +1890,7 @@ function switchActiveEvent(eventKey, options = {}) {
       return true;
     }
     renderSafely();
+    maybeAutoloadScoutingAttachment();
     return true;
   } catch (error) {
     console.error("Failed to switch active event", resolvedEventKey, error);
@@ -1359,6 +1907,46 @@ function switchActiveEvent(eventKey, options = {}) {
       renderRecoveryScreen(rollbackError);
     }
     return false;
+  }
+}
+
+async function loadArbitraryEventCode(eventCode, options = {}) {
+  const normalizedEventCode = normalizeExternalEventCode(eventCode);
+  if (!normalizedEventCode) {
+    state.eventLookupResult = { kind: "error", message: "Enter a valid event code." };
+    render();
+    return false;
+  }
+  state.eventLookupPending = true;
+  state.eventLookupResult = { kind: "info", message: `Loading ${normalizedEventCode} from external providers...` };
+  render();
+  try {
+    const loadResult = await loadExternalEventByCode(normalizedEventCode);
+    const registeredEvent = registerEventModel(loadResult.eventModel);
+    switchActiveEvent(registeredEvent.key, {
+      activeView: options.activeView || "admin",
+      preserveImportDraft: true,
+    });
+    applyLoadedExternalSourceState(loadResult, { render: false });
+    state.eventLookupResult = {
+      kind: loadResult.warnings?.length ? "warn" : "success",
+      message: loadResult.warnings?.length
+        ? `${registeredEvent.key} loaded with warnings. ${loadResult.warnings.join(" ")}`
+        : `${registeredEvent.key} loaded from external providers.`,
+    };
+    saveState();
+    render();
+    return true;
+  } catch (error) {
+    state.eventLookupResult = {
+      kind: "error",
+      message: error?.message || "Unable to load that event code right now.",
+    };
+    render();
+    return false;
+  } finally {
+    state.eventLookupPending = false;
+    render();
   }
 }
 
@@ -1859,7 +2447,7 @@ function uniqueValues(values) {
 }
 
 function duplicateSubmissionKey(submission) {
-  return `${submission.eventKey}:${submission.matchNumber}:${submission.teamNumber}`;
+  return sharedDuplicateSubmissionKey(submission);
 }
 
 function recalculateSubmissionReview(submission) {
@@ -2107,9 +2695,9 @@ function currentRecentMatchCount() {
 
 function currentScoutingImportShouldReplace() {
   const event = currentEvent();
-  const sourceUrl = normalizeSourceUrl(state.importSourceUrl || event.sheet?.url || "");
-  if (sourceUrlMatchesEventSheet(sourceUrl, event)) return true;
-  return Boolean(event.sheet?.sampleCsvText && !sourceUrl);
+  const sourceUrl = currentScoutingSourceUrl();
+  if (matchesEventSheetSourceUrl(sourceUrl, event)) return true;
+  return Boolean(eventWorkspaceUsesSample(currentEventWorkspace()) && !sourceUrl);
 }
 
 function scoutingWindowLabel() {
@@ -2207,6 +2795,37 @@ function renderConfidenceBadge(confidence) {
   return `<span class="flag ${confidenceSeverity(confidence.tier)} confidence-flag" title="${escapeAttribute(title)}">Confidence: ${confidenceLabel(confidence.tier)}</span>`;
 }
 
+function renderSchemaDiffSummary(schemaDiff) {
+  if (!schemaDiff) return `<p class="muted">No schema diagnostics available.</p>`;
+  const added = schemaDiff.added || [];
+  const removed = schemaDiff.removed || [];
+  const typeChanged = schemaDiff.typeChanged || [];
+  if (!added.length && !removed.length && !typeChanged.length) {
+    return `<p class="muted">No schema drift detected.</p>`;
+  }
+  return `
+    <div class="issue-list">
+      ${added.map((fieldDefinition) => `<div class="issue-row good"><strong>Added</strong><span>${escapeHtml(fieldDefinition.label || fieldDefinition.id)} (${escapeHtml(fieldDefinition.id)})</span></div>`).join("")}
+      ${removed.map((fieldDefinition) => `<div class="issue-row warn"><strong>Removed</strong><span>${escapeHtml(fieldDefinition.label || fieldDefinition.id)} (${escapeHtml(fieldDefinition.id)})</span></div>`).join("")}
+      ${typeChanged.map((fieldDefinition) => `<div class="issue-row danger"><strong>Type Changed</strong><span>${escapeHtml(fieldDefinition.id)}: ${escapeHtml(fieldDefinition.previousType)} -> ${escapeHtml(fieldDefinition.currentType)}</span></div>`).join("")}
+    </div>
+  `;
+}
+
+function renderDependencyDiagnosticsList(entries, emptyLabel) {
+  if (!entries?.length) return `<p class="muted">${escapeHtml(emptyLabel)}</p>`;
+  return `
+    <div class="issue-list">
+      ${entries.map((entry) => `
+        <div class="issue-row danger">
+          <strong>${escapeHtml(entry.label || entry.id)}</strong>
+          <span>${escapeHtml(uniqueValues((entry.failures || []).map((failure) => failure.message || failure.reason || failure.id)).join(" | "))}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function runImportPreview() {
   state.importResult = previewScoutingImport({
     csvText: state.importCsvText,
@@ -2218,29 +2837,35 @@ function runImportPreview() {
   render();
 }
 
-function commitImportPreview() {
+function commitImportPreview(options = {}) {
   if (!state.importResult?.ok || !state.importResult.summary) return;
+  const preview = state.importResult;
+  const importedCsvText = state.importCsvText;
   const replaceExisting = currentScoutingImportShouldReplace();
   const committed = commitScoutingImport({
-    preview: state.importResult,
+    preview,
     existingSubmissions: state.scoutingSubmissions,
     existingActivity: state.activityLog,
     replaceExisting,
   });
   state.scoutingSubmissions = normalizeScoutingSubmissions(
     stampScoutingSubmissionMetadata(committed.submissions, currentEvent(), {
-      scoutingImportSource: replaceExisting ? "event-sheet-source" : "manual",
+      scoutingImportSource: options.scoutingImportSource || (replaceExisting ? "event-sheet-source" : "manual"),
     }),
     currentEvent(),
   );
   state.activityLog = normalizeActivityLog(committed.activity);
   registerSeasonScoutingProfile(currentEvent().season, {
-    id: state.importResult.summary.profileId,
-    label: state.importResult.summary.profileLabel,
+    id: preview.summary.profileId,
+    label: preview.summary.profileLabel,
   });
+  if (state.importDraftSource === "attached") {
+    markCurrentScoutingAttachmentSuccess(preview, importedCsvText);
+  }
   state.importResult = null;
   state.importCsvText = "";
   state.importSelectedProfileId = "";
+  state.importDraftSource = "";
   saveState();
   render();
 }
@@ -2254,33 +2879,6 @@ function switchImportContext(eventKey) {
   });
 }
 
-function normalizeSourceUrl(value) {
-  return String(value || "").trim();
-}
-
-function googleSheetInfo(url) {
-  const match = String(url || "").match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  if (!match) return null;
-  const id = match[1];
-  let gid = "0";
-  const gidMatch = String(url).match(/[?#&]gid=([0-9]+)/);
-  if (gidMatch) gid = gidMatch[1];
-  return {
-    id,
-    gid,
-    csvUrl: `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`,
-  };
-}
-
-function sourceUrlMatchesEventSheet(url, event = currentEvent()) {
-  const normalized = normalizeSourceUrl(url);
-  if (!normalized) return false;
-  const eventInfo = googleSheetInfo(event.sheet?.url || event.sheet?.csvUrl || "");
-  const inputInfo = googleSheetInfo(normalized);
-  if (event.sheet?.url === normalized || event.sheet?.csvUrl === normalized) return true;
-  return Boolean(eventInfo && inputInfo && eventInfo.id === inputInfo.id);
-}
-
 function setImportError(message) {
   state.importResult = {
     ok: false,
@@ -2291,50 +2889,176 @@ function setImportError(message) {
   render();
 }
 
-function loadPreparedScoutingCsv(csvText, profileId = "") {
+function loadPreparedScoutingCsv(csvText, profileId = "", options = {}) {
+  if (shouldSkipUnchangedAttachedSource(csvText, options)) {
+    markCurrentScoutingAttachmentSuccess(
+      {
+        summary: {
+          metadata: {
+            schemaId: currentScoutingAttachment()?.schemaSignature || "",
+          },
+        },
+      },
+      csvText,
+      { freshness: "fresh" },
+    );
+    saveState();
+    render();
+    return;
+  }
   state.importCsvText = csvText;
   state.importSelectedProfileId = profileId;
+  state.importDraftSource = options.importDraftSource || "";
   state.importResult = null;
   saveState();
   runImportPreview();
+  if (options.autoCommit && state.importResult?.ok) {
+    commitImportPreview({
+      scoutingImportSource: options.scoutingImportSource,
+    });
+  }
 }
 
-function loadEventSheetSample() {
+function loadPreparedScoutingJson(jsonText, options = {}) {
+  if (shouldSkipUnchangedAttachedSource(jsonText, options)) {
+    markCurrentScoutingAttachmentSuccess(
+      {
+        summary: {
+          metadata: {
+            schemaId: currentScoutingAttachment()?.schemaSignature || "",
+          },
+        },
+      },
+      jsonText,
+      { freshness: "fresh" },
+    );
+    saveState();
+    render();
+    return;
+  }
+  state.importCsvText = jsonText;
+  state.importSelectedProfileId = "canonical-json-v1";
+  state.importDraftSource = options.importDraftSource || "";
+  state.importResult = previewScoutingJsonImport({
+    jsonText,
+    eventModel: currentEvent(),
+    activeEventKey: state.activeEventKey,
+    existingSubmissions: state.scoutingSubmissions,
+    profileId: options.profileId,
+    profileLabel: options.profileLabel,
+    translationVersion: options.translationVersion,
+  });
+  saveState();
+  render();
+  if (options.autoCommit && state.importResult?.ok) {
+    commitImportPreview({
+      scoutingImportSource: options.scoutingImportSource,
+    });
+  }
+}
+
+function loadPreparedScoutingSheet(csvText, profileId = "", options = {}) {
+  if (typeof sharedTranslateEventSheetToCanonical === "function") {
+    const translated = sharedTranslateEventSheetToCanonical(currentEvent(), csvText, { templateProfileId: profileId });
+    loadPreparedScoutingJson(buildCanonicalSheetJsonText(translated), {
+      ...options,
+      profileId: translated.templateProfileId || profileId,
+      profileLabel: translated.profileLabel,
+      translationVersion: translated.translatorVersion,
+    });
+    return;
+  }
+  loadPreparedScoutingCsv(sharedAdaptEventSheetCsv(currentEvent(), csvText, { templateProfileId: profileId }), profileId, options);
+}
+
+function loadEventSheetSample(options = {}) {
   const event = currentEvent();
-  const sampleCsvText = event.sheet?.sampleCsvText;
+  const sampleCsvText = event.sheet?.sampleCsvText || "";
   if (!sampleCsvText) return;
-  loadPreparedScoutingCsv(sharedAdaptEventSheetCsv(event, sampleCsvText), "");
+  const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
+  loadPreparedScoutingSheet(sampleCsvText, profileId, {
+    ...options,
+    importDraftSource: "attached",
+  });
 }
 
-async function loadScoutingData() {
+async function loadScoutingData(options = {}) {
   const event = currentEvent();
-  const sourceUrl = normalizeSourceUrl(state.importSourceUrl || event.sheet?.url || "");
-  if (event.sheet?.sampleCsvText && !sourceUrl) {
-    loadEventSheetSample();
+  const attachmentLoad = describeEventWorkspaceScoutingAttachmentLoad(currentEventWorkspace(), event);
+  const sourceUrl = currentScoutingSourceUrl();
+  if (attachmentLoad.kind === "embedded-sample" && !sourceUrl) {
+    markCurrentScoutingAttachmentAttempt();
+    loadEventSheetSample(options);
     return;
   }
 
-  if (!sourceUrl) {
+  if (!attachmentLoad.canLoad) {
+    markCurrentScoutingAttachmentFailure("Missing scouting source URL.");
     setImportError("Enter a scouting spreadsheet URL before loading scouting data.");
     return;
   }
 
-  const sheetInfo = googleSheetInfo(sourceUrl);
-  if (!sheetInfo) {
-    setImportError("That scouting source is not a recognized Google Sheets URL.");
+  if (attachmentLoad.kind === "remote-json" || attachmentLoad.kind === "local-json") {
+    try {
+      markCurrentScoutingAttachmentAttempt();
+      const jsonText =
+        attachmentLoad.kind === "local-json"
+          ? await readLocalAttachmentText(currentScoutingAttachment()?.attachmentId)
+          : await (async () => {
+            const response = await fetch(sourceUrl);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.text();
+          })();
+      loadPreparedScoutingJson(jsonText, {
+        ...options,
+        importDraftSource: "attached",
+      });
+    } catch (error) {
+      markCurrentScoutingAttachmentFailure(error?.message || "Unable to load canonical scouting JSON.");
+      setImportError(`Unable to load scouting JSON right now. ${error?.message || "Check the attachment source and try again."}`);
+    }
+    return;
+  }
+
+  if (attachmentLoad.kind === "local-csv") {
+    try {
+      markCurrentScoutingAttachmentAttempt();
+      const csvText = await readLocalAttachmentText(currentScoutingAttachment()?.attachmentId);
+      const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
+      loadPreparedScoutingSheet(csvText, profileId, {
+        ...options,
+        importDraftSource: "attached",
+      });
+    } catch (error) {
+      markCurrentScoutingAttachmentFailure(error?.message || "Unable to load local scouting data.");
+      setImportError(`Unable to load the saved local scouting file. ${error?.message || "Re-select the file and try again."}`);
+    }
     return;
   }
 
   try {
-    const response = await fetch(sheetInfo.csvUrl);
+    markCurrentScoutingAttachmentAttempt();
+    const requestUrl =
+      attachmentLoad.kind === "google-sheet-url"
+        ? describeGoogleSheetInfo(sourceUrl)?.csvUrl
+        : sourceUrl;
+    if (!requestUrl) {
+      throw new Error("Unsupported scouting source URL.");
+    }
+    const response = await fetch(requestUrl);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const csvText = await response.text();
-    loadPreparedScoutingCsv(sharedAdaptEventSheetCsv(event, csvText), "");
+    const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
+    loadPreparedScoutingSheet(csvText, profileId, {
+      ...options,
+      importDraftSource: "attached",
+    });
   } catch (error) {
-    if (event.sheet?.sampleCsvText && sourceUrlMatchesEventSheet(sourceUrl, event)) {
-      loadEventSheetSample();
+    if (attachmentLoad.kind === "embedded-sample" || shouldFallbackToCachedEventSheetSample(sourceUrl, event)) {
+      loadEventSheetSample(options);
       return;
     }
+    markCurrentScoutingAttachmentFailure(error?.message || "Unable to load scouting data.");
     setImportError(`Unable to load scouting data from that sheet right now. ${error?.message || "Try the event's cached sheet or paste CSV manually."}`);
   }
 }
@@ -2345,8 +3069,8 @@ function normalizeImportToken(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "");
 }
-function adaptEventSheetCsv(eventModel, csvText) {
-  return sharedAdaptEventSheetCsv(eventModel, csvText);
+function adaptEventSheetCsv(eventModel, csvText, options = {}) {
+  return sharedAdaptEventSheetCsv(eventModel, csvText, options);
 }
 
 function teamDetailMetric() {
@@ -4232,6 +4956,10 @@ function renderBoardContextMenu() {
 
 function renderAdmin() {
   const event = currentEvent();
+  const workspace = currentEventWorkspace();
+  const scoutingAttachments = workspace.sources?.scouting || [];
+  const activeAttachment = currentScoutingAttachment();
+  const activeAttachmentFormat = activeEventWorkspaceScoutingAttachmentFormat(workspace, event);
   const result = state.importResult;
   const summary = result?.summary;
   const issues = [...(result?.errors || []), ...(result?.warnings || [])];
@@ -4253,11 +4981,19 @@ function renderAdmin() {
                 ${globalEventCatalog.map((item) => `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.season} ${item.name}</option>`).join("")}
               </select>
             </label>
+            <label>
+              Event code lookup
+              <div class="admin-actions">
+                <input id="adminEventCodeInput" type="text" value="${escapeAttribute(event.key)}" placeholder="2026miket" aria-label="Event code lookup" />
+                <button type="button" id="lookupEventCodeButton" ${state.eventLookupPending ? "disabled" : ""}>${state.eventLookupPending ? "Loading..." : "Load Event Code"}</button>
+              </div>
+            </label>
             <div class="issue-list">
               <div class="issue-row">
                 <strong>Scouting sheet</strong>
                 <span class="muted">${event.sheet?.tab || "Unknown tab"} | ${event.sheet?.access === "public_csv" ? "Public CSV sample cached" : "Sign-in required for direct export"} | Window: ${scoutingWindowLabel()}</span>
               </div>
+              ${state.eventLookupResult ? `<div class="issue-row ${state.eventLookupResult.kind === "error" ? "danger" : state.eventLookupResult.kind === "warn" ? "warn" : ""}">${escapeHtml(state.eventLookupResult.message)}</div>` : ""}
             </div>
           </div>
         </article>
@@ -4289,17 +5025,92 @@ function renderAdmin() {
           <div class="section-heading">
             <div>
               <h2>Scouting Import</h2>
-              <p class="muted">Paste the scouting Google Sheet URL, load it, then commit the preview into this event.</p>
+              <p class="muted">Manage event-scoped scouting attachments, choose the active source, then load and commit the preview into this event.</p>
             </div>
           </div>
           <div class="admin-form-grid">
             <label>
-              Scouting sheet URL
-              <input id="importSourceUrl" class="admin-input" type="url" value="${escapeAttribute(state.importSourceUrl || event.sheet?.url || "")}" placeholder="https://docs.google.com/spreadsheets/d/..." />
+              Active attachment
+              <select id="activeScoutingAttachmentSelect" aria-label="Active scouting attachment">
+                ${scoutingAttachments.map((attachment) => `<option value="${attachment.attachmentId}" ${attachment.attachmentId === activeAttachment?.attachmentId ? "selected" : ""}>${escapeHtml(attachment.label || attachment.attachmentId)}</option>`).join("")}
+              </select>
             </label>
             <div class="admin-actions">
+              <button type="button" id="addScoutingAttachmentButton">Add Attachment</button>
+              <button type="button" id="removeScoutingAttachmentButton" ${scoutingAttachments.length > 1 && activeAttachment ? "" : "disabled"}>Remove Attachment</button>
+            </div>
+            <label>
+              Attachment label
+              <input id="scoutingAttachmentLabel" class="admin-input" type="text" value="${escapeAttribute(activeAttachment?.label || "")}" placeholder="2026 CHCMP Main Scouting" />
+            </label>
+            <label>
+              Attachment format
+              <select id="scoutingAttachmentFormatSelect" aria-label="Scouting attachment format">
+                <option value="legacy-sheet-url" ${activeAttachmentFormat === "legacy-sheet-url" ? "selected" : ""}>Google Sheet URL</option>
+                <option value="legacy-sheet-csv" ${activeAttachmentFormat === "legacy-sheet-csv" ? "selected" : ""}>CSV URL</option>
+                <option value="scouting-json" ${activeAttachmentFormat === "scouting-json" ? "selected" : ""}>Canonical JSON URL</option>
+              </select>
+            </label>
+            <label>
+              Translator / profile
+              <input id="scoutingAttachmentTranslatorId" class="admin-input" type="text" value="${escapeAttribute(activeAttachment?.translatorId || "")}" placeholder="match-current-v2 or canonical-json-v1" />
+            </label>
+            <label>
+              Attachment source
+              <input id="importSourceUrl" class="admin-input" type="text" value="${escapeAttribute(currentScoutingSourceInputValue(currentEventWorkspace(), event, state.importSourceUrl))}" placeholder="https://docs.google.com/spreadsheets/d/... or a bound local file name" />
+            </label>
+            <label class="checkbox-row">
+              <input id="scoutingAttachmentAutoLoad" type="checkbox" ${activeAttachment?.autoLoad ? "checked" : ""} />
+              <span>Auto-load this attachment when the event opens</span>
+            </label>
+            <div class="admin-actions">
+              <button type="button" id="chooseLocalScoutingFileButton" ${localAttachmentFilesSupported() ? "" : "disabled"}>Choose Local File</button>
+              <button type="button" id="saveScoutingAttachmentButton">Save Attachment</button>
+              <button type="button" id="reloadScoutingAttachmentButton">Reload Active Attachment</button>
               <button type="button" id="loadScoutingDataButton" class="primary">Load Scouting Data</button>
             </div>
+            ${
+              activeAttachment
+                ? `<div class="attachment-status-card">
+              <div class="flag-list">
+                <span class="flag">${escapeHtml(activeAttachmentFormat)}</span>
+                <span class="flag">${escapeHtml(activeAttachment.status || "manual")}</span>
+                <span class="flag">${escapeHtml(activeAttachment.freshness || "unknown")}</span>
+                ${activeAttachment.autoLoad ? `<span class="flag good">Auto-load</span>` : ""}
+              </div>
+              <div class="attachment-metadata-grid">
+                <div class="issue-row">
+                  <strong>Last Attempt</strong>
+                  <span class="muted">${escapeHtml(formatTimestamp(activeAttachment.lastAttemptedAt))}</span>
+                </div>
+                <div class="issue-row">
+                  <strong>Last Success</strong>
+                  <span class="muted">${escapeHtml(formatTimestamp(activeAttachment.lastSuccessfulAt))}</span>
+                </div>
+                <div class="issue-row">
+                  <strong>Schema Signature</strong>
+                  <span class="muted">${escapeHtml(activeAttachment.schemaSignature || "Pending")}</span>
+                </div>
+                <div class="issue-row">
+                  <strong>Translator Version</strong>
+                  <span class="muted">${escapeHtml(activeAttachment.translatorVersion || "Pending")}</span>
+                </div>
+                <div class="issue-row">
+                  <strong>Source Fingerprint</strong>
+                  <span class="muted">${escapeHtml(activeAttachment.sourceFingerprint || "Pending")}</span>
+                </div>
+              </div>
+              ${
+                activeAttachment.error
+                  ? `<div class="issue-row danger">
+                <strong>Last Error</strong>
+                <span>${escapeHtml(activeAttachment.error)}</span>
+              </div>`
+                  : ""
+              }
+            </div>`
+                : ""
+            }
             <label>
               CSV payload
               <textarea id="importCsvInput" class="admin-textarea" spellcheck="false" placeholder="Paste CSV with metadata block here.">${escapeHtml(state.importCsvText)}</textarea>
@@ -4374,12 +5185,33 @@ function renderAdmin() {
           `
           }
         </article>
+        <article class="card">
+          <h2>Schema Diagnostics</h2>
+          ${(() => {
+            const diagnosticsState = currentScoutingDiagnosticsState();
+            const activeDiagnostics = diagnosticsState.pendingDiagnostics || diagnosticsState.currentDiagnostics;
+            const modeLabel = diagnosticsState.pendingDiagnostics ? "Pending import diagnostics" : "Current event diagnostics";
+            return `
+              <p class="muted">${modeLabel}. Added, removed, and type-changed scouting fields are summarized here along with downstream broken dependencies.</p>
+              ${renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
+              <h3>Broken Derived Equations</h3>
+              ${renderDependencyDiagnosticsList(activeDiagnostics?.diagnostics?.equations, "No derived equations are currently blocked by scouting schema drift.")}
+              <h3>Broken Filters</h3>
+              ${renderDependencyDiagnosticsList(activeDiagnostics?.diagnostics?.filters, "No season filters are currently blocked by scouting schema drift.")}
+              <h3>Broken Sort Equations</h3>
+              ${renderDependencyDiagnosticsList(activeDiagnostics?.diagnostics?.sortEquations, "No sort equations are currently blocked by scouting schema drift.")}
+            `;
+          })()}
+        </article>
       </div>
       <article class="card">
         <div class="section-heading">
           <div>
             <h2>Data Sources</h2>
             <p class="muted">These source statuses follow the selected event and update with the current event context.</p>
+          </div>
+          <div class="admin-actions">
+            <button type="button" id="refreshAllSourcesButton">Refresh All Sources</button>
           </div>
         </div>
         <div class="data-source-list">
@@ -4391,8 +5223,19 @@ function renderAdmin() {
                 <strong>${source.name}</strong>
                 <span class="muted">${source.notes}</span>
               </div>
-              <span class="source-status">${source.status}</span>
-              <span class="muted">${source.updated}</span>
+              <div class="source-status-stack">
+                <span class="source-status">${source.status}</span>
+                <span class="muted">${source.freshness} | Next poll: ${source.nextPollAt}</span>
+              </div>
+              <div class="source-actions-stack">
+                <span class="muted">${source.updated}</span>
+                <div class="admin-actions">
+                  <button type="button" data-refresh-source="${source.sourceId}">Refresh</button>
+                  <button type="button" data-toggle-source-polling="${source.sourceId}" data-polling-enabled="${source.pollingEnabled ? "true" : "false"}">
+                    ${source.pollingEnabled ? "Pause Polling" : "Resume Polling"}
+                  </button>
+                </div>
+              </div>
             </div>
           `,
             )
@@ -5363,6 +6206,53 @@ function bindViewEvents() {
     if (!nextEventKey) return;
     switchActiveEvent(nextEventKey, { activeView: "admin" });
   });
+  document.querySelector("#lookupEventCodeButton")?.addEventListener("click", async () => {
+    const nextEventCode = document.querySelector("#adminEventCodeInput")?.value;
+    await loadArbitraryEventCode(nextEventCode, { activeView: "admin" });
+  });
+  document.querySelector("#adminEventCodeInput")?.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    await loadArbitraryEventCode(event.target.value, { activeView: "admin" });
+  });
+  document.querySelector("#activeScoutingAttachmentSelect")?.addEventListener("change", (event) => {
+    const nextAttachmentId = event.target.value;
+    if (!nextAttachmentId) return;
+    setCurrentScoutingAttachment(nextAttachmentId);
+  });
+  document.querySelector("#addScoutingAttachmentButton")?.addEventListener("click", () => {
+    addScoutingAttachmentDraft();
+  });
+  document.querySelector("#removeScoutingAttachmentButton")?.addEventListener("click", () => {
+    const attachmentId = currentScoutingAttachment()?.attachmentId;
+    if (!attachmentId) return;
+    void deleteScoutingAttachment(attachmentId);
+  });
+  document.querySelector("#chooseLocalScoutingFileButton")?.addEventListener("click", async () => {
+    await chooseLocalScoutingAttachmentFile();
+  });
+  document.querySelector("#saveScoutingAttachmentButton")?.addEventListener("click", () => {
+    saveCurrentScoutingAttachmentDraftFromDom();
+  });
+  document.querySelector("#reloadScoutingAttachmentButton")?.addEventListener("click", async () => {
+    saveCurrentScoutingAttachmentDraftFromDom({ render: false });
+    await loadScoutingData();
+  });
+  document.querySelectorAll("[data-refresh-source]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await refreshDataSource(button.dataset.refreshSource);
+    });
+  });
+  document.querySelector("#refreshAllSourcesButton")?.addEventListener("click", async () => {
+    await refreshAllDataSources();
+  });
+  document.querySelectorAll("[data-toggle-source-polling]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const sourceId = button.dataset.toggleSourcePolling;
+      const pollingEnabled = button.dataset.pollingEnabled === "true";
+      setDataSourcePollingEnabled(sourceId, !pollingEnabled);
+    });
+  });
   document.querySelector("#switchAdminEventButton")?.addEventListener("click", () => {
     const nextEventKey = document.querySelector("#adminEventSelect")?.value;
     if (!nextEventKey) return;
@@ -5826,12 +6716,14 @@ function bindViewEvents() {
     });
   });
   document.querySelector("#importSourceUrl")?.addEventListener("input", (event) => {
-    state.importSourceUrl = event.target.value;
+    setCurrentScoutingSourceUrl(event.target.value);
   });
   document.querySelector("#importCsvInput")?.addEventListener("input", (event) => {
     state.importCsvText = event.target.value;
+    state.importDraftSource = "";
   });
   document.querySelector("#loadScoutingDataButton")?.addEventListener("click", async () => {
+    saveCurrentScoutingAttachmentDraftFromDom({ render: false });
     await loadScoutingData();
   });
   document.querySelector("#dryRunImportButton")?.addEventListener("click", () => {
@@ -5843,6 +6735,7 @@ function bindViewEvents() {
   document.querySelector("#clearImportButton")?.addEventListener("click", () => {
     state.importCsvText = "";
     state.importSelectedProfileId = "";
+    state.importDraftSource = "";
     state.importResult = null;
     render();
   });
@@ -5871,4 +6764,6 @@ function bindViewEvents() {
   });
   document.onkeydown = handleBuilderKeyboard;
 }
+
+bootstrapApp();
 
