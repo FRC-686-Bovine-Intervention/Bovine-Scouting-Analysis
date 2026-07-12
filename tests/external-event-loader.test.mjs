@@ -168,6 +168,10 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.sourceStates.statbotics.status, "ready");
   assert.equal(result.sourceStates.pridge.status, "ready");
   assert.equal(result.sourceStates.pridge.provenance.mode, "native-compute");
+  assert.equal(result.sourceStates.pridge.provenance.eventKey, "2026test");
+  assert.equal(result.sourceStates.pridge.provenance.generatedAt, "2026-07-12T13:00:00Z");
+  assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.tba || "").startsWith("fnv1a:"));
+  assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.statbotics || "").startsWith("fnv1a:"));
   assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.total), true);
   assert.equal(result.warnings.length, 0);
 });
@@ -223,6 +227,11 @@ await runTest("loadEventByCode keeps the event loadable when Statbotics fails", 
   assert.equal(result.sourceStates.tba.status, "ready");
   assert.equal(result.sourceStates.statbotics.status, "error");
   assert.equal(result.sourceStates.pridge.status, "manual");
+  assert.equal(result.sourceStates.pridge.provenance.mode, "native-compute");
+  assert.equal(result.sourceStates.pridge.provenance.eventKey, "2026fallback");
+  assert.equal(result.sourceStates.pridge.provenance.generatedAt, "2026-07-12T13:05:00Z");
+  assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.tba || "").startsWith("fnv1a:"));
+  assert.equal(result.sourceStates.pridge.provenance.inputFingerprints?.statbotics, undefined);
   assert.equal(result.warnings.length, 1);
   assert.match(result.warnings[0], /Statbotics/i);
 });

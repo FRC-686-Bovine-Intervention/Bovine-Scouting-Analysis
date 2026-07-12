@@ -87,6 +87,9 @@ function buildReadySourceState(sourceId, eventModel, timestamp, options = {}) {
     sourceFingerprint: buildSnapshotFingerprint(buildExternalSourceSnapshot(sourceId, eventModel)),
     provenance: {
       mode: options.mode || "live-api",
+      eventKey: normalizeText(options.eventKey) || normalizeText(eventModel?.key),
+      generatedAt: normalizeText(options.generatedAt) || timestamp,
+      inputFingerprints: options.inputFingerprints && typeof options.inputFingerprints === "object" ? { ...options.inputFingerprints } : {},
       notes: options.notes || "",
     },
   };
@@ -107,6 +110,9 @@ function buildFailedSourceState(sourceId, timestamp, options = {}) {
     sourceFingerprint: normalizeText(options.sourceFingerprint),
     provenance: {
       mode: options.mode || "live-api",
+      eventKey: normalizeText(options.eventKey),
+      generatedAt: normalizeText(options.generatedAt) || timestamp,
+      inputFingerprints: options.inputFingerprints && typeof options.inputFingerprints === "object" ? { ...options.inputFingerprints } : {},
       notes: normalizeText(options.notes),
     },
   };
@@ -127,8 +133,18 @@ function buildPendingSourceState(sourceId, options = {}) {
     sourceFingerprint: normalizeText(options.sourceFingerprint),
     provenance: {
       mode: options.mode || "requires-sync",
+      eventKey: normalizeText(options.eventKey),
+      generatedAt: normalizeText(options.generatedAt) || normalizeText(options.lastAttemptedAt),
+      inputFingerprints: options.inputFingerprints && typeof options.inputFingerprints === "object" ? { ...options.inputFingerprints } : {},
       notes: normalizeText(options.notes),
     },
+  };
+}
+
+function buildPridgeInputFingerprints(eventModel) {
+  return {
+    tba: buildSnapshotFingerprint(buildExternalSourceSnapshot("tba", eventModel)),
+    statbotics: buildSnapshotFingerprint(buildExternalSourceSnapshot("statbotics", eventModel)),
   };
 }
 
@@ -204,14 +220,26 @@ async function loadEventByCode(eventCode, options = {}) {
   }
 
   if (eventHasComputedPridge(eventModel)) {
+    const inputFingerprints = buildPridgeInputFingerprints(eventModel);
     sourceStates.pridge = buildReadySourceState("pridge", eventModel, timestamp, {
       mode: "native-compute",
+      inputFingerprints,
       notes: "Event-total pRidge was computed locally from TBA qualification matches and Statbotics start EPA priors.",
     });
   } else {
     sourceStates.pridge = buildPendingSourceState("pridge", {
       status: "manual",
       mode: "native-compute",
+      eventKey: normalizedEventCode,
+      generatedAt: timestamp,
+      inputFingerprints: statboticsEventResult.ok && statboticsTeamEventsResult.ok
+        ? {
+          tba: buildSnapshotFingerprint(buildExternalSourceSnapshot("tba", eventModel)),
+          statbotics: buildSnapshotFingerprint(buildExternalSourceSnapshot("statbotics", eventModel)),
+        }
+        : {
+          tba: buildSnapshotFingerprint(buildExternalSourceSnapshot("tba", eventModel)),
+        },
       notes: "pRidge needs complete TBA qualification results plus Statbotics team-event priors before it can be computed locally.",
     });
   }
