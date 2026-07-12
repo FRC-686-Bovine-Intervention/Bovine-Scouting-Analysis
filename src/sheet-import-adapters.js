@@ -37,6 +37,9 @@ const seasonSheetTranslators = {
         defensePlayed: false,
         robotStatus: noteIndicatesNoShow(notes) ? "no_show" : "ok",
         notes,
+        provenance: {
+          collectedAt: rowTools.text("Timestamp"),
+        },
         metrics: {
           autoSpeakerMade: autoSpeaker,
           autoSpeakerMissed,
@@ -68,6 +71,10 @@ const seasonSheetTranslators = {
         defensePlayed: rowTools.number("DidTheyPLAYDefense?HowEffective?") > 0,
         robotStatus: "ok",
         notes: rowTools.text("Notes"),
+        provenance: {
+          collectedAt: rowTools.text("ScoutedTime"),
+          sourceEventKey: rowTools.text("EventKey"),
+        },
         metrics: {
           autoL4Made: rowTools.number("Auto-L4Make"),
           autoL4Missed: rowTools.number("Auto-L4Miss"),
@@ -139,6 +146,13 @@ const seasonSheetTranslators = {
           rowTools.number("Overall Defense") > 0,
         robotStatus: rowTools.boolean("No Show") ? "no_show" : "ok",
         notes: rowTools.text("Overall Notes"),
+        provenance: {
+          collectedAt: rowTools.text("Created At"),
+          updatedAt: rowTools.text("Updated At"),
+          sourceEventKey: rowTools.text("Event Key"),
+          sourceMatchKey: rowTools.text("Match Key"),
+          sourceRecordId: rowTools.text("_id"),
+        },
         metrics: {
           alliance: rowTools.text("Alliance"),
           startingPosition: rowTools.text("Shifts Auto Starting Position"),
@@ -335,7 +349,8 @@ function buildCanonicalImportCsv(eventModel, records, options = {}) {
   return toCsvText([metadataRow, valueRow, [], headerRow, ...dataRows]);
 }
 
-function canonicalEntriesFromRecords(records) {
+function canonicalEntriesFromRecords(records, options = {}) {
+  const translatorVersion = String(options.translationVersion || "").trim();
   return (records || []).map((record, index) => ({
     entryId: record.entryId || `sheet-entry-${index + 1}`,
     matchNumber: record.matchNumber,
@@ -347,6 +362,14 @@ function canonicalEntriesFromRecords(records) {
     robotStatus: record.robotStatus || "",
     notes: record.notes || "",
     rawMetrics: { ...(record.metrics || {}) },
+    provenance: Object.fromEntries(
+      Object.entries({
+        mode: "legacy-sheet-translation",
+        sourceRowNumber: index + 2,
+        translatorVersion,
+        ...(record.provenance || {}),
+      }).filter(([, value]) => value !== undefined && value !== null && value !== ""),
+    ),
   }));
 }
 
@@ -371,7 +394,7 @@ function buildCanonicalDataset(eventModel, records, options = {}) {
   return {
     meta,
     schema: buildCanonicalSchemaForEventModel(eventModel, { schemaId: schemaVersion }),
-    entries: canonicalEntriesFromRecords(records),
+    entries: canonicalEntriesFromRecords(records, { translationVersion }),
     translatorVersion: translationVersion,
     templateProfileId,
     profileLabel: meta.profileLabel,

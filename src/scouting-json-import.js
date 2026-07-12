@@ -1,7 +1,6 @@
 (function () {
 const seasonFramework = globalThis.SeasonFramework || {};
 const scoutingJsonSchema = globalThis.ScoutingJsonSchema || {};
-const scoutingSourceUtils = globalThis.ScoutingSourceUtils || {};
 const requiredIdentityFields = scoutingJsonSchema.requiredEntryIdentityFields || ["matchNumber", "teamNumber", "scoutUser", "alliance", "station"];
 const canonicalFormatId = scoutingJsonSchema.canonicalFormatId || "frc-scouting-analysis/v1";
 const canonicalTemplateProfileId = scoutingJsonSchema.canonicalTemplateProfileId || "canonical-json-v1";
@@ -18,6 +17,10 @@ const validateCanonicalSchema = scoutingJsonSchema.validateCanonicalSchema || ((
 
 function createId(prefix) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function currentScoutingSourceUtils() {
+  return globalThis.ScoutingSourceUtils || {};
 }
 
 function normalizeText(value) {
@@ -45,6 +48,13 @@ function normalizeMetricValue(value) {
   return JSON.stringify(value);
 }
 
+function normalizeProvenance(value, fallback = {}) {
+  const base = value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {};
+  return Object.fromEntries(
+    Object.entries({ ...fallback, ...base }).filter(([, entryValue]) => entryValue !== undefined && entryValue !== null && entryValue !== ""),
+  );
+}
+
 function formulaFieldDefinitions(eventModel) {
   return (seasonFramework.formulaFieldDefinitions || seasonFramework.scouterMetricDefinitions || ((model) => model?.scoringComponents || []))(eventModel);
 }
@@ -62,6 +72,7 @@ function validateSeasonPackage(eventModel) {
 }
 
 function assessDuplicateSubmissions(existingSubmissions, incomingSubmissions) {
+  const scoutingSourceUtils = currentScoutingSourceUtils();
   return scoutingSourceUtils.assessDuplicateSubmissions
     ? scoutingSourceUtils.assessDuplicateSubmissions(existingSubmissions, incomingSubmissions)
     : { impactedTeams: [], duplicateGroups: [] };
@@ -151,6 +162,12 @@ function previewScoutingJsonImport({ jsonText, eventModel, activeEventKey, exist
       confidenceTier: "high",
       confidenceReasons: [],
       rowNumber: index + 1,
+      provenance: normalizeProvenance(entry?.provenance, {
+        mode: "canonical-json-import",
+        sourceEntryId: normalizeText(entry?.entryId) || `entry-${index + 1}`,
+        sourceRowNumber: index + 1,
+        sourceApp: normalizeText(meta.sourceApp),
+      }),
     };
 
     const missingIdentity = requiredIdentityFields.filter((field) => {

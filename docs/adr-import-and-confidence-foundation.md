@@ -57,14 +57,13 @@ The scouting analysis tool needs to support multiple FRC seasons, including futu
 - Every event may have zero or more attached scouting sources, each keyed to the event and loaded automatically when that event is revisited.
 - The thin import translator remains the only place that performs source-specific column remapping for legacy sheet inputs.
 
-### Auto-Detection
-- Importer profile auto-detection is allowed.
-- Ambiguous auto-detection must block the import and require an admin choice.
-- A successful admin choice may teach the detector for future imports.
-- Learned hints are reusable across events in the same season, but not across different seasons.
-- Header fingerprints should be normalized before matching.
-- Header normalization should include a small explicit synonym dictionary.
-- Synonym dictionaries should be scoped per season or import profile, not global.
+### Import Hints
+- Import should remain possible without a named importer profile as long as required identity fields can be mapped.
+- Thin translators may use optional hints such as known header aliases, recurring sheet formats, or admin-selected mappings to improve import ergonomics.
+- Ambiguous translator hints may trigger an admin choice, but this is an import UX aid rather than a requirement of the canonical data model.
+- Any learned hints are reusable conveniences, not required state for reopening or analyzing an event.
+- Header normalization should support a small explicit synonym dictionary where needed.
+- Synonym dictionaries should be scoped per season or translator, not global.
 
 ### Schema Drift And Dependency Diagnostics
 - Scouting schema changes are evaluated as explicit diffs between field sets.

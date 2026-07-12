@@ -190,6 +190,8 @@ The canonical JSON should be event-scoped and self-describing.
 ### Translator Contract
 Every translator should produce canonical entries and schema metadata, not app-specific aggregates.
 
+Translator profiles or named sheet formats are optional implementation details. The import contract should not require a profile match if the translator can still map required identity fields and preserve the remaining raw metrics.
+
 Suggested interface:
 
 ```js

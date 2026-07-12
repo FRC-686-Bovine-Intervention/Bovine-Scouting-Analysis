@@ -63,4 +63,9 @@ runTest("translateEventSheetToCanonical emits canonical dataset metadata and ent
   assert.equal(dataset.entries[0].teamNumber, 1262);
   assert.equal(dataset.entries[0].rawMetrics.autoPrimaryRole, "Score");
   assert.equal(dataset.entries[0].rawMetrics.overallShooter, null);
+  assert.equal(dataset.entries[0].provenance.mode, "legacy-sheet-translation");
+  assert.equal(dataset.entries[0].provenance.sourceRowNumber, 2);
+  assert.equal(dataset.entries[0].provenance.translatorVersion, "2026-thin-v2");
+  assert.equal(dataset.entries[0].provenance.collectedAt, "2026-04-10T20:22:54.392Z");
+  assert.equal(dataset.entries[0].provenance.sourceMatchKey, "2026chcmp_qm25");
 });

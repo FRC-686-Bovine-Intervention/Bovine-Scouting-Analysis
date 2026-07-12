@@ -128,6 +128,7 @@ const storageKeys = {
   picklistColumns: "frc-scouting-picklist-columns",
   picklistCompareTeams: "frc-scouting-picklist-compare-teams",
   scoutingSubmissions: "frc-scouting-submissions",
+  scoutingReviewOverrides: "frc-scouting-review-overrides",
   activityLog: "frc-scouting-activity-log",
   importSourceUrl: "frc-scouting-import-source-url",
   scoutingWindow: "frc-scouting-window",
@@ -217,6 +218,7 @@ const knownImportProfileLabels = {
 
 const initialEventKey = resolveEventKey(readStoredItem(storageKeys.activeEvent));
 const initialEvent = eventModelByKey(initialEventKey);
+const initialWorkspace = createEventWorkspace(initialEvent, readStoredJson(storageKeys.eventWorkspace, null, initialEventKey));
 const state = {
   activeEventKey: initialEventKey,
   user: readStoredItem(storageKeys.user) || "",
@@ -243,6 +245,7 @@ const state = {
   picklistCompareTeams: normalizePicklistCompareTeams([], initialEvent),
   builderFocus: { sortBuilder: "list", picklistBuilder: "list", derivedBuilder: "equations" },
   scoutingSubmissions: [],
+  scoutingReviewOverrides: [],
   activityLog: [],
   importCsvText: "",
   importSelectedProfileId: "",
@@ -700,17 +703,13 @@ function saveCurrentScoutingAttachmentDraftFromDom(options = {}) {
 }
 
 function currentScoutingSubmissions() {
+  const overrideMap = activeScoutingReviewOverrideMap();
+  return currentRawScoutingSubmissions().map((submission) => applyScoutingReviewOverride(submission, overrideMap));
+}
+
+function currentRawScoutingSubmissions() {
   const allSubmissions = Array.isArray(state.scoutingSubmissions) ? state.scoutingSubmissions : [];
-  const eventScopedSubmissionCache = globalThis.__eventScopedSubmissionCache || (globalThis.__eventScopedSubmissionCache = new WeakMap());
-  if (!eventScopedSubmissionCache.has(allSubmissions)) {
-    eventScopedSubmissionCache.set(allSubmissions, new Map());
-  }
-  const cache = eventScopedSubmissionCache.get(allSubmissions);
-  const eventKey = state.activeEventKey;
-  if (!cache.has(eventKey)) {
-    cache.set(eventKey, allSubmissions.filter((submission) => submission.eventKey === eventKey));
-  }
-  return cache.get(eventKey);
+  return allSubmissions.filter((submission) => submission.eventKey === state.activeEventKey);
 }
 
 function currentTeams() {
@@ -1705,6 +1704,7 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.allianceBoard), JSON.stringify(state.allianceBoard));
   localStorage.setItem(eventStorageKey(storageKeys.picklistCompareTeams), JSON.stringify(state.picklistCompareTeams));
   localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions), JSON.stringify(state.scoutingSubmissions));
+  localStorage.setItem(eventStorageKey(storageKeys.scoutingReviewOverrides), JSON.stringify(state.scoutingReviewOverrides));
   localStorage.setItem(eventStorageKey(storageKeys.activityLog), JSON.stringify(state.activityLog));
   localStorage.setItem(eventStorageKey(storageKeys.importSourceUrl), state.importSourceUrl);
   localStorage.setItem(eventStorageKey(storageKeys.scoutingWindow), state.scoutingWindow);
@@ -1814,6 +1814,7 @@ function hydrateEventState(eventKey) {
   state.allianceBoard = normalizeBoard(readStoredJson(storageKeys.allianceBoard, defaultAllianceBoard, resolvedEventKey), eventModel);
   state.picklistCompareTeams = normalizePicklistCompareTeams(readStoredJson(storageKeys.picklistCompareTeams, [], resolvedEventKey), eventModel);
   state.scoutingSubmissions = normalizeScoutingSubmissions(readStoredScoutingSubmissions(resolvedEventKey, eventModel), eventModel);
+  state.scoutingReviewOverrides = normalizeScoutingReviewOverrides(readStoredJson(storageKeys.scoutingReviewOverrides, [], resolvedEventKey), eventModel);
   backfillSeasonProfilesFromSubmissions(eventModel);
   state.activityLog = normalizeActivityLog(readStoredJson(storageKeys.activityLog, [], resolvedEventKey));
   state.importSourceUrl = currentScoutingSourceInputValue(
@@ -2388,6 +2389,21 @@ function normalizeScoutingSubmissions(values, eventModel = currentEvent()) {
     }));
 }
 
+function normalizeScoutingReviewOverrides(values, eventModel = currentEvent()) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .filter((override) => override && normalizeText(override.submissionId))
+    .map((override) => ({
+      ...override,
+      id: normalizeText(override.id) || createId("reviewOverride"),
+      submissionId: normalizeText(override.submissionId),
+      eventKey: normalizeText(override.eventKey) || eventModel.key,
+      action: normalizeText(override.action),
+      timestamp: normalizeText(override.timestamp) || new Date(0).toISOString(),
+      clearedAt: normalizeText(override.clearedAt),
+    }));
+}
+
 function normalizeActivityLog(values) {
   if (!Array.isArray(values)) return [];
   return values
@@ -2464,7 +2480,79 @@ function recalculateSubmissionReview(submission) {
   return { ...submission, confidenceReasons: [], validity: "valid", confidenceTier: "high" };
 }
 
+function activeScoutingReviewOverrideMap() {
+  const map = new Map();
+  (state.scoutingReviewOverrides || [])
+    .filter((override) => override?.eventKey === state.activeEventKey && !override?.clearedAt)
+    .forEach((override) => {
+      map.set(override.submissionId, override);
+    });
+  return map;
+}
+
+function applyScoutingReviewOverride(submission, overrideMap = activeScoutingReviewOverrideMap()) {
+  const override = overrideMap.get(submission.id);
+  if (!override) return submission;
+  if (override.action === "exclude") {
+    return {
+      ...submission,
+      validity: "excluded",
+      confidenceTier: "low",
+      reviewOverride: override,
+    };
+  }
+  if (override.action === "keep") {
+    return recalculateSubmissionReview({
+      ...submission,
+      confidenceReasons: (submission.confidenceReasons || []).filter((reason) => reason !== "duplicate_submission"),
+      reviewOverride: override,
+    });
+  }
+  return submission;
+}
+
+function setSubmissionReviewOverride(submissionId, action, activityMessage) {
+  const timestamp = new Date().toISOString();
+  state.scoutingReviewOverrides = normalizeScoutingReviewOverrides(
+    [
+      ...(state.scoutingReviewOverrides || []).map((override) => (
+        override.submissionId === submissionId && override.eventKey === state.activeEventKey && !override.clearedAt
+          ? { ...override, clearedAt: timestamp }
+          : override
+      )),
+      {
+        id: createId("reviewOverride"),
+        submissionId,
+        eventKey: state.activeEventKey,
+        action,
+        timestamp,
+        clearedAt: "",
+      },
+    ],
+    currentEvent(),
+  );
+  if (activityMessage) pushActivity(activityMessage);
+  saveState();
+  render();
+}
+
+function clearSubmissionReviewOverride(submissionId, activityMessage) {
+  const timestamp = new Date().toISOString();
+  state.scoutingReviewOverrides = normalizeScoutingReviewOverrides(
+    (state.scoutingReviewOverrides || []).map((override) => (
+      override.submissionId === submissionId && override.eventKey === state.activeEventKey && !override.clearedAt
+        ? { ...override, clearedAt: timestamp }
+        : override
+    )),
+    currentEvent(),
+  );
+  if (activityMessage) pushActivity(activityMessage);
+  saveState();
+  render();
+}
+
 function submissionNeedsReview(submission) {
+  if (submission.reviewOverride && !submission.reviewOverride.clearedAt) return true;
   const reasons = submission.confidenceReasons || [];
   if (submission.validity === "flagged") return true;
   if (submission.validity === "excluded") return reasons.some((reason) => reason !== "duplicate_submission");
@@ -2482,9 +2570,10 @@ function duplicateGroups() {
     .map(([key, submissions]) => {
       const active = submissions.filter((submission) => submission.validity !== "excluded");
       const hasDuplicateReason = active.some((submission) => (submission.confidenceReasons || []).includes("duplicate_submission"));
-      return { key, submissions, active, hasDuplicateReason };
+      const hasActiveOverride = submissions.some((submission) => submission.reviewOverride && !submission.reviewOverride.clearedAt);
+      return { key, submissions, active, hasDuplicateReason, hasActiveOverride };
     })
-    .filter((group) => group.active.length > 1 && group.hasDuplicateReason)
+    .filter((group) => (group.active.length > 1 && group.hasDuplicateReason) || group.hasActiveOverride)
     .sort((left, right) => {
       const leftSubmission = left.submissions[0];
       const rightSubmission = right.submissions[0];
@@ -2513,69 +2602,56 @@ function pushActivity(message) {
   ]);
 }
 
-function updateSubmissionReview(submissionId, updater, activityMessage) {
-  state.scoutingSubmissions = normalizeScoutingSubmissions(
-    state.scoutingSubmissions.map((submission) => {
-      if (submission.id !== submissionId) return submission;
-      return recalculateSubmissionReview(updater(submission));
-    }),
-    currentEvent(),
-  );
-  if (activityMessage) pushActivity(activityMessage);
-  saveState();
-  render();
-}
-
 function keepSubmission(submissionId) {
-  const submission = state.scoutingSubmissions.find((item) => item.id === submissionId);
+  const submission = currentScoutingSubmissions().find((item) => item.id === submissionId);
   if (!submission) return;
-  updateSubmissionReview(
+  setSubmissionReviewOverride(
     submissionId,
-    (current) => ({
-      ...current,
-      validity: "valid",
-      confidenceReasons: (current.confidenceReasons || []).filter((reason) => reason !== "duplicate_submission"),
-    }),
+    "keep",
     `Admin kept scouting row for Team ${submission.teamNumber} in Q${submission.matchNumber}.`,
   );
 }
 
 function excludeSubmission(submissionId) {
-  const submission = state.scoutingSubmissions.find((item) => item.id === submissionId);
+  const submission = currentScoutingSubmissions().find((item) => item.id === submissionId);
   if (!submission) return;
-  updateSubmissionReview(
+  setSubmissionReviewOverride(
     submissionId,
-    (current) => ({ ...current, validity: "excluded" }),
+    "exclude",
     `Admin excluded scouting row for Team ${submission.teamNumber} in Q${submission.matchNumber}.`,
   );
 }
 
 function resetSubmissionReview(submissionId) {
-  const submission = state.scoutingSubmissions.find((item) => item.id === submissionId);
+  const submission = currentScoutingSubmissions().find((item) => item.id === submissionId);
   if (!submission) return;
-  updateSubmissionReview(
-    submissionId,
-    (current) => ({
-      ...current,
-      validity: "flagged",
-      confidenceReasons: uniqueValues([...(current.confidenceReasons || []).filter((reason) => reason !== "schema_gap"), "duplicate_submission"]),
-    }),
-    `Admin reset duplicate review for Team ${submission.teamNumber} in Q${submission.matchNumber}.`,
-  );
+  clearSubmissionReviewOverride(submissionId, `Admin reset duplicate review for Team ${submission.teamNumber} in Q${submission.matchNumber}.`);
 }
 
 function clearDuplicateGroup(groupKey) {
   const group = duplicateGroups().find((entry) => entry.key === groupKey);
   if (!group) return;
-  state.scoutingSubmissions = normalizeScoutingSubmissions(
-    state.scoutingSubmissions.map((submission) => {
-      if (duplicateSubmissionKey(submission) !== groupKey || submission.validity === "excluded") return submission;
-      return recalculateSubmissionReview({
-        ...submission,
-        validity: "valid",
-        confidenceReasons: (submission.confidenceReasons || []).filter((reason) => reason !== "duplicate_submission"),
-      });
-    }),
+  const timestamp = new Date().toISOString();
+  const activeSubmissionIds = new Set(group.submissions.filter((submission) => submission.validity !== "excluded").map((submission) => submission.id));
+  const nextOverrides = [
+    ...(state.scoutingReviewOverrides || []).map((override) => (
+      activeSubmissionIds.has(override.submissionId) && override.eventKey === state.activeEventKey && !override.clearedAt
+        ? { ...override, clearedAt: timestamp }
+        : override
+    )),
+    ...group.submissions
+      .filter((submission) => submission.validity !== "excluded")
+      .map((submission) => ({
+        id: createId("reviewOverride"),
+        submissionId: submission.id,
+        eventKey: state.activeEventKey,
+        action: "keep",
+        timestamp,
+        clearedAt: "",
+      })),
+  ];
+  state.scoutingReviewOverrides = normalizeScoutingReviewOverrides(
+    nextOverrides,
     currentEvent(),
   );
   const sample = group.submissions[0];

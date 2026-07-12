@@ -122,6 +122,9 @@ runTest("previewScoutingImport preserves raw strings and warns on type outliers"
   assert.equal(preview.ok, true);
   assert.equal(preview.summary.submissions[0].rawMetrics.autoPrimaryRole, "Score");
   assert.equal(preview.summary.submissions.find((submission) => submission.teamNumber === 333).rawMetrics.autoFuelPct, "abc");
+  assert.equal(preview.summary.submissions[0].provenance.mode, "csv-import");
+  assert.equal(preview.summary.submissions[0].provenance.sourceRowNumber, 1);
+  assert.equal(preview.summary.submissions[0].provenance.templateProfileId, "match-current-v2");
   assert.ok(preview.warnings.some((warning) => warning.includes("Auto Fuel %") && warning.includes("most of that column is number")));
 });
 
@@ -227,4 +230,101 @@ runTest("previewScoutingImport flags duplicate groups but keeps rows reviewable 
   assert.equal(preview.summary.submissions[0].validity, "flagged");
   assert.equal(preview.summary.submissions[1].validity, "flagged");
   assert.ok(preview.summary.submissions.every((submission) => submission.confidenceReasons.includes("duplicate_submission")));
+});
+
+runTest("previewScoutingImport still detects duplicates when helper scripts load after import-foundation", () => {
+  const context = loadBrowserContext(["src/season-framework.js", "src/import-foundation.js", "src/scouting-source-utils.js"]);
+  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const eventModel = {
+    ...season2026,
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: season2026.label,
+    metrics: context.SeasonFramework.buildMetrics(season2026),
+    criteriaSources: context.SeasonFramework.buildCriteriaSources(season2026),
+  };
+  const metricHeaders = context.SeasonFramework.formulaFieldDefinitions(eventModel).map((metricDefinition) =>
+    context.SeasonFramework.csvHeaderForMetric(metricDefinition));
+  const csvText = [
+    "meta,season,eventKey,schemaVersion,templateProfileId",
+    "value,2026,2026chcmp,match-v2,match-current-v2",
+    "",
+    ["matchNumber", "teamNumber", "scoutUser", "alliance", "station", "defensePlayed", "robotStatus", "notes", ...metricHeaders].join(","),
+    ["12", "686", "Scout A", "Blue", "1", "no", "ok", "", ...metricHeaders.map((header) => (header === "autoFuelPct" ? "40" : ""))].join(","),
+    ["12", "686", "Scout B", "Blue", "1", "no", "ok", "", ...metricHeaders.map((header) => (header === "autoFuelPct" ? "42" : ""))].join(","),
+  ].join("\n");
+
+  const preview = context.ImportFoundation.previewScoutingImport({
+    csvText,
+    eventModel,
+    activeEventKey: "2026chcmp",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, true);
+  assert.equal(preview.summary.duplicateGroups, 1);
+  assert.ok(preview.summary.submissions.every((submission) => submission.validity === "flagged"));
+});
+
+runTest("previewScoutingImport can fall back to generic field mapping when no profile matches", () => {
+  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
+  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const eventModel = {
+    ...season2026,
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: season2026.label,
+    metrics: context.SeasonFramework.buildMetrics(season2026),
+    criteriaSources: context.SeasonFramework.buildCriteriaSources(season2026),
+  };
+  const csvText = [
+    ["qual match", "team #", "observer", "color", "ds", "comments", "overall driver", "auto fuel pct"].join(","),
+    ["12", "686", "Scout A", "Blue", "2", "Looked solid", "4", "40"].join(","),
+  ].join("\n");
+
+  const preview = context.ImportFoundation.previewScoutingImport({
+    csvText,
+    eventModel,
+    activeEventKey: "2026chcmp",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, true);
+  assert.equal(preview.summary.profileId, "");
+  assert.equal(preview.summary.metadata.templateProfileId, "");
+  assert.equal(preview.summary.submissions[0].teamNumber, 686);
+  assert.equal(preview.summary.submissions[0].rawMetrics.overallDriver, 4);
+  assert.equal(preview.summary.submissions[0].rawMetrics.autoFuelPct, 40);
+  assert.equal(preview.summary.submissions[0].provenance.mode, "csv-import");
+  assert.equal(preview.summary.submissions[0].provenance.sourceRowNumber, 1);
+  assert.ok(preview.warnings.some((warning) => warning.includes("No importer profile matched")));
+});
+
+runTest("previewScoutingImport still flags missing required identity fields during generic fallback", () => {
+  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
+  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const eventModel = {
+    ...season2026,
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: season2026.label,
+    metrics: context.SeasonFramework.buildMetrics(season2026),
+    criteriaSources: context.SeasonFramework.buildCriteriaSources(season2026),
+  };
+  const csvText = [
+    ["qual match", "observer", "color", "ds", "driver"].join(","),
+    ["12", "Scout A", "Blue", "2", "4"].join(","),
+  ].join("\n");
+
+  const preview = context.ImportFoundation.previewScoutingImport({
+    csvText,
+    eventModel,
+    activeEventKey: "2026chcmp",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, true);
+  assert.equal(preview.summary.excludedRows, 1);
+  assert.equal(preview.summary.submissions[0].validity, "excluded");
+  assert.ok(preview.warnings.some((warning) => warning.includes("missing required identity fields")));
 });

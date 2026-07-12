@@ -60,6 +60,59 @@ runTest("previewScoutingJsonImport accepts canonical scouting JSON and preserves
   assert.equal(preview.summary.metadata.schemaId, "2026-match-v1");
   assert.equal(preview.summary.submissions[0].rawMetrics.autoFuelPct, 80);
   assert.equal(preview.summary.submissions[0].rawMetrics.autoPrimaryRole, "Score");
+  assert.equal(preview.summary.submissions[0].provenance.mode, "canonical-json-import");
+  assert.equal(preview.summary.submissions[0].provenance.sourceEntryId, "entry-1");
+});
+
+runTest("previewScoutingJsonImport preserves explicit entry provenance", () => {
+  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
+  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const eventModel = {
+    ...season2026,
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: season2026.label,
+    metrics: context.SeasonFramework.buildMetrics(season2026),
+    criteriaSources: context.SeasonFramework.buildCriteriaSources(season2026),
+  };
+
+  const preview = context.ScoutingJsonImport.previewScoutingJsonImport({
+    jsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        season: 2026,
+        eventKey: "2026chcmp",
+        entryType: "match",
+        sourceApp: "Custom Scouting App",
+      },
+      schema: context.ScoutingJsonSchema.buildCanonicalSchemaForEventModel(eventModel),
+      entries: [
+        {
+          entryId: "entry-provenance",
+          matchNumber: 3,
+          teamNumber: 686,
+          scoutUser: "Scout A",
+          alliance: "red",
+          station: "1",
+          provenance: {
+            collectedAt: "2026-04-05T13:50:00Z",
+            sourceRowNumber: 41,
+            notes: "Imported from tablet sync",
+          },
+          rawMetrics: { autoFuelPct: 80 },
+        },
+      ],
+    }),
+    eventModel,
+    activeEventKey: "2026chcmp",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, true);
+  assert.equal(preview.summary.submissions[0].provenance.mode, "canonical-json-import");
+  assert.equal(preview.summary.submissions[0].provenance.collectedAt, "2026-04-05T13:50:00Z");
+  assert.equal(preview.summary.submissions[0].provenance.sourceRowNumber, 41);
+  assert.equal(preview.summary.submissions[0].provenance.sourceApp, "Custom Scouting App");
 });
 
 runTest("previewScoutingJsonImport rejects canonical JSON for the wrong event", () => {
@@ -174,6 +227,58 @@ runTest("previewScoutingJsonImport flags duplicate rows by canonical event, matc
   assert.equal(preview.summary.submissions[0].validity, "flagged");
   assert.equal(preview.summary.submissions[1].validity, "flagged");
   assert.ok(preview.summary.submissions.every((submission) => submission.confidenceReasons.includes("duplicate_submission")));
+});
+
+runTest("previewScoutingJsonImport still detects duplicates when helper scripts load after scouting-json-import", () => {
+  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-json-schema.js", "src/scouting-json-import.js", "src/scouting-source-utils.js"]);
+  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const eventModel = {
+    ...season2026,
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: season2026.label,
+    metrics: context.SeasonFramework.buildMetrics(season2026),
+    criteriaSources: context.SeasonFramework.buildCriteriaSources(season2026),
+  };
+
+  const preview = context.ScoutingJsonImport.previewScoutingJsonImport({
+    jsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        season: 2026,
+        eventKey: "2026chcmp",
+        entryType: "match",
+      },
+      schema: context.ScoutingJsonSchema.buildCanonicalSchemaForEventModel(eventModel),
+      entries: [
+        {
+          entryId: "a",
+          matchNumber: 5,
+          teamNumber: 686,
+          scoutUser: "Scout A",
+          alliance: "blue",
+          station: "1",
+          rawMetrics: { autoFuelPct: 60 },
+        },
+        {
+          entryId: "b",
+          matchNumber: 5,
+          teamNumber: 686,
+          scoutUser: "Scout B",
+          alliance: "blue",
+          station: "2",
+          rawMetrics: { autoFuelPct: 55 },
+        },
+      ],
+    }),
+    eventModel,
+    activeEventKey: "2026chcmp",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, true);
+  assert.equal(preview.summary.duplicateGroups, 1);
+  assert.ok(preview.summary.submissions.every((submission) => submission.validity === "flagged"));
 });
 
 runTest("previewScoutingJsonImport honors payload schema fields instead of forcing the season default field list", () => {

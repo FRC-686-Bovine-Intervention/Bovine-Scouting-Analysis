@@ -81,8 +81,8 @@ The current needs include:
 
 ### Importers Stay Mapping-Focused
 - Importers should:
-  - detect or select a template profile where applicable
-  - map source fields into canonical field ids
+  - map required identity fields and any recognized source fields into canonical field ids
+  - optionally use known translator hints or aliases where they improve import ergonomics
   - parse booleans, numerics, enums, and notes
   - preserve provenance
   - flag schema gaps and duplicates
