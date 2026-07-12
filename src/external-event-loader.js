@@ -148,6 +148,21 @@ function buildPridgeInputFingerprints(eventModel) {
   };
 }
 
+function buildPridgeUnavailableState(eventModel, timestamp, options = {}) {
+  const eventKey = normalizeText(options.eventKey) || normalizeText(eventModel?.key);
+  const inputFingerprints = options.inputFingerprints && typeof options.inputFingerprints === "object"
+    ? { ...options.inputFingerprints }
+    : {};
+  return buildFailedSourceState("pridge", timestamp, {
+    eventKey,
+    generatedAt: timestamp,
+    inputFingerprints,
+    error: normalizeText(options.error),
+    mode: "native-compute",
+    notes: normalizeText(options.notes),
+  });
+}
+
 function eventHasComputedPridge(eventModel) {
   return Boolean((eventModel?.teams || []).some((team) => {
     const total = team?.sources?.pridge?.total;
@@ -227,21 +242,34 @@ async function loadEventByCode(eventCode, options = {}) {
       notes: "Event-total pRidge was computed locally from TBA qualification matches and Statbotics start EPA priors.",
     });
   } else {
-    sourceStates.pridge = buildPendingSourceState("pridge", {
-      status: "manual",
-      mode: "native-compute",
-      eventKey: normalizedEventCode,
-      generatedAt: timestamp,
-      inputFingerprints: statboticsEventResult.ok && statboticsTeamEventsResult.ok
-        ? {
-          tba: buildSnapshotFingerprint(buildExternalSourceSnapshot("tba", eventModel)),
-          statbotics: buildSnapshotFingerprint(buildExternalSourceSnapshot("statbotics", eventModel)),
-        }
-        : {
-          tba: buildSnapshotFingerprint(buildExternalSourceSnapshot("tba", eventModel)),
-        },
-      notes: "pRidge needs complete TBA qualification results plus Statbotics team-event priors before it can be computed locally.",
-    });
+    const inputFingerprints = {
+      tba: buildSnapshotFingerprint(buildExternalSourceSnapshot("tba", eventModel)),
+      ...(statboticsEventResult.ok && statboticsTeamEventsResult.ok
+        ? { statbotics: buildSnapshotFingerprint(buildExternalSourceSnapshot("statbotics", eventModel)) }
+        : {}),
+    };
+    if (!statboticsEventResult.ok || !statboticsTeamEventsResult.ok) {
+      sourceStates.pridge = buildPridgeUnavailableState(eventModel, timestamp, {
+        eventKey: normalizedEventCode,
+        inputFingerprints,
+        error: "pRidge could not be computed because Statbotics start EPA priors are unavailable.",
+        notes: "pRidge depends on Statbotics start EPA priors for every event team.",
+      });
+    } else if (!(eventModel.matches || []).length) {
+      sourceStates.pridge = buildPridgeUnavailableState(eventModel, timestamp, {
+        eventKey: normalizedEventCode,
+        inputFingerprints,
+        error: "pRidge could not be computed because no usable qualification match rows were available from The Blue Alliance.",
+        notes: "pRidge requires valid qualification matches with complete alliance rosters and scores.",
+      });
+    } else {
+      sourceStates.pridge = buildPridgeUnavailableState(eventModel, timestamp, {
+        eventKey: normalizedEventCode,
+        inputFingerprints,
+        error: "pRidge could not be computed from the available TBA and Statbotics event inputs.",
+        notes: "pRidge native compute failed even though TBA and Statbotics inputs were present.",
+      });
+    }
   }
 
   return {

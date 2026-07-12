@@ -226,14 +226,78 @@ await runTest("loadEventByCode keeps the event loadable when Statbotics fails", 
   assert.equal(result.eventModel.matches.length, 1);
   assert.equal(result.sourceStates.tba.status, "ready");
   assert.equal(result.sourceStates.statbotics.status, "error");
-  assert.equal(result.sourceStates.pridge.status, "manual");
+  assert.equal(result.sourceStates.pridge.status, "error");
+  assert.equal(result.sourceStates.pridge.freshness, "stale");
   assert.equal(result.sourceStates.pridge.provenance.mode, "native-compute");
   assert.equal(result.sourceStates.pridge.provenance.eventKey, "2026fallback");
   assert.equal(result.sourceStates.pridge.provenance.generatedAt, "2026-07-12T13:05:00Z");
   assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.tba || "").startsWith("fnv1a:"));
   assert.equal(result.sourceStates.pridge.provenance.inputFingerprints?.statbotics, undefined);
+  assert.match(result.sourceStates.pridge.error, /Statbotics start EPA priors/i);
   assert.equal(result.warnings.length, 1);
   assert.match(result.warnings[0], /Statbotics/i);
+});
+
+await runTest("loadEventByCode marks pRidge as error when no usable qualification matches remain", async () => {
+  const baseUrls = {
+    tba: "https://tba.test/api",
+    statbotics: "https://statbotics.test/api",
+  };
+  const context = loadBrowserContext([
+    "src/season-framework.js",
+    "src/prior-ridge.js",
+    "src/event-model-builder.js",
+    "src/external-source-snapshots.js",
+    "src/external-event-loader.js",
+  ]);
+  const fetchImpl = createFetchStub({
+    [`${baseUrls.tba}/event/2026nomatches`]: { key: "2026nomatches", year: 2026, name: "No Matches Event" },
+    [`${baseUrls.tba}/event/2026nomatches/teams`]: [
+      { team_number: 1, nickname: "One" },
+      { team_number: 2, nickname: "Two" },
+      { team_number: 3, nickname: "Three" },
+      { team_number: 4, nickname: "Four" },
+      { team_number: 5, nickname: "Five" },
+      { team_number: 6, nickname: "Six" },
+    ],
+    [`${baseUrls.tba}/event/2026nomatches/matches`]: [
+      {
+        comp_level: "qm",
+        match_number: 3,
+        set_number: 1,
+        winning_alliance: "",
+        alliances: {
+          red: { team_keys: ["frc1", "frc2"], score: -1 },
+          blue: { team_keys: ["frc4", "frc5", "frc6"], score: 81 },
+        },
+      },
+    ],
+    [`${baseUrls.statbotics}/event/2026nomatches`]: { year: 2026, status: "In Progress" },
+    [`${baseUrls.statbotics}/team_events/event/2026nomatches`]: [
+      { team: 1, epa: { stats: { start: 10 } } },
+      { team: 2, epa: { stats: { start: 11 } } },
+      { team: 3, epa: { stats: { start: 12 } } },
+      { team: 4, epa: { stats: { start: 13 } } },
+      { team: 5, epa: { stats: { start: 14 } } },
+      { team: 6, epa: { stats: { start: 15 } } },
+    ],
+  });
+
+  const result = await context.ExternalEventLoader.loadEventByCode("2026nomatches", {
+    fetchImpl,
+    tbaAuthKey: "unit-test-key",
+    tbaBaseUrl: baseUrls.tba,
+    statboticsBaseUrl: baseUrls.statbotics,
+    timestamp: "2026-07-12T13:06:00Z",
+  });
+
+  assert.equal(result.sourceStates.tba.status, "ready");
+  assert.equal(result.sourceStates.statbotics.status, "ready");
+  assert.equal(result.sourceStates.pridge.status, "error");
+  assert.equal(result.sourceStates.pridge.freshness, "stale");
+  assert.match(result.sourceStates.pridge.error, /no usable qualification match rows/i);
+  assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.tba || "").startsWith("fnv1a:"));
+  assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.statbotics || "").startsWith("fnv1a:"));
 });
 
 await runTest("loadEventByCode requires a TBA auth key for live lookups", async () => {
