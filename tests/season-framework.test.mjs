@@ -45,3 +45,15 @@ runTest("season metrics expose pRidge as a total-only source", () => {
   const pridgeCriteriaSource = criteriaSources.find((source) => source.id === "pridge");
   assert.equal(pridgeCriteriaSource.components.map((component) => component.id).join(","), "total");
 });
+
+runTest("season metrics expose OPR as a total-only source", () => {
+  const season = seasonFramework.seasonDefinitions[2024];
+  const metrics = seasonFramework.buildMetrics(season);
+  const criteriaSources = seasonFramework.buildCriteriaSources(season);
+
+  const oprMetrics = metrics.filter((metric) => metric.sourceId === "opr");
+  assert.equal(oprMetrics.map((metric) => metric.id).join(","), "source:opr:total");
+
+  const oprCriteriaSource = criteriaSources.find((source) => source.id === "opr");
+  assert.equal(oprCriteriaSource.components.map((component) => component.id).join(","), "total");
+});

@@ -33,9 +33,9 @@ globalThis.SeasonDerivedEquations = {
       {
         id: "avgClimbScoreOverAttempts",
         name: "Average Climb Score Over Attempts",
-        formula: "average(tba.climbScore, scouting.climbAttempt > 0)",
+        formula: "average(if(scouting.climbLevel == 3, 12, if(scouting.climbLevel == 2, 6, if(scouting.climbLevel == 1, 2, 0))), scouting.climbAttempt > 0)",
         unit: "pts",
-        description: "Average TBA climb score over recent attempted climbs.",
+        description: "Average scouted climb score over recent attempted climbs.",
       },
     ],
     "2024": [
@@ -107,7 +107,7 @@ globalThis.SeasonDerivedEquations = {
       {
         id: "autoFuelTeam",
         name: "Auto Fuel Team",
-        formula: "if(autoFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, tba.autoAllianceFuel / allianceCount(scouting.hasEntry), 0), valueOr(autoFuelShare / autoFuelShareAlliance * tba.autoAllianceFuel, 0))",
+        formula: "if(autoFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.autoPoints, tba.autoFuel) / allianceCount(scouting.hasEntry), 0), valueOr(autoFuelShare / autoFuelShareAlliance * valueOr(tba.hubScore.autoPoints, tba.autoFuel), 0))",
         unit: "fuel",
         description: "Allocated auto fuel for this robot.",
       },
@@ -142,7 +142,7 @@ globalThis.SeasonDerivedEquations = {
       {
         id: "transitionFuelTeam",
         name: "Transition Fuel Team",
-        formula: "if(transitionFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, tba.transitionAllianceFuel / allianceCount(scouting.hasEntry), 0), valueOr(transitionFuelShare / transitionFuelShareAlliance * tba.transitionAllianceFuel, 0))",
+        formula: "if(transitionFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.transitionPoints, tba.transitionFuel) / allianceCount(scouting.hasEntry), 0), valueOr(transitionFuelShare / transitionFuelShareAlliance * valueOr(tba.hubScore.transitionPoints, tba.transitionFuel), 0))",
         unit: "fuel",
         description: "Allocated transition fuel for this robot.",
       },
@@ -177,7 +177,7 @@ globalThis.SeasonDerivedEquations = {
       {
         id: "shift1FuelTeam",
         name: "Shift 1 Fuel Team",
-        formula: "if(shift1FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, tba.shift1AllianceFuel / allianceCount(scouting.hasEntry), 0), valueOr(shift1FuelShare / shift1FuelShareAlliance * tba.shift1AllianceFuel, 0))",
+        formula: "if(shift1FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift1Points, tba.firstShiftFuel) / allianceCount(scouting.hasEntry), 0), valueOr(shift1FuelShare / shift1FuelShareAlliance * valueOr(tba.hubScore.shift1Points, tba.firstShiftFuel), 0))",
         unit: "fuel",
         description: "Allocated shift 1 fuel for this robot.",
       },
@@ -212,7 +212,7 @@ globalThis.SeasonDerivedEquations = {
       {
         id: "shift2FuelTeam",
         name: "Shift 2 Fuel Team",
-        formula: "if(shift2FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, tba.shift2AllianceFuel / allianceCount(scouting.hasEntry), 0), valueOr(shift2FuelShare / shift2FuelShareAlliance * tba.shift2AllianceFuel, 0))",
+        formula: "if(shift2FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift2Points, tba.secondShiftFuel) / allianceCount(scouting.hasEntry), 0), valueOr(shift2FuelShare / shift2FuelShareAlliance * valueOr(tba.hubScore.shift2Points, tba.secondShiftFuel), 0))",
         unit: "fuel",
         description: "Allocated shift 2 fuel for this robot.",
       },
@@ -247,7 +247,7 @@ globalThis.SeasonDerivedEquations = {
       {
         id: "shift3FuelTeam",
         name: "Shift 3 Fuel Team",
-        formula: "if(allianceCount(scouting.hasEntry) >= 3, tba.shift3AllianceFuel / allianceCount(scouting.hasEntry), 0)",
+        formula: "if(allianceCount(scouting.hasEntry) >= 3, valueOr(tba.hubScore.shift3Points, tba.thirdShiftFuel) / allianceCount(scouting.hasEntry), 0)",
         unit: "fuel",
         description: "The current MatchCalculations sheet splits shift 3 alliance fuel evenly across the alliance once all three entries are present.",
       },
@@ -282,7 +282,7 @@ globalThis.SeasonDerivedEquations = {
       {
         id: "shift4FuelTeam",
         name: "Shift 4 Fuel Team",
-        formula: "if(shift4FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, tba.shift4AllianceFuel / allianceCount(scouting.hasEntry), 0), valueOr(shift4FuelShare / shift4FuelShareAlliance * tba.shift4AllianceFuel, 0))",
+        formula: "if(shift4FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift4Points, tba.fourthShiftFuel) / allianceCount(scouting.hasEntry), 0), valueOr(shift4FuelShare / shift4FuelShareAlliance * valueOr(tba.hubScore.shift4Points, tba.fourthShiftFuel), 0))",
         unit: "fuel",
         description: "Allocated shift 4 fuel for this robot.",
       },
@@ -317,7 +317,7 @@ globalThis.SeasonDerivedEquations = {
       {
         id: "endgameFuelTeam",
         name: "Endgame Fuel Team",
-        formula: "if(endgameFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, tba.endgameAllianceFuel / allianceCount(scouting.hasEntry), 0), valueOr(endgameFuelShare / endgameFuelShareAlliance * tba.endgameAllianceFuel, 0))",
+        formula: "if(endgameFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.endgamePoints, tba.endgameFuel) / allianceCount(scouting.hasEntry), 0), valueOr(endgameFuelShare / endgameFuelShareAlliance * valueOr(tba.hubScore.endgamePoints, tba.endgameFuel), 0))",
         unit: "fuel",
         description: "Allocated endgame fuel for this robot.",
       },
@@ -348,13 +348,6 @@ globalThis.SeasonDerivedEquations = {
         formula: "autoFuelTeam + transitionFuelTeam + shift1FuelTeam + shift2FuelTeam + shift3FuelTeam + shift4FuelTeam + endgameFuelTeam",
         unit: "fuel",
         description: "Allocated total fuel across all phases for this robot and match.",
-      },
-      {
-        id: "wonAuto",
-        name: "Won Auto",
-        formula: "tba.wonAuto == 1",
-        unit: "bool",
-        description: "True when this robot's alliance won the auto-fuel battle in that match.",
       },
     ],
   },

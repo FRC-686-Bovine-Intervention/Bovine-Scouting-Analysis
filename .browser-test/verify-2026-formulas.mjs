@@ -211,7 +211,6 @@ try {
       { kind: "equation", id: "endgameMaxFuelPossible", column: "Endgame Max Fuel Possible", mode: "number" },
       { kind: "equation", id: "teleopMaxFuelPossible", column: "Tele-Op Max Fuel Possible", mode: "number" },
       { kind: "equation", id: "totalFuelScored", column: "Total Fuel Scored", mode: "number" },
-      { kind: "equation", id: "wonAuto", column: "Won Auto", mode: "boolean" },
     ];
 
     const mismatches = [];

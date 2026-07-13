@@ -59,6 +59,16 @@ const buildScoutingDiagnosticsState =
   }));
 const seasonDerivedMetricDefinitions = seasonFramework.derivedMetricDefinitions || (() => []);
 const seasonMetricFieldId = seasonFramework.csvHeaderForMetric || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id));
+const humanizeDynamicFieldId =
+  dynamicScoutingFields.humanizeFieldId ||
+  ((fieldId) =>
+    String(fieldId || "")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[_\-\.]+/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+      .join(" "));
 const sharedAdaptEventSheetCsv = sheetImportAdapters.adaptEventSheetCsv || ((eventModel, csvText) => csvText);
 const sharedTranslateEventSheetToCanonical = sheetImportAdapters.translateEventSheetToCanonical || null;
 const buildCanonicalSheetJsonText = sheetImportAdapters.buildCanonicalJsonText || ((dataset) => JSON.stringify(dataset || {}));
@@ -133,6 +143,7 @@ const storageKeys = {
   importSourceUrl: "frc-scouting-import-source-url",
   scoutingWindow: "frc-scouting-window",
   recentMatchCount: "frc-scouting-recent-match-count",
+  tbaAuthKey: "frc-scouting-tba-auth-key",
   seasonProfiles: "frc-scouting-season-profiles",
   seasonDerivedEquations: "frc-scouting-season-derived-equations",
   seasonFilters: "frc-scouting-season-filters",
@@ -146,6 +157,7 @@ const globalStorageKeys = new Set([
   storageKeys.theme,
   storageKeys.activeEvent,
   storageKeys.menuExpanded,
+  storageKeys.tbaAuthKey,
   storageKeys.seasonProfiles,
   storageKeys.seasonDerivedEquations,
   storageKeys.seasonFilters,
@@ -251,6 +263,7 @@ const state = {
   importSelectedProfileId: "",
   importDraftSource: "",
   importSourceUrl: activeEventWorkspaceScoutingAttachmentSourceValue(initialWorkspace, initialEvent),
+  tbaAuthKey: readStoredItem(storageKeys.tbaAuthKey) || normalizeText(globalThis.__TBA_AUTH_KEY || globalThis.TBA_AUTH_KEY),
   importResult: null,
   scoutingWindow: readStoredItem(storageKeys.scoutingWindow) || "all",
   recentMatchCount: Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount) || 12)),
@@ -281,6 +294,7 @@ const state = {
 };
 globalThis.__scoutingAppState = state;
 globalThis.__scoutingActiveEventKey = state.activeEventKey;
+globalThis.__TBA_AUTH_KEY = state.tbaAuthKey;
 let pendingScoutingAutoloadToken = "";
 let attemptedScoutingAutoloadToken = "";
 const pendingExternalRefreshSourceIds = new Set();
@@ -408,6 +422,12 @@ function setCurrentScoutingSourceUrl(url, options = {}) {
   if (options.save) saveState();
 }
 
+function setTbaAuthKey(value, options = {}) {
+  state.tbaAuthKey = normalizeText(value);
+  globalThis.__TBA_AUTH_KEY = state.tbaAuthKey;
+  if (options.save) saveState();
+}
+
 function buildScoutingSourceFingerprint(text) {
   const input = String(text || "");
   let hash = 2166136261;
@@ -504,6 +524,7 @@ function maybePollActiveScoutingAttachment() {
 }
 
 function maybePollExternalSources() {
+  if (currentEvent()?.catalogSource === "dynamic-external") return;
   const workspace = currentEventWorkspace();
   ["tba", "statbotics", "pridge"].forEach((sourceId) => {
     const source = workspace.sources?.[sourceId];
@@ -721,10 +742,14 @@ function currentMatches() {
 }
 
 function currentMetrics() {
-  return seasonBuildMetrics({
+  const eventModel = {
     ...currentEvent(),
     derivedMetricDefinitions: currentDerivedMetricDefinitions(),
-  });
+  };
+  return [
+    ...seasonBuildMetrics(eventModel),
+    ...currentDynamicTbaMetricDefinitions(eventModel),
+  ];
 }
 
 function currentDataSources() {
@@ -856,13 +881,6 @@ function currentRankableMetrics(eventModel = currentEvent()) {
   });
 }
 
-const tbaClimbStatusPoints = {
-  None: 0,
-  Parked: 2,
-  ShallowCage: 6,
-  DeepCage: 12,
-};
-
 function currentSeasonEquationList(eventModel = currentEvent()) {
   return [...(state.seasonDerivedEquationCatalog?.seasons?.[String(eventModel.season)] || [])]
     .sort((left, right) => Number(left.sourceOrder || 0) - Number(right.sourceOrder || 0) || left.name.localeCompare(right.name));
@@ -925,22 +943,9 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent(), activeEquat
   return [
     { id: "scouting.total" },
     ...currentAvailableScoutingFieldDefinitions(eventModel).map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
-    { id: "tba.climbScore" },
-    { id: "tba.allianceKey" },
-    { id: "tba.autoAllianceFuel" },
-    { id: "tba.transitionAllianceFuel" },
-    { id: "tba.shift1AllianceFuel" },
-    { id: "tba.shift2AllianceFuel" },
-    { id: "tba.shift3AllianceFuel" },
-    { id: "tba.shift4AllianceFuel" },
-    { id: "tba.endgameAllianceFuel" },
-    { id: "tba.autoClimbStatus" },
-    { id: "tba.teleopClimbStatus" },
-    { id: "tba.wonAuto" },
+    ...currentAvailableTbaFormulaIdentifiers(eventModel).map((id) => ({ id })),
     ...eventModel.scoringComponents.map((component) => ({ id: `statbotics.${component.id}` })),
     { id: "statbotics.total" },
-    ...eventModel.scoringComponents.map((component) => ({ id: `opr.${component.id}` })),
-    { id: "opr.total" },
     { id: "pridge.total" },
     ...currentSeasonEquationList(eventModel).filter((definition) => definition.id !== activeEquation?.id).map((definition) => ({ id: definition.id })),
   ];
@@ -962,6 +967,49 @@ function activeAnalysisFilter(eventModel = currentEvent()) {
 }
 
 const tbaMatchMetricsCache = new WeakMap();
+const tbaMetricDefinitionCache = new WeakMap();
+
+function scalarTbaValue(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "number" || typeof value === "string") return value;
+  return null;
+}
+
+function identifierTokens(value) {
+  return String(value || "")
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(/[_\-\s]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function camelCaseSegment(value) {
+  return identifierTokens(value)
+    .map((token, index) => {
+      const lower = token.toLowerCase();
+      if (index === 0) return lower;
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join("");
+}
+
+function flattenTbaScalarEntries(value, prefix = "") {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry, index) => flattenTbaScalarEntries(entry, prefix ? `${prefix}.${index}` : String(index)));
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value).flatMap(([key, entryValue]) => {
+      const segment = camelCaseSegment(key);
+      if (!segment) return [];
+      return flattenTbaScalarEntries(entryValue, prefix ? `${prefix}.${segment}` : segment);
+    });
+  }
+  const scalar = scalarTbaValue(value);
+  return prefix && scalar !== null ? [[prefix, scalar]] : [];
+}
 
 function tbaMatchMetricsByTeam(teamNumber, eventModel = currentEvent()) {
   if (!tbaMatchMetricsCache.has(eventModel)) {
@@ -976,37 +1024,101 @@ function tbaMatchMetricsByTeam(teamNumber, eventModel = currentEvent()) {
         .filter((match) => match.red.includes(normalizedTeamNumber) || match.blue.includes(normalizedTeamNumber))
         .map((match) => {
           const allianceKey = match.red.includes(normalizedTeamNumber) ? "red" : "blue";
-          const teams = allianceKey === "red" ? match.red : match.blue;
-          const index = teams.indexOf(normalizedTeamNumber);
           const breakdown = match.scoreBreakdown?.[allianceKey] || null;
-          const opponentAllianceKey = allianceKey === "red" ? "blue" : "red";
-          const opponentBreakdown = match.scoreBreakdown?.[opponentAllianceKey] || null;
-          const hubScore = breakdown?.hubScore || null;
-          const opponentHubScore = opponentBreakdown?.hubScore || null;
-          const climbStatus = breakdown ? breakdown[`endGameTowerRobot${index + 1}`] || breakdown[`endGameRobot${index + 1}`] || "" : "";
-          const autoClimbStatus = breakdown ? breakdown[`autoTowerRobot${index + 1}`] || breakdown[`autoRobot${index + 1}`] || "" : "";
+          const flattenedBreakdown = Object.fromEntries(flattenTbaScalarEntries(breakdown || {}));
           return {
             matchNumber: match.number,
             allianceKey,
-            allianceTeams: teams,
+            allianceTeams: allianceKey === "red" ? match.red : match.blue,
             allTeams: [...match.red, ...match.blue],
-            autoAllianceFuel: Number(hubScore?.autoPoints ?? breakdown?.auto_fuel ?? Number.NaN),
-            transitionAllianceFuel: Number(hubScore?.transitionPoints ?? breakdown?.transition_fuel ?? Number.NaN),
-            shift1AllianceFuel: Number(hubScore?.shift1Points ?? breakdown?.first_shift_fuel ?? Number.NaN),
-            shift2AllianceFuel: Number(hubScore?.shift2Points ?? breakdown?.second_shift_fuel ?? Number.NaN),
-            shift3AllianceFuel: Number(hubScore?.shift3Points ?? breakdown?.third_shift_fuel ?? Number.NaN),
-            shift4AllianceFuel: Number(hubScore?.shift4Points ?? breakdown?.fourth_shift_fuel ?? Number.NaN),
-            endgameAllianceFuel: Number(hubScore?.endgamePoints ?? breakdown?.endgame_fuel ?? Number.NaN),
-            autoClimbStatus,
-            teleopClimbStatus: climbStatus,
-            climbScore: Number(tbaClimbStatusPoints[climbStatus] ?? Number.NaN),
-            wonAuto: Number(hubScore?.autoPoints ?? breakdown?.auto_fuel ?? Number.NaN) > Number(opponentHubScore?.autoPoints ?? opponentBreakdown?.auto_fuel ?? Number.NaN) ? 1 : 0,
+            ...flattenedBreakdown,
           };
         })
         .sort((left, right) => left.matchNumber - right.matchNumber),
     );
   }
   return cache.get(normalizedTeamNumber);
+}
+
+function collectTbaMetricDefinitions(eventModel = currentEvent()) {
+  if (tbaMetricDefinitionCache.has(eventModel)) return tbaMetricDefinitionCache.get(eventModel);
+
+  const eventDefinitions = new Map();
+  const matchDefinitions = new Map();
+  const internalMatchFields = new Set(["matchNumber", "allianceKey", "allianceTeams", "allTeams"]);
+  const addDefinition = (bucket, fieldId, value, granularity) => {
+    const sampleValue = scalarTbaValue(value);
+    if (!fieldId || sampleValue === null) return;
+    if (!bucket.has(fieldId)) bucket.set(fieldId, []);
+    bucket.get(fieldId).push(sampleValue);
+  };
+
+  (eventModel.teams || []).forEach((team) => {
+    Object.entries(team?.sources?.tba?.components || {}).forEach(([fieldId, value]) => {
+      addDefinition(eventDefinitions, fieldId, value, "event");
+    });
+    tbaMatchMetricsByTeam(team.number, eventModel).forEach((matchMetrics) => {
+      Object.entries(matchMetrics || {}).forEach(([fieldId, value]) => {
+        if (internalMatchFields.has(fieldId)) return;
+        addDefinition(matchDefinitions, fieldId, value, "match");
+      });
+    });
+  });
+
+  const buildDefinition = (fieldId, samples, granularity) => {
+    const nonEmptySamples = (samples || []).filter((value) => value !== "");
+    const allNumeric = nonEmptySamples.length > 0 && nonEmptySamples.every((value) => Number.isFinite(Number(value)));
+    const type = allNumeric ? "number" : "string";
+    const normalizedFieldId = String(fieldId || "");
+    const lowerFieldId = normalizedFieldId.toLowerCase();
+    const unit = type !== "number"
+      ? "text"
+      : /pct|percent|percentage|accuracy/.test(lowerFieldId)
+        ? "%"
+        : /score|point|opr|dpr|ccwm|rps/.test(lowerFieldId)
+          ? "pts"
+          : "count";
+    return {
+      id: `tba.${normalizedFieldId}`,
+      fieldId: normalizedFieldId,
+      label: `TBA ${humanizeDynamicFieldId(normalizedFieldId)}`,
+      shortLabel: humanizeDynamicFieldId(normalizedFieldId),
+      granularity,
+      type,
+      unit,
+    };
+  };
+
+  const formulaDefinitions = [
+    ...[...eventDefinitions.entries()].map(([fieldId, samples]) => buildDefinition(fieldId, samples, "event")),
+    ...[...matchDefinitions.entries()].map(([fieldId, samples]) => buildDefinition(fieldId, samples, "match")),
+  ].sort((left, right) => left.id.localeCompare(right.id));
+
+  const metricDefinitions = formulaDefinitions
+    .filter((definition) => definition.type === "number")
+    .filter((definition) => definition.fieldId !== "opr.total")
+    .map((definition) => ({
+      id: `source:tba:${definition.fieldId}`,
+      kind: "source",
+      sourceId: "tba",
+      componentId: definition.fieldId,
+      label: definition.label,
+      shortLabel: definition.shortLabel,
+      unit: definition.unit,
+      granularity: definition.granularity,
+    }));
+
+  const result = { formulaDefinitions, metricDefinitions };
+  tbaMetricDefinitionCache.set(eventModel, result);
+  return result;
+}
+
+function currentAvailableTbaFormulaIdentifiers(eventModel = currentEvent()) {
+  return collectTbaMetricDefinitions(eventModel).formulaDefinitions.map((definition) => definition.id);
+}
+
+function currentDynamicTbaMetricDefinitions(eventModel = currentEvent()) {
+  return collectTbaMetricDefinitions(eventModel).metricDefinitions;
 }
 
 function preferredFormulaSubmission(submissions, scouterMetricIds = []) {
@@ -1377,6 +1489,9 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
   }
   if (identifier.startsWith("tba.")) {
     const fieldId = identifier.slice("tba.".length);
+    if (Object.prototype.hasOwnProperty.call(formulaContext.overlayTeam.sources?.tba?.components || {}, fieldId)) {
+      return formulaScalarValue(formulaContext.overlayTeam.sources?.tba?.components?.[fieldId] ?? Number.NaN);
+    }
     return formulaSeriesFromRows(formulaContext.matchRows, (row) => row.tba?.[fieldId] ?? Number.NaN);
   }
   if (identifier.startsWith("statbotics.")) {
@@ -1658,6 +1773,14 @@ function builderGridScrollState(view = state.activeView) {
   return state.builderGridScroll[view];
 }
 
+function builderListScrollState(view = state.activeView) {
+  if (!state.builderListScroll?.[view]) {
+    if (!state.builderListScroll) state.builderListScroll = {};
+    state.builderListScroll[view] = {};
+  }
+  return state.builderListScroll[view];
+}
+
 function captureBuilderGridScroll(view = state.activeView) {
   const scrollState = builderGridScrollState(view);
   const shell = document.querySelector("[data-builder-grid-shell]");
@@ -1678,6 +1801,26 @@ function restoreBuilderGridScroll(view = state.activeView) {
       const key = column.dataset.builderGridColumnScroll;
       if (!key) return;
       column.scrollTop = Number(scrollState.columnTops?.[key] || 0);
+    });
+  });
+}
+
+function captureBuilderListScroll(view = state.activeView) {
+  const scrollState = builderListScrollState(view);
+  document.querySelectorAll("[data-builder-list-scroll]").forEach((list) => {
+    const key = list.dataset.builderListScroll;
+    if (!key) return;
+    scrollState[key] = list.scrollTop;
+  });
+}
+
+function restoreBuilderListScroll(view = state.activeView) {
+  const scrollState = builderListScrollState(view);
+  requestAnimationFrame(() => {
+    document.querySelectorAll("[data-builder-list-scroll]").forEach((list) => {
+      const key = list.dataset.builderListScroll;
+      if (!key) return;
+      list.scrollTop = Number(scrollState[key] || 0);
     });
   });
 }
@@ -1709,6 +1852,7 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.importSourceUrl), state.importSourceUrl);
   localStorage.setItem(eventStorageKey(storageKeys.scoutingWindow), state.scoutingWindow);
   localStorage.setItem(eventStorageKey(storageKeys.recentMatchCount), String(state.recentMatchCount));
+  localStorage.setItem(eventStorageKey(storageKeys.tbaAuthKey), state.tbaAuthKey);
   localStorage.setItem(eventStorageKey(storageKeys.seasonProfiles), JSON.stringify(state.seasonProfileCatalog));
   localStorage.setItem(eventStorageKey(storageKeys.seasonDerivedEquations), JSON.stringify(state.seasonDerivedEquationCatalog));
   localStorage.setItem(eventStorageKey(storageKeys.seasonFilters), JSON.stringify(state.seasonFilterCatalog));
@@ -1922,7 +2066,9 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
   state.eventLookupResult = { kind: "info", message: `Loading ${normalizedEventCode} from external providers...` };
   render();
   try {
-    const loadResult = await loadExternalEventByCode(normalizedEventCode);
+    const loadResult = await loadExternalEventByCode(normalizedEventCode, {
+      tbaAuthKey: state.tbaAuthKey,
+    });
     const registeredEvent = registerEventModel(loadResult.eventModel);
     switchActiveEvent(registeredEvent.key, {
       activeView: options.activeView || "admin",
@@ -2333,6 +2479,15 @@ function quantile(values, q) {
 function metricById(id) {
   const metrics = currentMetrics();
   return metrics.find((metric) => metric.id === id) || metrics.find((metric) => metric.id === currentEvent().defaultMetricId) || metrics[0];
+}
+
+function metricTokenLabel(metric) {
+  if (!metric) return "";
+  if (metric.kind === "source" && metric.sourceId === "tba") return `tba.${metric.componentId}`;
+  if (metric.kind === "source" && metric.sourceId === "epa") return `statbotics.${metric.componentId}`;
+  if (metric.kind === "source" && metric.sourceId === "opr" && metric.componentId === "total") return "tba.opr.total";
+  if (metric.kind === "source" && metric.sourceId === "pridge" && metric.componentId === "total") return "pridge.total";
+  return metric.label || metric.id || "";
 }
 
 function canonicalizeRawMetrics(rawMetrics, eventModel = currentEvent()) {
@@ -3296,6 +3451,12 @@ function teamMetricValue(team, metric) {
   if (engineTeamMetricValue) return engineTeamMetricValue(team, metric, { window: currentScoutingWindow() });
   if (!team || !metric) return 0;
   if (metric.kind === "derived") return Number(team.derived?.[metric.componentId] || 0);
+  if (metric.kind === "source" && metric.sourceId === "tba" && metric.granularity === "match") {
+    const values = tbaMatchMetricsByTeam(team.number)
+      .map((row) => Number(row?.[metric.componentId]))
+      .filter((value) => Number.isFinite(value));
+    return values.length ? average(values) : Number.NaN;
+  }
   if (metric.componentId === "total") return Number(team.sources?.[metric.sourceId]?.total || 0);
   return Number(team.sources?.[metric.sourceId]?.components?.[metric.componentId] || 0);
 }
@@ -3587,6 +3748,7 @@ function bindShellEvents() {
   });
   bindViewEvents();
   restoreBuilderGridScroll();
+  restoreBuilderListScroll();
 }
 
 function installGlobalRecoveryGuards() {
@@ -3667,7 +3829,13 @@ function renderRankings() {
   const epaMetric = metricById("source:epa:total");
   const ranked = [...currentTeams()]
     .sort((a, b) => (a.eventRank || Infinity) - (b.eventRank || Infinity) || teamMetricValue(b, epaMetric) - teamMetricValue(a, epaMetric) || a.number - b.number)
-    .map((team, index) => ({ ...team, rank: team.eventRank || index + 1, rp: rankingPoints(team), record: recordForTeam(team) }));
+    .map((team, index) => ({
+      ...team,
+      rank: team.eventRank || index + 1,
+      rankingScore: rankingScoreForTeam(team),
+      rp: rankingPoints(team),
+      record: recordForTeam(team),
+    }));
   return `
     <article class="card">
       <div class="section-heading">
@@ -3692,7 +3860,7 @@ function renderRankings() {
           <button class="ranking-row" data-team="${team.number}" role="row">
             <strong>${team.rank}</strong>
             <span>${team.number} ${team.name}</span>
-            <span>${teamMetricValue(team, epaMetric).toFixed(2)}</span>
+            <span>${team.rankingScore.toFixed(2)}</span>
             <span>${team.record}</span>
             <span>${team.rp}</span>
             <span>${teamMetricValue(team, epaMetric).toFixed(1)}</span>
@@ -3704,6 +3872,10 @@ function renderRankings() {
       </div>
     </article>
   `;
+}
+
+function rankingScoreForTeam(team) {
+  return Number(team.record?.qual?.rps || 0) || teamMetricValue(team, metricById("source:epa:total"));
 }
 
 function rankingPoints(team) {
@@ -3751,7 +3923,8 @@ function renderTeams() {
 }
 
 function renderTeamDetail(team) {
-  const selectedMetric = teamDetailMetric();
+  const availableTrendMetrics = currentMetrics().filter((metric) => metricUsesMatchDistribution(team, metric));
+  const selectedMetric = availableTrendMetrics.find((metric) => metric.id === state.teamDetailMetric) || availableTrendMetrics[0] || teamDetailMetric();
   const scoutingConfidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
   const epaMetric = metricById("source:epa:total");
   const oprMetric = metricById("source:opr:total");
@@ -3785,7 +3958,7 @@ function renderTeamDetail(team) {
             <label class="team-trend-metric">
               <span class="muted">Metric</span>
               <select id="teamDetailMetricSelect" aria-label="Team detail metric">
-                ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === selectedMetric.id ? "selected" : ""}>${item.label}</option>`).join("")}
+                ${availableTrendMetrics.map((item) => `<option value="${item.id}" ${item.id === selectedMetric.id ? "selected" : ""}>${item.label}</option>`).join("")}
               </select>
             </label>
             <label class="team-trend-metric">
@@ -3818,6 +3991,11 @@ function metricTrendValues(team, metric) {
   }
   if (engineMetricTrendValues) return engineMetricTrendValues(team, metric, { window: currentScoutingWindow() });
   if (metric.kind === "source") {
+    if (metric.sourceId === "tba" && metric.granularity === "match") {
+      return tbaMatchMetricsByTeam(team.number)
+        .map((row) => Number(row?.[metric.componentId]))
+        .filter((value) => Number.isFinite(value));
+    }
     if (metric.sourceId === "scouter" && metric.componentId === "total") {
       return Array.isArray(team.sources?.scouter?.trend) ? team.sources.scouter.trend : [];
     }
@@ -3843,7 +4021,7 @@ function metricUsesMatchDistribution(team, metric) {
     const evaluation = evaluateEquationForTeam(team, metric.componentId);
     return isSeriesFormulaResult(evaluation.result);
   }
-  return metric.kind === "source" && metric.sourceId === "scouter";
+  return metric.kind === "source" && (metric.sourceId === "scouter" || (metric.sourceId === "tba" && metric.granularity === "match"));
 }
 
 function applyCurrentScoutingWindowToEntries(entries) {
@@ -3864,6 +4042,15 @@ function analysisSeriesEntriesForMetric(team, metric, options = {}) {
     const evaluation = evaluateEquationForTeam(team, metric.componentId);
     const normalizedEntries = filterResultEntries(evaluation.result).filter((entry) => Number.isFinite(Number(entry.value)));
     return useRecentWindow ? applyRecentMatchCountToEntries(normalizedEntries, options.recentMatchCount) : normalizedEntries;
+  }
+  if (metric.kind === "source" && metric.sourceId === "tba" && metric.granularity === "match") {
+    const entries = tbaMatchMetricsByTeam(team.number, currentEvent())
+      .map((row) => ({
+        key: row.matchNumber,
+        value: Number(row?.[metric.componentId]),
+      }))
+      .filter((entry) => Number.isFinite(entry.value));
+    return useRecentWindow ? applyRecentMatchCountToEntries(entries, options.recentMatchCount) : entries;
   }
   const aggregatedMatches = aggregateSubmissionMatches(
     currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === Number(team.number)),
@@ -3956,7 +4143,7 @@ function renderAnalysis() {
       <label>
         Metric
         <select id="metricSelect">
-          ${analysisMetricOptions().map((item) => `<option value="${item.id}" ${item.id === state.metric ? "selected" : ""}>${item.label}</option>`).join("")}
+          ${analysisMetricOptions().map((item) => `<option value="${item.id}" ${item.id === state.metric ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
         </select>
       </label>
       <div class="stat"><span>Event Average</span><strong>${eventAverage.toFixed(1)} ${selection.unit}</strong></div>
@@ -4094,7 +4281,7 @@ function renderDerivedBuilder() {
               <div class="derived-pane-header">
                 <h3>Available Metrics</h3>
               </div>
-              <div class="builder-list metric-catalog">
+              <div class="builder-list metric-catalog" data-builder-list-scroll="derived:metrics">
                 ${availableMetrics.map((item) => `<div class="builder-list-item ${item.id === activePreviewMetricId ? "active" : ""}" data-derived-preview-metric="${escapeAttribute(item.id)}">${escapeHtml(item.id)}</div>`).join("")}
               </div>
             </section>
@@ -4105,7 +4292,7 @@ function renderDerivedBuilder() {
                 <textarea
                   id="derivedEquationFormulaInput"
                   class="admin-input derived-formula-input"
-                  placeholder="average(tba.climbScore)"
+                  placeholder="average(opr.total)"
                   autocomplete="off"
                   rows="2"
                   spellcheck="false"
@@ -4588,7 +4775,7 @@ function renderPicklistBuilder() {
           <label class="team-trend-metric">
             <span class="muted">Metric</span>
             <select id="picklistCompareMetricSelect" aria-label="Picklist comparison metric">
-              ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric.id ? "selected" : ""}>${item.label}</option>`).join("")}
+              ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
             </select>
           </label>
           <label class="team-trend-metric">
@@ -4689,7 +4876,7 @@ function renderCriteriaTerm(term, index, count) {
       <label>
         Metric
         <select class="term-metric" data-term-index="${index}">
-          ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === metric.id ? "selected" : ""}>${item.label}</option>`).join("")}
+          ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === metric.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
         </select>
       </label>
       ${index === count - 1 && count < 5 ? `<button class="icon-button add-term-button" id="addCriteriaTerm" title="Add component" aria-label="Add component">+</button>` : `<span class="operator-spacer"></span>`}
@@ -4809,7 +4996,7 @@ function renderPicklistGridColumn(entry, index) {
         <select data-picklist-column="${index}">
           <option value="" ${entry ? "" : "selected"}>---</option>
           <optgroup label="Metrics">
-            ${currentRankableMetrics().map((item) => `<option value="metric:${item.id}" ${entry === `metric:${item.id}` ? "selected" : ""}>${item.label}</option>`).join("")}
+            ${currentRankableMetrics().map((item) => `<option value="metric:${item.id}" ${entry === `metric:${item.id}` ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
           </optgroup>
           <optgroup label="Picklists">
             ${state.picklists.map((item) => `<option value="picklist:${item.id}" ${entry === `picklist:${item.id}` ? "selected" : ""}>${item.name}</option>`).join("")}
@@ -5064,10 +5251,18 @@ function renderAdmin() {
                 <button type="button" id="lookupEventCodeButton" ${state.eventLookupPending ? "disabled" : ""}>${state.eventLookupPending ? "Loading..." : "Load Event Code"}</button>
               </div>
             </label>
+            <label>
+              TBA auth key
+              <input id="adminTbaAuthKeyInput" class="admin-input" type="password" value="${escapeAttribute(state.tbaAuthKey)}" placeholder="Paste The Blue Alliance auth key" aria-label="TBA auth key" autocomplete="off" spellcheck="false" />
+            </label>
             <div class="issue-list">
               <div class="issue-row">
                 <strong>Scouting sheet</strong>
                 <span class="muted">${event.sheet?.tab || "Unknown tab"} | ${event.sheet?.access === "public_csv" ? "Public CSV sample cached" : "Sign-in required for direct export"} | Window: ${scoutingWindowLabel()}</span>
+              </div>
+              <div class="issue-row">
+                <strong>TBA key</strong>
+                <span class="muted">${state.tbaAuthKey ? "Stored locally in this browser for event lookup." : "Required for loading arbitrary event codes from The Blue Alliance."}</span>
               </div>
               ${state.eventLookupResult ? `<div class="issue-row ${state.eventLookupResult.kind === "error" ? "danger" : state.eventLookupResult.kind === "warn" ? "warn" : ""}">${escapeHtml(state.eventLookupResult.message)}</div>` : ""}
             </div>
@@ -5584,19 +5779,8 @@ function formulaAutocompleteCandidates(token) {
   return [
     "scouting.total",
     ...currentAvailableScoutingFieldDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
-    "tba.climbScore",
-    "tba.allianceKey",
-    "tba.autoAllianceFuel",
-    "tba.transitionAllianceFuel",
-    "tba.shift1AllianceFuel",
-    "tba.shift2AllianceFuel",
-    "tba.shift3AllianceFuel",
-    "tba.shift4AllianceFuel",
-    "tba.endgameAllianceFuel",
-    "tba.autoClimbStatus",
-    "tba.teleopClimbStatus",
-    "tba.wonAuto",
-    ...currentEvent().scoringComponents.flatMap((component) => [`statbotics.${component.id}`, `opr.${component.id}`, `pridge.${component.id}`]),
+    ...currentAvailableTbaFormulaIdentifiers(),
+    ...currentEvent().scoringComponents.flatMap((component) => [`statbotics.${component.id}`, `pridge.${component.id}`]),
     "statbotics.total",
     "opr.total",
     "pridge.total",
@@ -5627,8 +5811,7 @@ function filterAutocompleteCandidates(token) {
   return [
     "scouting.total",
     ...currentAvailableScoutingFieldDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
-    "tba.climbScore",
-    "tba.wonAuto",
+    ...currentAvailableTbaFormulaIdentifiers(),
     "contains",
     "startsWith",
     "and",
@@ -6197,6 +6380,7 @@ function handleBuilderKeyboard(event) {
         const index = activeMetricId ? availableMetrics.findIndex((item) => item.id === activeMetricId) : -1;
         const next = availableMetrics[Math.max(0, Math.min(availableMetrics.length - 1, index + direction))];
         if (!next) return;
+        captureBuilderListScroll();
         state.activeDerivedPreviewMetricId = next.id;
         saveState();
         render();
@@ -6290,6 +6474,10 @@ function bindViewEvents() {
     if (event.key !== "Enter") return;
     event.preventDefault();
     await loadArbitraryEventCode(event.target.value, { activeView: "admin" });
+  });
+  document.querySelector("#adminTbaAuthKeyInput")?.addEventListener("change", (event) => {
+    setTbaAuthKey(event.target.value, { save: true });
+    render();
   });
   document.querySelector("#activeScoutingAttachmentSelect")?.addEventListener("change", (event) => {
     const nextAttachmentId = event.target.value;
@@ -6569,6 +6757,7 @@ function bindViewEvents() {
   });
   document.querySelectorAll("[data-derived-preview-metric]").forEach((item) => {
     item.addEventListener("click", () => {
+      captureBuilderListScroll();
       state.activeDerivedPreviewMetricId = item.dataset.derivedPreviewMetric || "";
       state.builderFocus.derivedBuilder = "metrics";
       saveState();
@@ -6588,6 +6777,11 @@ function bindViewEvents() {
       document.querySelectorAll("[data-builder-grid-column-scroll]").forEach((other) => {
         if (other !== column && Math.abs(other.scrollTop - scrollTop) > 1) other.scrollTop = scrollTop;
       });
+    });
+  });
+  document.querySelectorAll("[data-builder-list-scroll]").forEach((list) => {
+    list.addEventListener("scroll", () => {
+      captureBuilderListScroll();
     });
   });
   document.querySelectorAll("[data-entity-row]").forEach((row) => {

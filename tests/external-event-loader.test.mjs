@@ -92,6 +92,19 @@ await runTest("loadEventByCode builds an event model and ready provider states f
         },
       },
     ],
+    [`${baseUrls.tba}/event/2026test/rankings`]: {
+      rankings: [
+        { team_key: "frc111", rank: 1, sort_orders: [3.2], record: { wins: 8, losses: 1, ties: 0 }, dq: 0, matches_played: 9, extra_stats: [], qual_average: null },
+        { team_key: "frc222", rank: 2, sort_orders: [2.9], record: { wins: 7, losses: 2, ties: 0 }, dq: 0, matches_played: 9, extra_stats: [], qual_average: null },
+      ],
+      sort_order_info: [],
+      extra_stats_info: [],
+    },
+    [`${baseUrls.tba}/event/2026test/oprs`]: {
+      oprs: { frc111: 51.2, frc222: 47.7, frc333: 46.1, frc444: 40.4, frc555: 38.9, frc666: 35.5 },
+      dprs: { frc111: 9.8, frc222: 11.1, frc333: 12.4, frc444: 14.7, frc555: 15.5, frc666: 16.2 },
+      ccwms: { frc111: 41.4, frc222: 36.6, frc333: 33.7, frc444: 25.7, frc555: 23.4, frc666: 19.3 },
+    },
     [`${baseUrls.statbotics}/event/2026test`]: { year: 2026, status: "In Progress" },
     [`${baseUrls.statbotics}/team_events/event/2026test`]: [
       {
@@ -163,6 +176,21 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.eventModel.catalogSource, "dynamic-external");
   assert.equal(result.eventModel.matches.length, 1);
   assert.equal(result.eventModel.teams.length, 6);
+  assert.equal(result.eventModel.teams[0].eventRank, 1);
+  assert.equal(result.eventModel.teams[0].record.qual.wins, 8);
+  assert.equal(result.eventModel.teams[0].sources.opr.total, 51.2);
+  assert.equal(result.eventModel.teams[0].sources.tba.components["opr.total"], 51.2);
+  assert.equal(result.eventModel.teams[0].sources.tba.components["dpr.total"], 9.8);
+  assert.equal(result.eventModel.teams[0].sources.tba.components["ccwm.total"], 41.4);
+  assert.equal(result.eventModel.teams[0].sources.tba.components.rank, 1);
+  assert.equal(result.eventModel.teams[0].sources.tba.components.rps, 3.2);
+  assert.equal(result.eventModel.teams[0].sources.tba.components["record.wins"], 8);
+  assert.equal(result.eventModel.teams[0].sources.tba.components["sortOrders.0"], 3.2);
+  assert.equal(Array.isArray(result.eventModel.teams[0].sources.epa.trend), true);
+  assert.equal(result.eventModel.teams[0].sources.epa.trend.length, 0);
+  assert.equal(Array.isArray(result.eventModel.teams[0].sources.opr.trend), true);
+  assert.equal(result.eventModel.teams[0].sources.opr.trend.length, 0);
+  assert.equal(result.eventModel.seedPicklists[1].name, "Backup / Live Sources");
   assert.equal(result.sourceStates.tba.status, "ready");
   assert.equal(result.sourceStates.tba.lastSuccessfulAt, "2026-07-12T13:00:00Z");
   assert.equal(result.sourceStates.statbotics.status, "ready");
@@ -210,6 +238,18 @@ await runTest("loadEventByCode keeps the event loadable when Statbotics fails", 
         },
       },
     ],
+    [`${baseUrls.tba}/event/2026fallback/rankings`]: {
+      rankings: [
+        { team_key: "frc1", rank: 1, sort_orders: [2.5], record: { wins: 3, losses: 0, ties: 0 }, dq: 0, matches_played: 3, extra_stats: [], qual_average: null },
+      ],
+      sort_order_info: [],
+      extra_stats_info: [],
+    },
+    [`${baseUrls.tba}/event/2026fallback/oprs`]: {
+      oprs: { frc1: 20.5, frc2: 19.1, frc3: 18.4, frc4: 17.9, frc5: 17.4, frc6: 16.8 },
+      dprs: { frc1: 8.1, frc2: 8.4, frc3: 8.8, frc4: 9.2, frc5: 9.5, frc6: 9.9 },
+      ccwms: { frc1: 12.4, frc2: 10.7, frc3: 9.6, frc4: 8.7, frc5: 7.9, frc6: 6.9 },
+    },
     [`${baseUrls.statbotics}/event/2026fallback`]: { error: new Error("Statbotics down") },
     [`${baseUrls.statbotics}/team_events/event/2026fallback`]: { error: new Error("Statbotics down") },
   });
@@ -272,6 +312,16 @@ await runTest("loadEventByCode marks pRidge as error when no usable qualificatio
         },
       },
     ],
+    [`${baseUrls.tba}/event/2026nomatches/rankings`]: {
+      rankings: [],
+      sort_order_info: [],
+      extra_stats_info: [],
+    },
+    [`${baseUrls.tba}/event/2026nomatches/oprs`]: {
+      oprs: { frc1: 11, frc2: 12, frc3: 13, frc4: 14, frc5: 15, frc6: 16 },
+      dprs: {},
+      ccwms: {},
+    },
     [`${baseUrls.statbotics}/event/2026nomatches`]: { year: 2026, status: "In Progress" },
     [`${baseUrls.statbotics}/team_events/event/2026nomatches`]: [
       { team: 1, epa: { stats: { start: 10 } } },

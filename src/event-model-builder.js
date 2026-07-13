@@ -21,6 +21,51 @@ function parseJson(text, fallback) {
   }
 }
 
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
+function identifierTokens(value) {
+  return normalizeText(value)
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(/[_\-\s]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function camelCaseSegment(segment) {
+  return identifierTokens(segment)
+    .map((token, index) => {
+      const lower = token.toLowerCase();
+      if (index === 0) return lower;
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join("");
+}
+
+function scalarTbaValue(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "number" || typeof value === "string") return value;
+  return null;
+}
+
+function flattenTbaScalarEntries(value, prefix = "") {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry, index) => flattenTbaScalarEntries(entry, prefix ? `${prefix}.${index}` : String(index)));
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value).flatMap(([key, entryValue]) => {
+      const segment = camelCaseSegment(key);
+      if (!segment) return [];
+      return flattenTbaScalarEntries(entryValue, prefix ? `${prefix}.${segment}` : segment);
+    });
+  }
+  const scalar = scalarTbaValue(value);
+  return prefix && scalar !== null ? [[prefix, scalar]] : [];
+}
+
 function sumBreakdownValues(breakdown, keys) {
   return round((keys || []).reduce((sum, key) => sum + Number(breakdown?.[key] || 0), 0));
 }
@@ -35,23 +80,6 @@ function buildComponentMap(total, season, breakdown) {
   return Object.fromEntries(entries);
 }
 
-function buildTrend(total, stats, count, teamNumber) {
-  const safeCount = Math.max(6, Math.min(12, Number(count) || 8));
-  const mean = Number(stats?.mean || total || 0);
-  const start = Number(stats?.start || mean || total || 0);
-  const finish = Number(stats?.pre_elim || mean || total || 0);
-  const ceiling = Math.max(total || 0, Number(stats?.max || 0), mean, start, finish, 1);
-  const wobblePattern = [-0.12, -0.04, 0.03, 0.09, -0.02, 0.07, -0.08, 0.11, -0.01, 0.05, -0.06, 0.08];
-  return Array.from({ length: safeCount }, (_, index) => {
-    if (index === 0) return round(start);
-    if (index === safeCount - 1) return round(finish);
-    const progress = index / Math.max(1, safeCount - 1);
-    const base = mean + (finish - start) * (progress - 0.5) * 0.35;
-    const wobble = wobblePattern[(teamNumber + index) % wobblePattern.length] * ceiling;
-    return round(Math.max(0, Math.min(ceiling, base + wobble)));
-  });
-}
-
 function sourceValue(team, sourceId, componentId = "total") {
   if (sourceId === "derived") return Number(team.derived?.[componentId] || 0);
   if (componentId === "total") return Number(team.sources?.[sourceId]?.total || 0);
@@ -60,12 +88,17 @@ function sourceValue(team, sourceId, componentId = "total") {
 
 function buildSeedPicklists(teams) {
   const byEpa = [...teams].sort((a, b) => sourceValue(b, "epa") - sourceValue(a, "epa") || a.number - b.number).map((team) => team.number);
-  const byDefense = [...teams]
-    .sort((a, b) => sourceValue(b, "derived", "defenseImpact") - sourceValue(a, "derived", "defenseImpact") || a.number - b.number)
+  const byPridge = [...teams]
+    .sort((a, b) => {
+      const left = sourceValue(a, "pridge");
+      const right = sourceValue(b, "pridge");
+      if (Number.isFinite(right) && Number.isFinite(left) && right !== left) return right - left;
+      return sourceValue(b, "opr") - sourceValue(a, "opr") || a.number - b.number;
+    })
     .map((team) => team.number);
   return [
     { id: "pick-first-pick", name: "First Pick", teams: byEpa },
-    { id: "pick-defense-backup", name: "Defense / Backup", teams: byDefense },
+    { id: "pick-backup-live", name: "Backup / Live Sources", teams: byPridge },
   ];
 }
 
@@ -100,19 +133,65 @@ function normalizeMatches(matches) {
     .filter((match) => match.red.length === 3 && match.blue.length === 3);
 }
 
+function parseTeamNumberFromKey(value) {
+  return Number(String(value || "").replace("frc", ""));
+}
+
+function normalizeQualRecord(record) {
+  if (!record || typeof record !== "object") return null;
+  return {
+    wins: Number(record.wins || 0),
+    losses: Number(record.losses || 0),
+    ties: Number(record.ties || 0),
+  };
+}
+
+function buildRankingMap(rankingsPayload) {
+  const rankings = Array.isArray(rankingsPayload?.rankings) ? rankingsPayload.rankings : [];
+  return new Map(rankings.map((entry) => [parseTeamNumberFromKey(entry?.team_key), entry]));
+}
+
+function buildOprMap(oprsPayload) {
+  const oprs = oprsPayload?.oprs && typeof oprsPayload.oprs === "object" ? oprsPayload.oprs : {};
+  return new Map(Object.entries(oprs).map(([teamKey, value]) => [parseTeamNumberFromKey(teamKey), Number(value || 0)]));
+}
+
+function buildTeamStatMap(oprsPayload, key, fieldId) {
+  const values = oprsPayload?.[key] && typeof oprsPayload[key] === "object" ? oprsPayload[key] : {};
+  return new Map(Object.entries(values).map(([teamKey, value]) => [parseTeamNumberFromKey(teamKey), { fieldId, value: Number(value || 0) }]));
+}
+
+function buildTbaEventComponents(rankingEntry, tbaStatEntries = []) {
+  const components = {};
+  flattenTbaScalarEntries(rankingEntry || {}).forEach(([fieldId, value]) => {
+    if (fieldId === "teamKey") return;
+    components[fieldId] = value;
+  });
+  if (Number.isFinite(Number(rankingEntry?.sort_orders?.[0]))) {
+    components.rps = Number(rankingEntry.sort_orders[0]);
+  }
+  tbaStatEntries.forEach((entry) => {
+    if (!entry?.fieldId) return;
+    components[entry.fieldId] = entry.value;
+  });
+  return components;
+}
+
 function emptySourceComponents(season, fallback = null) {
   return Object.fromEntries(season.scoringComponents.map((component) => [component.id, fallback]));
 }
 
-function buildTeam(teamInfo, teamEvent, season) {
+function buildTeam(teamInfo, teamEvent, season, rankingEntry, oprValue, tbaComponents) {
   const epa = Number(teamEvent?.epa?.total_points || 0);
   const breakdown = teamEvent?.epa?.breakdown || {};
-  const stats = teamEvent?.epa?.stats || {};
   const qualRecord = teamEvent?.record?.qual || {};
-  const trend = buildTrend(epa, stats, qualRecord.count, Number(teamInfo.team_number));
   const componentMap = buildComponentMap(epa, season, breakdown);
   const emptyScouterComponents = Object.fromEntries(scouterMetricDefinitions(season).map((component) => [component.id, 0]));
-  const opr = round(epa * 1.04);
+  const opr = Number.isFinite(Number(oprValue)) ? round(oprValue) : round(epa * 1.04);
+  const normalizedRankingRecord = normalizeQualRecord(rankingEntry?.record);
+  const rankingSortOrders = Array.isArray(rankingEntry?.sort_orders) ? rankingEntry.sort_orders : [];
+  const rankingScore = rankingSortOrders.length ? Number(rankingSortOrders[0] || 0) : Number(qualRecord.rps_per_match || 0);
+  const stats = teamEvent?.epa?.stats || {};
   const consistency = Math.max(25, Math.min(99, Math.round(100 - Math.abs((Number(stats.max || epa) - Number(stats.mean || epa)) / Math.max(1, Number(stats.mean || epa))) * 65)));
   const defenseImpact = round(Math.max(0, Number(qualRecord.rps_per_match || 0) * 2.2 - Number(teamEvent?.epa?.breakdown?.auto_points || 0) * 0.08));
   return {
@@ -120,13 +199,23 @@ function buildTeam(teamInfo, teamEvent, season) {
     name: teamInfo.nickname || teamEvent?.team_name || `Team ${teamInfo.team_number}`,
     drivetrain: "unknown",
     flags: [],
-    matches: trend,
-    eventRank: Number(qualRecord.rank || 0) || null,
-    record: teamEvent?.record || null,
+    matches: [],
+    eventRank: Number(rankingEntry?.rank || qualRecord.rank || 0) || null,
+    record: {
+      ...(teamEvent?.record || {}),
+      qual: {
+        ...(teamEvent?.record?.qual || {}),
+        ...(normalizedRankingRecord || {}),
+        rank: Number(rankingEntry?.rank || qualRecord.rank || 0) || null,
+        rps: rankingScore || null,
+        rps_per_match: Number(qualRecord.rps_per_match || 0) || null,
+      },
+    },
     sources: {
-      scouter: { total: 0, components: emptyScouterComponents, trend: trend.map(() => 0), componentTrend: Object.fromEntries(scouterMetricDefinitions(season).map((component) => [component.id, trend.map(() => 0)])) },
-      epa: { total: round(epa), components: componentMap, trend },
-      opr: { total: round(opr), components: componentMap, trend: trend.map((value) => round(value * 1.04)) },
+      scouter: { total: 0, components: emptyScouterComponents, trend: [], componentTrend: Object.fromEntries(scouterMetricDefinitions(season).map((component) => [component.id, []])) },
+      epa: { total: round(epa), components: componentMap, trend: [] },
+      tba: { total: null, components: { ...(tbaComponents || {}) }, trend: [] },
+      opr: { total: round(opr), components: emptySourceComponents(season, null), trend: [] },
       pridge: { total: null, components: emptySourceComponents(season), trend: [] },
     },
     derived: {
@@ -139,8 +228,26 @@ function buildTeam(teamInfo, teamEvent, season) {
 function buildEventModelFromPayloads(payload) {
   const season = seasonDefinitions[payload.year] || seasonDefinitions[2026];
   const teamEventsByNumber = new Map((payload.statboticsTeamEvents || []).map((teamEvent) => [Number(teamEvent.team), teamEvent]));
+  const rankingsByTeamNumber = buildRankingMap(payload.tbaRankings);
+  const oprByTeamNumber = buildOprMap(payload.tbaOprs);
+  const dprByTeamNumber = buildTeamStatMap(payload.tbaOprs, "dprs", "dpr.total");
+  const ccwmByTeamNumber = buildTeamStatMap(payload.tbaOprs, "ccwms", "ccwm.total");
   const teams = (payload.tbaTeams || [])
-    .map((teamInfo) => buildTeam(teamInfo, teamEventsByNumber.get(Number(teamInfo.team_number)) || {}, season))
+    .map((teamInfo) => {
+      const teamNumber = Number(teamInfo.team_number);
+      return buildTeam(
+        teamInfo,
+        teamEventsByNumber.get(teamNumber) || {},
+        season,
+        rankingsByTeamNumber.get(teamNumber) || null,
+        oprByTeamNumber.get(teamNumber),
+        buildTbaEventComponents(rankingsByTeamNumber.get(teamNumber) || null, [
+          { fieldId: "opr.total", value: oprByTeamNumber.get(teamNumber) },
+          dprByTeamNumber.get(teamNumber),
+          ccwmByTeamNumber.get(teamNumber),
+        ].filter((entry) => entry && Number.isFinite(Number(entry.value)))),
+      );
+    })
     .sort((left, right) => left.number - right.number);
   const matches = normalizeMatches(payload.tbaMatches || []);
   let pridgeResult = null;
@@ -196,7 +303,7 @@ function buildEventModelFromPayloads(payload) {
         ],
       },
     ],
-    seedPicklists: buildSeedPicklists(teams),
+    seedPicklists: buildSeedPicklists(teamsWithPridge),
     dataSources: [
       {
         name: "Scouting Spreadsheet",
@@ -242,6 +349,8 @@ function buildEventModelFromSnapshot(snapshot) {
     tbaEvent: parseJson(snapshot.tbaEventText, {}),
     tbaTeams: parseJson(snapshot.tbaTeamsText, []),
     tbaMatches: parseJson(snapshot.tbaMatchesText, []),
+    tbaRankings: parseJson(snapshot.tbaRankingsText, {}),
+    tbaOprs: parseJson(snapshot.tbaOprsText, {}),
     statboticsEvent: parseJson(snapshot.statboticsEventText, {}),
     statboticsTeamEvents: parseJson(snapshot.statboticsTeamEventsText, []),
     catalogSource: snapshot.catalogSource || "snapshot",
@@ -257,6 +366,8 @@ function buildEventModelFromProviderBundle(bundle) {
     tbaEvent: bundle.tbaEvent || {},
     tbaTeams: bundle.tbaTeams || [],
     tbaMatches: bundle.tbaMatches || [],
+    tbaRankings: bundle.tbaRankings || {},
+    tbaOprs: bundle.tbaOprs || {},
     statboticsEvent: bundle.statboticsEvent || {},
     statboticsTeamEvents: bundle.statboticsTeamEvents || [],
     catalogSource: bundle.catalogSource || "dynamic-external",
