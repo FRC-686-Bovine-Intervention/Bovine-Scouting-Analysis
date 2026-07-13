@@ -422,6 +422,31 @@ function setCurrentScoutingSourceUrl(url, options = {}) {
   if (options.save) saveState();
 }
 
+function inferredScoutingAttachmentFormat(currentFormat, source) {
+  const normalizedSource = normalizeScoutingSourceUrl(source).split(/[?#]/)[0];
+  const normalizedFormat = normalizeText(currentFormat).toLowerCase();
+  if (/\.json$/i.test(normalizedSource)) return "scouting-json";
+  if (/\.(csv|tsv|txt)$/i.test(normalizedSource)) return "legacy-sheet-csv";
+  if (/\/spreadsheets\/d\/[a-zA-Z0-9-_]+/.test(normalizedSource)) return "legacy-sheet-url";
+  return normalizedFormat || "scouting-json";
+}
+
+function inferredScoutingTranslatorId(currentTranslatorId, format) {
+  const normalizedTranslatorId = normalizeText(currentTranslatorId);
+  const normalizedFormat = normalizeText(format);
+  const defaultLegacyTranslatorIds = new Set(["", "match-current-v2", "match-legacy-v1"]);
+  if (normalizedFormat === "scouting-json") {
+    if (defaultLegacyTranslatorIds.has(normalizedTranslatorId) || normalizedTranslatorId === "canonical-json-v1") {
+      return "canonical-json-v1";
+    }
+    return normalizedTranslatorId;
+  }
+  if (!normalizedTranslatorId || normalizedTranslatorId === "canonical-json-v1") {
+    return "match-current-v2";
+  }
+  return normalizedTranslatorId;
+}
+
 function setTbaAuthKey(value, options = {}) {
   state.tbaAuthKey = normalizeText(value);
   globalThis.__TBA_AUTH_KEY = state.tbaAuthKey;
@@ -618,8 +643,11 @@ function setCurrentScoutingAttachment(attachmentId) {
 function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
   const activeAttachment = currentScoutingAttachment();
   if (!activeAttachment) return;
-  const normalizedFormat = normalizeText(draft.format) || activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent());
   const normalizedSource = normalizeScoutingSourceUrl(draft.source);
+  const normalizedFormat = inferredScoutingAttachmentFormat(
+    normalizeText(draft.format) || activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+    normalizedSource,
+  );
   const isRemoteSource = /^https?:\/\//i.test(normalizedSource);
   state.eventWorkspace = upsertEventWorkspaceScoutingAttachment(
     currentEventWorkspace(),
@@ -633,7 +661,7 @@ function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
         url: isRemoteSource ? normalizedSource : "",
         path: normalizedSource && !isRemoteSource ? normalizedSource : "",
       },
-      translatorId: normalizeText(draft.translatorId) || activeAttachment.translatorId,
+      translatorId: inferredScoutingTranslatorId(normalizeText(draft.translatorId) || activeAttachment.translatorId, normalizedFormat),
       autoLoad: Boolean(draft.autoLoad),
     },
     currentEvent(),
@@ -674,22 +702,38 @@ function addScoutingAttachmentDraft() {
 async function chooseLocalScoutingAttachmentFile() {
   const attachment = currentScoutingAttachment();
   if (!attachment?.attachmentId) return;
+  const draft = readCurrentScoutingAttachmentDraftFromDom();
+  const selectedFormat = inferredScoutingAttachmentFormat(
+    normalizeText(draft.format) || activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+    normalizeText(draft.source) || attachment.location?.path,
+  );
+  if (!localAttachmentFilesSupported()) {
+    setImportError("Local scouting file selection is unavailable in this browser. Paste a URL/path instead, or use a browser that supports the File System Access API.");
+    return;
+  }
   try {
     const selected = await pickLocalAttachmentFile({
       attachmentId: attachment.attachmentId,
-      format: activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
-      path: attachment.location?.path,
+      format: selectedFormat,
+      path: normalizeText(draft.source) || attachment.location?.path,
     });
     saveCurrentScoutingAttachmentDraft(
       {
-        label: attachment.label,
-        format: activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
-        translatorId: attachment.translatorId,
+        ...draft,
+        label: normalizeText(draft.label) || attachment.label,
+        format: selectedFormat,
+        translatorId: inferredScoutingTranslatorId(normalizeText(draft.translatorId) || attachment.translatorId, selectedFormat),
         source: selected.path,
         autoLoad: true,
       },
       { render: false },
     );
+    state.importResult = {
+      ok: true,
+      errors: [],
+      warnings: [`Bound local scouting file ${selected.path} to ${attachment.label || attachment.attachmentId}. Click Load Scouting Data to import it.`],
+      summary: null,
+    };
     pushActivity(`Bound local scouting file ${selected.path} to ${attachment.label || attachment.attachmentId}.`);
     saveState();
     render();
@@ -710,13 +754,27 @@ async function deleteScoutingAttachment(attachmentId) {
 }
 
 function readCurrentScoutingAttachmentDraftFromDom() {
+  const source = document.querySelector("#importSourceUrl")?.value;
+  const inferredFormat = inferredScoutingAttachmentFormat(document.querySelector("#scoutingAttachmentFormatSelect")?.value, source);
   return {
     label: document.querySelector("#scoutingAttachmentLabel")?.value,
-    format: document.querySelector("#scoutingAttachmentFormatSelect")?.value,
-    translatorId: document.querySelector("#scoutingAttachmentTranslatorId")?.value,
-    source: document.querySelector("#importSourceUrl")?.value,
+    format: inferredFormat,
+    translatorId: inferredScoutingTranslatorId(document.querySelector("#scoutingAttachmentTranslatorId")?.value, inferredFormat),
+    source,
     autoLoad: document.querySelector("#scoutingAttachmentAutoLoad")?.checked,
   };
+}
+
+function syncScoutingAttachmentInferenceFromDom() {
+  const sourceInput = document.querySelector("#importSourceUrl");
+  const formatSelect = document.querySelector("#scoutingAttachmentFormatSelect");
+  const translatorInput = document.querySelector("#scoutingAttachmentTranslatorId");
+  if (!sourceInput || !formatSelect || !translatorInput) return;
+  const inferredFormat = inferredScoutingAttachmentFormat(formatSelect.value, sourceInput.value);
+  formatSelect.value = inferredFormat;
+  if (!normalizeText(translatorInput.value)) {
+    translatorInput.value = inferredScoutingTranslatorId("", inferredFormat);
+  }
 }
 
 function saveCurrentScoutingAttachmentDraftFromDom(options = {}) {
@@ -5317,14 +5375,14 @@ function renderAdmin() {
             <label>
               Attachment format
               <select id="scoutingAttachmentFormatSelect" aria-label="Scouting attachment format">
-                <option value="legacy-sheet-url" ${activeAttachmentFormat === "legacy-sheet-url" ? "selected" : ""}>Google Sheet URL</option>
-                <option value="legacy-sheet-csv" ${activeAttachmentFormat === "legacy-sheet-csv" ? "selected" : ""}>CSV URL</option>
-                <option value="scouting-json" ${activeAttachmentFormat === "scouting-json" ? "selected" : ""}>Canonical JSON URL</option>
+                <option value="legacy-sheet-url" ${activeAttachmentFormat === "legacy-sheet-url" ? "selected" : ""}>Google Sheet</option>
+                <option value="legacy-sheet-csv" ${activeAttachmentFormat === "legacy-sheet-csv" ? "selected" : ""}>CSV</option>
+                <option value="scouting-json" ${activeAttachmentFormat === "scouting-json" ? "selected" : ""}>JSON</option>
               </select>
             </label>
             <label>
               Translator / profile
-              <input id="scoutingAttachmentTranslatorId" class="admin-input" type="text" value="${escapeAttribute(activeAttachment?.translatorId || "")}" placeholder="match-current-v2 or canonical-json-v1" />
+              <input id="scoutingAttachmentTranslatorId" class="admin-input" type="text" value="${escapeAttribute(activeAttachment?.translatorId || "")}" placeholder="canonical-json-v1" />
             </label>
             <label>
               Attachment source
@@ -6987,6 +7045,10 @@ function bindViewEvents() {
   });
   document.querySelector("#importSourceUrl")?.addEventListener("input", (event) => {
     setCurrentScoutingSourceUrl(event.target.value);
+    syncScoutingAttachmentInferenceFromDom();
+  });
+  document.querySelector("#scoutingAttachmentFormatSelect")?.addEventListener("change", () => {
+    syncScoutingAttachmentInferenceFromDom();
   });
   document.querySelector("#importCsvInput")?.addEventListener("input", (event) => {
     state.importCsvText = event.target.value;
