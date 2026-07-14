@@ -1,5 +1,5 @@
-import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 
 const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
@@ -8,18 +8,21 @@ const datasets = [
   {
     eventKey: "2024mdsev",
     filePath: path.resolve("tests/fixtures/canonical-scouting-datasets/2024mdsev.json"),
+    fileUrl: pathToFileURL(path.resolve("tests/fixtures/canonical-scouting-datasets/2024mdsev.json")).href,
     expectedAnalysisMetricId: "source:scouter:autoSpeakerMade",
     expectedDerivedMetricId: "scouting.autoSpeakerMade",
   },
   {
     eventKey: "2025chcmp",
     filePath: path.resolve("tests/fixtures/canonical-scouting-datasets/2025chcmp.json"),
+    fileUrl: pathToFileURL(path.resolve("tests/fixtures/canonical-scouting-datasets/2025chcmp.json")).href,
     expectedAnalysisMetricId: "source:scouter:autoL4Made",
     expectedDerivedMetricId: "scouting.autoL4Made",
   },
   {
     eventKey: "2026chcmp",
     filePath: path.resolve("tests/fixtures/canonical-scouting-datasets/2026chcmp.json"),
+    fileUrl: pathToFileURL(path.resolve("tests/fixtures/canonical-scouting-datasets/2026chcmp.json")).href,
     expectedAnalysisMetricId: "source:scouter:autoFuelPct",
     expectedDerivedMetricId: "scouting.autoFuelPct",
   },
@@ -45,30 +48,20 @@ async function login(page) {
 
 async function openAdmin(page) {
   await page.locator('[data-view="admin"]').click();
-  await page.waitForSelector("#adminEventSelect");
+  await page.waitForSelector("#adminEventCodeInput");
 }
 
 async function switchEvent(page, eventKey) {
-  await page.selectOption("#adminEventSelect", eventKey);
+  await page.fill("#adminEventCodeInput", eventKey);
+  await page.locator("#adminEventCodeInput").press("Enter");
   await page.waitForFunction((expectedEventKey) => globalThis.__scoutingAppState?.activeEventKey === expectedEventKey, eventKey);
   await page.waitForTimeout(500);
 }
 
-async function chooseLocalJsonFile(page, filePath) {
-  await page.selectOption("#scoutingAttachmentFormatSelect", "scouting-json");
-  await page.fill("#scoutingAttachmentTranslatorId", "canonical-json-v1");
-  await page.fill("#importSourceUrl", filePath);
-  await page.locator("#saveScoutingAttachmentButton").click();
-}
-
-async function loadAndCommitImport(page, jsonText) {
-  await page.evaluate((nextJsonText) => {
-    loadPreparedScoutingJson(nextJsonText, { autoCommit: false });
-  }, jsonText);
-  await page.waitForFunction(() => Boolean(globalThis.__scoutingAppState?.importResult?.summary));
-  await page.locator("#commitImportButton").click();
-  await page.waitForFunction(() => globalThis.__scoutingAppState?.importResult === null);
-  await page.waitForTimeout(400);
+async function chooseLocalJsonFile(page, fileUrl) {
+  await page.fill("#importSourceUrl", fileUrl);
+  await page.locator("#importSourceUrl").press("Tab");
+  await page.waitForFunction(() => Boolean(currentScoutingAttachment()?.location?.url) && currentScoutingSubmissions().length > 0);
 }
 
 async function collectAnalysisMetricOptions(page) {
@@ -126,8 +119,7 @@ try {
 
   for (const dataset of datasets) {
     await switchEvent(page, dataset.eventKey);
-    await chooseLocalJsonFile(page, dataset.filePath);
-    await loadAndCommitImport(page, fs.readFileSync(dataset.filePath, "utf8"));
+    await chooseLocalJsonFile(page, dataset.fileUrl);
 
     const verification = await page.evaluate(({ eventKey }) => ({
       activeEventKey: globalThis.__scoutingAppState?.activeEventKey,

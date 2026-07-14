@@ -65,7 +65,7 @@ runTest("createEventWorkspace builds default external sources and a default scou
   assert.equal(context.EventWorkspace.scoutingSourceUrl(workspace), "https://example.com/sheet");
 });
 
-runTest("createEventWorkspace supports external-only events with no scouting attachment", () => {
+runTest("createEventWorkspace supports external-only events with a manual scouting attachment", () => {
   const context = loadBrowserContext(["src/event-workspace.js"]);
   const workspace = context.EventWorkspace.createEventWorkspace({
     key: "2027test",
@@ -84,9 +84,10 @@ runTest("createEventWorkspace supports external-only events with no scouting att
   assert.equal(workspace.sources.statbotics.kind, "external");
   assert.equal(workspace.sources.pridge.kind, "external");
   assert.equal(Array.isArray(workspace.sources.scouting), true);
-  assert.equal(workspace.sources.scouting.length, 0);
-  assert.equal(workspace.activeScoutingAttachmentId, "");
-  assert.equal(context.EventWorkspace.activeScoutingAttachment(workspace), null);
+  assert.equal(workspace.sources.scouting.length, 1);
+  assert.equal(workspace.activeScoutingAttachmentId, "scouting-2027test-default");
+  assert.equal(context.EventWorkspace.activeScoutingAttachment(workspace)?.locationKind, "manual");
+  assert.equal(context.EventWorkspace.activeScoutingAttachment(workspace)?.translatorId, "canonical-json-v1");
 });
 
 runTest("createEventWorkspace preserves stored scouting attachment metadata over default event values", () => {
@@ -198,6 +199,28 @@ runTest("setScoutingSourceLocation converts local sheet-backed attachments into 
   assert.equal(attachment.locationKind, "path");
   assert.equal(attachment.format, "legacy-sheet-csv");
   assert.equal(load.kind, "local-csv");
+  assert.equal(load.canLoad, true);
+});
+
+runTest("setScoutingSourceLocation treats file URLs as URL-backed JSON sources", () => {
+  const context = loadBrowserContext(["src/event-workspace.js"]);
+  const workspace = context.EventWorkspace.createEventWorkspace({
+    key: "2026fileurl",
+    season: 2026,
+    name: "File URL Event",
+  });
+
+  const updatedWorkspace = context.EventWorkspace.setScoutingSourceLocation(
+    workspace,
+    "file:///D:/FIRST/Scouting/Scouting-Analysis/tests/fixtures/canonical-scouting-datasets/2024mdsev.json",
+  );
+  const attachment = context.EventWorkspace.activeScoutingAttachment(updatedWorkspace);
+  const load = context.EventWorkspace.describeActiveScoutingAttachmentLoad(updatedWorkspace, {});
+
+  assert.equal(attachment.locationKind, "url");
+  assert.equal(attachment.location.url.startsWith("file:///"), true);
+  assert.equal(attachment.format, "scouting-json");
+  assert.equal(load.kind, "remote-json");
   assert.equal(load.canLoad, true);
 });
 

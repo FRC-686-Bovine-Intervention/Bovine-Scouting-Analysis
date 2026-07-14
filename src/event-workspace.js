@@ -9,7 +9,7 @@ function normalizeText(value) {
 }
 
 function looksLikeRemoteUrl(value) {
-  return /^https?:\/\//i.test(normalizeText(value));
+  return /^(https?|file):\/\//i.test(normalizeText(value));
 }
 
 function looksLikeGoogleSheetUrl(value) {
@@ -23,10 +23,11 @@ function fileExtension(value) {
 }
 
 function inferredAttachmentFormat(currentFormat, value, isRemoteUrl) {
-  if (isRemoteUrl) return normalizeText(currentFormat);
+  if (looksLikeGoogleSheetUrl(value)) return "legacy-sheet-url";
   const extension = fileExtension(value);
   if (extension === "json") return "scouting-json";
   if (["csv", "tsv", "txt"].includes(extension)) return "legacy-sheet-csv";
+  if (isRemoteUrl) return normalizeText(currentFormat);
   if (normalizeText(currentFormat).toLowerCase() === "legacy-sheet-url") return "legacy-sheet-csv";
   return normalizeText(currentFormat);
 }
@@ -53,8 +54,34 @@ function createExternalSourceState(sourceId, eventModel, storedSource = {}) {
 }
 
 function buildDefaultScoutingAttachment(eventModel) {
-  if (!eventModel?.sheet) return [];
   const attachmentId = `scouting-${eventModel.key}-default`;
+  if (!eventModel?.sheet) {
+    return [
+      {
+        attachmentId,
+        eventKey: eventModel.key,
+        label: `${normalizeText(eventModel?.name) || normalizeText(eventModel?.key)} Scouting`,
+        format: "scouting-json",
+        locationKind: "manual",
+        location: {
+          url: "",
+          sampleKey: "",
+        },
+        translatorId: "canonical-json-v1",
+        status: "manual",
+        freshness: "unknown",
+        autoLoad: false,
+        schemaSignature: "",
+        sourceFingerprint: "",
+        error: "",
+        lastAttemptedAt: "",
+        lastSuccessfulAt: "",
+        nextPollAt: "",
+        consecutiveFailures: 0,
+        pollingEnabled: true,
+      },
+    ];
+  }
   const hasSample = Boolean(eventModel.sheet.sampleCsvText);
   const url = normalizeText(eventModel.sheet.url);
   return [
