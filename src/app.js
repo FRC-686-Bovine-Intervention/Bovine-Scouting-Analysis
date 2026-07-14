@@ -800,13 +800,18 @@ async function chooseLocalScoutingAttachmentFile() {
       format: selectedFormat,
       path: normalizeText(draft.source) || attachment.location?.path,
     });
+    const selectedSource = normalizeText(selected.path);
+    const selectedSourceFormat = inferredScoutingAttachmentFormat(
+      activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+      selectedSource,
+    );
     saveCurrentScoutingAttachmentDraft(
       {
         ...draft,
         label: normalizeText(draft.label) || attachment.label,
-        format: selectedFormat,
-        translatorId: inferredScoutingTranslatorId(normalizeText(draft.translatorId) || attachment.translatorId, selectedFormat),
-        source: selected.path,
+        format: selectedSourceFormat,
+        translatorId: inferredScoutingTranslatorId(normalizeText(draft.translatorId) || attachment.translatorId, selectedSourceFormat),
+        source: selectedSource,
         autoLoad: true,
       },
       { render: false },
@@ -5543,6 +5548,18 @@ function renderAdmin() {
                 <button type="button" id="saveTbaAuthKeyButton" ${state.tbaAuthKeyDirty ? "" : "disabled"}>Save</button>
               </div>
             </label>
+          </div>
+        </article>
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <h2>Source Status</h2>
+            </div>
+            <div class="admin-actions">
+              <button type="button" id="refreshAllSourcesButton">Refresh All Sources</button>
+            </div>
+          </div>
+          <div class="data-source-list">
             <div class="issue-list">
               <div class="issue-row">
                 <strong>TBA key</strong>
@@ -5557,18 +5574,6 @@ function renderAdmin() {
                   : ""
               }
             </div>
-          </div>
-        </article>
-        <article class="card">
-          <div class="section-heading">
-            <div>
-              <h2>Source Status</h2>
-            </div>
-            <div class="admin-actions">
-              <button type="button" id="refreshAllSourcesButton">Refresh All Sources</button>
-            </div>
-          </div>
-          <div class="data-source-list">
             ${state.eventLookupResult ? `<div class="issue-row ${state.eventLookupResult.kind === "error" ? "danger" : state.eventLookupResult.kind === "warn" ? "warn" : ""}">${escapeHtml(state.eventLookupResult.message)}</div>` : ""}
             ${sourceStatusIssues.map((issue, index) => `<div class="issue-row ${index < (result?.errors || []).length ? "danger" : "warn"}">${escapeHtml(issue)}</div>`).join("")}
             ${currentDataSources()
