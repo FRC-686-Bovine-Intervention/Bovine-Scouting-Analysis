@@ -300,6 +300,7 @@ const state = {
   },
   viewHistory: [],
   adminEventCodeDraft: initialEventKey,
+  adminRecentEventsOpen: false,
 };
 state.recentEventKeys = normalizeRecentEventKeys(readStoredJson(storageKeys.recentEvents, [initialEventKey]), initialEventKey);
 globalThis.__scoutingAppState = state;
@@ -379,6 +380,16 @@ function resetTbaAuthKeyDraft() {
 
 function visibleTbaAuthKeyValue() {
   return state.tbaAuthKeyMasked && !state.tbaAuthKeyDirty ? maskedTbaAuthKeyValue : state.tbaAuthKeyDraft;
+}
+
+function currentScoutingMismatchMessage(result = state.importResult) {
+  if (!result) return "";
+  const mismatchError = [...(result.errors || []), ...(result.warnings || [])].find((issue) => /event key .* does not match active event/i.test(String(issue || "")));
+  if (mismatchError) return mismatchError;
+  if (result.canSwitchContext && result.suggestedEventKey && result.suggestedEventKey !== state.activeEventKey) {
+    return `Scouting data targets ${result.suggestedEventKey}, but the active event is ${state.activeEventKey}.`;
+  }
+  return "";
 }
 
 function detectedScoutingSourceLabel(workspace = currentEventWorkspace(), eventModel = currentEvent()) {
@@ -2155,6 +2166,7 @@ function hydrateEventState(eventKey) {
   const resolvedEventKey = resolveEventKey(eventKey);
   state.activeEventKey = resolvedEventKey;
   state.adminEventCodeDraft = resolvedEventKey;
+  state.adminRecentEventsOpen = false;
   globalThis.__scoutingActiveEventKey = state.activeEventKey;
   const eventModel = currentEvent();
   state.eventWorkspace = createEventWorkspace(eventModel, readStoredJson(storageKeys.eventWorkspace, null, resolvedEventKey));
@@ -5450,102 +5462,144 @@ function renderAdmin() {
   const tbaKeyNote = state.tbaAuthKey
     ? "Saved locally. Focus the field to replace it, then click Save."
     : "Paste the TBA auth key here and click Save.";
+  const mismatchMessage = currentScoutingMismatchMessage(result);
+  const sourceStatusIssues = issues.filter((issue) => issue !== mismatchMessage);
   return `
     <div class="grid">
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Event Imports</h2>
+      <div class="grid cols-2">
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <h2>Event Imports</h2>
+            </div>
           </div>
-        </div>
-        <div class="admin-form-grid">
-          <label>
-            Recent Event
-            <select id="recentAdminEventSelect" aria-label="Recent event selection">
-              ${recentEventKeys.map((eventKey) => {
-                const item = eventModelByKey(eventKey);
-                return `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.key} | ${item.season} ${escapeHtml(item.name)}</option>`;
-              }).join("")}
-            </select>
-          </label>
-          <label>
-            Event Code
-            <input
-              id="adminEventCodeInput"
-              class="admin-input"
-              type="text"
-              value="${escapeAttribute(state.adminEventCodeDraft || event.key)}"
-              placeholder="2026miket"
-              aria-label="Event code"
-              autocapitalize="off"
-              spellcheck="false"
-              ${state.eventLookupPending ? "disabled" : ""}
-            />
-          </label>
-          <label>
-            Scouting Data
-            <div class="admin-actions">
-              <input
-                id="importSourceUrl"
-                class="admin-input"
-                type="text"
-                value="${escapeAttribute(currentScoutingSourceInputValue(workspace, event, state.importSourceUrl))}"
-                placeholder="https://docs.google.com/spreadsheets/d/... or a bound local file name"
-                aria-label="Scouting data source"
-                spellcheck="false"
-              />
-              <button type="button" id="chooseLocalScoutingFileButton" ${localAttachmentFilesSupported() ? "" : "disabled"}>Browse</button>
-            </div>
-          </label>
-          <label>
-            TBA Auth Key
-            <div class="admin-actions">
-              <input
-                id="adminTbaAuthKeyInput"
-                class="admin-input"
-                type="password"
-                value="${escapeAttribute(visibleTbaAuthKeyValue())}"
-                placeholder="Paste The Blue Alliance auth key"
-                aria-label="TBA auth key"
-                autocomplete="off"
-                autocapitalize="off"
-                spellcheck="false"
-              />
-              <button type="button" id="saveTbaAuthKeyButton" ${state.tbaAuthKeyDirty ? "" : "disabled"}>Save</button>
-            </div>
-          </label>
-          <div class="issue-list">
-            <div class="issue-row">
-              <strong>Detected Source</strong>
-              <span class="muted">${escapeHtml(detectedScoutingSourceLabel(workspace, event))}</span>
-            </div>
-            <div class="issue-row">
-              <strong>Current Source</strong>
-              <span class="muted">${escapeHtml(currentScoutingSourceInputValue(workspace, event, state.importSourceUrl) || "No scouting source configured.")}</span>
-            </div>
-            <div class="issue-row">
-              <strong>TBA key</strong>
-              <span class="muted">${escapeHtml(tbaKeyNote)}</span>
-            </div>
+          <div class="admin-form-grid">
+            <label>
+              Event Code
+              <div class="admin-actions">
+                <input
+                  id="adminEventCodeInput"
+                  class="admin-input"
+                  type="text"
+                  value="${escapeAttribute(state.adminEventCodeDraft || event.key)}"
+                  placeholder="2026miket"
+                  aria-label="Event code"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  ${state.eventLookupPending ? "disabled" : ""}
+                />
+                <button type="button" id="openRecentAdminEventsButton">Open Recent</button>
+              </div>
+            </label>
             ${
-              activeAttachment?.lastSuccessfulAt
-                ? `<div class="issue-row">
-              <strong>Last scouting load</strong>
-              <span class="muted">${escapeHtml(formatTimestamp(activeAttachment.lastSuccessfulAt))}</span>
+              state.adminRecentEventsOpen
+                ? `<label>
+              Recent Events
+              <select id="recentAdminEventSelect" aria-label="Recent event selection" size="${Math.min(10, Math.max(2, recentEventKeys.length))}">
+                ${recentEventKeys.map((eventKey) => {
+                  const item = eventModelByKey(eventKey);
+                  return `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.key} | ${item.season} ${escapeHtml(item.name)}</option>`;
+                }).join("")}
+              </select>
+            </label>`
+                : ""
+            }
+            <label>
+              Scouting Data
+              <div class="admin-actions">
+                <input
+                  id="importSourceUrl"
+                  class="admin-input"
+                  type="text"
+                  value="${escapeAttribute(currentScoutingSourceInputValue(workspace, event, state.importSourceUrl))}"
+                  placeholder="https://docs.google.com/spreadsheets/d/... or a bound local file name"
+                  aria-label="Scouting data source"
+                  spellcheck="false"
+                />
+                <button type="button" id="chooseLocalScoutingFileButton" ${localAttachmentFilesSupported() ? "" : "disabled"}>Browse</button>
+              </div>
+            </label>
+            ${
+              mismatchMessage
+                ? `<div class="issue-list">
+              <div class="issue-row danger">${escapeHtml(mismatchMessage)}</div>
             </div>`
                 : ""
             }
-            ${state.eventLookupResult ? `<div class="issue-row ${state.eventLookupResult.kind === "error" ? "danger" : state.eventLookupResult.kind === "warn" ? "warn" : ""}">${escapeHtml(state.eventLookupResult.message)}</div>` : ""}
-            ${
-              issues.length
-                ? issues
-                    .map((issue, index) => `<div class="issue-row ${index < (result?.errors || []).length ? "danger" : "warn"}">${escapeHtml(issue)}</div>`)
-                    .join("")
-                : ""
-            }
+            <label>
+              TBA Auth Key
+              <div class="admin-actions">
+                <input
+                  id="adminTbaAuthKeyInput"
+                  class="admin-input"
+                  type="password"
+                  value="${escapeAttribute(visibleTbaAuthKeyValue())}"
+                  placeholder="Paste The Blue Alliance auth key"
+                  aria-label="TBA auth key"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                />
+                <button type="button" id="saveTbaAuthKeyButton" ${state.tbaAuthKeyDirty ? "" : "disabled"}>Save</button>
+              </div>
+            </label>
+            <div class="issue-list">
+              <div class="issue-row">
+                <strong>TBA key</strong>
+                <span class="muted">${escapeHtml(tbaKeyNote)}</span>
+              </div>
+              ${
+                activeAttachment?.lastSuccessfulAt
+                  ? `<div class="issue-row">
+                <strong>Last scouting load</strong>
+                <span class="muted">${escapeHtml(formatTimestamp(activeAttachment.lastSuccessfulAt))}</span>
+              </div>`
+                  : ""
+              }
+            </div>
           </div>
-        </div>
-      </article>
+        </article>
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <h2>Source Status</h2>
+            </div>
+            <div class="admin-actions">
+              <button type="button" id="refreshAllSourcesButton">Refresh All Sources</button>
+            </div>
+          </div>
+          <div class="data-source-list">
+            ${state.eventLookupResult ? `<div class="issue-row ${state.eventLookupResult.kind === "error" ? "danger" : state.eventLookupResult.kind === "warn" ? "warn" : ""}">${escapeHtml(state.eventLookupResult.message)}</div>` : ""}
+            ${sourceStatusIssues.map((issue, index) => `<div class="issue-row ${index < (result?.errors || []).length ? "danger" : "warn"}">${escapeHtml(issue)}</div>`).join("")}
+            ${currentDataSources()
+              .map(
+                (source) => `
+              <div class="data-source-row">
+                <div>
+                  <strong>${source.name}</strong>
+                  <span class="muted">${source.notes}</span>
+                  ${source.detectedLabel ? `<span class="muted">Detected type: ${escapeHtml(source.detectedLabel)}</span>` : ""}
+                </div>
+                <div class="source-status-stack">
+                  <span class="source-status">${source.status}</span>
+                  <span class="muted">${source.freshness} | Next poll: ${source.nextPollAt}</span>
+                </div>
+                <div class="source-actions-stack">
+                  <span class="muted">${source.updated}</span>
+                  <div class="admin-actions">
+                    <button type="button" data-refresh-source="${source.sourceId}">Refresh</button>
+                    <button type="button" data-toggle-source-polling="${source.sourceId}" data-polling-enabled="${source.pollingEnabled ? "true" : "false"}">
+                      ${source.pollingEnabled ? "Pause Polling" : "Resume Polling"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            `,
+              )
+              .join("")}
+          </div>
+        </article>
+      </div>
       <div class="stat-grid">
         <div class="stat"><span>Imported Rows</span><strong>${state.scoutingSubmissions.length}</strong></div>
         <div class="stat"><span>Imported Matches</span><strong>${importedMatchCount()}</strong></div>
@@ -5572,45 +5626,6 @@ function renderAdmin() {
           })()}
         </article>
       </div>
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Data Sources</h2>
-            <p class="muted">These source statuses follow the selected event and update with the current event context.</p>
-          </div>
-          <div class="admin-actions">
-            <button type="button" id="refreshAllSourcesButton">Refresh All Sources</button>
-          </div>
-        </div>
-        <div class="data-source-list">
-          ${currentDataSources()
-            .map(
-              (source) => `
-            <div class="data-source-row">
-              <div>
-                <strong>${source.name}</strong>
-                <span class="muted">${source.notes}</span>
-                ${source.detectedLabel ? `<span class="muted">Detected type: ${escapeHtml(source.detectedLabel)}</span>` : ""}
-              </div>
-              <div class="source-status-stack">
-                <span class="source-status">${source.status}</span>
-                <span class="muted">${source.freshness} | Next poll: ${source.nextPollAt}</span>
-              </div>
-              <div class="source-actions-stack">
-                <span class="muted">${source.updated}</span>
-                <div class="admin-actions">
-                  <button type="button" data-refresh-source="${source.sourceId}">Refresh</button>
-                  <button type="button" data-toggle-source-polling="${source.sourceId}" data-polling-enabled="${source.pollingEnabled ? "true" : "false"}">
-                    ${source.pollingEnabled ? "Pause Polling" : "Resume Polling"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          `,
-            )
-            .join("")}
-        </div>
-      </article>
       <article class="card">
         <div class="section-heading">
           <div>
@@ -6559,9 +6574,14 @@ function bindViewEvents() {
     saveState();
     render();
   });
+  document.querySelector("#openRecentAdminEventsButton")?.addEventListener("click", () => {
+    state.adminRecentEventsOpen = !state.adminRecentEventsOpen;
+    render();
+  });
   document.querySelector("#recentAdminEventSelect")?.addEventListener("change", (event) => {
     const nextEventKey = event.target.value;
     if (!nextEventKey) return;
+    state.adminRecentEventsOpen = false;
     switchActiveEvent(nextEventKey, { activeView: "admin" });
   });
   document.querySelector("#adminEventCodeInput")?.addEventListener("input", (event) => {
