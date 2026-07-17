@@ -149,3 +149,11 @@ runTest("real event model leaves score breakdown null when snapshots only provid
   assert.equal(eventModel.matches[0].winningAlliance, "blue");
   assert.equal(eventModel.matches[0].scoreBreakdown, null);
 });
+
+runTest("real event data does not invent fallback events when no real snapshots are present", () => {
+  const context = loadBrowserContext(["src/season-framework.js", "src/event-model-builder.js", "src/real-event-data.js"], {
+    realEventSnapshots: { events: [] },
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(context.eventCatalog || [])), []);
+});

@@ -42,7 +42,7 @@ runTest("createEventWorkspace builds default external sources and a default scou
     key: "2026chcmp",
     season: 2026,
     name: "CHCMP",
-    seasonLabel: "Future Season Demo",
+    seasonLabel: "2026 Season",
     dataSources: [
       { name: "The Blue Alliance", notes: "Teams and qualification schedule are sourced from real TBA event snapshots." },
       { name: "Statbotics EPA", notes: "EPA totals and season-specific scoring breakdowns are sourced from Statbotics." },

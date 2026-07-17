@@ -165,7 +165,7 @@ const seasonDefinitions = {
     ],
   },
   2026: {
-    label: "Future Season",
+    label: "2026 Season",
     scoringComponents: [
       { id: "auto", label: "Auto", unit: "pts" },
       { id: "cycle", label: "Cycle", unit: "pts" },
