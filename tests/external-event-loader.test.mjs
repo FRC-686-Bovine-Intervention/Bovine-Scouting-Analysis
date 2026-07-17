@@ -186,6 +186,10 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.eventModel.teams[0].sources.tba.components.rps, 3.2);
   assert.equal(result.eventModel.teams[0].sources.tba.components["record.wins"], 8);
   assert.equal(result.eventModel.teams[0].sources.tba.components["sortOrders.0"], 3.2);
+  assert.equal(result.eventModel.teams[0].sources.epa.components["epa.totalPoints"], 42.5);
+  assert.equal(result.eventModel.teams[0].sources.epa.components["epa.breakdown.autoPoints"], 10);
+  assert.equal(result.eventModel.teams[0].sources.epa.components["epa.stats.preElim"], 43);
+  assert.equal(result.eventModel.teams[0].sources.epa.components["record.qual.rank"], 4);
   assert.equal(Array.isArray(result.eventModel.teams[0].sources.epa.trend), true);
   assert.equal(result.eventModel.teams[0].sources.epa.trend.length, 0);
   assert.equal(Array.isArray(result.eventModel.teams[0].sources.opr.trend), true);
@@ -202,6 +206,75 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.statbotics || "").startsWith("fnv1a:"));
   assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.total), true);
   assert.equal(result.warnings.length, 0);
+});
+
+await runTest("loadEventByCode falls back to a generic season shell for unknown years while preserving provider metrics", async () => {
+  const baseUrls = {
+    tba: "https://tba.test/api",
+    statbotics: "https://statbotics.test/api",
+  };
+  const context = loadBrowserContext([
+    "src/season-framework.js",
+    "src/prior-ridge.js",
+    "src/event-model-builder.js",
+    "src/external-source-snapshots.js",
+    "src/external-event-loader.js",
+  ]);
+  const fetchImpl = createFetchStub({
+    [`${baseUrls.tba}/event/2023generic`]: { key: "2023generic", year: 2023, name: "Generic 2023 Event" },
+    [`${baseUrls.tba}/event/2023generic/teams`]: [
+      { team_number: 1, nickname: "One" },
+      { team_number: 2, nickname: "Two" },
+      { team_number: 3, nickname: "Three" },
+      { team_number: 4, nickname: "Four" },
+      { team_number: 5, nickname: "Five" },
+      { team_number: 6, nickname: "Six" },
+    ],
+    [`${baseUrls.tba}/event/2023generic/matches`]: [
+      {
+        comp_level: "qm",
+        match_number: 1,
+        set_number: 1,
+        winning_alliance: "red",
+        alliances: {
+          red: { team_keys: ["frc1", "frc2", "frc3"], score: 101 },
+          blue: { team_keys: ["frc4", "frc5", "frc6"], score: 99 },
+        },
+        score_breakdown: {
+          red: { mobilityPoints: 9, autoGamePieceCount: 3 },
+          blue: { mobilityPoints: 6, autoGamePieceCount: 2 },
+        },
+      },
+    ],
+    [`${baseUrls.tba}/event/2023generic/rankings`]: { rankings: [], sort_order_info: [], extra_stats_info: [] },
+    [`${baseUrls.tba}/event/2023generic/oprs`]: { oprs: {}, dprs: {}, ccwms: {} },
+    [`${baseUrls.statbotics}/event/2023generic`]: { year: 2023, status: "Completed" },
+    [`${baseUrls.statbotics}/team_events/event/2023generic`]: [
+      { team: 1, epa: { total_points: 55.5, breakdown: { auto_points: 12 }, stats: { mean: 54 } }, record: { qual: { rank: 3 } } },
+      { team: 2, epa: { total_points: 44.2, breakdown: { auto_points: 10 }, stats: { mean: 43 } }, record: { qual: { rank: 8 } } },
+      { team: 3, epa: { total_points: 41.3, breakdown: { auto_points: 9 }, stats: { mean: 40 } }, record: { qual: { rank: 10 } } },
+      { team: 4, epa: { total_points: 38.7, breakdown: { auto_points: 8 }, stats: { mean: 39 } }, record: { qual: { rank: 14 } } },
+      { team: 5, epa: { total_points: 35.1, breakdown: { auto_points: 7 }, stats: { mean: 35 } }, record: { qual: { rank: 19 } } },
+      { team: 6, epa: { total_points: 31.9, breakdown: { auto_points: 6 }, stats: { mean: 32 } }, record: { qual: { rank: 25 } } },
+    ],
+  });
+
+  const result = await context.ExternalEventLoader.loadEventByCode("2023generic", {
+    fetchImpl,
+    tbaAuthKey: "unit-test-key",
+    tbaBaseUrl: baseUrls.tba,
+    statboticsBaseUrl: baseUrls.statbotics,
+    timestamp: "2026-07-17T12:00:00Z",
+  });
+
+  assert.equal(result.eventModel.season, 2023);
+  assert.equal(result.eventModel.seasonLabel, "2023 Season");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.scoringComponents || [])), []);
+  assert.equal(result.eventModel.teams[0].sources.tba.components["record.wins"], undefined);
+  assert.equal(result.eventModel.teams[0].sources.epa.components["epa.totalPoints"], 55.5);
+  assert.equal(result.eventModel.teams[0].sources.epa.components["epa.breakdown.autoPoints"], 12);
+  assert.equal(result.eventModel.teams[0].sources.epa.components["record.qual.rank"], 3);
+  assert.equal(result.eventModel.matches[0].scoreBreakdown.red.mobilityPoints, 9);
 });
 
 await runTest("loadEventByCode keeps the event loadable when Statbotics fails", async () => {

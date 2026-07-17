@@ -66,6 +66,21 @@ function flattenTbaScalarEntries(value, prefix = "") {
   return prefix && scalar !== null ? [[prefix, scalar]] : [];
 }
 
+function flattenStatboticsScalarEntries(value, prefix = "") {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry, index) => flattenStatboticsScalarEntries(entry, prefix ? `${prefix}.${index}` : String(index)));
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value).flatMap(([key, entryValue]) => {
+      const segment = camelCaseSegment(key);
+      if (!segment) return [];
+      return flattenStatboticsScalarEntries(entryValue, prefix ? `${prefix}.${segment}` : segment);
+    });
+  }
+  const scalar = scalarTbaValue(value);
+  return prefix && scalar !== null ? [[prefix, scalar]] : [];
+}
+
 function sumBreakdownValues(breakdown, keys) {
   return round((keys || []).reduce((sum, key) => sum + Number(breakdown?.[key] || 0), 0));
 }
@@ -184,8 +199,10 @@ function emptySourceComponents(season, fallback = null) {
 function buildTeam(teamInfo, teamEvent, season, rankingEntry, oprValue, tbaComponents) {
   const epa = Number(teamEvent?.epa?.total_points || 0);
   const breakdown = teamEvent?.epa?.breakdown || {};
+  const statboticsComponents = Object.fromEntries(
+    flattenStatboticsScalarEntries(teamEvent || {}).filter(([fieldId]) => fieldId !== "teamName" && fieldId !== "eventName"),
+  );
   const qualRecord = teamEvent?.record?.qual || {};
-  const componentMap = buildComponentMap(epa, season, breakdown);
   const emptyScouterComponents = Object.fromEntries(scouterMetricDefinitions(season).map((component) => [component.id, 0]));
   const opr = Number.isFinite(Number(oprValue)) ? round(oprValue) : round(epa * 1.04);
   const normalizedRankingRecord = normalizeQualRecord(rankingEntry?.record);
@@ -213,7 +230,7 @@ function buildTeam(teamInfo, teamEvent, season, rankingEntry, oprValue, tbaCompo
     },
     sources: {
       scouter: { total: 0, components: emptyScouterComponents, trend: [], componentTrend: Object.fromEntries(scouterMetricDefinitions(season).map((component) => [component.id, []])) },
-      epa: { total: round(epa), components: componentMap, trend: [] },
+      epa: { total: round(epa), components: { ...statboticsComponents }, trend: [] },
       tba: { total: null, components: { ...(tbaComponents || {}) }, trend: [] },
       opr: { total: round(opr), components: emptySourceComponents(season, null), trend: [] },
       pridge: { total: null, components: emptySourceComponents(season), trend: [] },
@@ -226,7 +243,15 @@ function buildTeam(teamInfo, teamEvent, season, rankingEntry, oprValue, tbaCompo
 }
 
 function buildEventModelFromPayloads(payload) {
-  const season = seasonDefinitions[payload.year] || seasonDefinitions[2026];
+  const season = seasonDefinitions[payload.year] || {
+    label: `${payload.year} Season`,
+    scoringComponents: [],
+    breakdownMap: {},
+    scouterMetrics: [],
+    derivedMetrics: [],
+    formulaFields: [],
+    scoringMatrixPresets: [],
+  };
   const teamEventsByNumber = new Map((payload.statboticsTeamEvents || []).map((teamEvent) => [Number(teamEvent.team), teamEvent]));
   const rankingsByTeamNumber = buildRankingMap(payload.tbaRankings);
   const oprByTeamNumber = buildOprMap(payload.tbaOprs);
@@ -281,6 +306,7 @@ function buildEventModelFromPayloads(payload) {
     name: payload.tbaEvent?.name || payload.statboticsEvent?.name || payload.key,
     season: payload.year,
     seasonLabel: season.label,
+    breakdownMap: season.breakdownMap || {},
     matchesComplete: matches.length,
     matches,
     scoringComponents: season.scoringComponents,
@@ -291,8 +317,8 @@ function buildEventModelFromPayloads(payload) {
     criteriaSources: buildCriteriaSources(season),
     teams: teamsWithPridge,
     teamNumbers: teamsWithPridge.map((team) => team.number),
-    defaultMetricId: "source:epa:total",
-    defaultTeamDetailMetricId: "source:epa:total",
+    defaultMetricId: "source:epa:epa.totalPoints",
+    defaultTeamDetailMetricId: "source:epa:epa.totalPoints",
     seedSortEquations: [
       {
         id: "sort-defense-backup",

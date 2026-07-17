@@ -87,7 +87,7 @@ async function verifyAvailableMetricsCatalog(page) {
       hasDerivedEquationReference: availableMetrics.includes("autoFuelTeam"),
       hasRealTbaMetric: availableMetrics.includes("tba.hubScore.autoPoints"),
       hasRealScoutingMetric: availableMetrics.includes("scouting.autoFuelPct"),
-      hasRealStatboticsMetric: availableMetrics.includes("statbotics.auto"),
+      hasRealStatboticsMetric: availableMetrics.includes("statbotics.epa.breakdown.autoPoints"),
     };
   });
 }

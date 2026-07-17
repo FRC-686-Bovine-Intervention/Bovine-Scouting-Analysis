@@ -22,7 +22,7 @@ async function login(page) {
 
 async function openAdmin(page) {
   await page.locator('[data-view="admin"]').click();
-  await page.waitForSelector("#adminEventSelect");
+  await page.waitForSelector("#adminEventCodeInput");
 }
 
 const browser = await chromium.launch({ headless: true });
@@ -119,7 +119,7 @@ try {
   await openAdmin(page);
 
   await page.locator("#adminEventCodeInput").fill("2024unit");
-  await page.locator("#lookupEventCodeButton").click();
+  await page.locator("#adminEventCodeInput").press("Enter");
   await page.waitForFunction(() => globalThis.__scoutingAppState?.activeEventKey === "2024unit");
   await page.waitForTimeout(750);
 
@@ -130,11 +130,13 @@ try {
     const oprMetric = metricById("source:opr:total");
     const epaMetric = metricById("source:epa:total");
     const availableIdentifiers = currentAvailableTbaFormulaIdentifiers(eventModel);
+    const availableStatboticsIdentifiers = currentAvailableStatboticsFormulaIdentifiers(eventModel);
     const availableMetrics = currentDerivedAvailableMetrics(eventModel).map((entry) => entry.id);
     const team111TbaRows = tbaMatchMetricsByTeam(111, eventModel);
     return {
       season: eventModel.season,
       availableIdentifiers,
+      availableStatboticsIdentifiers,
       availableMetrics,
       team111Opr: teamMetricValue(team111, oprMetric),
       team111EpaTrend: metricTrendValues(team111, epaMetric),
@@ -156,7 +158,11 @@ try {
   assert(!result.verification.availableIdentifiers.includes("tba.wonAuto"), `Did not expect synthetic tba.wonAuto for 2024. Got ${JSON.stringify(result.verification.availableIdentifiers)}`);
   assert(!result.verification.availableIdentifiers.includes("tba.climbScore"), `Did not expect synthetic tba.climbScore for 2024. Got ${JSON.stringify(result.verification.availableIdentifiers)}`);
   assert(!result.verification.availableIdentifiers.includes("tba.shift1AllianceFuel"), `Did not expect synthetic 2026 alias field in 2024. Got ${JSON.stringify(result.verification.availableIdentifiers)}`);
+  assert(result.verification.availableStatboticsIdentifiers.includes("statbotics.epa.totalPoints"), `Expected raw Statbotics total points identifier. Got ${JSON.stringify(result.verification.availableStatboticsIdentifiers)}`);
+  assert(result.verification.availableStatboticsIdentifiers.includes("statbotics.epa.breakdown.autoPoints"), `Expected raw Statbotics auto points identifier. Got ${JSON.stringify(result.verification.availableStatboticsIdentifiers)}`);
+  assert(!result.verification.availableStatboticsIdentifiers.includes("statbotics.auto"), `Did not expect season-shaped Statbotics alias field in 2024. Got ${JSON.stringify(result.verification.availableStatboticsIdentifiers)}`);
   assert(result.verification.availableMetrics.includes("tba.opr.total"), `Expected tba.opr.total in derived metrics. Got ${JSON.stringify(result.verification.availableMetrics)}`);
+  assert(result.verification.availableMetrics.includes("statbotics.epa.totalPoints"), `Expected raw Statbotics total points in derived metrics. Got ${JSON.stringify(result.verification.availableMetrics)}`);
   assert(result.verification.team111TbaFieldNames.includes("autoPoints"), `Expected raw autoPoints field on TBA rows. Got ${JSON.stringify(result.verification.team111TbaFieldNames)}`);
   assert(result.verification.team111TbaFieldNames.includes("endGameHarmonyPoints"), `Expected camelCased harmony field on TBA rows. Got ${JSON.stringify(result.verification.team111TbaFieldNames)}`);
   assert(!result.verification.team111TbaFieldNames.includes("wonAuto"), `Did not expect synthetic wonAuto field on TBA rows. Got ${JSON.stringify(result.verification.team111TbaFieldNames)}`);
