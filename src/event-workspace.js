@@ -121,7 +121,8 @@ function normalizeScoutingAttachment(attachment, eventModel) {
     format: normalizeText(attachment?.format) || normalizeText(defaultAttachment.format) || "legacy-sheet-url",
     locationKind: normalizeText(attachment?.locationKind) || normalizeText(defaultAttachment.locationKind) || "manual",
     location: {
-      url: normalizeText(attachment?.location?.url) || normalizeText(defaultAttachment?.location?.url),
+      url: normalizeText(attachment?.location?.url)
+        || ((normalizeText(attachment?.locationKind) === "path" || normalizeText(attachment?.location?.path)) ? "" : normalizeText(defaultAttachment?.location?.url)),
       sampleKey: normalizeText(attachment?.location?.sampleKey) || normalizeText(defaultAttachment?.location?.sampleKey),
       path: normalizeText(attachment?.location?.path),
     },

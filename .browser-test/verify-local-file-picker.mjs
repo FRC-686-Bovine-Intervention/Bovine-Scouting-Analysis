@@ -1,10 +1,8 @@
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 
 const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
 const jsonFixturePath = path.resolve("tests/fixtures/canonical-scouting-datasets/2024mdsev.json");
-const jsonFixtureUrl = pathToFileURL(jsonFixturePath).href;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -55,32 +53,30 @@ async function verifyBoundJsonState(page, label) {
   assert(state.format === "scouting-json", `${label}: expected scouting-json, got ${JSON.stringify(state)}`);
   assert(state.translatorId === "canonical-json-v1", `${label}: expected canonical-json-v1, got ${JSON.stringify(state)}`);
   assert(String(state.sourcePath || state.sourceInput).toLowerCase().endsWith(".json"), `${label}: expected .json path, got ${JSON.stringify(state)}`);
-  assert(state.importedRows > 0, `${label}: expected imported scouting rows after browse, got ${JSON.stringify(state)}`);
+  assert(state.importedRows === 421, `${label}: expected 421 imported scouting rows after browse, got ${JSON.stringify(state)}`);
 }
 
 async function runLocalFileInputScenario(browser) {
   const page = await browser.newPage();
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(String(error)));
-  await page.addInitScript(() => {
-    globalThis.showOpenFilePicker = async () => {
-      throw new DOMException("Native picker unavailable", "SecurityError");
-    };
-  });
   await page.goto(appUrl);
   await waitForApp(page);
   await login(page);
   await openAdmin(page);
   await switchEvent(page, "2024mdsev");
-  await page.fill("#importSourceUrl", jsonFixtureUrl);
   const pickerCapabilities = await page.evaluate(() => ({
     protocol: globalThis.location?.protocol || "",
     isSecureContext: Boolean(globalThis.isSecureContext),
     supportsPersistentLocalFiles: Boolean(globalThis.LocalFileAccess?.supportsPersistentLocalFiles?.()),
   }));
-  await page.locator("#importSourceUrl").press("Tab");
-  await page.waitForFunction(() => Boolean(currentScoutingAttachment()?.location?.url) && currentScoutingSubmissions().length > 0);
-  await verifyBoundJsonState(page, "local file url input");
+  const [chooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page.locator("#chooseLocalScoutingFileButton").click(),
+  ]);
+  await chooser.setFiles(jsonFixturePath);
+  await page.waitForFunction(() => document.querySelector("#importSourceUrl")?.value.toLowerCase().endsWith(".json") && currentScoutingSubmissions().length > 0);
+  await verifyBoundJsonState(page, "local file browse");
   await page.close();
   return { pageErrors, pickerCapabilities };
 }

@@ -7,7 +7,7 @@ function defaultPolicyForSource(source) {
   if (source?.kind === "scouting") {
     return {
       baseIntervalMs: 2 * 60 * 1000,
-      staleAfterMs: 5 * 60 * 1000,
+      staleAfterMs: 15 * 60 * 1000,
       maxBackoffMs: 20 * 60 * 1000,
     };
   }

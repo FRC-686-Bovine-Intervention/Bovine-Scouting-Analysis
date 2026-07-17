@@ -105,6 +105,28 @@ async function main() {
       /No saved local scouting file handle exists/i,
     );
   });
+
+  await runTest("scouting submission storage persists and restores event data", async () => {
+    const storage = createMemoryStorage();
+    const context = loadBrowserContext(["src/local-file-access.js"]);
+    const submissions = [{ id: "submission-1", eventKey: "2024mdsev", teamNumber: 1719, matchNumber: 1 }];
+
+    const saved = await context.LocalFileAccess.writeScoutingSubmissions("2024mdsev", submissions, { storage });
+    const restored = await context.LocalFileAccess.readScoutingSubmissions("2024mdsev", { storage });
+
+    assert.equal(saved, true);
+    assert.deepEqual(restored, submissions);
+  });
+
+  await runTest("clearing scouting submission storage removes saved event data", async () => {
+    const storage = createMemoryStorage();
+    const context = loadBrowserContext(["src/local-file-access.js"]);
+
+    await context.LocalFileAccess.writeScoutingSubmissions("2024mdsev", [{ id: "submission-1" }], { storage });
+    await context.LocalFileAccess.clearScoutingSubmissions("2024mdsev", { storage });
+
+    assert.equal(await context.LocalFileAccess.readScoutingSubmissions("2024mdsev", { storage }), null);
+  });
 }
 
 main().catch((error) => {

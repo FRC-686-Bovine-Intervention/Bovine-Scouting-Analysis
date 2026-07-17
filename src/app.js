@@ -30,6 +30,10 @@ const readLocalAttachmentText = localFileAccess.readAttachmentText || (async () 
   throw new Error("Persistent local scouting files are unavailable in this browser.");
 });
 const clearLocalAttachmentFile = localFileAccess.removeAttachment || (async () => false);
+const readPersistedScoutingSubmissions = localFileAccess.readScoutingSubmissions || (async () => null);
+const writePersistedScoutingSubmissions = localFileAccess.writeScoutingSubmissions || (async () => false);
+const clearPersistedScoutingSubmissions = localFileAccess.clearScoutingSubmissions || (async () => false);
+const clearAllPersistedScoutingSubmissions = localFileAccess.clearAllScoutingSubmissions || (async () => false);
 const normalizeScoutingSourceUrl = scoutingSourceUtils.normalizeSourceUrl || ((value) => String(value || "").trim());
 const describeGoogleSheetInfo = scoutingSourceUtils.googleSheetInfo || (() => null);
 const matchesEventSheetSourceUrl = scoutingSourceUtils.sourceUrlMatchesEventSheet || (() => false);
@@ -310,17 +314,48 @@ let pendingScoutingAutoloadToken = "";
 let attemptedScoutingAutoloadToken = "";
 const pendingExternalRefreshSourceIds = new Set();
 let sourceRefreshIntervalId = null;
+let scoutingSubmissionRevision = 0;
+let scoutingSubmissionLoadSequence = 0;
+const scoutingPerf = globalThis.__scoutingPerf || { events: [] };
+globalThis.__scoutingPerf = scoutingPerf;
 
 const app = document.querySelector("#app");
 installGlobalRecoveryGuards();
 
+function perfNow() {
+  if (globalThis.performance && typeof globalThis.performance.now === "function") return globalThis.performance.now();
+  return Date.now();
+}
+
+function recordScoutingPerf(label, startedAt, details = {}) {
+  const event = {
+    label,
+    durationMs: Math.round((perfNow() - startedAt) * 100) / 100,
+    timestamp: new Date().toISOString(),
+    ...details,
+  };
+  scoutingPerf.events.push(event);
+  if (scoutingPerf.events.length > 100) scoutingPerf.events.splice(0, scoutingPerf.events.length - 100);
+  return event;
+}
+
 function bootstrapApp() {
+  const startedAt = perfNow();
   try {
+    const hydrateStartedAt = perfNow();
     hydrateEventState(state.activeEventKey);
+    recordScoutingPerf("bootstrap.hydrateEventState", hydrateStartedAt, { eventKey: state.activeEventKey });
     document.documentElement.dataset.theme = state.theme;
+    const renderStartedAt = perfNow();
     renderSafely();
+    recordScoutingPerf("bootstrap.renderSafely", renderStartedAt, { eventKey: state.activeEventKey, activeView: state.activeView });
+    const autoloadStartedAt = perfNow();
     maybeAutoloadScoutingAttachment();
+    recordScoutingPerf("bootstrap.maybeAutoloadScoutingAttachment", autoloadStartedAt, { eventKey: state.activeEventKey });
+    const refreshStartedAt = perfNow();
     ensureSourceRefreshLoop();
+    recordScoutingPerf("bootstrap.ensureSourceRefreshLoop", refreshStartedAt, { eventKey: state.activeEventKey });
+    recordScoutingPerf("bootstrap.total", startedAt, { eventKey: state.activeEventKey, activeView: state.activeView });
   } catch (error) {
     console.error("App bootstrap failed before first render", error);
     state.activeView = "teams";
@@ -679,14 +714,14 @@ async function refreshDataSource(sourceId, options = {}) {
     provenance: {
       mode: "local-snapshot",
       notes: didChange
-        ? `${label} snapshot changed and was reloaded from the current local event model.`
-        : `${label} refresh checked the current local event snapshot and found no content changes.`,
+        ? "Snapshot updated from the local event model."
+        : "No local snapshot changes.",
     },
   });
   if (didChange) {
-    pushActivity(`Updated ${label} for ${event.name} from the current local snapshot.`);
+    pushActivity(`Updated ${label} from the local snapshot for ${event.name}.`);
   } else if (trigger === "manual") {
-    pushActivity(`Checked ${label} for ${event.name}. No snapshot changes detected.`);
+    pushActivity(`Checked ${label} for ${event.name}. No changes detected.`);
   }
   saveState();
   render();
@@ -704,6 +739,21 @@ function setDataSourcePollingEnabled(sourceId, pollingEnabled) {
   } else {
     state.eventWorkspace = setEventWorkspaceExternalSourcePollingEnabled(currentEventWorkspace(), sourceId, pollingEnabled);
   }
+  saveState();
+  render();
+}
+
+function allDataSourcePollingEnabled() {
+  return currentDataSources().every((source) => source.pollingEnabled !== false);
+}
+
+function setAllDataSourcePollingEnabled(pollingEnabled) {
+  let workspace = currentEventWorkspace();
+  workspace = setEventWorkspaceScoutingAttachmentPollingEnabled(workspace, pollingEnabled);
+  ["tba", "statbotics", "pridge"].forEach((sourceId) => {
+    workspace = setEventWorkspaceExternalSourcePollingEnabled(workspace, sourceId, pollingEnabled);
+  });
+  state.eventWorkspace = workspace;
   saveState();
   render();
 }
@@ -743,7 +793,7 @@ function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
     },
     currentEvent(),
   );
-  state.importSourceUrl = currentScoutingSourceInputValue();
+  state.importSourceUrl = normalizedSource || activeEventWorkspaceScoutingAttachmentSourceValue(state.eventWorkspace, currentEvent());
   state.importDraftSource = "";
   state.importResult = null;
   saveState();
@@ -836,6 +886,13 @@ async function deleteScoutingAttachment(attachmentId) {
   state.importResult = null;
   saveState();
   render();
+}
+
+async function applyRecentAdminEventSelection(value) {
+  const nextEventKey = normalizeText(value);
+  if (!nextEventKey) return false;
+  state.adminRecentEventsOpen = false;
+  return switchActiveEvent(nextEventKey, { activeView: "admin" });
 }
 
 function readCurrentScoutingAttachmentDraftFromDom() {
@@ -1001,28 +1058,32 @@ function currentDataSources() {
       sourceId: definition.sourceId,
       name: definition.label,
       status: sourceState.status || dataSourceNote.status || "ready",
-      updated: sourceState.lastSuccessfulAt ? formatTimestamp(sourceState.lastSuccessfulAt) : (dataSourceNote.updated || "Pending"),
       freshness: freshnessForSource(sourceState, policy, now),
       notes: sourceState.error || sourceState.provenance?.notes || dataSourceNote.notes || "",
       kind: "external",
       detectedLabel: "",
-      nextPollAt: sourceState.nextPollAt ? formatTimestamp(sourceState.nextPollAt) : "Pending",
+      nextPollAt: sourceState.nextPollAt ? formatTimeOnly(sourceState.nextPollAt) : "Pending",
       pollingEnabled: sourceState.pollingEnabled !== false,
     };
   });
   const activeAttachment = currentScoutingAttachment();
   const scoutingPolicy = defaultRefreshPolicyForSource({ kind: "scouting", sourceId: activeAttachment?.attachmentId });
+  const scoutingStats = [
+    { label: "Rows", value: state.scoutingSubmissions.length },
+    { label: "Matches", value: importedMatchCount() },
+    { label: "Teams", value: importedTeamCount() },
+  ].filter((stat) => stat.value > 0);
   return [
     {
       sourceId: "scouting",
       name: activeAttachment?.label || "Scouting Data",
       status: activeAttachment?.status || "manual",
-      updated: activeAttachment?.lastSuccessfulAt ? formatTimestamp(activeAttachment.lastSuccessfulAt) : "Pending",
       freshness: freshnessForSource(activeAttachment || {}, scoutingPolicy, now),
       notes: activeAttachment?.error || `${detectedScoutingSourceLabel(workspace, event)} | ${currentScoutingSourceUrl() || "No scouting source configured."}`,
+      stats: scoutingStats,
       kind: "scouting",
       detectedLabel: detectedScoutingSourceLabel(workspace, event),
-      nextPollAt: activeAttachment?.nextPollAt ? formatTimestamp(activeAttachment.nextPollAt) : "Pending",
+      nextPollAt: activeAttachment?.nextPollAt ? formatTimeOnly(activeAttachment.nextPollAt) : "Pending",
       pollingEnabled: activeAttachment?.pollingEnabled !== false,
     },
     ...externalSources,
@@ -1174,15 +1235,12 @@ function activeDerivedEquation(eventModel = currentEvent()) {
   return equationDefinitionById(ensureActiveDerivedEquation(eventModel), eventModel);
 }
 
-function currentDerivedAvailableMetrics(eventModel = currentEvent(), activeEquation = activeDerivedEquation(eventModel)) {
+function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
   return [
-    { id: "scouting.total" },
     ...currentAvailableScoutingFieldDefinitions(eventModel).map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
     ...currentAvailableTbaFormulaIdentifiers(eventModel).map((id) => ({ id })),
     ...eventModel.scoringComponents.map((component) => ({ id: `statbotics.${component.id}` })),
     { id: "statbotics.total" },
-    { id: "pridge.total" },
-    ...currentSeasonEquationList(eventModel).filter((definition) => definition.id !== activeEquation?.id).map((definition) => ({ id: definition.id })),
   ];
 }
 
@@ -1324,10 +1382,22 @@ function collectTbaMetricDefinitions(eventModel = currentEvent()) {
     };
   };
 
+  const legacyAliasFieldIds = new Set([
+    "autoFuel",
+    "transitionFuel",
+    "firstShiftFuel",
+    "secondShiftFuel",
+    "thirdShiftFuel",
+    "fourthShiftFuel",
+    "endgameFuel",
+  ]);
+
   const formulaDefinitions = [
     ...[...eventDefinitions.entries()].map(([fieldId, samples]) => buildDefinition(fieldId, samples, "event")),
     ...[...matchDefinitions.entries()].map(([fieldId, samples]) => buildDefinition(fieldId, samples, "match")),
-  ].sort((left, right) => left.id.localeCompare(right.id));
+  ]
+    .filter((definition) => !legacyAliasFieldIds.has(definition.fieldId))
+    .sort((left, right) => left.id.localeCompare(right.id));
 
   const metricDefinitions = formulaDefinitions
     .filter((definition) => definition.type === "number")
@@ -1486,6 +1556,38 @@ function formulaScalarValue(value, granularity = "event") {
   };
 }
 
+function readFormulaPathValue(source, path) {
+  const normalizedPath = normalizeText(path);
+  if (!normalizedPath || !source || typeof source !== "object") return undefined;
+  if (Object.prototype.hasOwnProperty.call(source, normalizedPath)) return source[normalizedPath];
+  const segments = normalizedPath.split(".").filter(Boolean);
+  let current = source;
+  for (const segment of segments) {
+    if (!current || typeof current !== "object" || !Object.prototype.hasOwnProperty.call(current, segment)) return undefined;
+    current = current[segment];
+  }
+  return current;
+}
+
+function isPresentFormulaValue(value) {
+  if (value === undefined || value === null) return false;
+  return !(typeof value === "number" && Number.isNaN(value));
+}
+
+function tbaFormulaIdentifierAliases(fieldId) {
+  const normalized = normalizeText(fieldId);
+  const aliases = {
+    autoFuel: ["hubScore.autoPoints"],
+    transitionFuel: ["hubScore.transitionPoints"],
+    firstShiftFuel: ["hubScore.shift1Points"],
+    secondShiftFuel: ["hubScore.shift2Points"],
+    thirdShiftFuel: ["hubScore.shift3Points"],
+    fourthShiftFuel: ["hubScore.shift4Points"],
+    endgameFuel: ["hubScore.endgamePoints"],
+  };
+  return aliases[normalized] || [];
+}
+
 function formulaResultForEventAggregate(value) {
   if (metricEngine.isErrorResult(value)) return { valid: false, reason: value.error || "Invalid event aggregate input." };
   if (metricEngine.isSeriesResult(value)) {
@@ -1504,7 +1606,6 @@ function rawScoutingMetricValue(matchRow, fieldId) {
   if (fieldId === "hasEntry") {
     return matchRow.scouting?.selectedSubmission ? 1 : 0;
   }
-  if (fieldId === "total") return matchRow.scouting?.total ?? Number.NaN;
   if (Object.prototype.hasOwnProperty.call(matchRow.scouting?.components || {}, fieldId)) {
     return matchRow.scouting.components[fieldId];
   }
@@ -1724,25 +1825,35 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
   }
   if (identifier.startsWith("tba.")) {
     const fieldId = identifier.slice("tba.".length);
-    if (Object.prototype.hasOwnProperty.call(formulaContext.overlayTeam.sources?.tba?.components || {}, fieldId)) {
-      return formulaScalarValue(formulaContext.overlayTeam.sources?.tba?.components?.[fieldId] ?? Number.NaN);
+    const candidateFieldIds = [fieldId, ...tbaFormulaIdentifierAliases(fieldId)];
+    for (const candidateFieldId of candidateFieldIds) {
+      const overlayValue = readFormulaPathValue(formulaContext.overlayTeam.sources?.tba?.components || {}, candidateFieldId);
+      if (isPresentFormulaValue(overlayValue)) return formulaScalarValue(overlayValue);
+      const seededFuelValue = readFormulaPathValue(formulaContext.overlayTeam.sources?.epa?.components || {}, candidateFieldId);
+      if (isPresentFormulaValue(seededFuelValue)) return formulaScalarValue(seededFuelValue);
     }
-    return formulaSeriesFromRows(formulaContext.matchRows, (row) => row.tba?.[fieldId] ?? Number.NaN);
+    return formulaSeriesFromRows(formulaContext.matchRows, (row) => {
+      for (const candidateFieldId of candidateFieldIds) {
+        const matchValue = readFormulaPathValue(row.tba || {}, candidateFieldId);
+        if (isPresentFormulaValue(matchValue)) return matchValue;
+      }
+      return Number.NaN;
+    });
   }
   if (identifier.startsWith("statbotics.")) {
     const componentId = identifier.slice("statbotics.".length);
-    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.epa?.total || Number.NaN);
-    return formulaScalarValue(formulaContext.overlayTeam.sources?.epa?.components?.[componentId] || Number.NaN);
+    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.epa?.total ?? Number.NaN);
+    return formulaScalarValue(formulaContext.overlayTeam.sources?.epa?.components?.[componentId] ?? Number.NaN);
   }
   if (identifier.startsWith("pridge.")) {
     const componentId = identifier.slice("pridge.".length);
-    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.total || Number.NaN);
-    return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.components?.[componentId] || Number.NaN);
+    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.total ?? Number.NaN);
+    return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.components?.[componentId] ?? Number.NaN);
   }
   if (identifier.startsWith("opr.")) {
     const componentId = identifier.slice("opr.".length);
-    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.total || Number.NaN);
-    return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.components?.[componentId] || Number.NaN);
+    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.total ?? Number.NaN);
+    return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.components?.[componentId] ?? Number.NaN);
   }
   if (identifier.startsWith("filter.")) {
     const referencedFilter = seasonFilterDefinitionByReference(identifier, formulaContext.eventModel);
@@ -1890,6 +2001,10 @@ function normalizeStoredFormula(value, fallback = "0") {
   return normalized || fallback;
 }
 
+function migrateLegacyFormulaIdentifiers(value) {
+  return String(value || "").replace(/\bscouting\.total\b/g, "scoutingTotal");
+}
+
 function formulaAstPrecedence(ast) {
   if (!ast || typeof ast !== "object") return 99;
   if (["number", "string", "identifier", "call"].includes(ast.type)) return 99;
@@ -1976,7 +2091,7 @@ function serializeFormulaAst(ast, parentPrecedence = -1) {
 }
 
 function canonicalizeStoredFormula(value, fallback = "0") {
-  const normalized = normalizeStoredFormula(value, fallback);
+  const normalized = migrateLegacyFormulaIdentifiers(normalizeStoredFormula(value, fallback));
   const parsed = metricEngine.parseFormulaExpression(normalized);
   if (parsed?.error || !parsed?.ast) return normalized || fallback;
   const serialized = serializeFormulaAst(parsed.ast).trim();
@@ -2057,6 +2172,19 @@ function restoreBuilderListScroll(view = state.activeView) {
       if (!key) return;
       list.scrollTop = Number(scrollState[key] || 0);
     });
+    requestAnimationFrame(() => {
+      if (view !== "derivedBuilder") return;
+      if (state.builderFocus.derivedBuilder === "metrics" && state.activeDerivedPreviewMetricId) {
+        const activeMetric = [...document.querySelectorAll("[data-derived-preview-metric]")]
+          .find((item) => item.dataset.derivedPreviewMetric === state.activeDerivedPreviewMetricId);
+        activeMetric?.scrollIntoView({ block: "nearest" });
+        return;
+      }
+      const activeEquationId = ensureActiveDerivedEquation();
+      const activeEquation = [...document.querySelectorAll('[data-entity-kind="derivedEquation"]')]
+        .find((item) => item.dataset.entityId === activeEquationId);
+      activeEquation?.scrollIntoView({ block: "nearest" });
+    });
   });
 }
 
@@ -2082,7 +2210,6 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.picklistColumns), JSON.stringify(state.picklistColumns));
   localStorage.setItem(eventStorageKey(storageKeys.allianceBoard), JSON.stringify(state.allianceBoard));
   localStorage.setItem(eventStorageKey(storageKeys.picklistCompareTeams), JSON.stringify(state.picklistCompareTeams));
-  localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions), JSON.stringify(state.scoutingSubmissions));
   localStorage.setItem(eventStorageKey(storageKeys.scoutingReviewOverrides), JSON.stringify(state.scoutingReviewOverrides));
   localStorage.setItem(eventStorageKey(storageKeys.activityLog), JSON.stringify(state.activityLog));
   localStorage.setItem(eventStorageKey(storageKeys.importSourceUrl), state.importSourceUrl);
@@ -2101,6 +2228,24 @@ function clearAppStorage() {
     if (key && key.startsWith("frc-scouting-")) keysToRemove.push(key);
   }
   keysToRemove.forEach((key) => localStorage.removeItem(key));
+  Promise.resolve(clearAllPersistedScoutingSubmissions()).catch((error) => {
+    console.error("Unable to clear persisted scouting submissions.", error);
+  });
+}
+
+function clearCurrentEventScoutingData() {
+  const eventKey = state.activeEventKey;
+  setScoutingSubmissions([], currentEvent());
+  state.scoutingReviewOverrides = [];
+  state.importResult = null;
+  localStorage.removeItem(eventStorageKey(storageKeys.scoutingSubmissions, eventKey));
+  localStorage.removeItem(eventStorageKey(storageKeys.scoutingReviewOverrides, eventKey));
+  Promise.resolve(clearPersistedScoutingSubmissions(eventKey)).catch((error) => {
+    console.error("Unable to clear persisted scouting submissions for event.", eventKey, error);
+  });
+  pushActivity(`Cleared saved scouting data for ${eventKey}.`);
+  saveState();
+  render();
 }
 
 function readStoredScoutingSubmissions(eventKey, eventModel = currentEvent()) {
@@ -2112,7 +2257,9 @@ function readStoredScoutingSubmissions(eventKey, eventModel = currentEvent()) {
 
   const matchingLegacy = legacy.filter((submission) => submission?.eventKey === eventModel.key);
   if (matchingLegacy.length) {
-    localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions, eventKey), JSON.stringify(matchingLegacy));
+    try {
+      localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions, eventKey), JSON.stringify(matchingLegacy));
+    } catch {}
     return matchingLegacy;
   }
 
@@ -2123,8 +2270,76 @@ function readStoredScoutingSubmissions(eventKey, eventModel = currentEvent()) {
     ...submission,
     eventKey: eventModel.key,
   }));
-  localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions, eventKey), JSON.stringify(migrated));
+  try {
+    localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions, eventKey), JSON.stringify(migrated));
+  } catch {}
   return migrated;
+}
+
+function setScoutingSubmissions(values, eventModel = currentEvent()) {
+  state.scoutingSubmissions = normalizeScoutingSubmissions(values, eventModel);
+  scoutingSubmissionRevision += 1;
+}
+
+function persistScoutingSubmissions(eventKey = state.activeEventKey, submissions = state.scoutingSubmissions) {
+  const resolvedEventKey = resolveEventKey(eventKey);
+  const snapshot = JSON.parse(JSON.stringify(Array.isArray(submissions) ? submissions : []));
+  const writeOperation = snapshot.length
+    ? Promise.resolve(writePersistedScoutingSubmissions(resolvedEventKey, snapshot))
+    : Promise.resolve(clearPersistedScoutingSubmissions(resolvedEventKey));
+  writeOperation
+    .then((saved) => {
+      if (!saved) {
+        try {
+          localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions, resolvedEventKey), JSON.stringify(snapshot));
+        } catch (error) {
+          console.error("Unable to fall back to localStorage for scouting submissions.", resolvedEventKey, error);
+        }
+        return;
+      }
+      localStorage.removeItem(eventStorageKey(storageKeys.scoutingSubmissions, resolvedEventKey));
+    })
+    .catch((error) => {
+      console.error("Unable to persist scouting submissions.", resolvedEventKey, error);
+    });
+}
+
+function loadPersistedScoutingSubmissions(eventKey = state.activeEventKey, options = {}) {
+  const resolvedEventKey = resolveEventKey(eventKey);
+  const loadSequence = ++scoutingSubmissionLoadSequence;
+  const expectedRevision = scoutingSubmissionRevision;
+  const startedAt = perfNow();
+  return Promise.resolve(readPersistedScoutingSubmissions(resolvedEventKey))
+    .then((persisted) => {
+      const readFinishedAt = perfNow();
+      if (!Array.isArray(persisted)) return false;
+      if (loadSequence !== scoutingSubmissionLoadSequence) return false;
+      if (state.activeEventKey !== resolvedEventKey) return false;
+      if (scoutingSubmissionRevision !== expectedRevision) return false;
+      setScoutingSubmissions(persisted, currentEvent());
+      backfillSeasonProfilesFromSubmissions(currentEvent());
+      let renderDurationMs = 0;
+      if (options.render !== false) {
+        const renderStartedAt = perfNow();
+        renderSafely();
+        renderDurationMs = Math.round((perfNow() - renderStartedAt) * 100) / 100;
+      }
+      recordScoutingPerf("persistedSubmissions.restore", startedAt, {
+        eventKey: resolvedEventKey,
+        rows: persisted.length,
+        readDurationMs: Math.round((readFinishedAt - startedAt) * 100) / 100,
+        renderDurationMs,
+      });
+      return true;
+    })
+    .catch((error) => {
+      console.error("Unable to restore scouting submissions.", resolvedEventKey, error);
+      recordScoutingPerf("persistedSubmissions.restore.error", startedAt, {
+        eventKey: resolvedEventKey,
+        error: error?.message || String(error || ""),
+      });
+      return false;
+    });
 }
 
 function registerSeasonScoutingProfile(seasonKey, profile) {
@@ -2168,6 +2383,7 @@ function backfillSeasonProfilesFromSubmissions(eventModel = currentEvent()) {
 }
 
 function hydrateEventState(eventKey) {
+  const startedAt = perfNow();
   const resolvedEventKey = resolveEventKey(eventKey);
   state.activeEventKey = resolvedEventKey;
   state.adminEventCodeDraft = resolvedEventKey;
@@ -2194,7 +2410,7 @@ function hydrateEventState(eventKey) {
   state.picklistColumns = normalizePicklistColumns(readStoredJson(storageKeys.picklistColumns, Array(picklistColumnCount).fill(""), resolvedEventKey));
   state.allianceBoard = normalizeBoard(readStoredJson(storageKeys.allianceBoard, defaultAllianceBoard, resolvedEventKey), eventModel);
   state.picklistCompareTeams = normalizePicklistCompareTeams(readStoredJson(storageKeys.picklistCompareTeams, [], resolvedEventKey), eventModel);
-  state.scoutingSubmissions = normalizeScoutingSubmissions(readStoredScoutingSubmissions(resolvedEventKey, eventModel), eventModel);
+  setScoutingSubmissions(readStoredScoutingSubmissions(resolvedEventKey, eventModel), eventModel);
   state.scoutingReviewOverrides = normalizeScoutingReviewOverrides(readStoredJson(storageKeys.scoutingReviewOverrides, [], resolvedEventKey), eventModel);
   backfillSeasonProfilesFromSubmissions(eventModel);
   state.activityLog = normalizeActivityLog(readStoredJson(storageKeys.activityLog, [], resolvedEventKey));
@@ -2218,7 +2434,7 @@ function hydrateEventState(eventKey) {
     stampScoutingSubmissionMetadata,
   });
   if (refreshedWorkspaceState) {
-    state.scoutingSubmissions = normalizeScoutingSubmissions(refreshedWorkspaceState.submissions, eventModel);
+    setScoutingSubmissions(refreshedWorkspaceState.submissions, eventModel);
     state.activityLog = normalizeActivityLog(refreshedWorkspaceState.activity);
     repairedScoutingSubmissions = true;
   }
@@ -2238,6 +2454,14 @@ function hydrateEventState(eventKey) {
   state.eventLookupResult = null;
   state.recentEventKeys = normalizeRecentEventKeys(state.recentEventKeys, resolvedEventKey);
   if (repairedScoutingSubmissions || repairedWorkspaceFingerprints) saveState();
+  if (repairedScoutingSubmissions) persistScoutingSubmissions(resolvedEventKey, state.scoutingSubmissions);
+  loadPersistedScoutingSubmissions(resolvedEventKey, { render: true });
+  recordScoutingPerf("hydrateEventState.total", startedAt, {
+    eventKey: resolvedEventKey,
+    rows: state.scoutingSubmissions.length,
+    repairedScoutingSubmissions,
+    repairedWorkspaceFingerprints,
+  });
 }
 
 function resetTransientEventState() {
@@ -2251,6 +2475,7 @@ function resetTransientEventState() {
 
 function switchActiveEvent(eventKey, options = {}) {
   if (!eventKey) return false;
+  const startedAt = perfNow();
   const resolvedEventKey = resolveEventKey(eventKey);
   const previousEventKey = state.activeEventKey;
   const previousImportCsvText = state.importCsvText;
@@ -2275,6 +2500,11 @@ function switchActiveEvent(eventKey, options = {}) {
     }
     renderSafely();
     maybeAutoloadScoutingAttachment();
+    recordScoutingPerf("switchActiveEvent.total", startedAt, {
+      fromEventKey: previousEventKey,
+      toEventKey: resolvedEventKey,
+      activeView: state.activeView,
+    });
     return true;
   } catch (error) {
     console.error("Failed to switch active event", resolvedEventKey, error);
@@ -2825,6 +3055,36 @@ function formatTimestamp(value) {
   });
 }
 
+function formatTimeOnly(value) {
+  if (!value) return "Pending";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatBadgeLabel(value) {
+  return String(value || "")
+    .trim()
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(" ");
+}
+
+function formatFreshnessBadgeLabel(value) {
+  switch (value) {
+    case "snapshot":
+      return "Snapshot Only";
+    case "unknown":
+      return "Unpolled";
+    default:
+      return formatBadgeLabel(value);
+  }
+}
+
 function formatMetricValue(value) {
   if (value === null || value === undefined || value === "") return "";
   if (typeof value === "string") return value;
@@ -3164,6 +3424,7 @@ function currentRecentMatchCount() {
 }
 
 function currentScoutingImportShouldReplace() {
+  if (state.importDraftSource === "attached") return true;
   const event = currentEvent();
   const sourceUrl = currentScoutingSourceUrl();
   if (matchesEventSheetSourceUrl(sourceUrl, event)) return true;
@@ -3296,6 +3557,71 @@ function renderDependencyDiagnosticsList(entries, emptyLabel) {
   `;
 }
 
+function pushUniqueLabel(list, value) {
+  const label = normalizeText(value);
+  if (!label || list.includes(label)) return;
+  list.push(label);
+}
+
+function collectDependencyImpactGroups(diagnostics) {
+  const groups = new Map();
+  const categories = [
+    { key: "equations", impactKey: "equations", label: "derived equations" },
+    { key: "filters", impactKey: "filters", label: "filters" },
+    { key: "sortEquations", impactKey: "sortEquations", label: "sort equations" },
+  ];
+
+  categories.forEach(({ key, impactKey, label }) => {
+    (diagnostics?.[key] || []).forEach((entry) => {
+      const seenFailures = new Set();
+      (entry.failures || []).forEach((failure) => {
+        const groupKey = normalizeText(failure?.nodeId) || `${entry.nodeId}:${impactKey}`;
+        if (!groupKey || seenFailures.has(groupKey)) return;
+        seenFailures.add(groupKey);
+        if (!groups.has(groupKey)) {
+          groups.set(groupKey, {
+            key: groupKey,
+            message: normalizeText(failure?.message) || `${entry.label || entry.id} is blocked.`,
+            impacts: {
+              equations: [],
+              filters: [],
+              sortEquations: [],
+            },
+          });
+        }
+        pushUniqueLabel(groups.get(groupKey).impacts[impactKey], entry.label || entry.id);
+      });
+    });
+  });
+
+  return [...groups.values()].map((group) => ({
+    ...group,
+    summary: categories
+      .map(({ impactKey, label }) => {
+        const impacted = group.impacts[impactKey];
+        if (!impacted.length) return "";
+        return `${label}: ${impacted.join(", ")}`;
+      })
+      .filter(Boolean)
+      .join(" | "),
+  }));
+}
+
+function renderDependencyImpactSummary(diagnostics) {
+  const groups = collectDependencyImpactGroups(diagnostics);
+  if (!groups.length) return `<p class="muted">No derived equations, filters, or sort equations are currently blocked by scouting schema drift.</p>`;
+  return `
+    <div class="issue-list">
+      ${groups.map((group) => `
+        <div class="issue-row danger">
+          <strong>${escapeHtml(group.message)}</strong>
+          <span>${escapeHtml(group.summary)}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function runImportPreview() {
   state.importResult = previewScoutingImport({
     csvText: state.importCsvText,
@@ -3318,7 +3644,7 @@ function commitImportPreview(options = {}) {
     existingActivity: state.activityLog,
     replaceExisting,
   });
-  state.scoutingSubmissions = normalizeScoutingSubmissions(
+  setScoutingSubmissions(
     stampScoutingSubmissionMetadata(committed.submissions, currentEvent(), {
       scoutingImportSource: options.scoutingImportSource || (replaceExisting ? "event-sheet-source" : "manual"),
     }),
@@ -3337,6 +3663,7 @@ function commitImportPreview(options = {}) {
   state.importSelectedProfileId = "";
   state.importDraftSource = "";
   saveState();
+  persistScoutingSubmissions(state.activeEventKey, state.scoutingSubmissions);
   render();
 }
 
@@ -4492,7 +4819,7 @@ function renderDerivedBuilder() {
                 <h3>Derived Equations</h3>
                 <button type="button" id="addDerivedEquationButton">New</button>
               </div>
-              <div class="builder-list">
+              <div class="builder-list" data-builder-list-scroll="derived:equations">
                 ${currentSeasonEquationList()
                   .map((definition, index) => {
                     const status = previewTeam ? equationStatusForTeam(previewTeam, definition.id) : null;
@@ -5463,12 +5790,12 @@ function renderAdmin() {
   const result = state.importResult;
   const issues = [...(result?.errors || []), ...(result?.warnings || [])];
   const reviewGroups = flaggedSubmissionGroups();
-  const recentEventKeys = normalizeRecentEventKeys(state.recentEventKeys, event.key);
-  const tbaKeyNote = state.tbaAuthKey
-    ? "Saved locally. Focus the field to replace it, then click Save."
-    : "Paste the TBA auth key here and click Save.";
+  const recentEventKeys = normalizeRecentEventKeys(state.recentEventKeys, event.key)
+    .slice()
+    .sort((left, right) => String(left || "").localeCompare(String(right || ""), undefined, { numeric: true, sensitivity: "base" }));
   const mismatchMessage = currentScoutingMismatchMessage(result);
   const sourceStatusIssues = issues.filter((issue) => issue !== mismatchMessage);
+  const allPollingEnabled = allDataSourcePollingEnabled();
   return `
     <div class="grid">
       <div class="grid cols-2">
@@ -5481,7 +5808,7 @@ function renderAdmin() {
           <div class="admin-form-grid">
             <label>
               Event Code
-              <div class="admin-actions">
+              <div class="admin-actions admin-field-row">
                 <input
                   id="adminEventCodeInput"
                   class="admin-input"
@@ -5511,7 +5838,7 @@ function renderAdmin() {
             }
             <label>
               Scouting Data
-              <div class="admin-actions">
+              <div class="admin-actions admin-field-row">
                 <input
                   id="importSourceUrl"
                   class="admin-input"
@@ -5533,7 +5860,7 @@ function renderAdmin() {
             }
             <label>
               TBA Auth Key
-              <div class="admin-actions">
+              <div class="admin-actions admin-field-row">
                 <input
                   id="adminTbaAuthKeyInput"
                   class="admin-input"
@@ -5548,6 +5875,9 @@ function renderAdmin() {
                 <button type="button" id="saveTbaAuthKeyButton" ${state.tbaAuthKeyDirty ? "" : "disabled"}>Save</button>
               </div>
             </label>
+            <div class="admin-actions">
+              <button type="button" id="clearCurrentEventScoutingDataButton">Clear Saved Scouting Data</button>
+            </div>
           </div>
         </article>
         <article class="card">
@@ -5556,24 +5886,11 @@ function renderAdmin() {
               <h2>Source Status</h2>
             </div>
             <div class="admin-actions">
-              <button type="button" id="refreshAllSourcesButton">Refresh All Sources</button>
+              <button type="button" id="refreshAllSourcesButton">Refresh Sources</button>
+              <button type="button" id="toggleAllSourcePollingButton">${allPollingEnabled ? "Pause Polling" : "Resume Polling"}</button>
             </div>
           </div>
           <div class="data-source-list">
-            <div class="issue-list">
-              <div class="issue-row">
-                <strong>TBA key</strong>
-                <span class="muted">${escapeHtml(tbaKeyNote)}</span>
-              </div>
-              ${
-                activeAttachment?.lastSuccessfulAt
-                  ? `<div class="issue-row">
-                <strong>Last scouting load</strong>
-                <span class="muted">${escapeHtml(formatTimestamp(activeAttachment.lastSuccessfulAt))}</span>
-              </div>`
-                  : ""
-              }
-            </div>
             ${state.eventLookupResult ? `<div class="issue-row ${state.eventLookupResult.kind === "error" ? "danger" : state.eventLookupResult.kind === "warn" ? "warn" : ""}">${escapeHtml(state.eventLookupResult.message)}</div>` : ""}
             ${sourceStatusIssues.map((issue, index) => `<div class="issue-row ${index < (result?.errors || []).length ? "danger" : "warn"}">${escapeHtml(issue)}</div>`).join("")}
             ${currentDataSources()
@@ -5584,19 +5901,18 @@ function renderAdmin() {
                   <strong>${source.name}</strong>
                   <span class="muted">${source.notes}</span>
                   ${source.detectedLabel ? `<span class="muted">Detected type: ${escapeHtml(source.detectedLabel)}</span>` : ""}
+                  ${
+                    Array.isArray(source.stats) && source.stats.length
+                      ? `<span class="muted">${source.stats.map((stat) => `${escapeHtml(stat.label)}: ${escapeHtml(String(stat.value))}`).join(" | ")}</span>`
+                      : ""
+                  }
                 </div>
                 <div class="source-status-stack">
-                  <span class="source-status">${source.status}</span>
-                  <span class="muted">${source.freshness} | Next poll: ${source.nextPollAt}</span>
-                </div>
-                <div class="source-actions-stack">
-                  <span class="muted">${source.updated}</span>
-                  <div class="admin-actions">
-                    <button type="button" data-refresh-source="${source.sourceId}">Refresh</button>
-                    <button type="button" data-toggle-source-polling="${source.sourceId}" data-polling-enabled="${source.pollingEnabled ? "true" : "false"}">
-                      ${source.pollingEnabled ? "Pause Polling" : "Resume Polling"}
-                    </button>
+                  <div class="source-badge-row">
+                    <span class="source-status">${escapeHtml(formatBadgeLabel(source.status))}</span>
+                    <span class="source-status source-freshness ${escapeAttribute(`freshness-${source.freshness}`)}">${escapeHtml(formatFreshnessBadgeLabel(source.freshness))}</span>
                   </div>
+                  <span class="muted">Next poll: ${source.nextPollAt}</span>
                 </div>
               </div>
             `,
@@ -5604,12 +5920,6 @@ function renderAdmin() {
               .join("")}
           </div>
         </article>
-      </div>
-      <div class="stat-grid">
-        <div class="stat"><span>Imported Rows</span><strong>${state.scoutingSubmissions.length}</strong></div>
-        <div class="stat"><span>Imported Matches</span><strong>${importedMatchCount()}</strong></div>
-        <div class="stat"><span>Teams Covered</span><strong>${importedTeamCount()}</strong></div>
-        <div class="stat"><span>Activity Entries</span><strong>${state.activityLog.length}</strong></div>
       </div>
       <div class="grid cols-2">
         <article class="card">
@@ -5619,42 +5929,38 @@ function renderAdmin() {
             const activeDiagnostics = diagnosticsState.pendingDiagnostics || diagnosticsState.currentDiagnostics;
             const modeLabel = diagnosticsState.pendingDiagnostics ? "Pending import diagnostics" : "Current event diagnostics";
             return `
-              <p class="muted">${modeLabel}. Added, removed, and type-changed scouting fields are summarized here along with downstream broken dependencies.</p>
+              <p class="muted">${modeLabel}. Added, removed, and type-changed scouting fields are summarized here, followed by grouped downstream impacts on formulas and sorting.</p>
               ${renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
-              <h3>Broken Derived Equations</h3>
-              ${renderDependencyDiagnosticsList(activeDiagnostics?.diagnostics?.equations, "No derived equations are currently blocked by scouting schema drift.")}
-              <h3>Broken Filters</h3>
-              ${renderDependencyDiagnosticsList(activeDiagnostics?.diagnostics?.filters, "No season filters are currently blocked by scouting schema drift.")}
-              <h3>Broken Sort Equations</h3>
-              ${renderDependencyDiagnosticsList(activeDiagnostics?.diagnostics?.sortEquations, "No sort equations are currently blocked by scouting schema drift.")}
+              <h3>Downstream Impact</h3>
+              ${renderDependencyImpactSummary(activeDiagnostics?.diagnostics)}
             `;
           })()}
         </article>
-      </div>
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Activity Log</h2>
-            <p class="muted">System-generated event activity stays scoped to the active event and lets admins clear issues manually later.</p>
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <h2>Activity Log</h2>
+              <p class="muted">System-generated event activity stays scoped to the active event and lets admins clear issues manually later.</p>
+            </div>
           </div>
-        </div>
-        <div class="activity-log">
-          ${
-            state.activityLog.length
-              ? state.activityLog
-                  .map(
-                    (entry) => `
-                <div class="activity-row">
-                  <strong>${formatTimestamp(entry.timestamp)}</strong>
-                  <span>${escapeHtml(entry.message)}</span>
-                </div>
-              `,
-                  )
-                  .join("")
-              : `<div class="empty-state">No activity has been recorded for ${event.name} yet.</div>`
-          }
-        </div>
-      </article>
+          <div class="activity-log">
+            ${
+              state.activityLog.length
+                ? state.activityLog
+                    .map(
+                      (entry) => `
+                  <div class="activity-row">
+                    <strong>${formatTimestamp(entry.timestamp)}</strong>
+                    <span>${escapeHtml(entry.message)}</span>
+                  </div>
+                `,
+                    )
+                    .join("")
+                : `<div class="empty-state">No activity has been recorded for ${event.name} yet.</div>`
+            }
+          </div>
+        </article>
+      </div>
       <article class="card">
         <div class="section-heading">
           <div>
@@ -5848,7 +6154,7 @@ function addSeasonFilter() {
   const definition = {
     id: createId("filter"),
     name,
-    formula: "scouting.total > 0",
+    formula: "scoutingTotal > 0",
     description: "",
     sourceOrder: existing.length,
   };
@@ -5895,7 +6201,6 @@ function seasonFiltersSourceText() {
 function formulaAutocompleteCandidates(token) {
   const normalizedToken = String(token || "").toLowerCase();
   return [
-    "scouting.total",
     ...currentAvailableScoutingFieldDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
     ...currentAvailableTbaFormulaIdentifiers(),
     ...currentEvent().scoringComponents.flatMap((component) => [`statbotics.${component.id}`, `pridge.${component.id}`]),
@@ -5927,7 +6232,6 @@ function formulaAutocompleteCandidates(token) {
 function filterAutocompleteCandidates(token) {
   const normalizedToken = String(token || "").toLowerCase();
   return [
-    "scouting.total",
     ...currentAvailableScoutingFieldDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
     ...currentAvailableTbaFormulaIdentifiers(),
     "contains",
@@ -6155,7 +6459,7 @@ function renderFormulaHelpStandaloneDocument() {
   <body>
     <article class="formula-help-page">
       <h1>Formula Functions</h1>
-      <p>Built-in helpers for derived equations. Keep this tab open as a reference while editing formulas.</p>
+      <p>Formula helpers and references. Keep this tab open as a reference while editing formulas.</p>
       <div class="formula-help-list">
         ${renderFormulaHelpStandaloneEntries()}
       </div>
@@ -6509,6 +6813,7 @@ function handleBuilderKeyboard(event) {
       const index = equations.findIndex((item) => item.id === activeEquationId);
       const next = equations[Math.max(0, Math.min(equations.length - 1, index + direction))];
       if (!next) return;
+      captureBuilderListScroll();
       state.activeDerivedEquationId = next.id;
       state.activeDerivedPreviewMetricId = "";
       state.builderFocus.derivedBuilder = "equations";
@@ -6583,11 +6888,19 @@ function bindViewEvents() {
     state.adminRecentEventsOpen = !state.adminRecentEventsOpen;
     render();
   });
-  document.querySelector("#recentAdminEventSelect")?.addEventListener("change", (event) => {
-    const nextEventKey = event.target.value;
-    if (!nextEventKey) return;
-    state.adminRecentEventsOpen = false;
-    switchActiveEvent(nextEventKey, { activeView: "admin" });
+  document.querySelector("#recentAdminEventSelect")?.addEventListener("input", async (event) => {
+    await applyRecentAdminEventSelection(event.target.value);
+  });
+  document.querySelector("#recentAdminEventSelect")?.addEventListener("change", async (event) => {
+    await applyRecentAdminEventSelection(event.target.value);
+  });
+  document.querySelector("#recentAdminEventSelect")?.addEventListener("dblclick", async (event) => {
+    await applyRecentAdminEventSelection(event.target.value);
+  });
+  document.querySelector("#recentAdminEventSelect")?.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    await applyRecentAdminEventSelection(event.target.value);
   });
   document.querySelector("#adminEventCodeInput")?.addEventListener("input", (event) => {
     state.adminEventCodeDraft = normalizeText(event.target.value).toLowerCase();
@@ -6616,20 +6929,15 @@ function bindViewEvents() {
   document.querySelector("#chooseLocalScoutingFileButton")?.addEventListener("click", async () => {
     await chooseLocalScoutingAttachmentFile();
   });
-  document.querySelectorAll("[data-refresh-source]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      await refreshDataSource(button.dataset.refreshSource);
-    });
+  document.querySelector("#clearCurrentEventScoutingDataButton")?.addEventListener("click", () => {
+    if (!confirm(`Clear all saved scouting rows for ${state.activeEventKey}? This keeps your event settings and source bindings.`)) return;
+    clearCurrentEventScoutingData();
   });
   document.querySelector("#refreshAllSourcesButton")?.addEventListener("click", async () => {
     await refreshAllDataSources();
   });
-  document.querySelectorAll("[data-toggle-source-polling]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const sourceId = button.dataset.toggleSourcePolling;
-      const pollingEnabled = button.dataset.pollingEnabled === "true";
-      setDataSourcePollingEnabled(sourceId, !pollingEnabled);
-    });
+  document.querySelector("#toggleAllSourcePollingButton")?.addEventListener("click", () => {
+    setAllDataSourcePollingEnabled(!allDataSourcePollingEnabled());
   });
   document.querySelector("#clearAllianceBoardButton")?.addEventListener("click", clearAllianceBoard);
   document.querySelectorAll("[data-team], [data-team-link]").forEach((element) => {
@@ -6896,6 +7204,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-entity-row]").forEach((row) => {
     row.addEventListener("click", () => {
       captureBuilderGridScroll();
+      captureBuilderListScroll();
       const kind = row.dataset.entityKind;
       const id = row.dataset.entityId;
       if (kind === "sortEquation") {

@@ -1,6 +1,8 @@
 (function () {
 const DB_NAME = "frc-scouting-analysis-local-files";
 const STORE_NAME = "attachment-handles";
+const SCOUTING_SUBMISSIONS_DB_NAME = "frc-scouting-analysis-event-data";
+const SCOUTING_SUBMISSIONS_STORE_NAME = "scouting-submissions";
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -32,17 +34,19 @@ function buildPickerTypes(format) {
   return sharedTypes;
 }
 
-function createIndexedDbStorage(deps = {}) {
+function createIndexedDbKeyValueStorage(options = {}, deps = {}) {
   const indexedDBFactory = deps.indexedDB || globalThis.indexedDB;
   if (!indexedDBFactory || typeof indexedDBFactory.open !== "function") return null;
+  const databaseName = normalizeText(options.dbName) || DB_NAME;
+  const storeName = normalizeText(options.storeName) || STORE_NAME;
 
   function openDatabase() {
     return new Promise((resolve, reject) => {
-      const request = indexedDBFactory.open(DB_NAME, 1);
+      const request = indexedDBFactory.open(databaseName, 1);
       request.onupgradeneeded = () => {
         const database = request.result;
-        if (!database.objectStoreNames.contains(STORE_NAME)) {
-          database.createObjectStore(STORE_NAME);
+        if (!database.objectStoreNames.contains(storeName)) {
+          database.createObjectStore(storeName);
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -53,8 +57,8 @@ function createIndexedDbStorage(deps = {}) {
   async function withStore(mode, callback) {
     const database = await openDatabase();
     return new Promise((resolve, reject) => {
-      const transaction = database.transaction(STORE_NAME, mode);
-      const store = transaction.objectStore(STORE_NAME);
+      const transaction = database.transaction(storeName, mode);
+      const store = transaction.objectStore(storeName);
       let settled = false;
       function finish(value) {
         if (settled) return;
@@ -101,7 +105,25 @@ function createIndexedDbStorage(deps = {}) {
         request.onerror = () => fail(request.error);
       });
     },
+    clear() {
+      return withStore("readwrite", (store, finish, fail) => {
+        const request = store.clear();
+        request.onsuccess = () => finish(true);
+        request.onerror = () => fail(request.error);
+      });
+    },
   };
+}
+
+function createIndexedDbStorage(deps = {}) {
+  return createIndexedDbKeyValueStorage({}, deps);
+}
+
+function createScoutingSubmissionStorage(deps = {}) {
+  return createIndexedDbKeyValueStorage({
+    dbName: SCOUTING_SUBMISSIONS_DB_NAME,
+    storeName: SCOUTING_SUBMISSIONS_STORE_NAME,
+  }, deps);
 }
 
 function supportsPersistentLocalFiles(deps = {}) {
@@ -235,14 +257,53 @@ async function removeAttachment(attachmentId, deps = {}) {
   return true;
 }
 
+async function readScoutingSubmissions(eventKey, deps = {}) {
+  const normalizedEventKey = normalizeText(eventKey);
+  if (!normalizedEventKey) return null;
+  const storage = deps.storage || createScoutingSubmissionStorage(deps);
+  if (!storage || typeof storage.get !== "function") return null;
+  return storage.get(normalizedEventKey);
+}
+
+async function writeScoutingSubmissions(eventKey, submissions, deps = {}) {
+  const normalizedEventKey = normalizeText(eventKey);
+  if (!normalizedEventKey) return false;
+  const storage = deps.storage || createScoutingSubmissionStorage(deps);
+  if (!storage || typeof storage.set !== "function") return false;
+  await storage.set(normalizedEventKey, Array.isArray(submissions) ? submissions : []);
+  return true;
+}
+
+async function clearScoutingSubmissions(eventKey, deps = {}) {
+  const normalizedEventKey = normalizeText(eventKey);
+  if (!normalizedEventKey) return false;
+  const storage = deps.storage || createScoutingSubmissionStorage(deps);
+  if (!storage || typeof storage.delete !== "function") return false;
+  await storage.delete(normalizedEventKey);
+  return true;
+}
+
+async function clearAllScoutingSubmissions(deps = {}) {
+  const storage = deps.storage || createScoutingSubmissionStorage(deps);
+  if (!storage || typeof storage.clear !== "function") return false;
+  await storage.clear();
+  return true;
+}
+
 globalThis.LocalFileAccess = {
   buildPickerTypes,
+  createIndexedDbKeyValueStorage,
   createIndexedDbStorage,
+  createScoutingSubmissionStorage,
   pickAttachmentFileWithInput,
   supportsPersistentLocalFiles,
   pickAttachmentFile,
   loadAttachmentHandle,
   readAttachmentText,
   removeAttachment,
+  readScoutingSubmissions,
+  writeScoutingSubmissions,
+  clearScoutingSubmissions,
+  clearAllScoutingSubmissions,
 };
 })();

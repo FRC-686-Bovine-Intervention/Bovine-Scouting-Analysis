@@ -76,11 +76,12 @@ async function login(page) {
 
 async function openAdmin(page) {
   await page.locator('[data-view="admin"]').click();
-  await page.waitForSelector("#adminEventSelect");
+  await page.waitForSelector("#adminEventCodeInput");
 }
 
 async function switchEvent(page, eventKey) {
-  await page.selectOption("#adminEventSelect", eventKey);
+  await page.fill("#adminEventCodeInput", eventKey);
+  await page.locator("#adminEventCodeInput").press("Enter");
   await page.waitForTimeout(750);
 }
 
@@ -89,12 +90,10 @@ async function importRawSheet(page, rawSheetCsv) {
     const eventModel = currentEvent();
     const adaptedCsv = sharedAdaptEventSheetCsv(eventModel, csvText);
     loadPreparedScoutingCsv(adaptedCsv, "");
+    commitImportPreview();
   }, rawSheetCsv);
   await page.waitForTimeout(750);
-  if (await page.locator("#commitImportButton").isEnabled()) {
-    await page.locator("#commitImportButton").click();
-    await page.waitForTimeout(1500);
-  }
+  await page.waitForTimeout(750);
 }
 
 const expectedRows = toObjects(parseCsv(fs.readFileSync(expectedCsvPath, "utf8")));

@@ -57,3 +57,22 @@ runTest("season metrics expose OPR as a total-only source", () => {
   const oprCriteriaSource = criteriaSources.find((source) => source.id === "opr");
   assert.equal(oprCriteriaSource.components.map((component) => component.id).join(","), "total");
 });
+
+runTest("formula field definitions include scoring components for derived equations", () => {
+  const season2024 = seasonFramework.seasonDefinitions[2024];
+  const season2025 = seasonFramework.seasonDefinitions[2025];
+  const season2026 = seasonFramework.seasonDefinitions[2026];
+
+  assert.equal(
+    seasonFramework.formulaFieldDefinitions(season2024).some((fieldDefinition) => fieldDefinition.id === "speaker"),
+    true,
+  );
+  assert.equal(
+    seasonFramework.formulaFieldDefinitions(season2025).some((fieldDefinition) => fieldDefinition.id === "coral"),
+    true,
+  );
+  assert.equal(
+    seasonFramework.formulaFieldDefinitions(season2026).some((fieldDefinition) => fieldDefinition.id === "cycle"),
+    true,
+  );
+});

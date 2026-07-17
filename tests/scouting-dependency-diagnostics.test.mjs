@@ -102,3 +102,27 @@ runTest("buildScoutingDependencyDiagnostics flags missing scouting references ev
   assert.equal(result.diagnostics.roots.some((entry) => entry.id === "defenseCallout" && entry.reason === "missing"), true);
   assert.equal(result.diagnostics.equations.some((entry) => entry.id === "mystery"), true);
 });
+
+runTest("buildScoutingDependencyDiagnostics ignores built-in scouting helper fields", () => {
+  const context = loadBrowserContext(["src/metric-engine.js", "src/scouting-dependency-diagnostics.js"]);
+  const result = context.ScoutingDependencyDiagnostics.buildScoutingDependencyDiagnostics({
+    previousFields: [
+      { id: "autoFuelPct", type: "number" },
+    ],
+    currentFields: [
+      { id: "autoFuelPct", type: "number" },
+    ],
+    equations: [
+      { id: "shareGate", name: "Share Gate", formula: "if(allianceCount(scouting.hasEntry) > 0, average(scouting.autoFuelPct), 0)" },
+    ],
+    filters: [
+      { id: "hasEntry", name: "Has Entry", formula: "scouting.hasEntry > 0" },
+    ],
+  });
+
+  assert.equal(context.ScoutingDependencyDiagnostics.isBuiltInScoutingFieldId("hasEntry"), true);
+  assert.equal(context.ScoutingDependencyDiagnostics.isBuiltInScoutingFieldId("total"), false);
+  assert.equal(result.diagnostics.roots.some((entry) => entry.id === "hasEntry"), false);
+  assert.equal(result.diagnostics.equations.some((entry) => entry.id === "shareGate"), false);
+  assert.equal(result.diagnostics.filters.some((entry) => entry.id === "hasEntry"), false);
+});

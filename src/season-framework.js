@@ -251,7 +251,14 @@ function formulaFieldDefinitions(seasonOrEventModel) {
   if (!seasonOrEventModel) return [];
   if (Array.isArray(seasonOrEventModel.formulaFieldDefinitions)) return seasonOrEventModel.formulaFieldDefinitions;
   const seen = new Set();
-  return [...scouterMetricDefinitions(seasonOrEventModel), ...((seasonOrEventModel.formulaFields) || [])].filter((fieldDefinition) => {
+  const scoringComponentFields = Array.isArray(seasonOrEventModel.scoringComponents)
+    ? seasonOrEventModel.scoringComponents.map((component) => ({
+        id: component.id,
+        label: component.label,
+        unit: component.unit || "pts",
+      }))
+    : [];
+  return [...scoringComponentFields, ...scouterMetricDefinitions(seasonOrEventModel), ...((seasonOrEventModel.formulaFields) || [])].filter((fieldDefinition) => {
     const fieldId = String(fieldDefinition?.id || "");
     if (!fieldId || seen.has(fieldId)) return false;
     seen.add(fieldId);

@@ -2,6 +2,7 @@
 const metricEngine = globalThis.MetricEngine || {};
 const parseFormulaExpression = metricEngine.parseFormulaExpression || (() => ({ ast: null, error: "Formula parser unavailable." }));
 const collectFormulaIdentifiers = metricEngine.collectFormulaIdentifiers || (() => new Set());
+const BUILT_IN_SCOUTING_FIELD_IDS = new Set(["hasEntry"]);
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -55,6 +56,10 @@ function nodeId(kind, id) {
   return `${kind}:${id}`;
 }
 
+function isBuiltInScoutingFieldId(fieldId) {
+  return BUILT_IN_SCOUTING_FIELD_IDS.has(normalizeText(fieldId));
+}
+
 function collectFormulaDependencies(formula, catalog) {
   const parsed = parseFormulaExpression(String(formula || ""));
   if (parsed?.error || !parsed?.ast) {
@@ -70,7 +75,7 @@ function collectFormulaDependencies(formula, catalog) {
     if (!normalizedIdentifier) return;
     if (normalizedIdentifier.startsWith("scouting.")) {
       const fieldId = normalizedIdentifier.slice("scouting.".length);
-      if (fieldId && fieldId !== "total") {
+      if (fieldId && !isBuiltInScoutingFieldId(fieldId)) {
         dependencies.push({
           nodeId: nodeId("field", fieldId),
           kind: "field",
@@ -121,7 +126,7 @@ function sortEquationDependencies(sortEquation, catalog) {
     if (!metricId) return;
     if (metricId.startsWith("source:scouter:")) {
       const fieldId = metricId.slice("source:scouter:".length);
-      if (fieldId && fieldId !== "total") {
+      if (fieldId && !isBuiltInScoutingFieldId(fieldId)) {
         dependencies.push({
           nodeId: nodeId("field", fieldId),
           kind: "field",
@@ -334,6 +339,7 @@ function buildScoutingDependencyDiagnostics({
 globalThis.ScoutingDependencyDiagnostics = {
   buildScoutingDependencyDiagnostics,
   compareScoutingFieldDefinitions,
+  isBuiltInScoutingFieldId,
   normalizeFieldDefinitions,
 };
 })();

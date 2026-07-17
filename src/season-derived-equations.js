@@ -3,6 +3,13 @@ globalThis.SeasonDerivedEquations = {
   seasons: {
     "2025": [
       {
+        id: "scoutingTotal",
+        name: "Scouting Total",
+        formula: "scouting.auto + scouting.coral + scouting.algae + scouting.climb",
+        unit: "pts",
+        description: "Per-match scouting total from the imported scoring components.",
+      },
+      {
         id: "auto",
         name: "Auto",
         formula: "average(scouting.autoL3Made * 6 + scouting.autoL2Made * 4 + scouting.autoTroughMade * 3 + scouting.autoProcessorMade * 6 + scouting.autoBargeMade * 4)",
@@ -40,6 +47,13 @@ globalThis.SeasonDerivedEquations = {
     ],
     "2024": [
       {
+        id: "scoutingTotal",
+        name: "Scouting Total",
+        formula: "scouting.auto + scouting.speaker + scouting.amp + scouting.trap",
+        unit: "pts",
+        description: "Per-match scouting total from the imported scoring components.",
+      },
+      {
         id: "auto",
         name: "Auto",
         formula: "average(scouting.autoSpeakerMade * 5 + scouting.autoAmpMade * 2)",
@@ -69,6 +83,13 @@ globalThis.SeasonDerivedEquations = {
       },
     ],
     "2026": [
+      {
+        id: "scoutingTotal",
+        name: "Scouting Total",
+        formula: "scouting.auto + scouting.cycle + scouting.endgame",
+        unit: "pts",
+        description: "Per-match scouting total from the imported scoring components.",
+      },
       {
         id: "auto",
         name: "Auto",
