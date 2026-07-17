@@ -68,7 +68,7 @@ function buildDefaultScoutingAttachment(eventModel) {
           sampleKey: "",
         },
         translatorId: "canonical-json-v1",
-        status: "manual",
+        status: "stale",
         freshness: "unknown",
         autoLoad: false,
         schemaSignature: "",
@@ -96,7 +96,7 @@ function buildDefaultScoutingAttachment(eventModel) {
         sampleKey: hasSample ? `${eventModel.key}:sample-sheet` : "",
       },
       translatorId: normalizeText(eventModel.sheet.recommendedProfileId) || "match-current-v2",
-      status: hasSample ? "ready" : url ? "configured" : "manual",
+      status: hasSample ? "ready" : "stale",
       freshness: hasSample ? "snapshot" : "unknown",
       autoLoad: hasSample,
       schemaSignature: "",
@@ -127,7 +127,7 @@ function normalizeScoutingAttachment(attachment, eventModel) {
       path: normalizeText(attachment?.location?.path),
     },
     translatorId: normalizeText(attachment?.translatorId) || normalizeText(defaultAttachment.translatorId) || "match-current-v2",
-    status: normalizeText(attachment?.status) || normalizeText(defaultAttachment.status) || "manual",
+    status: normalizeText(attachment?.status) || normalizeText(defaultAttachment.status) || "stale",
     freshness: normalizeText(attachment?.freshness) || normalizeText(defaultAttachment.freshness) || "unknown",
     autoLoad: attachment?.autoLoad !== undefined ? Boolean(attachment.autoLoad) : Boolean(defaultAttachment.autoLoad),
     schemaSignature: normalizeText(attachment?.schemaSignature),
@@ -325,7 +325,7 @@ function setScoutingSourceLocation(workspace, value) {
       path: !normalizedValue ? normalizeText(attachment?.location?.path) : (isRemoteUrl ? "" : normalizedValue),
     },
     autoLoad: Boolean(normalizedValue) || Boolean(attachment.autoLoad),
-    status: normalizedValue ? "configured" : attachment.status,
+    status: normalizedValue ? "stale" : attachment.status,
   }));
 }
 
@@ -491,7 +491,7 @@ function setScoutingSourceUrl(workspace, url) {
       url: normalizedUrl,
     },
     autoLoad: Boolean(normalizedUrl) || Boolean(attachment.autoLoad),
-    status: normalizedUrl ? "configured" : attachment.status,
+    status: normalizedUrl ? "stale" : attachment.status,
   }));
 }
 

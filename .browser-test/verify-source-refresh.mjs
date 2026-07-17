@@ -40,6 +40,8 @@ async function readSourceRows(page) {
       refreshLabel: element.querySelector("[data-refresh-source]")?.textContent || "",
       pollingLabel: element.querySelector("[data-toggle-source-polling]")?.textContent || "",
       pollingSourceId: element.querySelector("[data-toggle-source-polling]")?.getAttribute("data-toggle-source-polling") || "",
+      status: element.querySelector(".source-status")?.textContent || "",
+      statusClassName: element.querySelector(".source-status")?.className || "",
     })),
   );
   return rows.map((row) => ({
@@ -47,6 +49,8 @@ async function readSourceRows(page) {
     text: text(row.text),
     refreshLabel: text(row.refreshLabel),
     pollingLabel: text(row.pollingLabel),
+    status: text(row.status),
+    statusClassName: text(row.statusClassName),
   }));
 }
 
@@ -98,6 +102,15 @@ try {
   assert(result.tbaPollingAfterPause === "Resume Polling", `Expected paused TBA polling label to be 'Resume Polling', got '${result.tbaPollingAfterPause}'.`);
   assert(result.tbaPollingAfterResume === "Pause Polling", `Expected resumed TBA polling label to be 'Pause Polling', got '${result.tbaPollingAfterResume}'.`);
   assert(result.tbaRefreshAddedActivity === true, "Expected manual TBA refresh to add an activity entry.");
+
+  const supportedStatuses = new Set(["Ready", "Stale", "Error"]);
+  result.initialRows.forEach((row) => {
+    assert(supportedStatuses.has(row.status), `Expected supported status badge vocabulary. Got '${row.status}' in row '${row.text}'.`);
+    assert(
+      /status-(ready|stale|error)\b/.test(row.statusClassName),
+      `Expected source row to include a normalized status class. Got '${row.statusClassName}'.`,
+    );
+  });
 
   const tbaAfterManual = rowBySourceId(result.rowsAfterTbaRefresh, "tba");
   assert(tbaAfterManual, "Could not find TBA row after manual refresh.");

@@ -122,7 +122,7 @@ function buildPendingSourceState(sourceId, options = {}) {
   return {
     sourceId,
     kind: "external",
-    status: normalizeText(options.status) || "manual",
+    status: normalizeText(options.status) || "stale",
     freshness: normalizeText(options.freshness) || "unknown",
     lastAttemptedAt: normalizeText(options.lastAttemptedAt),
     lastSuccessfulAt: normalizeText(options.lastSuccessfulAt),

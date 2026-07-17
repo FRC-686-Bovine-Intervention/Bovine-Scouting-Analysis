@@ -38,6 +38,19 @@ function freshnessForSource(source, policy, now = Date.now()) {
   return now - lastSuccessfulAt > staleAfterMs ? "stale" : "fresh";
 }
 
+function visibleStatusForSource(source, policy, now = Date.now()) {
+  const status = normalizeText(source?.status).toLowerCase();
+  if (status === "error") return "error";
+  const freshness = freshnessForSource(source, policy, now);
+  if (status === "ready" && freshness !== "stale") return "ready";
+  return "stale";
+}
+
+function sourceStatusBadgeClassName(status) {
+  const normalizedStatus = normalizeText(status).toLowerCase();
+  return `status-${normalizedStatus === "ready" || normalizedStatus === "error" ? normalizedStatus : "stale"}`;
+}
+
 function shouldPollSource(source, policy, now = Date.now()) {
   if (source?.pollingEnabled === false) return false;
   const nextPollAt = Date.parse(normalizeText(source?.nextPollAt) || "");
@@ -49,6 +62,8 @@ globalThis.SourceRefresh = {
   computeNextPollAt,
   defaultPolicyForSource,
   freshnessForSource,
+  sourceStatusBadgeClassName,
+  visibleStatusForSource,
   shouldPollSource,
 };
 })();

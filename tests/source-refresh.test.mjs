@@ -47,7 +47,7 @@ runTest("source refresh policy computes stale freshness and next poll backoff", 
     consecutiveFailures: 0,
   };
   const staleSource = {
-    lastSuccessfulAt: "2026-07-11T11:59:00Z",
+    lastSuccessfulAt: "2026-07-11T11:50:00Z",
     lastAttemptedAt: "2026-07-11T12:00:00Z",
     consecutiveFailures: 2,
   };
@@ -71,4 +71,55 @@ runTest("source refresh policy only polls when due", () => {
     context.SourceRefresh.shouldPollSource({ nextPollAt: "2026-07-11T12:05:00Z", pollingEnabled: true }, policy, Date.parse("2026-07-11T12:01:00Z")),
     false,
   );
+});
+
+runTest("source refresh policy normalizes visible source statuses to ready, stale, and error", () => {
+  const context = loadBrowserContext(["src/source-refresh.js"]);
+  const policy = context.SourceRefresh.defaultPolicyForSource({ kind: "scouting", sourceId: "attachment-1" });
+  const now = Date.parse("2026-07-11T12:10:00Z");
+
+  assert.equal(
+    context.SourceRefresh.visibleStatusForSource(
+      { status: "ready", freshness: "snapshot" },
+      policy,
+      now,
+    ),
+    "ready",
+  );
+  assert.equal(
+    context.SourceRefresh.visibleStatusForSource(
+      { status: "ready", lastSuccessfulAt: "2026-07-11T11:40:00Z" },
+      policy,
+      now,
+    ),
+    "stale",
+  );
+  assert.equal(
+    context.SourceRefresh.visibleStatusForSource(
+      { status: "stale", freshness: "unknown" },
+      policy,
+      now,
+    ),
+    "stale",
+  );
+  assert.equal(
+    context.SourceRefresh.visibleStatusForSource(
+      { status: "loading", freshness: "unknown" },
+      policy,
+      now,
+    ),
+    "stale",
+  );
+  assert.equal(
+    context.SourceRefresh.visibleStatusForSource(
+      { status: "error", freshness: "stale" },
+      policy,
+      now,
+    ),
+    "error",
+  );
+  assert.equal(context.SourceRefresh.sourceStatusBadgeClassName("ready"), "status-ready");
+  assert.equal(context.SourceRefresh.sourceStatusBadgeClassName("stale"), "status-stale");
+  assert.equal(context.SourceRefresh.sourceStatusBadgeClassName("loading"), "status-stale");
+  assert.equal(context.SourceRefresh.sourceStatusBadgeClassName("error"), "status-error");
 });

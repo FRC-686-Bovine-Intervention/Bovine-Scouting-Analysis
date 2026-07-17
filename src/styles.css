@@ -612,14 +612,32 @@ select {
   align-items: center;
   justify-self: start;
   padding: 4px 7px;
-  border: 1px solid color-mix(in srgb, var(--warn) 50%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--line) 75%, var(--panel));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--warn) 10%, var(--panel));
-  color: var(--warn);
+  background: color-mix(in srgb, var(--line) 10%, var(--panel));
+  color: var(--muted);
   font-size: 0.74rem;
   font-weight: 800;
   letter-spacing: 0.01em;
   white-space: nowrap;
+}
+
+.source-status.status-ready {
+  border-color: color-mix(in srgb, var(--good) 50%, var(--line));
+  background: color-mix(in srgb, var(--good) 12%, var(--panel));
+  color: var(--good);
+}
+
+.source-status.status-stale {
+  border-color: color-mix(in srgb, var(--warn) 50%, var(--line));
+  background: color-mix(in srgb, var(--warn) 12%, var(--panel));
+  color: var(--warn);
+}
+
+.source-status.status-error {
+  border-color: color-mix(in srgb, #dc2626 45%, var(--line));
+  background: color-mix(in srgb, #dc2626 10%, var(--panel));
+  color: #b91c1c;
 }
 
 .source-badge-row {

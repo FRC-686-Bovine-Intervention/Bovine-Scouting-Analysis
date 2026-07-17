@@ -44,6 +44,17 @@ const sharedDuplicateSubmissionKey =
 const previewScoutingJsonImport = scoutingJsonImport.previewScoutingJsonImport;
 const defaultRefreshPolicyForSource = sourceRefresh.defaultPolicyForSource || (() => ({ baseIntervalMs: 60 * 1000, staleAfterMs: 5 * 60 * 1000, maxBackoffMs: 20 * 60 * 1000 }));
 const freshnessForSource = sourceRefresh.freshnessForSource || ((source) => source?.freshness || "unknown");
+const sourceStatusBadgeClassName = sourceRefresh.sourceStatusBadgeClassName || ((status) => {
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  return `status-${normalizedStatus === "ready" || normalizedStatus === "error" ? normalizedStatus : "stale"}`;
+});
+const visibleStatusForSource = sourceRefresh.visibleStatusForSource || ((source, policy, now) => {
+  const status = String(source?.status || "").trim().toLowerCase();
+  if (status === "error") return "error";
+  const freshness = freshnessForSource(source, policy, now);
+  if (status === "ready" && freshness !== "stale") return "ready";
+  return "stale";
+});
 const shouldPollRefreshSource = sourceRefresh.shouldPollSource || (() => false);
 const seasonBuildMetrics = seasonFramework.buildMetrics || ((eventModel) => eventModel?.metrics || []);
 const seasonScouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((eventModel) => eventModel?.scoringComponents || []);
@@ -1057,7 +1068,11 @@ function currentDataSources() {
     return {
       sourceId: definition.sourceId,
       name: definition.label,
-      status: sourceState.status || dataSourceNote.status || "ready",
+      status: visibleStatusForSource(
+        { ...sourceState, status: sourceState.status || dataSourceNote.status || "ready" },
+        policy,
+        now,
+      ),
       freshness: freshnessForSource(sourceState, policy, now),
       notes: sourceState.error || sourceState.provenance?.notes || dataSourceNote.notes || "",
       kind: "external",
@@ -1077,7 +1092,7 @@ function currentDataSources() {
     {
       sourceId: "scouting",
       name: activeAttachment?.label || "Scouting Data",
-      status: activeAttachment?.status || "manual",
+      status: visibleStatusForSource(activeAttachment || {}, scoutingPolicy, now),
       freshness: freshnessForSource(activeAttachment || {}, scoutingPolicy, now),
       notes: activeAttachment?.error || `${detectedScoutingSourceLabel(workspace, event)} | ${currentScoutingSourceUrl() || "No scouting source configured."}`,
       stats: scoutingStats,
@@ -5909,7 +5924,7 @@ function renderAdmin() {
                 </div>
                 <div class="source-status-stack">
                   <div class="source-badge-row">
-                    <span class="source-status">${escapeHtml(formatBadgeLabel(source.status))}</span>
+                    <span class="source-status ${escapeAttribute(sourceStatusBadgeClassName(source.status))}">${escapeHtml(formatBadgeLabel(source.status))}</span>
                     <span class="source-status source-freshness ${escapeAttribute(`freshness-${source.freshness}`)}">${escapeHtml(formatFreshnessBadgeLabel(source.freshness))}</span>
                   </div>
                   <span class="muted">Next poll: ${source.nextPollAt}</span>

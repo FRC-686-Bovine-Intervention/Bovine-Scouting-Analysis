@@ -65,7 +65,7 @@ runTest("createEventWorkspace builds default external sources and a default scou
   assert.equal(context.EventWorkspace.scoutingSourceUrl(workspace), "https://example.com/sheet");
 });
 
-runTest("createEventWorkspace supports external-only events with a manual scouting attachment", () => {
+runTest("createEventWorkspace supports external-only events with an unconfigured scouting attachment", () => {
   const context = loadBrowserContext(["src/event-workspace.js"]);
   const workspace = context.EventWorkspace.createEventWorkspace({
     key: "2027test",
@@ -87,6 +87,7 @@ runTest("createEventWorkspace supports external-only events with a manual scouti
   assert.equal(workspace.sources.scouting.length, 1);
   assert.equal(workspace.activeScoutingAttachmentId, "scouting-2027test-default");
   assert.equal(context.EventWorkspace.activeScoutingAttachment(workspace)?.locationKind, "manual");
+  assert.equal(context.EventWorkspace.activeScoutingAttachment(workspace)?.status, "stale");
   assert.equal(context.EventWorkspace.activeScoutingAttachment(workspace)?.translatorId, "canonical-json-v1");
 });
 
@@ -150,6 +151,7 @@ runTest("setScoutingSourceUrl updates the active scouting attachment url", () =>
     context.EventWorkspace.activeScoutingAttachment(updatedWorkspace).location.url,
     "https://example.com/updated-sheet",
   );
+  assert.equal(context.EventWorkspace.activeScoutingAttachment(updatedWorkspace).status, "stale");
 });
 
 runTest("setScoutingSourceLocation stores local file paths separately from remote urls", () => {
@@ -178,6 +180,7 @@ runTest("setScoutingSourceLocation stores local file paths separately from remot
   assert.equal(context.EventWorkspace.activeScoutingAttachment(updatedWorkspace).location.path, "bound-local.json");
   assert.equal(context.EventWorkspace.activeScoutingAttachment(updatedWorkspace).location.url, "");
   assert.equal(context.EventWorkspace.activeScoutingAttachmentSourceValue(updatedWorkspace, {}), "bound-local.json");
+  assert.equal(context.EventWorkspace.activeScoutingAttachment(updatedWorkspace).status, "stale");
 });
 
 runTest("setScoutingSourceLocation converts local sheet-backed attachments into loadable local CSV sources", () => {
