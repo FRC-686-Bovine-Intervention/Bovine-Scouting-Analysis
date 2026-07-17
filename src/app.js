@@ -3089,17 +3089,6 @@ function formatBadgeLabel(value) {
     .join(" ");
 }
 
-function formatFreshnessBadgeLabel(value) {
-  switch (value) {
-    case "snapshot":
-      return "Snapshot Only";
-    case "unknown":
-      return "Unpolled";
-    default:
-      return formatBadgeLabel(value);
-  }
-}
-
 function formatMetricValue(value) {
   if (value === null || value === undefined || value === "") return "";
   if (typeof value === "string") return value;
@@ -5925,7 +5914,6 @@ function renderAdmin() {
                 <div class="source-status-stack">
                   <div class="source-badge-row">
                     <span class="source-status ${escapeAttribute(sourceStatusBadgeClassName(source.status))}">${escapeHtml(formatBadgeLabel(source.status))}</span>
-                    <span class="source-status source-freshness ${escapeAttribute(`freshness-${source.freshness}`)}">${escapeHtml(formatFreshnessBadgeLabel(source.freshness))}</span>
                   </div>
                   <span class="muted">Next poll: ${source.nextPollAt}</span>
                 </div>
