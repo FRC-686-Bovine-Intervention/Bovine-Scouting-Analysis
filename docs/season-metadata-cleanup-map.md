@@ -17,14 +17,15 @@ Implemented on July 18, 2026:
 
 - runtime scouting field resolution now prefers committed/imported schema fields and saved profile fields over season-seeded scouting fields
 - sample-backed scouting refresh checks now compare against explicit schema fields and translation versions instead of only season defaults
-- derived equations and filters now live under saved scouting profiles in app state, with one-time migration from legacy season buckets
+- derived equations now own reusable predicates at runtime, with legacy filters migrated into predicate-style equations under saved scouting profiles
+- analysis match filtering now resolves through predicate equations instead of a dedicated filter catalog
+- legacy translator selection now prefers adapter/profile identity, with season only as a fallback hint
 - legacy naming has started shifting away from `seasonDefinitions` and `seasonSheetTranslators` toward narrower compatibility seams
 
 Still pending:
 
-- converting the separate filter system into boolean derived equations
-- replacing year-keyed legacy sheet translators with profile-owned adapter records
 - fully deleting seeded season scaffolding after migration compatibility is no longer needed
+- removing the remaining compatibility wrappers and names that still mention filters or season-owned adapters
 
 ## Resolved Recommendations
 
@@ -53,7 +54,7 @@ If some provider-facing scoring metadata still needs a home, split it into a nar
 
 ### 4. Prefer boolean derived equations over a separate filter system
 
-The current code still has distinct filters, but the recommended end state is to collapse them into profile-owned boolean derived equations.
+The current code should collapse filters into profile-owned boolean derived equations.
 
 That means:
 
@@ -131,7 +132,7 @@ Effects today:
 
 ### 5. Legacy sheet import still branches by season
 
-[src/sheet-import-adapters.js](D:/FIRST/Scouting/Scouting-Analysis/src/sheet-import-adapters.js:35) contains `seasonSheetTranslators` for `2024`, `2025`, and `2026`.
+[src/sheet-import-adapters.js](D:/FIRST/Scouting/Scouting-Analysis/src/sheet-import-adapters.js:35) still contains legacy adapter logic for `2024`, `2025`, and `2026`, although selection now prefers adapter/profile identity before falling back to season.
 
 This is useful as migration scaffolding, but it is exactly the kind of season-specific structure the app should retire.
 
@@ -143,7 +144,7 @@ The desired replacement is:
 
 not year-specific translation branches in core code.
 
-### 6. Seeded equations and filters are still keyed by season
+### 6. Seeded equations and filter compatibility are still sourced from legacy season files
 
 The app still loads seeded season catalogs from:
 
@@ -152,7 +153,7 @@ The app still loads seeded season catalogs from:
 
 They are loaded into app state in [src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js:293) and selected by `eventModel.season` in [src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js:1173) and [src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js:1217).
 
-This is another place where year still decides scouting behavior.
+This is now migration scaffolding more than runtime ownership, but it still exists and should eventually disappear.
 
 ### 7. Storage naming still assumes season-owned catalogs
 
@@ -466,9 +467,9 @@ After the previous phases are stable:
 ### D. Equation and predicate cutover
 
 - [x] Move season-derived equations into profile-owned equation catalogs.
-- [ ] Convert existing season filters into boolean derived equations or predicate-marked equations.
-- [ ] Update analysis-filter selection to reference boolean equations instead of a separate filter catalog.
-- [ ] Keep dependency diagnostics working for converted predicate equations.
+- [x] Convert existing season filters into boolean derived equations or predicate-marked equations.
+- [x] Update analysis-filter selection to reference boolean equations instead of a separate filter catalog.
+- [x] Keep dependency diagnostics working for converted predicate equations.
 
 ### E. Scaffold removal
 

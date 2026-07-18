@@ -13,6 +13,10 @@ const genericSheetTranslationVersion = "sheet-fallback-v1";
 const genericSheetTemplateProfileId = "canonical-json-v1";
 const genericSheetProfileLabel = "Canonical Sheet Bridge";
 
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
 const baseFieldHeaderAliases = {
   matchNumber: ["match", "match #", "match number", "matchnumber", "qualification match"],
   teamNumber: ["team", "team #", "team number", "teamnumber", "team num", "team no"],
@@ -32,8 +36,11 @@ const provenanceHeaderAliases = {
   sourceRecordId: ["_id", "record id"],
 };
 
-const legacySheetProfiles = {
-  2024: {
+const legacySheetAdapters = [
+  {
+    id: "legacy-2024-sheet",
+    profileIds: ["match-current-v2", "match-legacy-v1"],
+    seasons: [2024],
     version: "2024-thin-v2",
     translateRow(rowTools) {
       const matchNumber = rowTools.leadingNumber("Match #");
@@ -79,7 +86,10 @@ const legacySheetProfiles = {
       };
     },
   },
-  2025: {
+  {
+    id: "legacy-2025-sheet",
+    profileIds: ["match-current-v2", "match-legacy-v1"],
+    seasons: [2025],
     version: "2025-thin-v2",
     translateRow(rowTools) {
       const climbLevel = rowTools.number("Climbing");
@@ -135,7 +145,10 @@ const legacySheetProfiles = {
       };
     },
   },
-  2026: {
+  {
+    id: "legacy-2026-sheet",
+    profileIds: ["match-current-v2", "match-legacy-v1"],
+    seasons: [2026],
     version: "2026-thin-v2",
     filterRow(rowTools, eventModel) {
       const rowEventKey = rowTools.text("Event Key");
@@ -213,7 +226,7 @@ const legacySheetProfiles = {
       };
     },
   },
-};
+];
 
 function parseCsvText(text) {
   const rows = [];
@@ -615,12 +628,28 @@ function createRowTools(row, headerIndex) {
   };
 }
 
-function translatorForEvent(eventModel) {
-  return legacySheetProfiles[Number(eventModel?.season)] || null;
+function adapterMatchesEvent(adapter, eventModel) {
+  const seasons = Array.isArray(adapter?.seasons) ? adapter.seasons.map((season) => Number(season)) : [];
+  if (!seasons.length) return true;
+  return seasons.includes(Number(eventModel?.season) || 0);
 }
 
-function importTranslationVersionForEvent(eventModel) {
-  return translatorForEvent(eventModel)?.version || "";
+function translatorForEvent(eventModel, options = {}) {
+  const explicitAdapterId = normalizeText(options?.translatorId);
+  if (explicitAdapterId) {
+    return legacySheetAdapters.find((adapter) => normalizeText(adapter?.id) === explicitAdapterId) || null;
+  }
+  const explicitProfileId = normalizeText(options?.templateProfileId);
+  if (explicitProfileId) {
+    const profileMatchedAdapter = legacySheetAdapters.find((adapter) =>
+      adapterMatchesEvent(adapter, eventModel) && (adapter.profileIds || []).includes(explicitProfileId));
+    if (profileMatchedAdapter) return profileMatchedAdapter;
+  }
+  return legacySheetAdapters.find((adapter) => adapterMatchesEvent(adapter, eventModel)) || null;
+}
+
+function importTranslationVersionForEvent(eventModel, options = {}) {
+  return translatorForEvent(eventModel, options)?.version || "";
 }
 
 function profileSchemaVersion(profileId) {
@@ -633,7 +662,7 @@ function profileSchemaVersion(profileId) {
 function buildCanonicalImportCsv(eventModel, records, options = {}) {
   const templateProfileId = String(options.templateProfileId || eventModel?.sheet?.recommendedProfileId || "match-current-v2").trim() || "match-current-v2";
   const schemaVersion = String(options.schemaVersion || profileSchemaVersion(templateProfileId)).trim() || profileSchemaVersion(templateProfileId);
-  const translationVersion = String(options.translationVersion || importTranslationVersionForEvent(eventModel)).trim();
+  const translationVersion = String(options.translationVersion || importTranslationVersionForEvent(eventModel, options)).trim();
   const metadataRow = ["meta", "season", "eventKey", "schemaVersion", "templateProfileId", "translationVersion"];
   const valueRow = ["value", eventModel.season, eventModel.key, schemaVersion, templateProfileId, translationVersion];
   const metricDefinitions = seasonFormulaFieldDefinitions(eventModel);
@@ -694,7 +723,7 @@ function canonicalEntriesFromRecords(records, options = {}) {
 function buildCanonicalDataset(eventModel, records, options = {}) {
   const templateProfileId = String(options.templateProfileId || eventModel?.sheet?.recommendedProfileId || "match-current-v2").trim() || "match-current-v2";
   const schemaVersion = String(options.schemaVersion || profileSchemaVersion(templateProfileId)).trim() || profileSchemaVersion(templateProfileId);
-  const translationVersion = String(options.translationVersion || importTranslationVersionForEvent(eventModel)).trim();
+  const translationVersion = String(options.translationVersion || importTranslationVersionForEvent(eventModel, options)).trim();
   const baseSchema = buildCanonicalSchemaForEventModel(eventModel, { schemaId: schemaVersion });
   const mergedSchemaFieldMap = new Map((baseSchema.fields || []).map((fieldDefinition) => [fieldDefinition.id, normalizeSchemaField(fieldDefinition)]));
   (options.schemaFields || []).forEach((fieldDefinition) => {
@@ -762,7 +791,7 @@ function translateEventSheetToCanonical(eventModel, csvText, options = {}) {
   }
   const rows = parseCsvText(csvText);
   const genericTranslation = translateGenericRows(eventModel, rows);
-  const translator = translatorForEvent(eventModel);
+  const translator = translatorForEvent(eventModel, options);
   if (!translator) {
     return buildCanonicalDataset(eventModel, genericTranslation.records, {
       ...options,
@@ -828,7 +857,7 @@ function reefscape2025ClimbPoints(value) {
 
 function adaptEventSheetCsv(eventModel, csvText, options = {}) {
   if (!csvText) return "";
-  const translator = translatorForEvent(eventModel);
+  const translator = translatorForEvent(eventModel, options);
   if (!translator) return csvText;
   const records = translateEventSheetToCanonical(eventModel, csvText, options).entries.map((entry) => ({
     matchNumber: entry.matchNumber,
