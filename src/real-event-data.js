@@ -1,7 +1,7 @@
 (function () {
 const eventModelBuilder = globalThis.EventModelBuilder || {};
 const seasonFramework = globalThis.SeasonFramework || {};
-const gameDefinitions = seasonFramework.gameDefinitions || seasonFramework.seasonDefinitions || {};
+const gameDefinitions = seasonFramework.gameDefinitions || {};
 const buildMetrics = seasonFramework.buildMetrics || ((season) => season?.metrics || []);
 const scouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((season) => season?.scouterMetrics || []);
 const formulaFieldDefinitions = seasonFramework.formulaFieldDefinitions || scouterMetricDefinitions;
@@ -19,6 +19,12 @@ function parseJson(text, fallback) {
 function minimalEventModelFromSnapshot(snapshot) {
   const season = Number(snapshot?.season || snapshot?.year || 0);
   const seasonDefinition = gameDefinitions[season] || {};
+  const scoutingSchemaSeed = {
+    ...seasonDefinition,
+    scouterMetrics: Array.isArray(snapshot?.scouterMetricDefinitions) ? snapshot.scouterMetricDefinitions : [],
+    formulaFieldDefinitions: Array.isArray(snapshot?.formulaFieldDefinitions) ? snapshot.formulaFieldDefinitions : [],
+    derivedMetricDefinitions: Array.isArray(snapshot?.derivedMetricDefinitions) ? snapshot.derivedMetricDefinitions : derivedMetricDefinitions(seasonDefinition),
+  };
   const tbaEvent = parseJson(snapshot?.tbaEventText, {});
   const tbaTeams = parseJson(snapshot?.tbaTeamsText, []);
   const teams = (Array.isArray(tbaTeams) ? tbaTeams : [])
@@ -38,11 +44,11 @@ function minimalEventModelFromSnapshot(snapshot) {
     season,
     seasonLabel: seasonDefinition.label || String(season || ""),
     scoringComponents: seasonDefinition.scoringComponents || [],
-    scouterMetricDefinitions: scouterMetricDefinitions(seasonDefinition),
-    formulaFieldDefinitions: formulaFieldDefinitions(seasonDefinition),
-    derivedMetricDefinitions: derivedMetricDefinitions(seasonDefinition),
-    metrics: buildMetrics(seasonDefinition),
-    criteriaSources: buildCriteriaSources(seasonDefinition),
+    scouterMetricDefinitions: scouterMetricDefinitions(scoutingSchemaSeed),
+    formulaFieldDefinitions: formulaFieldDefinitions(scoutingSchemaSeed),
+    derivedMetricDefinitions: derivedMetricDefinitions(scoutingSchemaSeed),
+    metrics: buildMetrics(scoutingSchemaSeed),
+    criteriaSources: buildCriteriaSources(scoutingSchemaSeed),
     teams,
     teamNumbers: teams.map((team) => team.number),
     sheet: snapshot?.sheet ? { ...snapshot.sheet, recommendedProfileId: snapshot.importProfileId || "" } : null,

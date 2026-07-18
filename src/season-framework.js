@@ -392,7 +392,6 @@ globalThis.SeasonFramework = {
   metricFieldId,
   rateMetric,
   scouterMetricDefinitions,
-  seasonDefinitions: gameDefinitions,
   sourceLabels,
   sumMetric,
   weightedMetric,

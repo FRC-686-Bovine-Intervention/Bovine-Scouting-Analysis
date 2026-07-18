@@ -37,7 +37,7 @@ function loadBrowserContext(relativePaths, extras = {}) {
 }
 
 function buildEventModel(context) {
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   return {
     ...season2026,
     season: 2026,
@@ -60,6 +60,22 @@ runTest("buildCanonicalSchemaForEventModel emits canonical field metadata for ac
   assert.equal(autoFuel.optional, false);
   assert.equal(autoRole.type, "string");
   assert.equal(autoRole.optional, true);
+});
+
+runTest("buildCanonicalSchemaForEventModel uses event-owned field definitions without SeasonFramework", () => {
+  const context = loadBrowserContext(["src/scouting-json-schema.js"]);
+  const schema = context.ScoutingJsonSchema.buildCanonicalSchemaForEventModel({
+    season: 2027,
+    key: "2027demo",
+    formulaFieldDefinitions: [
+      { id: "autoCoral", label: "Auto Coral", unit: "count", aggregate: "average" },
+      { id: "driverTag", label: "Driver Tag", unit: "text", optional: true, aggregate: "" },
+    ],
+  });
+
+  assert.equal(schema.schemaId, "2027-match-v1");
+  assert.equal(schema.fields.find((field) => field.id === "autoCoral").type, "number");
+  assert.equal(schema.fields.find((field) => field.id === "driverTag").type, "string");
 });
 
 runTest("validateCanonicalSchema accepts fixture-backed canonical scouting JSON", () => {

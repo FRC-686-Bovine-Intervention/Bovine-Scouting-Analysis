@@ -69,19 +69,22 @@ const browserContext = loadBrowserContext([
   "src/real-event-snapshots.js",
   "src/real-event-data.js",
   "src/scouting-source-utils.js",
+  "src/scouting-json-schema.js",
+  "src/scouting-json-import.js",
   "src/import-foundation.js",
   "src/sheet-import-adapters.js",
 ]);
 const metricEngine = browserContext.MetricEngine;
 const seasonFramework = browserContext.SeasonFramework;
 const importFoundation = browserContext.ImportFoundation;
+const scoutingJsonImport = browserContext.ScoutingJsonImport;
 const sheetImportAdapters = browserContext.SheetImportAdapters;
 const eventCatalog = browserContext.eventCatalog;
 const fixtures = JSON.parse(fs.readFileSync(path.resolve("tests/spreadsheet-comparison-fixtures.json"), "utf8"));
 
 fixtures.forEach((fixture) => {
   runTest(`${fixture.name} (${fixture.provenance}${fixture.sheetTab ? ` / ${fixture.sheetTab}` : ""})`, () => {
-    const season = seasonFramework.seasonDefinitions[fixture.season];
+    const season = seasonFramework.gameDefinitions[fixture.season];
     assert.ok(season, `Season ${fixture.season} should exist`);
 
     const overlay = metricEngine.buildTeamScoutingOverlay(
@@ -192,17 +195,20 @@ fixtures.forEach((fixture) => {
 ].forEach((fixture) => {
   runTest(fixture.name, () => {
     const eventModel = eventCatalog.find((event) => event.key === fixture.eventKey);
+    const seasonDefinition = seasonFramework.gameDefinitions[fixture.season];
     assert.ok(eventModel, `Event ${fixture.eventKey} should exist`);
     assert.equal(eventModel.season, fixture.season);
 
     const rawSheetCsv = fs.readFileSync(path.resolve(fixture.rawSheetPath), "utf8");
-    const adaptedCsv = sheetImportAdapters.adaptEventSheetCsv(eventModel, rawSheetCsv);
-    const preview = importFoundation.previewScoutingImport({
-      csvText: adaptedCsv,
+    const translated = sheetImportAdapters.translateEventSheetToCanonical(eventModel, rawSheetCsv);
+    const preview = scoutingJsonImport.previewScoutingJsonImport({
+      jsonText: sheetImportAdapters.buildCanonicalJsonText(translated),
       eventModel,
       activeEventKey: fixture.eventKey,
       existingSubmissions: [],
-      templateProfileId: "",
+      profileId: translated.templateProfileId,
+      profileLabel: translated.profileLabel,
+      translationVersion: translated.translatorVersion,
     });
     assert.ok(preview.ok, `Import preview should succeed for ${fixture.eventKey}: ${(preview.errors || []).join("; ")}`);
     assert.ok(preview.summary?.submissions?.length, `Import preview should produce submissions for ${fixture.eventKey}`);
@@ -214,8 +220,8 @@ fixtures.forEach((fixture) => {
         metricEngine.buildTeamScoutingOverlay(team, {
           submissions,
           scoringComponents: eventModel.scoringComponents,
-          scouterMetricDefinitions: seasonFramework.scouterMetricDefinitions(eventModel),
-          derivedMetricDefinitions: seasonFramework.derivedMetricDefinitions(eventModel),
+          scouterMetricDefinitions: seasonFramework.scouterMetricDefinitions(seasonDefinition),
+          derivedMetricDefinitions: seasonFramework.derivedMetricDefinitions(seasonDefinition),
           recentMatchCount: fixture.recentMatchCount || 4,
         }),
       ]),

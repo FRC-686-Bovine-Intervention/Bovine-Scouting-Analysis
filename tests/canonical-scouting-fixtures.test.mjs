@@ -168,16 +168,20 @@ migrationFixtures.forEach((fixture) => {
   });
 });
 
-runTest("2024mdsev canonical fixture preserves representative outputs from the legacy adapted import path", () => {
+runTest("2024mdsev canonical fixture preserves representative outputs from the legacy translated import path", () => {
   const fixture = migrationFixtures.find((candidate) => candidate.eventKey === "2024mdsev");
   const eventModel = eventCatalog.find((event) => event.key === fixture.eventKey);
+  const seasonDefinition = seasonFramework.gameDefinitions[fixture.season];
   const rawSheetCsv = fs.readFileSync(path.resolve(fixture.rawSheetPath), "utf8");
-  const adaptedCsv = sheetImportAdapters.adaptEventSheetCsv(eventModel, rawSheetCsv);
-  const legacyPreview = importFoundation.previewScoutingImport({
-    csvText: adaptedCsv,
+  const translated = sheetImportAdapters.translateEventSheetToCanonical(eventModel, rawSheetCsv);
+  const legacyPreview = scoutingJsonImport.previewScoutingJsonImport({
+    jsonText: sheetImportAdapters.buildCanonicalJsonText(translated),
     eventModel,
     activeEventKey: fixture.eventKey,
     existingSubmissions: [],
+    profileId: translated.templateProfileId,
+    profileLabel: translated.profileLabel,
+    translationVersion: translated.translatorVersion,
   });
   const canonicalPreview = scoutingJsonImport.previewScoutingJsonImport({
     jsonText: fs.readFileSync(path.resolve(fixture.canonicalFixturePath), "utf8"),
@@ -196,8 +200,8 @@ runTest("2024mdsev canonical fixture preserves representative outputs from the l
       metricEngine.buildTeamScoutingOverlay(team, {
         submissions: legacyPreview.summary.submissions,
         scoringComponents: eventModel.scoringComponents,
-        scouterMetricDefinitions: seasonFramework.scouterMetricDefinitions(eventModel),
-        derivedMetricDefinitions: seasonFramework.derivedMetricDefinitions(eventModel),
+        scouterMetricDefinitions: seasonFramework.scouterMetricDefinitions(seasonDefinition),
+        derivedMetricDefinitions: seasonFramework.derivedMetricDefinitions(seasonDefinition),
       }),
     ]),
   );
@@ -207,8 +211,8 @@ runTest("2024mdsev canonical fixture preserves representative outputs from the l
       metricEngine.buildTeamScoutingOverlay(team, {
         submissions: canonicalPreview.summary.submissions,
         scoringComponents: eventModel.scoringComponents,
-        scouterMetricDefinitions: seasonFramework.scouterMetricDefinitions(eventModel),
-        derivedMetricDefinitions: seasonFramework.derivedMetricDefinitions(eventModel),
+        scouterMetricDefinitions: seasonFramework.scouterMetricDefinitions(seasonDefinition),
+        derivedMetricDefinitions: seasonFramework.derivedMetricDefinitions(seasonDefinition),
       }),
     ]),
   );
@@ -228,6 +232,7 @@ runTest("2024mdsev canonical fixture preserves representative outputs from the l
 [migrationFixtures[1], migrationFixtures[2]].forEach((fixture) => {
   runTest(`${fixture.eventKey} canonical fixture reproduces representative TeamCalculations outputs`, () => {
     const eventModel = eventCatalog.find((event) => event.key === fixture.eventKey);
+    const seasonDefinition = seasonFramework.gameDefinitions[fixture.season];
     const preview = scoutingJsonImport.previewScoutingJsonImport({
       jsonText: fs.readFileSync(path.resolve(fixture.canonicalFixturePath), "utf8"),
       eventModel,
@@ -238,14 +243,14 @@ runTest("2024mdsev canonical fixture preserves representative outputs from the l
 
     const overlaysByTeam = new Map(
       eventModel.teams.map((team) => [
-        team.number,
-        metricEngine.buildTeamScoutingOverlay(team, {
-          submissions: preview.summary.submissions,
-          scoringComponents: eventModel.scoringComponents,
-          scouterMetricDefinitions: seasonFramework.scouterMetricDefinitions(eventModel),
-          derivedMetricDefinitions: seasonFramework.derivedMetricDefinitions(eventModel),
-          recentMatchCount: 4,
-        }),
+      team.number,
+      metricEngine.buildTeamScoutingOverlay(team, {
+        submissions: preview.summary.submissions,
+        scoringComponents: eventModel.scoringComponents,
+        scouterMetricDefinitions: seasonFramework.scouterMetricDefinitions(seasonDefinition),
+        derivedMetricDefinitions: seasonFramework.derivedMetricDefinitions(seasonDefinition),
+        recentMatchCount: 4,
+      }),
       ]),
     );
 

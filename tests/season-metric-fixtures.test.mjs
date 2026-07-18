@@ -42,7 +42,7 @@ const fixtures = JSON.parse(fs.readFileSync(path.resolve("tests/season-metric-fi
 
 fixtures.forEach((fixture) => {
   runTest(`season ${fixture.season} trusted fixture`, () => {
-    const season = seasonFramework.seasonDefinitions[fixture.season];
+    const season = seasonFramework.gameDefinitions[fixture.season];
     assert.ok(season, `Season ${fixture.season} should exist`);
 
     const baseTeam = {

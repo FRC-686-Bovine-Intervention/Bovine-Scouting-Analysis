@@ -1,8 +1,6 @@
 (function () {
 const seasonFramework = globalThis.SeasonFramework || {};
 const scoutingJsonSchema = globalThis.ScoutingJsonSchema || {};
-const seasonFormulaFieldDefinitions = seasonFramework.formulaFieldDefinitions || (seasonFramework.scouterMetricDefinitions || ((eventModel) => eventModel?.scoringComponents || []));
-const seasonMetricFieldId = seasonFramework.csvHeaderForMetric || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id));
 const buildCanonicalSchemaForEventModel =
   scoutingJsonSchema.buildCanonicalSchemaForEventModel ||
   ((eventModel, options = {}) => ({ schemaId: String(options.schemaId || `${eventModel?.season || "season"}-match-v1`), fields: [] }));
@@ -15,6 +13,29 @@ const genericSheetProfileLabel = "Canonical Sheet Bridge";
 
 function normalizeText(value) {
   return String(value || "").trim();
+}
+
+function formulaFieldDefinitions(eventModel) {
+  if (Array.isArray(eventModel?.formulaFieldDefinitions) && eventModel.formulaFieldDefinitions.length) {
+    return eventModel.formulaFieldDefinitions;
+  }
+  if (typeof seasonFramework.formulaFieldDefinitions === "function") {
+    return seasonFramework.formulaFieldDefinitions(eventModel);
+  }
+  if (Array.isArray(eventModel?.scouterMetricDefinitions) && eventModel.scouterMetricDefinitions.length) {
+    return eventModel.scouterMetricDefinitions;
+  }
+  return (eventModel?.scoringComponents || []).map((component) => ({
+    id: component.id,
+    label: component.label,
+    unit: component.unit || "pts",
+  }));
+}
+
+function metricCsvHeader(fieldDefinition) {
+  if (fieldDefinition?.csvKey) return fieldDefinition.csvKey;
+  if (typeof seasonFramework.csvHeaderForMetric === "function") return seasonFramework.csvHeaderForMetric(fieldDefinition);
+  return fieldDefinition?.unit === "pts" ? `${fieldDefinition.id}Pts` : fieldDefinition.id;
 }
 
 const baseFieldHeaderAliases = {
@@ -41,6 +62,8 @@ const legacySheetAdapters = [
     id: "legacy-2024-sheet",
     profileIds: ["match-current-v2", "match-legacy-v1"],
     seasons: [2024],
+    headerHints: ["Auto Speaker", "Tele-op Speaker", "Starting location", "Climb Attempt"],
+    minimumHeaderMatches: 2,
     version: "2024-thin-v2",
     translateRow(rowTools) {
       const matchNumber = rowTools.leadingNumber("Match #");
@@ -90,6 +113,8 @@ const legacySheetAdapters = [
     id: "legacy-2025-sheet",
     profileIds: ["match-current-v2", "match-legacy-v1"],
     seasons: [2025],
+    headerHints: ["Auto-L4Make", "Tele-Op-L4Make", "Climbing", "Alliance Index"],
+    minimumHeaderMatches: 2,
     version: "2025-thin-v2",
     translateRow(rowTools) {
       const climbLevel = rowTools.number("Climbing");
@@ -149,6 +174,8 @@ const legacySheetAdapters = [
     id: "legacy-2026-sheet",
     profileIds: ["match-current-v2", "match-legacy-v1"],
     seasons: [2026],
+    headerHints: ["Shifts Auto Primary Role", "Shifts Transition Fuel Pct", "Overall Shooter", "Shifts Endgame Climb"],
+    minimumHeaderMatches: 2,
     version: "2026-thin-v2",
     filterRow(rowTools, eventModel) {
       const rowEventKey = rowTools.text("Event Key");
@@ -394,10 +421,10 @@ function knownSchemaFieldsForEvent(eventModel) {
 function knownMetricFieldLookup(eventModel) {
   const schemaFieldById = new Map(knownSchemaFieldsForEvent(eventModel).map((fieldDefinition) => [fieldDefinition.id, fieldDefinition]));
   const lookup = new Map();
-  seasonFormulaFieldDefinitions(eventModel).forEach((metricDefinition) => {
+  formulaFieldDefinitions(eventModel).forEach((metricDefinition) => {
     const fieldId = String(metricDefinition?.id || "").trim();
     if (!fieldId) return;
-    [fieldId, seasonMetricFieldId(metricDefinition), metricDefinition.label, ...(metricDefinition.aliases || [])]
+    [fieldId, metricCsvHeader(metricDefinition), metricDefinition.label, ...(metricDefinition.aliases || [])]
       .filter(Boolean)
       .forEach((alias) => lookup.set(normalizeImportToken(alias), schemaFieldById.get(fieldId) || normalizeSchemaField(metricDefinition)));
   });
@@ -634,17 +661,59 @@ function adapterMatchesEvent(adapter, eventModel) {
   return seasons.includes(Number(eventModel?.season) || 0);
 }
 
+function normalizedHeaderTokenSet(headers = []) {
+  return new Set(
+    (headers || [])
+      .map((header) => normalizeImportToken(header))
+      .filter(Boolean),
+  );
+}
+
+function adapterHeaderMatchScore(adapter, normalizedHeaders) {
+  const hints = Array.isArray(adapter?.headerHints) ? adapter.headerHints : [];
+  return hints.reduce((count, hint) => count + (normalizedHeaders.has(normalizeImportToken(hint)) ? 1 : 0), 0);
+}
+
+function bestMatchingLegacySheetAdapter(adapters, headers = [], eventModel = null) {
+  if (!Array.isArray(headers) || !headers.length) return null;
+  const normalizedHeaders = normalizedHeaderTokenSet(headers);
+  let bestAdapter = null;
+  let bestScore = 0;
+  adapters.forEach((adapter) => {
+    const hints = Array.isArray(adapter?.headerHints) ? adapter.headerHints : [];
+    if (!hints.length) return;
+    const requiredMatches = Math.max(1, Math.min(
+      hints.length,
+      Number.isFinite(Number(adapter?.minimumHeaderMatches)) ? Number(adapter.minimumHeaderMatches) : hints.length,
+    ));
+    const score = adapterHeaderMatchScore(adapter, normalizedHeaders);
+    if (score < requiredMatches) return;
+    const nextSeasonMatch = adapterMatchesEvent(adapter, eventModel);
+    const bestSeasonMatch = adapterMatchesEvent(bestAdapter, eventModel);
+    if (score > bestScore || (score === bestScore && nextSeasonMatch && !bestSeasonMatch)) {
+      bestAdapter = adapter;
+      bestScore = score;
+    }
+  });
+  return bestAdapter;
+}
+
 function translatorForEvent(eventModel, options = {}) {
   const explicitAdapterId = normalizeText(options?.translatorId);
   if (explicitAdapterId) {
     return legacySheetAdapters.find((adapter) => normalizeText(adapter?.id) === explicitAdapterId) || null;
   }
+  const headers = Array.isArray(options?.headers) ? options.headers : [];
   const explicitProfileId = normalizeText(options?.templateProfileId);
   if (explicitProfileId) {
-    const profileMatchedAdapter = legacySheetAdapters.find((adapter) =>
-      adapterMatchesEvent(adapter, eventModel) && (adapter.profileIds || []).includes(explicitProfileId));
+    const profileMatchedAdapters = legacySheetAdapters.filter((adapter) => (adapter.profileIds || []).includes(explicitProfileId));
+    const headerMatchedProfileAdapter = bestMatchingLegacySheetAdapter(profileMatchedAdapters, headers, eventModel);
+    if (headerMatchedProfileAdapter) return headerMatchedProfileAdapter;
+    const profileMatchedAdapter = profileMatchedAdapters.find((adapter) => adapterMatchesEvent(adapter, eventModel));
     if (profileMatchedAdapter) return profileMatchedAdapter;
   }
+  const headerMatchedAdapter = bestMatchingLegacySheetAdapter(legacySheetAdapters, headers, eventModel);
+  if (headerMatchedAdapter) return headerMatchedAdapter;
   return legacySheetAdapters.find((adapter) => adapterMatchesEvent(adapter, eventModel)) || null;
 }
 
@@ -665,7 +734,7 @@ function buildCanonicalImportCsv(eventModel, records, options = {}) {
   const translationVersion = String(options.translationVersion || importTranslationVersionForEvent(eventModel, options)).trim();
   const metadataRow = ["meta", "season", "eventKey", "schemaVersion", "templateProfileId", "translationVersion"];
   const valueRow = ["value", eventModel.season, eventModel.key, schemaVersion, templateProfileId, translationVersion];
-  const metricDefinitions = seasonFormulaFieldDefinitions(eventModel);
+  const metricDefinitions = formulaFieldDefinitions(eventModel);
   const headerRow = [
     "matchNumber",
     "teamNumber",
@@ -675,7 +744,7 @@ function buildCanonicalImportCsv(eventModel, records, options = {}) {
     "defensePlayed",
     "robotStatus",
     "notes",
-    ...metricDefinitions.map((metricDefinition) => seasonMetricFieldId(metricDefinition)),
+    ...metricDefinitions.map((metricDefinition) => metricCsvHeader(metricDefinition)),
   ];
   const dataRows = records.map((record) => [
     record.matchNumber,
@@ -724,9 +793,23 @@ function buildCanonicalDataset(eventModel, records, options = {}) {
   const templateProfileId = String(options.templateProfileId || eventModel?.sheet?.recommendedProfileId || "match-current-v2").trim() || "match-current-v2";
   const schemaVersion = String(options.schemaVersion || profileSchemaVersion(templateProfileId)).trim() || profileSchemaVersion(templateProfileId);
   const translationVersion = String(options.translationVersion || importTranslationVersionForEvent(eventModel, options)).trim();
+  const normalizedRecords = (records || []).map((record) => ({
+    ...record,
+    metrics: populateSeasonScoringComponents(eventModel, record.metrics || {}),
+  }));
+  const presentFieldIds = new Set(
+    normalizedRecords.flatMap((record) => Object.keys(record.metrics || {})).map((fieldId) => String(fieldId || "").trim()).filter(Boolean),
+  );
+  const explicitSchemaFields = Array.isArray(options.schemaFields) ? options.schemaFields.map((fieldDefinition) => normalizeSchemaField(fieldDefinition)) : [];
+  const explicitSchemaFieldIds = new Set(explicitSchemaFields.map((fieldDefinition) => fieldDefinition.id).filter(Boolean));
   const baseSchema = buildCanonicalSchemaForEventModel(eventModel, { schemaId: schemaVersion });
-  const mergedSchemaFieldMap = new Map((baseSchema.fields || []).map((fieldDefinition) => [fieldDefinition.id, normalizeSchemaField(fieldDefinition)]));
-  (options.schemaFields || []).forEach((fieldDefinition) => {
+  const mergedSchemaFieldMap = new Map(
+    (baseSchema.fields || [])
+      .map((fieldDefinition) => normalizeSchemaField(fieldDefinition))
+      .filter((fieldDefinition) => presentFieldIds.has(fieldDefinition.id) || explicitSchemaFieldIds.has(fieldDefinition.id))
+      .map((fieldDefinition) => [fieldDefinition.id, fieldDefinition]),
+  );
+  explicitSchemaFields.forEach((fieldDefinition) => {
     const normalizedField = normalizeSchemaField(fieldDefinition);
     if (!normalizedField.id) return;
     mergedSchemaFieldMap.set(normalizedField.id, {
@@ -752,10 +835,6 @@ function buildCanonicalDataset(eventModel, records, options = {}) {
       || templateProfileId,
     translationVersion,
   };
-  const normalizedRecords = (records || []).map((record) => ({
-    ...record,
-    metrics: populateSeasonScoringComponents(eventModel, record.metrics || {}),
-  }));
   return {
     meta,
     schema: {
@@ -790,8 +869,9 @@ function translateEventSheetToCanonical(eventModel, csvText, options = {}) {
     return buildCanonicalDataset(eventModel, [], options);
   }
   const rows = parseCsvText(csvText);
+  const headers = rows[0] || [];
   const genericTranslation = translateGenericRows(eventModel, rows);
-  const translator = translatorForEvent(eventModel, options);
+  const translator = translatorForEvent(eventModel, { ...options, headers });
   if (!translator) {
     return buildCanonicalDataset(eventModel, genericTranslation.records, {
       ...options,
@@ -805,7 +885,6 @@ function translateEventSheetToCanonical(eventModel, csvText, options = {}) {
     });
   }
 
-  const headers = rows[0] || [];
   const headerIndex = eventSheetHeaderMap(headers);
   const translatedRecords = rows
     .slice(1)
@@ -841,6 +920,7 @@ function translateEventSheetToCanonical(eventModel, csvText, options = {}) {
 
   return buildCanonicalDataset(eventModel, mergeTranslatedAndGenericRecords(translatedRecords, genericTranslation.records), {
     ...options,
+    translationVersion: translator.version,
     schemaFields: genericTranslation.schemaFields,
   });
 }
@@ -857,9 +937,9 @@ function reefscape2025ClimbPoints(value) {
 
 function adaptEventSheetCsv(eventModel, csvText, options = {}) {
   if (!csvText) return "";
-  const translator = translatorForEvent(eventModel, options);
-  if (!translator) return csvText;
-  const records = translateEventSheetToCanonical(eventModel, csvText, options).entries.map((entry) => ({
+  const dataset = translateEventSheetToCanonical(eventModel, csvText, options);
+  if (dataset?.meta?.templateProfileId === genericSheetTemplateProfileId) return csvText;
+  const records = dataset.entries.map((entry) => ({
     matchNumber: entry.matchNumber,
     teamNumber: entry.teamNumber,
     scoutUser: entry.scoutUser,
@@ -870,7 +950,12 @@ function adaptEventSheetCsv(eventModel, csvText, options = {}) {
     notes: entry.notes,
     metrics: entry.rawMetrics || {},
   }));
-  return buildCanonicalImportCsv(eventModel, records, options);
+  return buildCanonicalImportCsv(eventModel, records, {
+    ...options,
+    templateProfileId: dataset.templateProfileId || options.templateProfileId,
+    schemaVersion: dataset.schema?.schemaId || options.schemaVersion,
+    translationVersion: dataset.translatorVersion || options.translationVersion,
+  });
 }
 
 globalThis.SheetImportAdapters = {

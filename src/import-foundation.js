@@ -1,5 +1,4 @@
 (function () {
-const seasonFramework = globalThis.SeasonFramework || {};
 const templateProfileSpecs = [
   {
     id: "match-current-v2",
@@ -109,15 +108,40 @@ function normalizeHeader(value, map) {
 }
 
 function componentFieldId(component) {
-  return normalizeToken((seasonFramework.metricFieldId || ((metricDefinition) => metricDefinition.id))(component));
+  return normalizeToken((component?.csvKey || component?.id || ""));
 }
 
 function scouterMetricDefinitions(eventModel) {
-  return (seasonFramework.scouterMetricDefinitions || ((model) => model?.scoringComponents || []))(eventModel);
+  if (Array.isArray(eventModel?.scouterMetricDefinitions) && eventModel.scouterMetricDefinitions.length) {
+    return eventModel.scouterMetricDefinitions;
+  }
+  return formulaFieldDefinitions(eventModel).filter((fieldDefinition) => {
+    const fieldType = String(fieldDefinition?.type || "").trim().toLowerCase()
+      || (String(fieldDefinition?.unit || "").trim().toLowerCase() === "text" ? "string" : "number");
+    return fieldType !== "string";
+  });
 }
 
 function formulaFieldDefinitions(eventModel) {
-  return (seasonFramework.formulaFieldDefinitions || seasonFramework.scouterMetricDefinitions || ((model) => model?.scoringComponents || []))(eventModel);
+  if (Array.isArray(eventModel?.formulaFieldDefinitions) && eventModel.formulaFieldDefinitions.length) {
+    return eventModel.formulaFieldDefinitions;
+  }
+  const definitions = [];
+  const seen = new Set();
+  const append = (fieldDefinition) => {
+    const fieldId = normalizeToken(fieldDefinition?.id);
+    if (!fieldId || seen.has(fieldId)) return;
+    seen.add(fieldId);
+    definitions.push(fieldDefinition);
+  };
+  (eventModel?.scoringComponents || []).forEach((component) => append({
+    id: component.id,
+    label: component.label,
+    unit: component.unit || "pts",
+  }));
+  (eventModel?.scouterMetricDefinitions || eventModel?.scouterMetrics || []).forEach(append);
+  (eventModel?.formulaFields || []).forEach(append);
+  return definitions;
 }
 
 function schemaFieldEntries(eventModel) {
@@ -131,7 +155,8 @@ function schemaFieldEntries(eventModel) {
 }
 
 function csvHeaderForMetric(component) {
-  return (seasonFramework.csvHeaderForMetric || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id)))(component);
+  if (component?.csvKey) return component.csvKey;
+  return component?.unit === "pts" ? `${component.id}Pts` : component.id;
 }
 
 function currentHeaderLabels(eventModel) {

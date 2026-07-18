@@ -62,6 +62,7 @@ runTest("createEventWorkspace builds default external sources and a default scou
   assert.equal(workspace.sources.scouting.length, 1);
   assert.equal(workspace.sources.scouting[0].locationKind, "embedded-sample");
   assert.equal(workspace.sources.scouting[0].translatorId, "match-current-v2");
+  assert.equal(workspace.sources.scouting[0].profileId, "match-current-v2");
   assert.equal(context.EventWorkspace.scoutingSourceUrl(workspace), "https://example.com/sheet");
 });
 
@@ -89,6 +90,7 @@ runTest("createEventWorkspace supports external-only events with an unconfigured
   assert.equal(context.EventWorkspace.activeScoutingAttachment(workspace)?.locationKind, "manual");
   assert.equal(context.EventWorkspace.activeScoutingAttachment(workspace)?.status, "stale");
   assert.equal(context.EventWorkspace.activeScoutingAttachment(workspace)?.translatorId, "canonical-json-v1");
+  assert.equal(context.EventWorkspace.activeScoutingAttachment(workspace)?.profileId, "canonical-json-v1");
 });
 
 runTest("createEventWorkspace preserves stored scouting attachment metadata over default event values", () => {
@@ -376,6 +378,7 @@ runTest("active scouting attachment helpers expose sample and profile metadata",
   assert.equal(context.EventWorkspace.activeScoutingAttachmentUsesSample(workspace), true);
   assert.equal(context.EventWorkspace.activeScoutingAttachmentSampleKey(workspace), "2026sample:sample-sheet");
   assert.equal(context.EventWorkspace.activeScoutingAttachmentProfileId(workspace), "match-current-v2");
+  assert.equal(context.EventWorkspace.activeScoutingAttachmentProfileVersionKey(workspace), "");
 });
 
 runTest("resolveScoutingImportSourceUrl prefers stored state, then workspace attachment, then event defaults", () => {
@@ -499,6 +502,9 @@ runTest("attachment status helpers stamp attempt, success, and failure metadata"
   });
   const succeeded = context.EventWorkspace.markActiveScoutingAttachmentSuccess(attempted, {
     timestamp: "2026-07-11T12:01:00Z",
+    profileId: "match-current-v2",
+    profileLabel: "Current Match Template",
+    profileVersionKey: "match-current-v2|schema-v1|2026-thin-v2",
     schemaSignature: "schema-v1",
     translatorVersion: "2026-thin-v2",
     sourceFingerprint: "fingerprint-123",
@@ -512,6 +518,9 @@ runTest("attachment status helpers stamp attempt, success, and failure metadata"
   assert.equal(context.EventWorkspace.activeScoutingAttachment(attempted).lastAttemptedAt, "2026-07-11T12:00:00Z");
   assert.equal(context.EventWorkspace.activeScoutingAttachment(succeeded).status, "ready");
   assert.equal(context.EventWorkspace.activeScoutingAttachment(succeeded).lastSuccessfulAt, "2026-07-11T12:01:00Z");
+  assert.equal(context.EventWorkspace.activeScoutingAttachment(succeeded).profileId, "match-current-v2");
+  assert.equal(context.EventWorkspace.activeScoutingAttachment(succeeded).profileLabel, "Current Match Template");
+  assert.equal(context.EventWorkspace.activeScoutingAttachmentProfileVersionKey(succeeded), "match-current-v2|schema-v1|2026-thin-v2");
   assert.equal(context.EventWorkspace.activeScoutingAttachment(succeeded).schemaSignature, "schema-v1");
   assert.equal(context.EventWorkspace.activeScoutingAttachment(succeeded).translatorVersion, "2026-thin-v2");
   assert.equal(context.EventWorkspace.activeScoutingAttachment(succeeded).sourceFingerprint, "fingerprint-123");

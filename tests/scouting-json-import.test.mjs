@@ -38,7 +38,7 @@ function loadBrowserContext(relativePaths, extras = {}) {
 
 runTest("previewScoutingJsonImport accepts canonical scouting JSON and preserves entry raw metrics", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,
@@ -66,7 +66,7 @@ runTest("previewScoutingJsonImport accepts canonical scouting JSON and preserves
 
 runTest("previewScoutingJsonImport preserves explicit entry provenance", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,
@@ -117,7 +117,7 @@ runTest("previewScoutingJsonImport preserves explicit entry provenance", () => {
 
 runTest("previewScoutingJsonImport rejects canonical JSON for the wrong event", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,
@@ -153,7 +153,7 @@ runTest("previewScoutingJsonImport rejects canonical JSON for the wrong event", 
 
 runTest("previewScoutingJsonImport rejects canonical JSON that omits schema field definitions", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,
@@ -176,7 +176,7 @@ runTest("previewScoutingJsonImport rejects canonical JSON that omits schema fiel
 
 runTest("previewScoutingJsonImport flags duplicate rows by canonical event, match, and team identity", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,
@@ -231,7 +231,7 @@ runTest("previewScoutingJsonImport flags duplicate rows by canonical event, matc
 
 runTest("previewScoutingJsonImport still detects duplicates when helper scripts load after scouting-json-import", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-json-schema.js", "src/scouting-json-import.js", "src/scouting-source-utils.js"]);
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,
@@ -283,7 +283,7 @@ runTest("previewScoutingJsonImport still detects duplicates when helper scripts 
 
 runTest("previewScoutingJsonImport honors payload schema fields instead of forcing the season default field list", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,

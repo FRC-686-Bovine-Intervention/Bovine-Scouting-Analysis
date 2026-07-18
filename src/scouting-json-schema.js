@@ -1,6 +1,4 @@
 (function () {
-const seasonFramework = globalThis.SeasonFramework || {};
-
 const canonicalFormatId = "frc-scouting-analysis/v1";
 const canonicalTemplateProfileId = "canonical-json-v1";
 const requiredEntryIdentityFields = ["matchNumber", "teamNumber", "scoutUser", "alliance", "station"];
@@ -11,7 +9,25 @@ function normalizeText(value) {
 }
 
 function formulaFieldDefinitions(eventModel) {
-  return (seasonFramework.formulaFieldDefinitions || seasonFramework.scouterMetricDefinitions || ((model) => model?.scoringComponents || []))(eventModel);
+  if (Array.isArray(eventModel?.formulaFieldDefinitions) && eventModel.formulaFieldDefinitions.length) {
+    return eventModel.formulaFieldDefinitions;
+  }
+  const definitions = [];
+  const seen = new Set();
+  const append = (fieldDefinition) => {
+    const fieldId = normalizeText(fieldDefinition?.id);
+    if (!fieldId || seen.has(fieldId)) return;
+    seen.add(fieldId);
+    definitions.push(fieldDefinition);
+  };
+  (eventModel?.scoringComponents || []).forEach((component) => append({
+    id: component.id,
+    label: component.label,
+    unit: component.unit || "pts",
+  }));
+  (eventModel?.scouterMetricDefinitions || eventModel?.scouterMetrics || []).forEach(append);
+  (eventModel?.formulaFields || []).forEach(append);
+  return definitions;
 }
 
 function inferCanonicalFieldType(fieldDefinition) {

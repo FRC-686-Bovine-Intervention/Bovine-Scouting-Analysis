@@ -1,7 +1,5 @@
 (function () {
-const seasonFramework = globalThis.SeasonFramework || {};
 const sheetImportAdapters = globalThis.SheetImportAdapters || {};
-const scouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((eventModel) => eventModel?.scoringComponents || []);
 const importTranslationVersionForEvent = sheetImportAdapters.importTranslationVersionForEvent || (() => "");
 
 function normalizeText(value) {
@@ -12,28 +10,33 @@ function schemaFieldDefinitions(eventModel) {
   if (Array.isArray(eventModel?.formulaFieldDefinitions) && eventModel.formulaFieldDefinitions.length) {
     return eventModel.formulaFieldDefinitions;
   }
-  return scouterMetricDefinitions(eventModel);
+  if (Array.isArray(eventModel?.scouterMetricDefinitions) && eventModel.scouterMetricDefinitions.length) {
+    return eventModel.scouterMetricDefinitions;
+  }
+  return (eventModel?.scoringComponents || []).map((component) => ({
+    id: component.id,
+    label: component.label,
+    unit: component.unit || "pts",
+  }));
 }
 
-function schemaFieldEntries(eventModel) {
-  return schemaFieldDefinitions(eventModel).map((fieldDefinition) => ({
+function normalizeSchemaFieldEntry(fieldDefinition) {
+  return {
     id: fieldDefinition.id,
     label: fieldDefinition.label || fieldDefinition.id,
     type: String(fieldDefinition?.type || "").trim() || (String(fieldDefinition?.unit || "").trim().toLowerCase() === "text" ? "string" : "number"),
     unit: fieldDefinition.unit || "",
     aggregate: fieldDefinition.aggregate || "average",
-  }));
+  };
+}
+
+function schemaFieldEntries(eventModel) {
+  return schemaFieldDefinitions(eventModel).map(normalizeSchemaFieldEntry);
 }
 
 function normalizedSchemaFieldEntries(eventModel, fields = []) {
   if (Array.isArray(fields) && fields.length) {
-    return fields.map((fieldDefinition) => ({
-      id: fieldDefinition.id,
-      label: fieldDefinition.label || fieldDefinition.id,
-      type: String(fieldDefinition?.type || "").trim() || (String(fieldDefinition?.unit || "").trim().toLowerCase() === "text" ? "string" : "number"),
-      unit: fieldDefinition.unit || "",
-      aggregate: fieldDefinition.aggregate || "average",
-    }));
+    return fields.map(normalizeSchemaFieldEntry);
   }
   return schemaFieldEntries(eventModel);
 }

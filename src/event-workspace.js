@@ -68,6 +68,9 @@ function buildDefaultScoutingAttachment(eventModel) {
           sampleKey: "",
         },
         translatorId: "canonical-json-v1",
+        profileId: "canonical-json-v1",
+        profileLabel: "Canonical JSON",
+        profileVersionKey: "",
         status: "stale",
         freshness: "unknown",
         autoLoad: false,
@@ -96,6 +99,9 @@ function buildDefaultScoutingAttachment(eventModel) {
         sampleKey: hasSample ? `${eventModel.key}:sample-sheet` : "",
       },
       translatorId: normalizeText(eventModel.sheet.recommendedProfileId) || "match-current-v2",
+      profileId: normalizeText(eventModel.sheet.recommendedProfileId) || "match-current-v2",
+      profileLabel: "",
+      profileVersionKey: "",
       status: hasSample ? "ready" : "stale",
       freshness: hasSample ? "snapshot" : "unknown",
       autoLoad: hasSample,
@@ -127,6 +133,9 @@ function normalizeScoutingAttachment(attachment, eventModel) {
       path: normalizeText(attachment?.location?.path),
     },
     translatorId: normalizeText(attachment?.translatorId) || normalizeText(defaultAttachment.translatorId) || "match-current-v2",
+    profileId: normalizeText(attachment?.profileId) || normalizeText(defaultAttachment.profileId) || normalizeText(attachment?.translatorId) || normalizeText(defaultAttachment.translatorId) || "match-current-v2",
+    profileLabel: normalizeText(attachment?.profileLabel) || normalizeText(defaultAttachment.profileLabel),
+    profileVersionKey: normalizeText(attachment?.profileVersionKey) || normalizeText(defaultAttachment.profileVersionKey),
     status: normalizeText(attachment?.status) || normalizeText(defaultAttachment.status) || "stale",
     freshness: normalizeText(attachment?.freshness) || normalizeText(defaultAttachment.freshness) || "unknown",
     autoLoad: attachment?.autoLoad !== undefined ? Boolean(attachment.autoLoad) : Boolean(defaultAttachment.autoLoad),
@@ -226,7 +235,11 @@ function activeScoutingAttachmentSampleKey(workspace) {
 }
 
 function activeScoutingAttachmentProfileId(workspace) {
-  return normalizeText(activeScoutingAttachment(workspace)?.translatorId);
+  return normalizeText(activeScoutingAttachment(workspace)?.profileId) || normalizeText(activeScoutingAttachment(workspace)?.translatorId);
+}
+
+function activeScoutingAttachmentProfileVersionKey(workspace) {
+  return normalizeText(activeScoutingAttachment(workspace)?.profileVersionKey);
 }
 
 function scoutingSourceUrl(workspace) {
@@ -524,6 +537,9 @@ function markActiveScoutingAttachmentSuccess(workspace, update = {}) {
     status: normalizeText(update.status) || "ready",
     freshness: normalizeText(update.freshness) || computeSourceFreshness({ ...attachment, status: "ready", lastSuccessfulAt: timestamp }, policy, Date.parse(timestamp) || Date.now()),
     error: "",
+    profileId: normalizeText(update.profileId) || attachment.profileId,
+    profileLabel: normalizeText(update.profileLabel) || attachment.profileLabel,
+    profileVersionKey: normalizeText(update.profileVersionKey) || attachment.profileVersionKey,
     schemaSignature: normalizeText(update.schemaSignature) || attachment.schemaSignature,
     translatorVersion: normalizeText(update.translatorVersion) || attachment.translatorVersion,
     sourceFingerprint: normalizeText(update.sourceFingerprint) || attachment.sourceFingerprint,
@@ -636,6 +652,7 @@ globalThis.EventWorkspace = {
   activeScoutingAttachmentFormat,
   activeScoutingAttachmentHasSample,
   activeScoutingAttachmentProfileId,
+  activeScoutingAttachmentProfileVersionKey,
   activeScoutingAttachmentSampleKey,
   activeScoutingAttachmentSourceValue,
   activeScoutingAttachmentUsesSample,

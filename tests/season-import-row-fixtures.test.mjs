@@ -42,7 +42,7 @@ const fixtures = JSON.parse(fs.readFileSync(path.resolve("tests/season-import-ro
 
 fixtures.forEach((fixture) => {
   runTest(fixture.name, () => {
-    const season = seasonFramework.seasonDefinitions[fixture.season];
+    const season = seasonFramework.gameDefinitions[fixture.season];
     assert.ok(season, `Season ${fixture.season} should exist`);
 
     const overlay = metricEngine.buildTeamScoutingOverlay(

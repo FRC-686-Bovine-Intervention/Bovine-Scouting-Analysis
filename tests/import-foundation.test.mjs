@@ -66,9 +66,49 @@ runTest("commitScoutingImport can replace existing submissions for source-of-tru
   );
 });
 
+runTest("previewScoutingImport uses event-owned field definitions without SeasonFramework", () => {
+  const context = loadBrowserContext(["src/scouting-source-utils.js", "src/import-foundation.js"]);
+  const eventModel = {
+    season: 2027,
+    key: "2027demo",
+    seasonLabel: "2027 Demo",
+    metrics: [{ id: "source:scouter:customCounter", label: "Scouting Custom Counter", unit: "count" }],
+    criteriaSources: [{ id: "scouter", label: "Scouting", components: [{ id: "customCounter", label: "Custom Counter" }] }],
+    formulaFieldDefinitions: [
+      { id: "customCounter", label: "Custom Counter", unit: "count", aggregate: "average" },
+      { id: "driverTag", label: "Driver Tag", unit: "text", aggregate: "" },
+    ],
+    scouterMetricDefinitions: [
+      { id: "customCounter", label: "Custom Counter", unit: "count", aggregate: "average" },
+    ],
+  };
+  const csvText = [
+    "meta,season,eventKey,schemaVersion,templateProfileId",
+    "value,2027,2027demo,match-v3,custom-profile-v1",
+    "",
+    "matchNumber,teamNumber,scoutUser,alliance,station,defensePlayed,robotStatus,notes,customCounter,driverTag",
+    "7,2537,Scout A,blue,2,no,ok,,3,steady",
+  ].join("\n");
+
+  const preview = context.ImportFoundation.previewScoutingImport({
+    csvText,
+    eventModel,
+    activeEventKey: "2027demo",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, true);
+  assert.equal(preview.summary.submissions[0].rawMetrics.customCounter, 3);
+  assert.equal(preview.summary.submissions[0].rawMetrics.driverTag, "steady");
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(preview.summary.schemaFields.map((field) => field.id))),
+    ["customCounter", "driverTag"],
+  );
+});
+
 runTest("previewScoutingImport preserves raw strings and warns on type outliers", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,
@@ -130,7 +170,7 @@ runTest("previewScoutingImport preserves raw strings and warns on type outliers"
 
 runTest("season sheet adapters preserve blank subjective ratings as missing values", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/sheet-import-adapters.js", "src/import-foundation.js"]);
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,
@@ -160,7 +200,7 @@ runTest("season sheet adapters preserve blank subjective ratings as missing valu
 
 runTest("season sheet adapters honor an explicit attachment profile in canonical metadata", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/sheet-import-adapters.js", "src/import-foundation.js"]);
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,
@@ -196,7 +236,7 @@ runTest("season sheet adapters honor an explicit attachment profile in canonical
 
 runTest("previewScoutingImport flags duplicate groups but keeps rows reviewable in the preview summary", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,
@@ -234,7 +274,7 @@ runTest("previewScoutingImport flags duplicate groups but keeps rows reviewable 
 
 runTest("previewScoutingImport still detects duplicates when helper scripts load after import-foundation", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/import-foundation.js", "src/scouting-source-utils.js"]);
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,
@@ -268,7 +308,7 @@ runTest("previewScoutingImport still detects duplicates when helper scripts load
 
 runTest("previewScoutingImport can fall back to generic field mapping when no profile matches", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,
@@ -302,7 +342,7 @@ runTest("previewScoutingImport can fall back to generic field mapping when no pr
 
 runTest("previewScoutingImport still flags missing required identity fields during generic fallback", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
-  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,

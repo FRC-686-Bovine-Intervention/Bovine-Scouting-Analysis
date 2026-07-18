@@ -35,7 +35,7 @@ function loadBrowserScript(relativePath, exportName) {
 const seasonFramework = loadBrowserScript("src/season-framework.js", "SeasonFramework");
 
 runTest("season metrics expose pRidge as a total-only source", () => {
-  const season = seasonFramework.seasonDefinitions[2026];
+  const season = seasonFramework.gameDefinitions[2026];
   const metrics = seasonFramework.buildMetrics(season);
   const criteriaSources = seasonFramework.buildCriteriaSources(season);
 
@@ -47,7 +47,7 @@ runTest("season metrics expose pRidge as a total-only source", () => {
 });
 
 runTest("season metrics expose OPR as a total-only source", () => {
-  const season = seasonFramework.seasonDefinitions[2024];
+  const season = seasonFramework.gameDefinitions[2024];
   const metrics = seasonFramework.buildMetrics(season);
   const criteriaSources = seasonFramework.buildCriteriaSources(season);
 
@@ -59,9 +59,9 @@ runTest("season metrics expose OPR as a total-only source", () => {
 });
 
 runTest("formula field definitions include scoring components for derived equations", () => {
-  const season2024 = seasonFramework.seasonDefinitions[2024];
-  const season2025 = seasonFramework.seasonDefinitions[2025];
-  const season2026 = seasonFramework.seasonDefinitions[2026];
+  const season2024 = seasonFramework.gameDefinitions[2024];
+  const season2025 = seasonFramework.gameDefinitions[2025];
+  const season2026 = seasonFramework.gameDefinitions[2026];
 
   assert.equal(
     seasonFramework.formulaFieldDefinitions(season2024).some((fieldDefinition) => fieldDefinition.id === "speaker"),

@@ -174,6 +174,8 @@ await runTest("loadEventByCode builds an event model and ready provider states f
 
   assert.equal(result.eventModel.key, "2026test");
   assert.equal(result.eventModel.catalogSource, "dynamic-external");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.scouterMetricDefinitions || [])), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.formulaFieldDefinitions || [])), []);
   assert.equal(result.eventModel.matches.length, 1);
   assert.equal(result.eventModel.teams.length, 6);
   assert.equal(result.eventModel.teams[0].eventRank, 1);

@@ -38,7 +38,7 @@ function loadBrowserContext(relativePaths, extras = {}) {
 
 runTest("sample-backed legacy submissions are marked for refresh when schema metadata is missing", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-import-repair.js"]);
-  const season = context.SeasonFramework.seasonDefinitions[2025];
+  const season = context.SeasonFramework.gameDefinitions[2025];
   const eventModel = {
     key: "2025chcmp",
     season: 2025,
@@ -62,9 +62,39 @@ runTest("sample-backed legacy submissions are marked for refresh when schema met
   );
 });
 
+runTest("stampScoutingSubmissionMetadata uses event-owned field definitions without SeasonFramework", () => {
+  const context = loadBrowserContext(["src/scouting-import-repair.js"]);
+  const eventModel = {
+    key: "2027demo",
+    season: 2027,
+    formulaFieldDefinitions: [
+      { id: "customCounter", label: "Custom Counter", unit: "count", aggregate: "average" },
+      { id: "driverTag", label: "Driver Tag", unit: "text", aggregate: "" },
+    ],
+  };
+  const stamped = context.ScoutingImportRepair.stampScoutingSubmissionMetadata(
+    [
+      {
+        teamNumber: 2537,
+        matchNumber: 7,
+        schemaVersion: "match-v3",
+        templateProfileId: "custom-profile-v1",
+        rawMetrics: { customCounter: 3, driverTag: "steady" },
+      },
+    ],
+    eventModel,
+  );
+
+  const parsedSignature = JSON.parse(stamped[0].scoutingSchemaSignature);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(parsedSignature.fields.map((field) => field.id))),
+    ["customCounter", "driverTag"],
+  );
+});
+
 runTest("stamped submissions do not refresh when the current schema matches", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-import-repair.js"]);
-  const season = context.SeasonFramework.seasonDefinitions[2025];
+  const season = context.SeasonFramework.gameDefinitions[2025];
   const eventModel = {
     key: "2025chcmp",
     season: 2025,
@@ -90,7 +120,7 @@ runTest("stamped submissions do not refresh when the current schema matches", ()
 
 runTest("sample-backed 2026 submissions refresh when newly added formula fields are missing", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-import-repair.js"]);
-  const season = context.SeasonFramework.seasonDefinitions[2026];
+  const season = context.SeasonFramework.gameDefinitions[2026];
   const eventModel = {
     key: "2026chcmp",
     season: 2026,
@@ -132,7 +162,7 @@ runTest("sample-backed 2026 submissions refresh when newly added formula fields 
 
 runTest("stamped submissions can use explicit schema fields instead of season-seeded defaults", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-import-repair.js"]);
-  const season = context.SeasonFramework.seasonDefinitions[2026];
+  const season = context.SeasonFramework.gameDefinitions[2026];
   const eventModel = {
     key: "2026chcmp",
     season: 2026,
@@ -227,7 +257,7 @@ runTest("repairLegacySubmissionRawMetrics preserves explicit 2024 climbAttempt",
 
 runTest("sample-backed submissions refresh when the thin translation version changes", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/sheet-import-adapters.js", "src/scouting-import-repair.js"]);
-  const season = context.SeasonFramework.seasonDefinitions[2026];
+  const season = context.SeasonFramework.gameDefinitions[2026];
   const eventModel = {
     key: "2026chcmp",
     season: 2026,
