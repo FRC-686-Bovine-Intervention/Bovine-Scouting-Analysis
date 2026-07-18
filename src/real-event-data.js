@@ -24,6 +24,7 @@ function minimalEventModelFromSnapshot(snapshot) {
     scouterMetrics: Array.isArray(snapshot?.scouterMetricDefinitions) ? snapshot.scouterMetricDefinitions : [],
     formulaFieldDefinitions: Array.isArray(snapshot?.formulaFieldDefinitions) ? snapshot.formulaFieldDefinitions : [],
     derivedMetricDefinitions: Array.isArray(snapshot?.derivedMetricDefinitions) ? snapshot.derivedMetricDefinitions : derivedMetricDefinitions(seasonDefinition),
+    scoringMatrixPresets: Array.isArray(snapshot?.scoringMatrixPresets) ? snapshot.scoringMatrixPresets : (seasonDefinition.scoringMatrixPresets || []),
   };
   const tbaEvent = parseJson(snapshot?.tbaEventText, {});
   const tbaTeams = parseJson(snapshot?.tbaTeamsText, []);
@@ -44,6 +45,7 @@ function minimalEventModelFromSnapshot(snapshot) {
     season,
     seasonLabel: seasonDefinition.label || String(season || ""),
     scoringComponents: seasonDefinition.scoringComponents || [],
+    scoringMatrixPresets: scoutingSchemaSeed.scoringMatrixPresets || [],
     scouterMetricDefinitions: scouterMetricDefinitions(scoutingSchemaSeed),
     formulaFieldDefinitions: formulaFieldDefinitions(scoutingSchemaSeed),
     derivedMetricDefinitions: derivedMetricDefinitions(scoutingSchemaSeed),

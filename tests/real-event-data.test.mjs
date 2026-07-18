@@ -91,6 +91,8 @@ runTest("real event model preserves qualification alliance scores and score brea
   assert.ok(eventModel, "Event model should be created");
   assert.equal(eventModel.matchesComplete, 1);
   assert.equal(eventModel.matches.length, 1);
+  assert.equal(Array.isArray(eventModel.scoringMatrixPresets), true);
+  assert.equal(eventModel.scoringMatrixPresets.length, 0);
   assert.deepEqual(JSON.parse(JSON.stringify(eventModel.matches[0])), {
     number: 1,
     red: [111, 222, 333],

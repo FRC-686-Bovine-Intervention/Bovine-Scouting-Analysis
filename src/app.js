@@ -3818,12 +3818,8 @@ function derivedMetricFieldOptions() {
   }));
 }
 
-function currentScoringDefinition(eventModel = currentEvent()) {
-  return seasonFramework.gameDefinitions?.[eventModel.season] || null;
-}
-
 function currentScoringMatrixPresets(eventModel = currentEvent()) {
-  return Array.isArray(currentScoringDefinition(eventModel)?.scoringMatrixPresets) ? currentScoringDefinition(eventModel).scoringMatrixPresets : [];
+  return Array.isArray(eventModel?.scoringMatrixPresets) ? eventModel.scoringMatrixPresets : [];
 }
 
 function derivedMetricScopeSummary() {

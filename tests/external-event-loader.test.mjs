@@ -196,6 +196,8 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(Array.isArray(result.eventModel.teams[0].sources.opr.trend), true);
   assert.equal(result.eventModel.teams[0].sources.opr.trend.length, 0);
   assert.equal(result.eventModel.seedPicklists[1].name, "Backup / Live Sources");
+  assert.equal(Array.isArray(result.eventModel.scoringMatrixPresets), true);
+  assert.equal(result.eventModel.scoringMatrixPresets.length, 0);
   assert.equal(result.sourceStates.tba.status, "ready");
   assert.equal(result.sourceStates.tba.lastSuccessfulAt, "2026-07-12T13:00:00Z");
   assert.equal(result.sourceStates.statbotics.status, "ready");

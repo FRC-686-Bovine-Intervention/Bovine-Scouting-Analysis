@@ -239,6 +239,7 @@ function buildEventModelFromPayloads(payload) {
     scouterMetrics: Array.isArray(payload?.scouterMetricDefinitions) ? payload.scouterMetricDefinitions : [],
     formulaFieldDefinitions: Array.isArray(payload?.formulaFieldDefinitions) ? payload.formulaFieldDefinitions : [],
     derivedMetricDefinitions: Array.isArray(payload?.derivedMetricDefinitions) ? payload.derivedMetricDefinitions : derivedMetricDefinitions(season),
+    scoringMatrixPresets: Array.isArray(payload?.scoringMatrixPresets) ? payload.scoringMatrixPresets : (season.scoringMatrixPresets || []),
   };
   const teamEventsByNumber = new Map((payload.statboticsTeamEvents || []).map((teamEvent) => [Number(teamEvent.team), teamEvent]));
   const rankingsByTeamNumber = buildRankingMap(payload.tbaRankings);
@@ -298,6 +299,7 @@ function buildEventModelFromPayloads(payload) {
     matchesComplete: matches.length,
     matches,
     scoringComponents: season.scoringComponents,
+    scoringMatrixPresets: scoutingSchemaSeed.scoringMatrixPresets || [],
     scouterMetricDefinitions: scouterMetricDefinitions(scoutingSchemaSeed),
     formulaFieldDefinitions: formulaFieldDefinitions(scoutingSchemaSeed),
     derivedMetricDefinitions: derivedMetricDefinitions(scoutingSchemaSeed),

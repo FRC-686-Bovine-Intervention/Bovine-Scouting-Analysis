@@ -17,6 +17,7 @@ Implemented on July 18, 2026:
 
 - runtime scouting field resolution now prefers committed/imported schema fields and saved profile fields over season-seeded scouting fields
 - app runtime metric and derived-definition resolution now reads the active event model plus active scouting profile instead of calling back into `SeasonFramework` for current-state scouting metrics
+- scoring-matrix preset resolution now reads `eventModel.scoringMatrixPresets` instead of looking back into `SeasonFramework` from the app layer
 - canonical schema, CSV import, JSON import, and schema-signature helpers now prefer event-owned field definitions before any season fallback
 - sample-backed scouting refresh checks now compare against explicit schema fields and translation versions instead of only season defaults
 - derived equations now own reusable predicates at runtime, with legacy filters migrated into predicate-style equations under saved scouting profiles
