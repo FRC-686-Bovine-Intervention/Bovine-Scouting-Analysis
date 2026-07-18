@@ -261,9 +261,16 @@ const protectedEpaSortEquation = {
 };
 
 const knownImportProfileLabels = {
+  "canonical-json-v1": "Canonical JSON",
   "match-current-v2": "Current Match Template",
   "match-legacy-v1": "Legacy Match Template",
 };
+
+function scoutingProfileLabel(profileId, fallbackLabel = "") {
+  const normalizedProfileId = normalizeText(profileId);
+  if (!normalizedProfileId) return normalizeText(fallbackLabel);
+  return knownImportProfileLabels[normalizedProfileId] || normalizeText(fallbackLabel) || normalizedProfileId;
+}
 
 const defaultScoutingProfileId = "match-current-v2";
 
@@ -831,6 +838,11 @@ function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
     normalizeText(draft.format) || activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
     normalizedSource,
   );
+  const requestedProfileId = normalizeText(draft.profileId);
+  const resolvedProfileId =
+    normalizedFormat === "scouting-json"
+      ? "canonical-json-v1"
+      : requestedProfileId || normalizeText(activeAttachment.profileId) || normalizeText(activeAttachment.translatorId) || defaultScoutingProfileId;
   const isRemoteSource = /^(https?|file):\/\//i.test(normalizedSource);
   state.eventWorkspace = upsertEventWorkspaceScoutingAttachment(
     currentEventWorkspace(),
@@ -844,7 +856,12 @@ function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
         url: isRemoteSource ? normalizedSource : "",
         path: normalizedSource && !isRemoteSource ? normalizedSource : "",
       },
-      translatorId: inferredScoutingTranslatorId(normalizeText(draft.translatorId) || activeAttachment.translatorId, normalizedFormat),
+      translatorId: inferredScoutingTranslatorId(
+        normalizeText(draft.translatorId) || (normalizedFormat === "scouting-json" ? "canonical-json-v1" : resolvedProfileId) || activeAttachment.translatorId,
+        normalizedFormat,
+      ),
+      profileId: resolvedProfileId,
+      profileLabel: scoutingProfileLabel(resolvedProfileId, normalizeText(draft.profileLabel) || activeAttachment.profileLabel),
       autoLoad: Boolean(draft.autoLoad),
     },
     currentEvent(),
@@ -954,10 +971,13 @@ async function applyRecentAdminEventSelection(value) {
 function readCurrentScoutingAttachmentDraftFromDom() {
   const source = document.querySelector("#importSourceUrl")?.value;
   const inferredFormat = inferredScoutingAttachmentFormat(document.querySelector("#scoutingAttachmentFormatSelect")?.value, source);
+  const selectedProfileId = normalizeText(document.querySelector("#scoutingAttachmentProfileId")?.value);
   return {
     label: document.querySelector("#scoutingAttachmentLabel")?.value,
     format: inferredFormat,
     translatorId: inferredScoutingTranslatorId(document.querySelector("#scoutingAttachmentTranslatorId")?.value, inferredFormat),
+    profileId: inferredFormat === "scouting-json" ? "canonical-json-v1" : selectedProfileId,
+    profileLabel: scoutingProfileLabel(inferredFormat === "scouting-json" ? "canonical-json-v1" : selectedProfileId, ""),
     source,
     autoLoad: document.querySelector("#scoutingAttachmentAutoLoad")?.checked,
   };
@@ -977,6 +997,64 @@ function syncScoutingAttachmentInferenceFromDom() {
 
 function saveCurrentScoutingAttachmentDraftFromDom(options = {}) {
   saveCurrentScoutingAttachmentDraft(readCurrentScoutingAttachmentDraftFromDom(), options);
+}
+
+function availableScoutingImportProfiles(eventModel = currentEvent()) {
+  const attachment = currentScoutingAttachment();
+  const format = activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), eventModel);
+  if (format === "scouting-json") {
+    return [{ id: "canonical-json-v1", label: knownImportProfileLabels["canonical-json-v1"] }];
+  }
+  const choices = new Map();
+  const append = (profileId, label = "") => {
+    const normalizedProfileId = normalizeText(profileId);
+    if (!normalizedProfileId || choices.has(normalizedProfileId)) return;
+    choices.set(normalizedProfileId, {
+      id: normalizedProfileId,
+      label: scoutingProfileLabel(normalizedProfileId, label),
+    });
+  };
+  append(attachment?.profileId, attachment?.profileLabel);
+  append(attachment?.translatorId, attachment?.profileLabel);
+  scoutingProfilesForEvent(eventModel).forEach((profile) => append(profile?.id, profile?.label));
+  append(defaultScoutingProfileId, knownImportProfileLabels[defaultScoutingProfileId]);
+  append("match-legacy-v1", knownImportProfileLabels["match-legacy-v1"]);
+  return [...choices.values()];
+}
+
+function selectedScoutingImportProfileId(eventModel = currentEvent()) {
+  const attachment = currentScoutingAttachment();
+  const format = activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), eventModel);
+  if (format === "scouting-json") return "canonical-json-v1";
+  return normalizeText(attachment?.profileId) || normalizeText(attachment?.translatorId) || preferredScoutingProfileIdForEvent(eventModel) || defaultScoutingProfileId;
+}
+
+async function applyScoutingProfileSelectionChange(profileId) {
+  const attachment = currentScoutingAttachment();
+  if (!attachment) return false;
+  const nextProfileId = normalizeText(profileId) || selectedScoutingImportProfileId();
+  const draft = {
+    label: attachment.label,
+    format: activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+    translatorId: nextProfileId,
+    profileId: nextProfileId,
+    profileLabel: scoutingProfileLabel(nextProfileId, attachment.profileLabel),
+    source: currentScoutingSourceInputValue(),
+    autoLoad: attachment.autoLoad,
+  };
+  saveCurrentScoutingAttachmentDraft(draft, { render: false });
+  const attachmentLoad = describeEventWorkspaceScoutingAttachmentLoad(currentEventWorkspace(), currentEvent());
+  if (!attachmentLoad.canLoad) {
+    saveState();
+    render();
+    return false;
+  }
+  await loadScoutingData({
+    autoCommit: true,
+    scoutingImportSource: "manual-profile-change",
+    importDraftSource: "attached",
+  });
+  return true;
 }
 
 async function applyAdminEventCodeDraft(value, options = {}) {
@@ -6066,6 +6144,8 @@ function renderAdmin() {
   const event = currentEvent();
   const workspace = currentEventWorkspace();
   const activeAttachment = currentScoutingAttachment();
+  const importProfiles = availableScoutingImportProfiles(event);
+  const selectedImportProfileId = selectedScoutingImportProfileId(event);
   const result = state.importResult;
   const issues = [...(result?.errors || []), ...(result?.warnings || [])];
   const reviewGroups = flaggedSubmissionGroups();
@@ -6129,6 +6209,17 @@ function renderAdmin() {
                 />
                 <button type="button" id="chooseLocalScoutingFileButton" ${localAttachmentFilesSupported() ? "" : "disabled"}>Browse</button>
               </div>
+            </label>
+            <label>
+              Scouting Profile
+              <select id="scoutingAttachmentProfileId" aria-label="Scouting profile">
+                ${importProfiles.map((profile) => `<option value="${escapeAttribute(profile.id)}" ${profile.id === selectedImportProfileId ? "selected" : ""}>${escapeHtml(profile.label)}</option>`).join("")}
+              </select>
+              <span class="muted">
+                ${activeAttachment?.profileVersionKey
+                  ? `Attachment profile version: ${escapeHtml(activeAttachment.profileVersionKey)}`
+                  : "Choose the profile that best matches this scouting source. Switching profiles reloads the current source."}
+              </span>
             </label>
             ${
               mismatchMessage
@@ -7556,6 +7647,9 @@ function bindViewEvents() {
     await applyScoutingSourceInputChange({
       scoutingImportSource: "manual-source-change",
     });
+  });
+  document.querySelector("#scoutingAttachmentProfileId")?.addEventListener("change", async (event) => {
+    await applyScoutingProfileSelectionChange(event.target.value);
   });
   document.querySelector("#importCsvInput")?.addEventListener("input", (event) => {
     state.importCsvText = event.target.value;
