@@ -52,6 +52,7 @@ function usableSubmission(submission, options = {}) {
 function aggregateSubmissionMatches(submissions, options = {}) {
   const scoringComponentIds = Array.isArray(options.scoringComponentIds) ? options.scoringComponentIds : [];
   const scouterMetricIds = Array.isArray(options.scouterMetricIds) ? options.scouterMetricIds : [];
+  const aggregatedComponentIds = [...new Set([...scouterMetricIds, ...scoringComponentIds])];
   const scouterMetricDefinitions = Array.isArray(options.scouterMetricDefinitions) ? options.scouterMetricDefinitions : [];
   const componentAggregation = Object.fromEntries(
     scouterMetricDefinitions.map((metricDefinition) => [metricDefinition.id, String(metricDefinition.aggregate || "average")]),
@@ -66,8 +67,8 @@ function aggregateSubmissionMatches(submissions, options = {}) {
         grouped.set(matchNumber, {
           matchNumber,
           submissions: [],
-          componentSums: Object.fromEntries(scouterMetricIds.map((componentId) => [componentId, 0])),
-          componentCounts: Object.fromEntries(scouterMetricIds.map((componentId) => [componentId, 0])),
+          componentSums: Object.fromEntries(aggregatedComponentIds.map((componentId) => [componentId, 0])),
+          componentCounts: Object.fromEntries(aggregatedComponentIds.map((componentId) => [componentId, 0])),
           count: 0,
           order: index,
         });
@@ -75,7 +76,7 @@ function aggregateSubmissionMatches(submissions, options = {}) {
       const group = grouped.get(matchNumber);
       group.submissions.push(submission);
       group.count += 1;
-      scouterMetricIds.forEach((componentId) => {
+      aggregatedComponentIds.forEach((componentId) => {
         const value = submission.rawMetrics?.[componentId];
         const numericValue = finiteNumberOrNaN(value);
         if (!Number.isFinite(numericValue)) return;
@@ -87,7 +88,7 @@ function aggregateSubmissionMatches(submissions, options = {}) {
   return [...grouped.values()]
     .map((group) => {
       const components = Object.fromEntries(
-        scouterMetricIds.map((componentId) => {
+        aggregatedComponentIds.map((componentId) => {
           const aggregation = componentAggregation[componentId] || "average";
           const value =
             aggregation === "max"
@@ -190,23 +191,27 @@ function summarizeScoutingWindow(aggregatedMatches, scouterMetricDefinitions, de
     };
   }
 
+  const componentIds = [...new Set([
+    ...(scouterMetricDefinitions || []).map((metricDefinition) => metricDefinition.id),
+    ...aggregatedMatches.flatMap((match) => Object.keys(match.components || {})),
+  ])];
   const totalsTrend = aggregatedMatches.map((match) => match.total);
   const preciseScouterComponents = Object.fromEntries(
-    scouterMetricDefinitions.map((metricDefinition) => [
-      metricDefinition.id,
-      averagePresentNumbers(aggregatedMatches.map((match) => finiteNumberOrNaN(match.components[metricDefinition.id]))),
+    componentIds.map((componentId) => [
+      componentId,
+      averagePresentNumbers(aggregatedMatches.map((match) => finiteNumberOrNaN(match.components[componentId]))),
     ]),
   );
   const scouterComponents = Object.fromEntries(
-    scouterMetricDefinitions.map((metricDefinition) => [
-      metricDefinition.id,
-      roundValue(preciseScouterComponents[metricDefinition.id]),
+    componentIds.map((componentId) => [
+      componentId,
+      roundValue(preciseScouterComponents[componentId]),
     ]),
   );
   const scouterTrendByComponent = Object.fromEntries(
-    scouterMetricDefinitions.map((metricDefinition) => [
-      metricDefinition.id,
-      aggregatedMatches.map((match) => Number(match.components[metricDefinition.id] || 0)),
+    componentIds.map((componentId) => [
+      componentId,
+      aggregatedMatches.map((match) => Number(match.components[componentId] || 0)),
     ]),
   );
   const seasonDerivedMetrics = Object.fromEntries(

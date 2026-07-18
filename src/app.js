@@ -237,7 +237,7 @@ const defaultAllianceBoard = Array(24).fill(null);
 const protectedEpaSortEquation = {
   id: protectedEpaSortId,
   name: "EPA",
-  metricId: "source:epa:epa.totalPoints",
+  metricId: "source:epa:epa.total_points",
   locked: true,
 };
 
@@ -1045,6 +1045,8 @@ function currentMatches() {
 function currentMetrics() {
   const eventModel = {
     ...currentEvent(),
+    scouterMetricDefinitions: currentScouterMetricDefinitions(),
+    formulaFieldDefinitions: currentFormulaFieldDefinitions(),
     derivedMetricDefinitions: currentDerivedMetricDefinitions(),
   };
   return [
@@ -1107,13 +1109,25 @@ function currentDataSources() {
 }
 
 function currentScouterMetricDefinitions(eventModel = currentEvent()) {
-  return seasonScouterMetricDefinitions(eventModel);
+  const scoringComponentIds = new Set((eventModel?.scoringComponents || []).map((component) => component.id));
+  return buildDynamicScoutingFieldDefinitions({
+    eventModel: {
+      ...eventModel,
+      formulaFieldDefinitions: seasonScouterMetricDefinitions(eventModel),
+    },
+    submissions: currentScoutingSubmissions(),
+    schemaFields: currentImportSchemaFields(),
+  }).filter((metricDefinition) => !scoringComponentIds.has(metricDefinition.id));
 }
 
 function currentFormulaFieldDefinitions(eventModel = currentEvent()) {
   return buildDynamicScoutingFieldDefinitions({
-    eventModel,
+    eventModel: {
+      ...eventModel,
+      formulaFieldDefinitions: seasonFormulaFieldDefinitions(eventModel),
+    },
     submissions: currentScoutingSubmissions(),
+    schemaFields: currentImportSchemaFields(),
   });
 }
 
@@ -1129,6 +1143,12 @@ function currentAtomicScouterMetricDefinitions(eventModel = currentEvent()) {
 function currentAvailableScoutingFieldDefinitions(eventModel = currentEvent()) {
   const scoringComponentIds = new Set((eventModel?.scoringComponents || []).map((component) => component.id));
   return currentFormulaFieldDefinitions(eventModel).filter((fieldDefinition) => !scoringComponentIds.has(fieldDefinition.id));
+}
+
+function currentImportSchemaFields() {
+  return Array.isArray(state.importResult?.summary?.schemaFields)
+    ? state.importResult.summary.schemaFields
+    : [];
 }
 
 function importedProfileScopeKey(eventModel = currentEvent()) {
@@ -1259,11 +1279,7 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
   ];
 }
 
-const defaultStatboticsMetricId = "source:epa:epa.totalPoints";
-
-function canonicalStatboticsMetricId(metricId) {
-  return metricId === "source:epa:total" ? defaultStatboticsMetricId : metricId;
-}
+const defaultStatboticsMetricId = "source:epa:epa.total_points";
 
 function ensureActiveSeasonFilter(eventModel = currentEvent()) {
   const definitions = currentSeasonFilterList(eventModel);
@@ -1291,24 +1307,8 @@ function scalarTbaValue(value) {
   return null;
 }
 
-function identifierTokens(value) {
-  return String(value || "")
-    .trim()
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
-    .replace(/[_\-\s]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-}
-
-function camelCaseSegment(value) {
-  return identifierTokens(value)
-    .map((token, index) => {
-      const lower = token.toLowerCase();
-      if (index === 0) return lower;
-      return lower.charAt(0).toUpperCase() + lower.slice(1);
-    })
-    .join("");
+function providerPathSegment(value) {
+  return String(value || "").trim();
 }
 
 function flattenTbaScalarEntries(value, prefix = "") {
@@ -1317,7 +1317,7 @@ function flattenTbaScalarEntries(value, prefix = "") {
   }
   if (value && typeof value === "object") {
     return Object.entries(value).flatMap(([key, entryValue]) => {
-      const segment = camelCaseSegment(key);
+      const segment = providerPathSegment(key);
       if (!segment) return [];
       return flattenTbaScalarEntries(entryValue, prefix ? `${prefix}.${segment}` : segment);
     });
@@ -1404,21 +1404,10 @@ function collectTbaMetricDefinitions(eventModel = currentEvent()) {
     };
   };
 
-  const legacyAliasFieldIds = new Set([
-    "autoFuel",
-    "transitionFuel",
-    "firstShiftFuel",
-    "secondShiftFuel",
-    "thirdShiftFuel",
-    "fourthShiftFuel",
-    "endgameFuel",
-  ]);
-
   const formulaDefinitions = [
     ...[...eventDefinitions.entries()].map(([fieldId, samples]) => buildDefinition(fieldId, samples, "event")),
     ...[...matchDefinitions.entries()].map(([fieldId, samples]) => buildDefinition(fieldId, samples, "match")),
   ]
-    .filter((definition) => !legacyAliasFieldIds.has(definition.fieldId))
     .sort((left, right) => left.id.localeCompare(right.id));
 
   const metricDefinitions = formulaDefinitions
@@ -1665,33 +1654,12 @@ function isPresentFormulaValue(value) {
   return !(typeof value === "number" && Number.isNaN(value));
 }
 
-function tbaFormulaIdentifierAliases(fieldId) {
-  const normalized = normalizeText(fieldId);
-  const aliases = {
-    autoFuel: ["hubScore.autoPoints"],
-    transitionFuel: ["hubScore.transitionPoints"],
-    firstShiftFuel: ["hubScore.shift1Points"],
-    secondShiftFuel: ["hubScore.shift2Points"],
-    thirdShiftFuel: ["hubScore.shift3Points"],
-    fourthShiftFuel: ["hubScore.shift4Points"],
-    endgameFuel: ["hubScore.endgamePoints"],
-  };
-  return aliases[normalized] || [];
-}
-
-function statboticsFormulaIdentifierAliases(fieldId, eventModel = currentEvent()) {
-  const normalized = normalizeText(fieldId);
-  if (normalized === "total") return ["epa.totalPoints"];
-  const breakdownKeys = Array.isArray(eventModel?.breakdownMap?.[normalized]) ? eventModel.breakdownMap[normalized] : [];
-  return breakdownKeys.map((key) => `epa.breakdown.${camelCaseSegment(key)}`);
-}
-
 function formulaResultForEventAggregate(value) {
   if (metricEngine.isErrorResult(value)) return { valid: false, reason: value.error || "Invalid event aggregate input." };
   if (metricEngine.isSeriesResult(value)) {
     return {
       valid: false,
-      reason: "event* requires a per-team event value such as statbotics.epa.totalPoints or average(scouting.autoSpeakerMade), not a raw match-level series.",
+      reason: "event* requires a per-team event value such as statbotics.epa.total_points or average(scouting.autoSpeakerMade), not a raw match-level series.",
     };
   }
   if (!metricEngine.isScalarResult(value)) {
@@ -1923,12 +1891,10 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
   }
   if (identifier.startsWith("tba.")) {
     const fieldId = identifier.slice("tba.".length);
-    const candidateFieldIds = [fieldId, ...tbaFormulaIdentifierAliases(fieldId)];
+    const candidateFieldIds = [fieldId];
     for (const candidateFieldId of candidateFieldIds) {
       const overlayValue = readFormulaPathValue(formulaContext.overlayTeam.sources?.tba?.components || {}, candidateFieldId);
       if (isPresentFormulaValue(overlayValue)) return formulaScalarValue(overlayValue);
-      const seededFuelValue = readFormulaPathValue(formulaContext.overlayTeam.sources?.epa?.components || {}, candidateFieldId);
-      if (isPresentFormulaValue(seededFuelValue)) return formulaScalarValue(seededFuelValue);
     }
     return formulaSeriesFromRows(formulaContext.matchRows, (row) => {
       for (const candidateFieldId of candidateFieldIds) {
@@ -1940,11 +1906,7 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
   }
   if (identifier.startsWith("statbotics.")) {
     const componentId = identifier.slice("statbotics.".length);
-    const candidateFieldIds = [componentId, ...statboticsFormulaIdentifierAliases(componentId, formulaContext.eventModel)];
-    if (componentId === "total") {
-      const totalValue = formulaContext.overlayTeam.sources?.epa?.total;
-      if (isPresentFormulaValue(totalValue)) return formulaScalarValue(totalValue);
-    }
+    const candidateFieldIds = [componentId];
     for (const candidateFieldId of candidateFieldIds) {
       const overlayValue = readFormulaPathValue(formulaContext.overlayTeam.sources?.epa?.components || {}, candidateFieldId);
       if (isPresentFormulaValue(overlayValue)) return formulaScalarValue(overlayValue);
@@ -2918,11 +2880,11 @@ function normalizePicklistColumns(columns) {
 function normalizeSourceEntry(entry) {
   if (!entry || typeof entry !== "string") return "";
   if (entry.startsWith("metric:")) {
-    const metricId = canonicalStatboticsMetricId(entry.slice(7));
+    const metricId = entry.slice(7);
     return currentRankableMetrics().some((metric) => metric.id === metricId) ? `metric:${metricId}` : "";
   }
   if (entry.startsWith("sort:")) {
-    return entry === "sort:sort-epa" ? "metric:source:epa:epa.totalPoints" : "";
+    return "";
   }
   if (entry.startsWith("picklist:")) {
     const id = resolvePicklistId(entry.slice(9));
@@ -2962,10 +2924,7 @@ function updateSortEquation(id, updater) {
 
 function termsFromLegacyWeights(weights = {}) {
   const mappings = {
-    scouterTotal: { metricId: "source:epa:epa.totalPoints" },
-    "source:scouter:total": { metricId: "source:epa:epa.totalPoints" },
-    epa: { metricId: "source:epa:epa.totalPoints" },
-    "source:epa:total": { metricId: "source:epa:epa.totalPoints" },
+    "source:epa:epa.total_points": { metricId: "source:epa:epa.total_points" },
     opr: { metricId: "source:opr:total" },
     "source:opr:total": { metricId: "source:opr:total" },
     pridge: { metricId: "source:pridge:total" },
@@ -2977,7 +2936,12 @@ function termsFromLegacyWeights(weights = {}) {
   };
   const terms = Object.entries(weights)
     .filter(([, weight]) => Number(weight) !== 0)
-    .map(([id, weight]) => ({ operator: "+", weight: Number(weight), ...(mappings[id] || mappings.epa) }));
+    .map(([id, weight]) => {
+      const mapping = mappings[id];
+      if (!mapping) return null;
+      return { operator: "+", weight: Number(weight), ...mapping };
+    })
+    .filter(Boolean);
   return terms.length ? terms : defaultCriteriaTerms;
 }
 
@@ -3052,10 +3016,9 @@ function quantile(values, q) {
 }
 
 function metricById(id) {
-  const canonicalId = canonicalStatboticsMetricId(id);
   const metrics = currentMetrics();
-  return metrics.find((metric) => metric.id === canonicalId)
-    || metrics.find((metric) => metric.id === canonicalStatboticsMetricId(currentEvent().defaultMetricId))
+  return metrics.find((metric) => metric.id === id)
+    || metrics.find((metric) => metric.id === currentEvent().defaultMetricId)
     || metrics[0];
 }
 
@@ -3072,10 +3035,14 @@ function canonicalizeRawMetrics(rawMetrics, eventModel = currentEvent()) {
   if (!rawMetrics || typeof rawMetrics !== "object") return {};
   const repairedRawMetrics = repairLegacySubmissionRawMetrics(rawMetrics, eventModel);
   const aliases = new Map();
-  const numericFieldIds = new Set(currentScouterMetricDefinitions(eventModel).map((metricDefinition) => metricDefinition.id));
+  const fieldTypeById = new Map();
   currentFormulaFieldDefinitions(eventModel).forEach((metricDefinition) => {
     const normalizedId = normalizeImportToken(metricDefinition.id);
     const normalizedLabel = normalizeImportToken(metricDefinition.label || metricDefinition.id);
+    fieldTypeById.set(
+      metricDefinition.id,
+      normalizeText(metricDefinition.type).toLowerCase() || (normalizeText(metricDefinition.unit).toLowerCase() === "text" ? "string" : "number"),
+    );
     [
       metricDefinition.id,
       normalizedId,
@@ -3092,9 +3059,9 @@ function canonicalizeRawMetrics(rawMetrics, eventModel = currentEvent()) {
   });
 
   return Object.entries(repairedRawMetrics).reduce((next, [key, value]) => {
-    const componentId = aliases.get(normalizeImportToken(key));
+    const componentId = aliases.get(normalizeImportToken(key)) || normalizeDynamicMetricFieldId(key);
     if (!componentId) return next;
-    if (numericFieldIds.has(componentId)) {
+    if ((fieldTypeById.get(componentId) || "") === "number") {
       const numeric = Number(value);
       next[componentId] = Number.isFinite(numeric) ? numeric : null;
       return next;
@@ -3106,6 +3073,26 @@ function canonicalizeRawMetrics(rawMetrics, eventModel = currentEvent()) {
     next[componentId] = typeof value === "string" ? value : String(value);
     return next;
   }, {});
+}
+
+function normalizeDynamicMetricFieldId(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) return trimmed;
+  const tokens = trimmed
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/%/g, " pct ")
+    .replace(/#/g, " number ")
+    .replace(/&/g, " and ")
+    .split(/[^A-Za-z0-9]+/)
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean);
+  if (!tokens.length) return "";
+  const identifier = tokens
+    .map((token, index) => (index === 0 ? token : `${token.charAt(0).toUpperCase()}${token.slice(1)}`))
+    .join("");
+  if (/^[a-z]/.test(identifier)) return identifier;
+  return `field${identifier.charAt(0).toUpperCase()}${identifier.slice(1)}`;
 }
 
 function normalizeScoutingSubmissions(values, eventModel = currentEvent()) {
@@ -5633,7 +5620,7 @@ function gridColumnModel(entry) {
   }
   const [type, id] = entry.split(":");
   if (type === "sort") {
-    return entry === "sort:sort-epa" ? gridColumnModel(`metric:${defaultStatboticsMetricId}`) : { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
+    return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
   }
   if (type === "picklist") {
     const picklist = state.picklists.find((item) => item.id === id);
@@ -6398,7 +6385,7 @@ function builtInFunctionGroups() {
       label: "Event Scoped",
       expandedByDefault: true,
       entries: sortEntries([
-        { name: "eventAverage(value, filter?)", description: "Average a per-team event value such as statbotics.epa.totalPoints or average(scouting.autoSpeakerMade) across teams at the event." },
+        { name: "eventAverage(value, filter?)", description: "Average a per-team event value such as statbotics.epa.total_points or average(scouting.autoSpeakerMade) across teams at the event." },
         { name: "eventCount(value, filter?)", description: "Count teams whose per-team event value is present and nonzero. Do not pass raw match-level series like scouting.autoSpeakerMade." },
         { name: "eventSum(value, filter?)", description: "Sum a per-team event value such as pridge.total or average(scouting.autoSpeakerMade) across teams at the event." },
       ]),

@@ -69,3 +69,57 @@ runTest("translateEventSheetToCanonical emits canonical dataset metadata and ent
   assert.equal(dataset.entries[0].provenance.collectedAt, "2026-04-10T20:22:54.392Z");
   assert.equal(dataset.entries[0].provenance.sourceMatchKey, "2026chcmp_qm25");
 });
+
+runTest("translateEventSheetToCanonical preserves extra legacy sheet columns as canonical raw metrics", () => {
+  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
+  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const eventModel = {
+    ...season2026,
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: season2026.label,
+    sheet: { recommendedProfileId: "match-current-v2" },
+  };
+  const rawSheetCsv = [
+    "Match Number,Team Number,Scouter,Alliance,Overall Driver,Overall Notes,Custom Driver Tag,New Counter",
+    "5,686,Scout A,red,4,Looked steady,calm,3",
+  ].join("\n");
+
+  const dataset = context.SheetImportAdapters.translateEventSheetToCanonical(eventModel, rawSheetCsv, {
+    templateProfileId: "match-legacy-v1",
+  });
+
+  assert.equal(dataset.entries.length, 1);
+  assert.equal(dataset.entries[0].matchNumber, 5);
+  assert.equal(dataset.entries[0].teamNumber, 686);
+  assert.equal(dataset.entries[0].rawMetrics.overallDriver, 4);
+  assert.equal(dataset.entries[0].rawMetrics.customDriverTag, "calm");
+  assert.equal(dataset.entries[0].rawMetrics.newCounter, 3);
+  assert.ok(dataset.schema.fields.some((field) => field.id === "customDriverTag" && field.type === "string"));
+  assert.ok(dataset.schema.fields.some((field) => field.id === "newCounter" && field.type === "number"));
+});
+
+runTest("translateEventSheetToCanonical falls back to generic canonical sheet conversion for unmapped headers", () => {
+  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
+  const season2026 = context.SeasonFramework.seasonDefinitions["2026"];
+  const eventModel = {
+    ...season2026,
+    season: 2027,
+    key: "2027demo",
+    seasonLabel: season2026.label,
+  };
+  const rawSheetCsv = [
+    "Match Number,Team Number,Scout User,Alliance,Station,Custom Driver Tag,Custom Auto Bursts",
+    "7,2537,Scout B,blue,2,aggressive,5",
+  ].join("\n");
+
+  const dataset = context.SheetImportAdapters.translateEventSheetToCanonical(eventModel, rawSheetCsv);
+
+  assert.equal(dataset.meta.templateProfileId, "canonical-json-v1");
+  assert.equal(dataset.meta.translationVersion, "sheet-fallback-v1");
+  assert.equal(dataset.entries.length, 1);
+  assert.equal(dataset.entries[0].scoutUser, "Scout B");
+  assert.equal(dataset.entries[0].rawMetrics.customDriverTag, "aggressive");
+  assert.equal(dataset.entries[0].rawMetrics.customAutoBursts, 5);
+  assert.equal(dataset.entries[0].provenance.mode, "sheet-column-canonicalization");
+});

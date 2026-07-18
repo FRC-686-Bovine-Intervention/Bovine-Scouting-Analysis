@@ -2,11 +2,17 @@
 const seasonFramework = globalThis.SeasonFramework || {};
 const sheetImportAdapters = globalThis.SheetImportAdapters || {};
 const scouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((eventModel) => eventModel?.scoringComponents || []);
-const formulaFieldDefinitions = seasonFramework.formulaFieldDefinitions || scouterMetricDefinitions;
 const importTranslationVersionForEvent = sheetImportAdapters.importTranslationVersionForEvent || (() => "");
 
+function schemaFieldDefinitions(eventModel) {
+  if (Array.isArray(eventModel?.formulaFieldDefinitions) && eventModel.formulaFieldDefinitions.length) {
+    return eventModel.formulaFieldDefinitions;
+  }
+  return scouterMetricDefinitions(eventModel);
+}
+
 function schemaFieldEntries(eventModel) {
-  return formulaFieldDefinitions(eventModel).map((fieldDefinition) => ({
+  return schemaFieldDefinitions(eventModel).map((fieldDefinition) => ({
     id: fieldDefinition.id,
     label: fieldDefinition.label || fieldDefinition.id,
     type: String(fieldDefinition?.type || "").trim() || (String(fieldDefinition?.unit || "").trim().toLowerCase() === "text" ? "string" : "number"),

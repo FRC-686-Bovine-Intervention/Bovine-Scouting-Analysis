@@ -9,6 +9,28 @@ const buildCanonicalSchemaForEventModel =
 const buildCanonicalMetaForEventModel =
   scoutingJsonSchema.buildCanonicalMetaForEventModel ||
   ((eventModel, options = {}) => ({ format: "frc-scouting-analysis/v1", season: Number(options.season || eventModel?.season || 0), eventKey: String(options.eventKey || eventModel?.key || ""), entryType: "match" }));
+const genericSheetTranslationVersion = "sheet-fallback-v1";
+const genericSheetTemplateProfileId = "canonical-json-v1";
+const genericSheetProfileLabel = "Canonical Sheet Bridge";
+
+const baseFieldHeaderAliases = {
+  matchNumber: ["match", "match #", "match number", "matchnumber", "qualification match"],
+  teamNumber: ["team", "team #", "team number", "teamnumber", "team num", "team no"],
+  scoutUser: ["scout", "scouter", "scout user", "scout name", "observer"],
+  alliance: ["alliance", "alliance color", "alliiance", "color"],
+  station: ["station", "driver station", "driverstation", "alliance index", "allianceindex", "ds"],
+  defensePlayed: ["played defense", "defense played", "was defense", "defense"],
+  robotStatus: ["robot status", "robot state", "status", "robot condition"],
+  notes: ["notes", "comments", "comment", "overall notes"],
+};
+
+const provenanceHeaderAliases = {
+  collectedAt: ["timestamp", "created at", "scouted time", "scoutedtime"],
+  updatedAt: ["updated at"],
+  sourceEventKey: ["event key", "eventkey"],
+  sourceMatchKey: ["match key", "matchkey"],
+  sourceRecordId: ["_id", "record id"],
+};
 
 const seasonSheetTranslators = {
   2024: {
@@ -259,6 +281,297 @@ function truthyValue(value) {
   return ["true", "yes", "y", "1"].includes(normalizeImportToken(value));
 }
 
+function inferCanonicalFieldType(fieldDefinition) {
+  const explicitType = String(fieldDefinition?.type || "").trim().toLowerCase();
+  if (explicitType) return explicitType;
+  const unit = String(fieldDefinition?.unit || "").trim().toLowerCase();
+  if (unit === "text" || unit === "string") return "string";
+  return "number";
+}
+
+function identifierTokens(value) {
+  return String(value || "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/%/g, " pct ")
+    .replace(/#/g, " number ")
+    .replace(/&/g, " and ")
+    .split(/[^A-Za-z0-9]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function camelCaseIdentifier(value, fallback = "field") {
+  const tokens = identifierTokens(value);
+  if (!tokens.length) return fallback;
+  const normalized = tokens.map((token) => token.toLowerCase());
+  const identifier = normalized
+    .map((token, index) => (index === 0 ? token : `${token.charAt(0).toUpperCase()}${token.slice(1)}`))
+    .join("");
+  if (!identifier) return fallback;
+  if (/^[a-z]/.test(identifier)) return identifier;
+  return `${fallback}${identifier.charAt(0).toUpperCase()}${identifier.slice(1)}`;
+}
+
+function buildHeaderAliasLookup(entries) {
+  const lookup = new Map();
+  Object.entries(entries).forEach(([targetId, aliases]) => {
+    [targetId, ...(aliases || [])].forEach((alias) => lookup.set(normalizeImportToken(alias), targetId));
+  });
+  return lookup;
+}
+
+function numericCellValue(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const numeric = Number(text);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function leadingNumericCellValue(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const numeric = leadingNumericValue(text);
+  return Number.isFinite(numeric) && numeric !== 0 ? numeric : null;
+}
+
+function inferSheetFieldType(values = [], fallbackType = "string") {
+  const samples = values.map((value) => String(value ?? "").trim()).filter(Boolean);
+  if (!samples.length) return fallbackType;
+  return samples.every((value) => Number.isFinite(Number(value))) ? "number" : "string";
+}
+
+function normalizeSchemaField(fieldDefinition = {}) {
+  return {
+    id: String(fieldDefinition.id || "").trim(),
+    label: String(fieldDefinition.label || fieldDefinition.id || "").trim(),
+    type: inferCanonicalFieldType(fieldDefinition),
+    unit: String(fieldDefinition.unit || "").trim(),
+    optional: fieldDefinition.optional !== false,
+    aggregate: String(fieldDefinition.aggregate || "").trim() || (inferCanonicalFieldType(fieldDefinition) === "number" ? "average" : ""),
+  };
+}
+
+function normalizeGenericMetricValue(value, fieldType) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  if (fieldType === "number") {
+    const numeric = Number(text);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  return text;
+}
+
+function uniqueFieldId(fieldId, usedFieldIds) {
+  const baseFieldId = String(fieldId || "").trim() || "field";
+  if (!usedFieldIds.has(baseFieldId)) {
+    usedFieldIds.add(baseFieldId);
+    return baseFieldId;
+  }
+  let suffix = 2;
+  while (usedFieldIds.has(`${baseFieldId}${suffix}`)) suffix += 1;
+  const nextFieldId = `${baseFieldId}${suffix}`;
+  usedFieldIds.add(nextFieldId);
+  return nextFieldId;
+}
+
+function knownSchemaFieldsForEvent(eventModel) {
+  return (buildCanonicalSchemaForEventModel(eventModel, { schemaId: `${eventModel?.season || "season"}-match-v1` }).fields || []).map(normalizeSchemaField);
+}
+
+function knownMetricFieldLookup(eventModel) {
+  const schemaFieldById = new Map(knownSchemaFieldsForEvent(eventModel).map((fieldDefinition) => [fieldDefinition.id, fieldDefinition]));
+  const lookup = new Map();
+  seasonFormulaFieldDefinitions(eventModel).forEach((metricDefinition) => {
+    const fieldId = String(metricDefinition?.id || "").trim();
+    if (!fieldId) return;
+    [fieldId, seasonMetricFieldId(metricDefinition), metricDefinition.label, ...(metricDefinition.aliases || [])]
+      .filter(Boolean)
+      .forEach((alias) => lookup.set(normalizeImportToken(alias), schemaFieldById.get(fieldId) || normalizeSchemaField(metricDefinition)));
+  });
+  return lookup;
+}
+
+function buildGenericColumnDescriptors(eventModel, headers = [], dataRows = []) {
+  const baseLookup = buildHeaderAliasLookup(baseFieldHeaderAliases);
+  const provenanceLookup = buildHeaderAliasLookup(provenanceHeaderAliases);
+  const metricLookup = knownMetricFieldLookup(eventModel);
+  const usedMetricIds = new Set();
+
+  return headers.map((header, index) => {
+    const label = String(header ?? "").trim();
+    const token = normalizeImportToken(label);
+    if (!token) return { kind: "ignore", index, header: label };
+
+    const baseFieldId = baseLookup.get(token);
+    if (baseFieldId) return { kind: "base", index, header: label, fieldId: baseFieldId };
+
+    const provenanceFieldId = provenanceLookup.get(token);
+    if (provenanceFieldId) return { kind: "provenance", index, header: label, fieldId: provenanceFieldId };
+
+    const knownField = metricLookup.get(token);
+    if (knownField && !usedMetricIds.has(knownField.id)) {
+      usedMetricIds.add(knownField.id);
+      return { kind: "metric", index, header: label, field: knownField };
+    }
+
+    const fieldId = uniqueFieldId(camelCaseIdentifier(label), usedMetricIds);
+    const samples = dataRows.map((row) => row[index]);
+    const fieldType = inferSheetFieldType(samples);
+    return {
+      kind: "metric",
+      index,
+      header: label,
+      field: {
+        id: fieldId,
+        label: label || fieldId,
+        type: fieldType,
+        unit: fieldType === "number" ? "count" : "text",
+        optional: true,
+        aggregate: fieldType === "number" ? "average" : "",
+      },
+    };
+  });
+}
+
+function translateGenericRows(eventModel, rows = []) {
+  const headers = rows[0] || [];
+  const dataRows = rows.slice(1).filter((row) => row.some((cell) => cell));
+  const descriptors = buildGenericColumnDescriptors(eventModel, headers, dataRows);
+  const records = dataRows.map((row, rowIndex) => {
+    const metrics = {};
+    const provenance = {
+      mode: "sheet-column-canonicalization",
+      sourceRowNumber: rowIndex + 2,
+    };
+    const baseRecord = {
+      matchNumber: null,
+      teamNumber: null,
+      scoutUser: "",
+      alliance: "",
+      station: "",
+      defensePlayed: false,
+      robotStatus: "",
+      notes: "",
+      provenance,
+      metrics,
+    };
+
+    descriptors.forEach((descriptor) => {
+      if (!descriptor || descriptor.kind === "ignore") return;
+      const value = String(row[descriptor.index] ?? "").trim();
+      if (descriptor.kind === "base") {
+        if (descriptor.fieldId === "matchNumber") baseRecord.matchNumber = leadingNumericCellValue(value);
+        else if (descriptor.fieldId === "teamNumber") baseRecord.teamNumber = leadingNumericCellValue(value);
+        else if (descriptor.fieldId === "defensePlayed") baseRecord.defensePlayed = truthyValue(value) || Number(value) > 0;
+        else if (descriptor.fieldId === "alliance") baseRecord.alliance = value.toLowerCase();
+        else if (descriptor.fieldId === "station") baseRecord.station = value;
+        else if (descriptor.fieldId === "notes") baseRecord.notes = value;
+        else if (descriptor.fieldId === "robotStatus") baseRecord.robotStatus = value;
+        else if (descriptor.fieldId === "scoutUser") baseRecord.scoutUser = value;
+        return;
+      }
+      if (descriptor.kind === "provenance") {
+        if (value) provenance[descriptor.fieldId] = value;
+        return;
+      }
+      metrics[descriptor.field.id] = normalizeGenericMetricValue(value, descriptor.field.type);
+    });
+
+    if (!baseRecord.scoutUser) baseRecord.scoutUser = "Imported Sheet";
+    if (!baseRecord.alliance) baseRecord.alliance = "unknown";
+    if (!baseRecord.station) baseRecord.station = "sheet";
+    if (!baseRecord.robotStatus) baseRecord.robotStatus = noteIndicatesNoShow(baseRecord.notes) ? "no_show" : "ok";
+    return baseRecord;
+  });
+
+  return {
+    records,
+    schemaFields: descriptors
+      .filter((descriptor) => descriptor.kind === "metric")
+      .map((descriptor) => normalizeSchemaField(descriptor.field)),
+  };
+}
+
+function mergeTranslatedAndGenericRecords(translatedRecords = [], genericRecords = []) {
+  const genericBySourceRow = new Map(
+    genericRecords
+      .filter((record) => record?.provenance?.sourceRowNumber)
+      .map((record) => [record.provenance.sourceRowNumber, record]),
+  );
+  return translatedRecords.map((record) => {
+    const sourceRowNumber = Number(record?.provenance?.sourceRowNumber) || null;
+    const genericRecord = sourceRowNumber ? genericBySourceRow.get(sourceRowNumber) : null;
+    if (!genericRecord) return record;
+    return {
+      ...record,
+      scoutUser: record.scoutUser || genericRecord.scoutUser,
+      alliance: record.alliance || genericRecord.alliance,
+      station: record.station || genericRecord.station,
+      notes: record.notes || genericRecord.notes,
+      provenance: {
+        ...(genericRecord.provenance || {}),
+        ...(record.provenance || {}),
+      },
+      metrics: {
+        ...(genericRecord.metrics || {}),
+        ...(record.metrics || {}),
+      },
+    };
+  });
+}
+
+function numericMetricValue(metrics, fieldId) {
+  const numeric = Number(metrics?.[fieldId] || 0);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function populateSeasonScoringComponents(eventModel, metrics = {}) {
+  const nextMetrics = { ...(metrics || {}) };
+  const season = Number(eventModel?.season) || 0;
+  if (season === 2024) {
+    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "auto")) {
+      nextMetrics.auto = numericMetricValue(nextMetrics, "autoSpeakerMade") + numericMetricValue(nextMetrics, "autoAmpMade");
+    }
+    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "speaker")) {
+      nextMetrics.speaker = numericMetricValue(nextMetrics, "teleSpeakerMade");
+    }
+    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "amp")) {
+      nextMetrics.amp = numericMetricValue(nextMetrics, "teleAmpMade");
+    }
+    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "trap")) {
+      nextMetrics.trap = numericMetricValue(nextMetrics, "trap");
+    }
+    return nextMetrics;
+  }
+  if (season === 2025) {
+    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "auto")) {
+      nextMetrics.auto =
+        (numericMetricValue(nextMetrics, "autoL4Made") * 7)
+        + (numericMetricValue(nextMetrics, "autoL3Made") * 6)
+        + (numericMetricValue(nextMetrics, "autoL2Made") * 4)
+        + (numericMetricValue(nextMetrics, "autoTroughMade") * 3)
+        + (numericMetricValue(nextMetrics, "autoProcessorMade") * 6)
+        + (numericMetricValue(nextMetrics, "autoBargeMade") * 4);
+    }
+    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "coral")) {
+      nextMetrics.coral =
+        (numericMetricValue(nextMetrics, "teleL4Made") * 5)
+        + (numericMetricValue(nextMetrics, "teleL3Made") * 4)
+        + (numericMetricValue(nextMetrics, "teleL2Made") * 3)
+        + (numericMetricValue(nextMetrics, "teleTroughMade") * 2);
+    }
+    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "algae")) {
+      nextMetrics.algae =
+        (numericMetricValue(nextMetrics, "teleProcessorMade") * 6)
+        + (numericMetricValue(nextMetrics, "teleBargeMade") * 4);
+    }
+    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "climb")) {
+      nextMetrics.climb = reefscape2025ClimbPoints(nextMetrics.climbLevel);
+    }
+  }
+  return nextMetrics;
+}
+
 function categoricalScore(value, mapping = {}) {
   const normalized = normalizeImportToken(value);
   return mapping[normalized] ?? 0;
@@ -344,13 +657,18 @@ function buildCanonicalImportCsv(eventModel, records, options = {}) {
     record.defensePlayed ? "yes" : "no",
     record.robotStatus,
     record.notes,
-    ...metricDefinitions.map((metricDefinition) => record.metrics[metricDefinition.id] ?? ""),
+    ...metricDefinitions.map((metricDefinition) => {
+      const value = record.metrics[metricDefinition.id];
+      if (value !== undefined && value !== null && value !== "") return value;
+      return String(metricDefinition.unit || "").trim().toLowerCase() === "pts" ? 0 : "";
+    }),
   ]);
   return toCsvText([metadataRow, valueRow, [], headerRow, ...dataRows]);
 }
 
 function canonicalEntriesFromRecords(records, options = {}) {
   const translatorVersion = String(options.translationVersion || "").trim();
+  const provenanceMode = String(options.provenanceMode || "").trim();
   return (records || []).map((record, index) => ({
     entryId: record.entryId || `sheet-entry-${index + 1}`,
     matchNumber: record.matchNumber,
@@ -364,8 +682,8 @@ function canonicalEntriesFromRecords(records, options = {}) {
     rawMetrics: { ...(record.metrics || {}) },
     provenance: Object.fromEntries(
       Object.entries({
-        mode: "legacy-sheet-translation",
-        sourceRowNumber: index + 2,
+        mode: provenanceMode || record?.provenance?.mode || "legacy-sheet-translation",
+        sourceRowNumber: record?.provenance?.sourceRowNumber || index + 2,
         translatorVersion,
         ...(record.provenance || {}),
       }).filter(([, value]) => value !== undefined && value !== null && value !== ""),
@@ -377,24 +695,49 @@ function buildCanonicalDataset(eventModel, records, options = {}) {
   const templateProfileId = String(options.templateProfileId || eventModel?.sheet?.recommendedProfileId || "match-current-v2").trim() || "match-current-v2";
   const schemaVersion = String(options.schemaVersion || profileSchemaVersion(templateProfileId)).trim() || profileSchemaVersion(templateProfileId);
   const translationVersion = String(options.translationVersion || importTranslationVersionForEvent(eventModel)).trim();
+  const baseSchema = buildCanonicalSchemaForEventModel(eventModel, { schemaId: schemaVersion });
+  const mergedSchemaFieldMap = new Map((baseSchema.fields || []).map((fieldDefinition) => [fieldDefinition.id, normalizeSchemaField(fieldDefinition)]));
+  (options.schemaFields || []).forEach((fieldDefinition) => {
+    const normalizedField = normalizeSchemaField(fieldDefinition);
+    if (!normalizedField.id) return;
+    mergedSchemaFieldMap.set(normalizedField.id, {
+      ...(mergedSchemaFieldMap.get(normalizedField.id) || {}),
+      ...normalizedField,
+    });
+  });
   const meta = {
     ...buildCanonicalMetaForEventModel(eventModel, {
       eventKey: eventModel.key,
       season: eventModel.season,
       entryType: "match",
-      sourceApp: "legacy-sheet-translator",
+      sourceApp: String(options.sourceApp || "").trim() || "legacy-sheet-translator",
     }),
     templateProfileId,
-    profileLabel: {
-      "match-current-v2": "Current Match Template",
-      "match-legacy-v1": "Legacy Match Template",
-    }[templateProfileId] || templateProfileId,
+    profileLabel:
+      String(options.profileLabel || "").trim()
+      || {
+        "match-current-v2": "Current Match Template",
+        "match-legacy-v1": "Legacy Match Template",
+        "canonical-json-v1": genericSheetProfileLabel,
+      }[templateProfileId]
+      || templateProfileId,
     translationVersion,
   };
+  const normalizedRecords = (records || []).map((record) => ({
+    ...record,
+    metrics: populateSeasonScoringComponents(eventModel, record.metrics || {}),
+  }));
   return {
     meta,
-    schema: buildCanonicalSchemaForEventModel(eventModel, { schemaId: schemaVersion }),
-    entries: canonicalEntriesFromRecords(records, { translationVersion }),
+    schema: {
+      ...baseSchema,
+      schemaId: schemaVersion,
+      fields: [...mergedSchemaFieldMap.values()],
+    },
+    entries: canonicalEntriesFromRecords(normalizedRecords, {
+      translationVersion,
+      provenanceMode: options.provenanceMode,
+    }),
     translatorVersion: translationVersion,
     templateProfileId,
     profileLabel: meta.profileLabel,
@@ -417,25 +760,60 @@ function translateEventSheetToCanonical(eventModel, csvText, options = {}) {
   if (!csvText) {
     return buildCanonicalDataset(eventModel, [], options);
   }
+  const rows = parseCsvText(csvText);
+  const genericTranslation = translateGenericRows(eventModel, rows);
   const translator = translatorForEvent(eventModel);
   if (!translator) {
-    return buildCanonicalDataset(eventModel, [], options);
+    return buildCanonicalDataset(eventModel, genericTranslation.records, {
+      ...options,
+      templateProfileId: genericSheetTemplateProfileId,
+      profileLabel: genericSheetProfileLabel,
+      schemaVersion: `${eventModel?.season || "season"}-match-v1`,
+      translationVersion: genericSheetTranslationVersion,
+      sourceApp: "sheet-column-canonicalizer",
+      provenanceMode: "sheet-column-canonicalization",
+      schemaFields: genericTranslation.schemaFields,
+    });
   }
 
-  const rows = parseCsvText(csvText);
   const headers = rows[0] || [];
   const headerIndex = eventSheetHeaderMap(headers);
-  const records = rows
+  const translatedRecords = rows
     .slice(1)
-    .filter((row) => row.some((cell) => cell))
-    .map((row) => {
+    .map((row, rowIndex) => {
+      if (!row.some((cell) => cell)) return null;
       const rowTools = createRowTools(row, headerIndex);
       if (translator.filterRow && !translator.filterRow(rowTools, eventModel)) return null;
-      return translator.translateRow(rowTools, eventModel);
+      const record = translator.translateRow(rowTools, eventModel);
+      if (!record) return null;
+      return {
+        ...record,
+        provenance: {
+          mode: "legacy-sheet-translation",
+          ...(record.provenance || {}),
+          sourceRowNumber: rowIndex + 2,
+        },
+      };
     })
     .filter(Boolean);
 
-  return buildCanonicalDataset(eventModel, records, options);
+  if (!translatedRecords.length && genericTranslation.records.length) {
+    return buildCanonicalDataset(eventModel, genericTranslation.records, {
+      ...options,
+      templateProfileId: genericSheetTemplateProfileId,
+      profileLabel: genericSheetProfileLabel,
+      schemaVersion: `${eventModel?.season || "season"}-match-v1`,
+      translationVersion: genericSheetTranslationVersion,
+      sourceApp: "sheet-column-canonicalizer",
+      provenanceMode: "sheet-column-canonicalization",
+      schemaFields: genericTranslation.schemaFields,
+    });
+  }
+
+  return buildCanonicalDataset(eventModel, mergeTranslatedAndGenericRecords(translatedRecords, genericTranslation.records), {
+    ...options,
+    schemaFields: genericTranslation.schemaFields,
+  });
 }
 
 function reefscape2025ClimbPoints(value) {

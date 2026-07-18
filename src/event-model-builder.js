@@ -25,23 +25,8 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
-function identifierTokens(value) {
-  return normalizeText(value)
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
-    .replace(/[_\-\s]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-}
-
-function camelCaseSegment(segment) {
-  return identifierTokens(segment)
-    .map((token, index) => {
-      const lower = token.toLowerCase();
-      if (index === 0) return lower;
-      return lower.charAt(0).toUpperCase() + lower.slice(1);
-    })
-    .join("");
+function providerPathSegment(segment) {
+  return normalizeText(segment);
 }
 
 function scalarTbaValue(value) {
@@ -57,7 +42,7 @@ function flattenTbaScalarEntries(value, prefix = "") {
   }
   if (value && typeof value === "object") {
     return Object.entries(value).flatMap(([key, entryValue]) => {
-      const segment = camelCaseSegment(key);
+      const segment = providerPathSegment(key);
       if (!segment) return [];
       return flattenTbaScalarEntries(entryValue, prefix ? `${prefix}.${segment}` : segment);
     });
@@ -72,7 +57,7 @@ function flattenStatboticsScalarEntries(value, prefix = "") {
   }
   if (value && typeof value === "object") {
     return Object.entries(value).flatMap(([key, entryValue]) => {
-      const segment = camelCaseSegment(key);
+      const segment = providerPathSegment(key);
       if (!segment) return [];
       return flattenStatboticsScalarEntries(entryValue, prefix ? `${prefix}.${segment}` : segment);
     });
@@ -179,12 +164,9 @@ function buildTeamStatMap(oprsPayload, key, fieldId) {
 function buildTbaEventComponents(rankingEntry, tbaStatEntries = []) {
   const components = {};
   flattenTbaScalarEntries(rankingEntry || {}).forEach(([fieldId, value]) => {
-    if (fieldId === "teamKey") return;
+    if (fieldId === "team_key") return;
     components[fieldId] = value;
   });
-  if (Number.isFinite(Number(rankingEntry?.sort_orders?.[0]))) {
-    components.rps = Number(rankingEntry.sort_orders[0]);
-  }
   tbaStatEntries.forEach((entry) => {
     if (!entry?.fieldId) return;
     components[entry.fieldId] = entry.value;
@@ -200,7 +182,7 @@ function buildTeam(teamInfo, teamEvent, season, rankingEntry, oprValue, tbaCompo
   const epa = Number(teamEvent?.epa?.total_points || 0);
   const breakdown = teamEvent?.epa?.breakdown || {};
   const statboticsComponents = Object.fromEntries(
-    flattenStatboticsScalarEntries(teamEvent || {}).filter(([fieldId]) => fieldId !== "teamName" && fieldId !== "eventName"),
+    flattenStatboticsScalarEntries(teamEvent || {}).filter(([fieldId]) => fieldId !== "team_name" && fieldId !== "event_name"),
   );
   const qualRecord = teamEvent?.record?.qual || {};
   const emptyScouterComponents = Object.fromEntries(scouterMetricDefinitions(season).map((component) => [component.id, 0]));
@@ -317,8 +299,8 @@ function buildEventModelFromPayloads(payload) {
     criteriaSources: buildCriteriaSources(season),
     teams: teamsWithPridge,
     teamNumbers: teamsWithPridge.map((team) => team.number),
-    defaultMetricId: "source:epa:epa.totalPoints",
-    defaultTeamDetailMetricId: "source:epa:epa.totalPoints",
+    defaultMetricId: "source:epa:epa.total_points",
+    defaultTeamDetailMetricId: "source:epa:epa.total_points",
     seedSortEquations: [
       {
         id: "sort-defense-backup",

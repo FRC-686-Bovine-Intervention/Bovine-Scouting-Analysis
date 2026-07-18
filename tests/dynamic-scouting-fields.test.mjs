@@ -99,3 +99,33 @@ runTest("dynamic scouting fields infer numeric imported fields and omit removed 
   assert.equal(fieldsWithExtra.find((fieldDefinition) => fieldDefinition.id === "customAutoBursts").type, "number");
   assert.equal(fieldsWithoutExtra.some((fieldDefinition) => fieldDefinition.id === "customAutoBursts"), false);
 });
+
+runTest("dynamic scouting fields surface preview schema fields before submissions are committed", () => {
+  const context = loadBrowserContext(["src/season-framework.js", "src/dynamic-scouting-fields.js"]);
+  const season = context.SeasonFramework.seasonDefinitions[2026];
+  const eventModel = {
+    ...season,
+    season: 2026,
+    key: "2026chcmp",
+    formulaFieldDefinitions: context.SeasonFramework.formulaFieldDefinitions(season),
+  };
+
+  const fields = context.DynamicScoutingFields.buildDynamicScoutingFieldDefinitions({
+    eventModel,
+    submissions: [],
+    schemaFields: [
+      {
+        id: "customDriverTag",
+        label: "Driver Tag",
+        type: "string",
+        unit: "text",
+        aggregate: "",
+      },
+    ],
+  });
+
+  const customField = fields.find((fieldDefinition) => fieldDefinition.id === "customDriverTag");
+  assert.equal(customField.label, "Driver Tag");
+  assert.equal(customField.type, "string");
+  assert.equal(customField.dynamic, true);
+});

@@ -51,7 +51,7 @@ async function importRawSheet(page, rawSheetCsv) {
 async function verifyTbaFuelIdentifiers(page) {
   return page.evaluate(() => {
     const eventModel = currentEvent();
-    const targetIds = ["tba.autoFuel", "tba.transitionFuel", "tba.hubScore.autoPoints", "tba.hubScore.transitionPoints"];
+    const targetIds = ["tba.hubScore.autoPoints", "tba.hubScore.transitionPoints"];
     const metrics = Object.fromEntries(targetIds.map((identifier) => {
       let hitTeamNumber = null;
       let sample = [];
@@ -81,13 +81,11 @@ async function verifyAvailableMetricsCatalog(page) {
     const availableMetrics = currentDerivedAvailableMetrics(currentEvent()).map((entry) => entry.id);
     return {
       availableMetrics,
-      hasLegacyAutoFuel: availableMetrics.includes("tba.autoFuel"),
-      hasLegacyTransitionFuel: availableMetrics.includes("tba.transitionFuel"),
       hasPridgeTotal: availableMetrics.includes("pridge.total"),
       hasDerivedEquationReference: availableMetrics.includes("autoFuelTeam"),
       hasRealTbaMetric: availableMetrics.includes("tba.hubScore.autoPoints"),
       hasRealScoutingMetric: availableMetrics.includes("scouting.autoFuelPct"),
-      hasRealStatboticsMetric: availableMetrics.includes("statbotics.epa.breakdown.autoPoints"),
+      hasRealStatboticsMetric: availableMetrics.includes("statbotics.epa.breakdown.auto_points"),
     };
   });
 }
@@ -189,8 +187,6 @@ try {
   console.log(JSON.stringify(result, null, 2));
 
   assert(result.tbaFuel.ok, "At least one 2026 TBA fuel identifier still has no finite values.");
-  assert(!result.availableCatalog.hasLegacyAutoFuel, "Available Metrics should not list legacy tba.autoFuel.");
-  assert(!result.availableCatalog.hasLegacyTransitionFuel, "Available Metrics should not list legacy tba.transitionFuel.");
   assert(!result.availableCatalog.hasPridgeTotal, "Available Metrics should only list scouting, TBA, and Statbotics source metrics.");
   assert(!result.availableCatalog.hasDerivedEquationReference, "Available Metrics should not list other derived equations.");
   assert(result.availableCatalog.hasRealTbaMetric, "Available Metrics should include real TBA identifiers.");
