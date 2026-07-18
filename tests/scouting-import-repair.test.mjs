@@ -130,6 +130,54 @@ runTest("sample-backed 2026 submissions refresh when newly added formula fields 
   assert.equal(context.ScoutingImportRepair.shouldRefreshSampleBackedScoutingSubmissions(stamped, eventModel), true);
 });
 
+runTest("stamped submissions can use explicit schema fields instead of season-seeded defaults", () => {
+  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-import-repair.js"]);
+  const season = context.SeasonFramework.seasonDefinitions[2026];
+  const eventModel = {
+    key: "2026chcmp",
+    season: 2026,
+    sheet: { sampleCsvText: "header\nvalue" },
+    scoringComponents: season.scoringComponents,
+    scouterMetricDefinitions: context.SeasonFramework.scouterMetricDefinitions(season),
+    formulaFieldDefinitions: context.SeasonFramework.formulaFieldDefinitions(season),
+  };
+  const schemaFields = [
+    { id: "customDriverTag", label: "Custom Driver Tag", type: "string", unit: "text", aggregate: "" },
+    { id: "newCounter", label: "New Counter", type: "number", unit: "count", aggregate: "average" },
+  ];
+  const stamped = context.ScoutingImportRepair.stampScoutingSubmissionMetadata(
+    [
+      {
+        teamNumber: 346,
+        matchNumber: 3,
+        schemaVersion: "match-v2",
+        templateProfileId: "custom-profile-v1",
+        rawMetrics: {
+          customDriverTag: "steady",
+          newCounter: 3,
+        },
+      },
+    ],
+    eventModel,
+    { schemaFields },
+  );
+
+  assert.equal(
+    stamped[0].scoutingSchemaSignature,
+    context.ScoutingImportRepair.buildScoutingSchemaSignatureFromFields({
+      eventKey: eventModel.key,
+      season: eventModel.season,
+      fields: schemaFields,
+    }),
+  );
+  assert.equal(
+    context.ScoutingImportRepair.shouldRefreshSampleBackedScoutingSubmissions(stamped, eventModel, {
+      schemaFields,
+    }),
+    false,
+  );
+});
+
 runTest("repairLegacySubmissionRawMetrics backfills 2024 climbAttempt from climbSuccess", () => {
   const context = loadBrowserContext(["src/season-framework.js", "src/scouting-import-repair.js"]);
   const eventModel = { key: "2024mdsev", season: 2024 };

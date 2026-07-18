@@ -32,7 +32,7 @@ const provenanceHeaderAliases = {
   sourceRecordId: ["_id", "record id"],
 };
 
-const seasonSheetTranslators = {
+const legacySheetProfiles = {
   2024: {
     version: "2024-thin-v2",
     translateRow(rowTools) {
@@ -616,7 +616,7 @@ function createRowTools(row, headerIndex) {
 }
 
 function translatorForEvent(eventModel) {
-  return seasonSheetTranslators[Number(eventModel?.season)] || null;
+  return legacySheetProfiles[Number(eventModel?.season)] || null;
 }
 
 function importTranslationVersionForEvent(eventModel) {

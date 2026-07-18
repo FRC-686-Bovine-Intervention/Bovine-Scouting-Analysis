@@ -1,7 +1,7 @@
 (function () {
 const eventModelBuilder = globalThis.EventModelBuilder || {};
 const seasonFramework = globalThis.SeasonFramework || {};
-const seasonDefinitions = seasonFramework.seasonDefinitions || {};
+const gameDefinitions = seasonFramework.gameDefinitions || seasonFramework.seasonDefinitions || {};
 const buildMetrics = seasonFramework.buildMetrics || ((season) => season?.metrics || []);
 const scouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((season) => season?.scouterMetrics || []);
 const formulaFieldDefinitions = seasonFramework.formulaFieldDefinitions || scouterMetricDefinitions;
@@ -18,7 +18,7 @@ function parseJson(text, fallback) {
 
 function minimalEventModelFromSnapshot(snapshot) {
   const season = Number(snapshot?.season || snapshot?.year || 0);
-  const seasonDefinition = seasonDefinitions[season] || {};
+  const seasonDefinition = gameDefinitions[season] || {};
   const tbaEvent = parseJson(snapshot?.tbaEventText, {});
   const tbaTeams = parseJson(snapshot?.tbaTeamsText, []);
   const teams = (Array.isArray(tbaTeams) ? tbaTeams : [])

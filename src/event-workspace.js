@@ -344,7 +344,6 @@ function rebuildSampleBackedScoutingState({
 }) {
   if (!Array.isArray(submissions) || !submissions.length) return null;
   if (!activeScoutingAttachmentHasSample(workspace, eventModel)) return null;
-  if (!shouldRefreshSampleBackedSubmissions(submissions, eventModel)) return null;
   const sampleCsvText = normalizeText(eventModel?.sheet?.sampleCsvText);
   if (!sampleCsvText) return null;
   const profileId = activeScoutingAttachmentProfileId(workspace) || normalizeText(eventModel?.sheet?.recommendedProfileId);
@@ -375,6 +374,12 @@ function rebuildSampleBackedScoutingState({
         templateProfileId: profileId,
       });
   if (!preview?.ok || !preview.summary) return null;
+  if (!shouldRefreshSampleBackedSubmissions(submissions, eventModel, {
+    schemaFields: preview.summary.schemaFields,
+    translationVersion: preview.summary.metadata?.translationVersion,
+  })) {
+    return null;
+  }
   const committed = commitScoutingImport({
     preview,
     existingSubmissions: [],
@@ -385,6 +390,7 @@ function rebuildSampleBackedScoutingState({
   return {
     submissions: stampScoutingSubmissionMetadata(committed.submissions, eventModel, {
       scoutingImportSource: "event-sheet-sample",
+      schemaFields: preview.summary.schemaFields,
     }),
     activity: committed.activity,
   };

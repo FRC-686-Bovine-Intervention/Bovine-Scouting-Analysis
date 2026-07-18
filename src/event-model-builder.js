@@ -1,7 +1,7 @@
 (function () {
 const seasonFramework = globalThis.SeasonFramework || {};
 const priorRidge = globalThis.PriorRidge || {};
-const seasonDefinitions = seasonFramework.seasonDefinitions || {};
+const gameDefinitions = seasonFramework.gameDefinitions || seasonFramework.seasonDefinitions || {};
 const buildMetrics = seasonFramework.buildMetrics;
 const buildCriteriaSources = seasonFramework.buildCriteriaSources;
 const scouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((season) => season?.scoringComponents || []);
@@ -225,7 +225,7 @@ function buildTeam(teamInfo, teamEvent, season, rankingEntry, oprValue, tbaCompo
 }
 
 function buildEventModelFromPayloads(payload) {
-  const season = seasonDefinitions[payload.year] || {
+  const season = gameDefinitions[payload.year] || {
     label: `${payload.year} Season`,
     scoringComponents: [],
     breakdownMap: {},

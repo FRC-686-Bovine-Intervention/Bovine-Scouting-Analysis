@@ -23,7 +23,7 @@ function weightedMetric(id, label, weightedFields, unit = "pts") {
   return { id, label, unit, formula: "weighted_sum", weightedFields };
 }
 
-const seasonDefinitions = {
+const gameDefinitions = {
   2024: {
     label: "Crescendo",
     scoringComponents: [
@@ -387,11 +387,12 @@ globalThis.SeasonFramework = {
   derivedMetricDefinitions,
   formulaField,
   formulaFieldDefinitions,
+  gameDefinitions,
   metric,
   metricFieldId,
   rateMetric,
   scouterMetricDefinitions,
-  seasonDefinitions,
+  seasonDefinitions: gameDefinitions,
   sourceLabels,
   sumMetric,
   weightedMetric,

@@ -72,6 +72,7 @@ const buildScoutingDiagnosticsState =
     currentDiagnostics: buildScoutingDependencyDiagnostics(options),
     pendingDiagnostics: null,
   }));
+const parseScoutingSchemaSignatureFields = scoutingDiagnosticsState.parseScoutingSchemaSignatureFields || (() => []);
 const seasonDerivedMetricDefinitions = seasonFramework.derivedMetricDefinitions || (() => []);
 const seasonMetricFieldId = seasonFramework.csvHeaderForMetric || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id));
 const humanizeDynamicFieldId =
@@ -89,6 +90,9 @@ const sharedTranslateEventSheetToCanonical = sheetImportAdapters.translateEventS
 const buildCanonicalSheetJsonText = sheetImportAdapters.buildCanonicalJsonText || ((dataset) => JSON.stringify(dataset || {}));
 const shouldRefreshSampleBackedScoutingSubmissions =
   scoutingImportRepair.shouldRefreshSampleBackedScoutingSubmissions || (() => false);
+const buildScoutingSchemaSignatureFromFields =
+  scoutingImportRepair.buildScoutingSchemaSignatureFromFields
+  || ((options = {}) => JSON.stringify({ eventKey: options?.eventKey || "", season: Number(options?.season) || 0, fields: options?.fields || [] }));
 const repairLegacySubmissionRawMetrics = scoutingImportRepair.repairLegacySubmissionRawMetrics || ((rawMetrics) => rawMetrics || {});
 const stampScoutingSubmissionMetadata = scoutingImportRepair.stampScoutingSubmissionMetadata || ((submissions) => submissions || []);
 const createEventWorkspace = eventWorkspaceApi.createEventWorkspace || ((eventModel) => ({ eventKey: eventModel?.key || "", season: Number(eventModel?.season || 0), identity: { key: eventModel?.key || "", name: eventModel?.name || "", seasonLabel: eventModel?.seasonLabel || "" }, sources: { tba: {}, statbotics: {}, pridge: {}, scouting: [] }, activeScoutingAttachmentId: "" }));
@@ -246,10 +250,24 @@ const knownImportProfileLabels = {
   "match-legacy-v1": "Legacy Match Template",
 };
 
+const defaultScoutingProfileId = "match-current-v2";
+
 const initialEventKey = resolveEventKey(readStoredItem(storageKeys.activeEvent));
 const initialEvent = eventModelByKey(initialEventKey);
 const initialWorkspace = createEventWorkspace(initialEvent, readStoredJson(storageKeys.eventWorkspace, null, initialEventKey));
 const initialTbaAuthKey = readStoredItem(storageKeys.tbaAuthKey) || normalizeText(globalThis.__TBA_AUTH_KEY || globalThis.TBA_AUTH_KEY);
+const initialLegacySeasonDerivedEquationCatalog = normalizeSeasonDerivedEquationCatalog(
+  mergeSeededSeasonCatalog(
+    readStoredJson(storageKeys.seasonDerivedEquations, {}),
+    seededSeasonDerivedEquations,
+  ),
+);
+const initialLegacySeasonFilterCatalog = normalizeSeasonFilterCatalog(
+  mergeSeededSeasonCatalog(
+    readStoredJson(storageKeys.seasonFilters, {}),
+    seededSeasonFilters,
+  ),
+);
 const state = {
   activeEventKey: initialEventKey,
   user: readStoredItem(storageKeys.user) || "",
@@ -290,19 +308,11 @@ const state = {
   scoutingWindow: readStoredItem(storageKeys.scoutingWindow) || "all",
   recentMatchCount: Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount) || 12)),
   recentEventKeys: [],
-  seasonDerivedEquationCatalog: normalizeSeasonDerivedEquationCatalog(
-    mergeSeededSeasonCatalog(
-      readStoredJson(storageKeys.seasonDerivedEquations, {}),
-      seededSeasonDerivedEquations,
-    ),
+  seasonProfileCatalog: migrateLegacySeasonScopedConfigIntoProfiles(
+    normalizeSeasonProfileCatalog(readStoredJson(storageKeys.seasonProfiles, {})),
+    initialLegacySeasonDerivedEquationCatalog,
+    initialLegacySeasonFilterCatalog,
   ),
-  seasonFilterCatalog: normalizeSeasonFilterCatalog(
-    mergeSeededSeasonCatalog(
-      readStoredJson(storageKeys.seasonFilters, {}),
-      seededSeasonFilters,
-    ),
-  ),
-  seasonProfileCatalog: normalizeSeasonProfileCatalog(readStoredJson(storageKeys.seasonProfiles, {})),
   activeDerivedEquationId: "",
   activeSeasonFilterId: "",
   activeDerivedPreviewMetricId: "",
@@ -612,9 +622,16 @@ function markCurrentScoutingAttachmentFailure(message, update = {}) {
 }
 
 function markCurrentScoutingAttachmentSuccess(preview, csvText, update = {}) {
+  const schemaSignature = Array.isArray(preview?.summary?.schemaFields) && preview.summary.schemaFields.length
+    ? buildScoutingSchemaSignatureFromFields({
+        eventKey: state.activeEventKey,
+        season: currentEvent()?.season,
+        fields: preview.summary.schemaFields,
+      })
+    : (preview?.summary?.metadata?.schemaId || preview?.summary?.metadata?.schemaVersion || preview?.summary?.profileId || "");
   state.eventWorkspace = markEventWorkspaceScoutingAttachmentSuccess(currentEventWorkspace(), {
     ...update,
-    schemaSignature: preview?.summary?.metadata?.schemaId || preview?.summary?.metadata?.schemaVersion || preview?.summary?.profileId || "",
+    schemaSignature,
     translatorVersion: preview?.summary?.metadata?.translationVersion || "",
     sourceFingerprint: buildScoutingSourceFingerprint(csvText),
   });
@@ -1110,34 +1127,51 @@ function currentDataSources() {
 
 function currentScouterMetricDefinitions(eventModel = currentEvent()) {
   const scoringComponentIds = new Set((eventModel?.scoringComponents || []).map((component) => component.id));
-  return buildDynamicScoutingFieldDefinitions({
-    eventModel: {
-      ...eventModel,
-      formulaFieldDefinitions: seasonScouterMetricDefinitions(eventModel),
-    },
-    submissions: currentScoutingSubmissions(),
-    schemaFields: currentImportSchemaFields(),
-  }).filter((metricDefinition) => !scoringComponentIds.has(metricDefinition.id));
+  return currentFormulaFieldDefinitions(eventModel).filter((fieldDefinition) => {
+    if (scoringComponentIds.has(fieldDefinition.id)) return false;
+    const fieldType = normalizeText(fieldDefinition?.type).toLowerCase() || (normalizeText(fieldDefinition?.unit).toLowerCase() === "text" ? "string" : "number");
+    return fieldType !== "string";
+  });
+}
+
+function currentImportedProfileDefinition(eventModel = currentEvent()) {
+  const profileId = currentProfileMetricScopeKey(eventModel);
+  const profiles = seasonScoutingProfiles(String(eventModel.season));
+  return (
+    profiles.find((profile) => profile.id === profileId)
+    || profiles.find((profile) => profile.id === defaultScoutingProfileId)
+    || profiles[0]
+    || null
+  );
+}
+
+function committedScoutingSchemaFields(eventModel = currentEvent()) {
+  const committedSignature = normalizeText(
+    state.scoutingSubmissions.find((submission) => submission?.eventKey === state.activeEventKey)?.scoutingSchemaSignature,
+  );
+  const committedFields = parseScoutingSchemaSignatureFields(committedSignature);
+  if (committedFields.length) return committedFields;
+  const attachmentFields = parseScoutingSchemaSignatureFields(normalizeText(currentScoutingAttachment()?.schemaSignature));
+  if (attachmentFields.length) return attachmentFields;
+  return Array.isArray(currentImportedProfileDefinition(eventModel)?.fields)
+    ? currentImportedProfileDefinition(eventModel).fields
+    : [];
 }
 
 function currentFormulaFieldDefinitions(eventModel = currentEvent()) {
+  const committedFields = committedScoutingSchemaFields(eventModel);
   return buildDynamicScoutingFieldDefinitions({
     eventModel: {
       ...eventModel,
-      formulaFieldDefinitions: seasonFormulaFieldDefinitions(eventModel),
+      formulaFieldDefinitions: committedFields,
     },
     submissions: currentScoutingSubmissions(),
-    schemaFields: currentImportSchemaFields(),
+    schemaFields: committedFields,
   });
 }
 
 function currentAtomicScouterMetricDefinitions(eventModel = currentEvent()) {
-  const seasonDefinition = currentSeasonDefinition(eventModel);
-  if (Array.isArray(seasonDefinition?.scouterMetrics) && seasonDefinition.scouterMetrics.length) {
-    return seasonDefinition.scouterMetrics;
-  }
-  const scoringComponentIds = new Set((eventModel?.scoringComponents || []).map((component) => component.id));
-  return currentScouterMetricDefinitions(eventModel).filter((metricDefinition) => !scoringComponentIds.has(metricDefinition.id));
+  return currentScouterMetricDefinitions(eventModel);
 }
 
 function currentAvailableScoutingFieldDefinitions(eventModel = currentEvent()) {
@@ -1169,19 +1203,19 @@ function currentProfileMetricScopeKey(eventModel = currentEvent()) {
   return importedProfileScopeKey(eventModel) || eventModel.sheet?.recommendedProfileId || "match-current-v2";
 }
 
-function currentSeasonDerivedEquationDefinitions(eventModel = currentEvent()) {
-  return (state.seasonDerivedEquationCatalog?.seasons?.[String(eventModel.season)] || []).map((definition) => ({
+function currentProfileDerivedEquationDefinitions(eventModel = currentEvent()) {
+  return currentProfileEquationList(eventModel).map((definition) => ({
     id: definition.id,
     label: definition.name,
     unit: definition.unit || "pts",
     expression: definition.formula,
     formula: "expression",
-    source: "season_equation",
+    source: "profile_equation",
   }));
 }
 
 function currentDerivedMetricDefinitions(eventModel = currentEvent()) {
-  return [...seasonDerivedMetricDefinitions(eventModel), ...currentSeasonDerivedEquationDefinitions(eventModel)];
+  return [...seasonDerivedMetricDefinitions(eventModel), ...currentProfileDerivedEquationDefinitions(eventModel)];
 }
 
 function currentScoutingDiagnosticsState() {
@@ -1194,8 +1228,8 @@ function currentScoutingDiagnosticsState() {
     committedSchemaSignature: committedSignature,
     currentFieldDefinitions,
     previewFieldDefinitions,
-    equations: currentSeasonEquationList(),
-    filters: currentSeasonFilterList(),
+    equations: currentProfileEquationList(),
+    filters: currentProfileFilterList(),
     sortEquations: state.sortEquations.filter((equation) => !isProtectedSortEquation(equation)),
   });
 }
@@ -1213,22 +1247,22 @@ function currentRankableMetrics(eventModel = currentEvent()) {
   });
 }
 
-function currentSeasonEquationList(eventModel = currentEvent()) {
-  return [...(state.seasonDerivedEquationCatalog?.seasons?.[String(eventModel.season)] || [])]
+function currentProfileEquationList(eventModel = currentEvent()) {
+  return [...(currentImportedProfileDefinition(eventModel)?.equations || [])]
     .sort((left, right) => Number(left.sourceOrder || 0) - Number(right.sourceOrder || 0) || left.name.localeCompare(right.name));
 }
 
-function currentSeasonFilterList(eventModel = currentEvent()) {
-  return [...(state.seasonFilterCatalog?.seasons?.[String(eventModel.season)] || [])]
+function currentProfileFilterList(eventModel = currentEvent()) {
+  return [...(currentImportedProfileDefinition(eventModel)?.filters || [])]
     .sort((left, right) => Number(left.sourceOrder || 0) - Number(right.sourceOrder || 0) || left.name.localeCompare(right.name));
 }
 
 function equationDefinitionById(id, eventModel = currentEvent()) {
-  return currentSeasonEquationList(eventModel).find((definition) => definition.id === id) || null;
+  return currentProfileEquationList(eventModel).find((definition) => definition.id === id) || null;
 }
 
-function seasonFilterDefinitionById(id, eventModel = currentEvent()) {
-  return currentSeasonFilterList(eventModel).find((definition) => definition.id === id) || null;
+function profileFilterDefinitionById(id, eventModel = currentEvent()) {
+  return currentProfileFilterList(eventModel).find((definition) => definition.id === id) || null;
 }
 
 function sanitizeFormulaReferenceToken(value) {
@@ -1242,9 +1276,9 @@ function sanitizeFormulaReferenceToken(value) {
   return `_${normalized}`;
 }
 
-function seasonFilterReferenceEntries(eventModel = currentEvent()) {
+function profileFilterReferenceEntries(eventModel = currentEvent()) {
   const counts = new Map();
-  return currentSeasonFilterList(eventModel).map((definition) => {
+  return currentProfileFilterList(eventModel).map((definition) => {
     const baseToken = sanitizeFormulaReferenceToken(definition.id || definition.name);
     const nextCount = (counts.get(baseToken) || 0) + 1;
     counts.set(baseToken, nextCount);
@@ -1255,13 +1289,13 @@ function seasonFilterReferenceEntries(eventModel = currentEvent()) {
   });
 }
 
-function seasonFilterDefinitionByReference(reference, eventModel = currentEvent()) {
+function profileFilterDefinitionByReference(reference, eventModel = currentEvent()) {
   const normalizedReference = String(reference || "").toLowerCase();
-  return seasonFilterReferenceEntries(eventModel).find((entry) => entry.token.toLowerCase() === normalizedReference)?.definition || null;
+  return profileFilterReferenceEntries(eventModel).find((entry) => entry.token.toLowerCase() === normalizedReference)?.definition || null;
 }
 
 function ensureActiveDerivedEquation(eventModel = currentEvent()) {
-  const definitions = currentSeasonEquationList(eventModel);
+  const definitions = currentProfileEquationList(eventModel);
   if (definitions.some((definition) => definition.id === state.activeDerivedEquationId)) return state.activeDerivedEquationId;
   state.activeDerivedEquationId = definitions[0]?.id || "";
   return state.activeDerivedEquationId;
@@ -1282,18 +1316,18 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
 const defaultStatboticsMetricId = "source:epa:epa.total_points";
 
 function ensureActiveSeasonFilter(eventModel = currentEvent()) {
-  const definitions = currentSeasonFilterList(eventModel);
+  const definitions = currentProfileFilterList(eventModel);
   if (definitions.some((definition) => definition.id === state.activeSeasonFilterId)) return state.activeSeasonFilterId;
   state.activeSeasonFilterId = definitions[0]?.id || "";
   return state.activeSeasonFilterId;
 }
 
 function activeSeasonFilter(eventModel = currentEvent()) {
-  return seasonFilterDefinitionById(ensureActiveSeasonFilter(eventModel), eventModel);
+  return profileFilterDefinitionById(ensureActiveSeasonFilter(eventModel), eventModel);
 }
 
 function activeAnalysisFilter(eventModel = currentEvent()) {
-  return seasonFilterDefinitionById(state.activeAnalysisFilterId, eventModel);
+  return profileFilterDefinitionById(state.activeAnalysisFilterId, eventModel);
 }
 
 const tbaMatchMetricsCache = new WeakMap();
@@ -1924,7 +1958,7 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
     return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.components?.[componentId] ?? Number.NaN);
   }
   if (identifier.startsWith("filter.")) {
-    const referencedFilter = seasonFilterDefinitionByReference(identifier, formulaContext.eventModel);
+    const referencedFilter = profileFilterDefinitionByReference(identifier, formulaContext.eventModel);
     if (!referencedFilter) return null;
     return evaluateSeasonFilterDefinitionForTeam(formulaContext.baseTeam, referencedFilter, {
       eventModel: formulaContext.eventModel,
@@ -2284,8 +2318,8 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.scoutingWindow), state.scoutingWindow);
   localStorage.setItem(eventStorageKey(storageKeys.recentMatchCount), String(state.recentMatchCount));
   localStorage.setItem(eventStorageKey(storageKeys.seasonProfiles), JSON.stringify(state.seasonProfileCatalog));
-  localStorage.setItem(eventStorageKey(storageKeys.seasonDerivedEquations), JSON.stringify(state.seasonDerivedEquationCatalog));
-  localStorage.setItem(eventStorageKey(storageKeys.seasonFilters), JSON.stringify(state.seasonFilterCatalog));
+  localStorage.removeItem(eventStorageKey(storageKeys.seasonDerivedEquations));
+  localStorage.removeItem(eventStorageKey(storageKeys.seasonFilters));
   localStorage.setItem(eventStorageKey(storageKeys.eventWorkspace), JSON.stringify(state.eventWorkspace));
 }
 
@@ -2414,13 +2448,19 @@ function registerSeasonScoutingProfile(seasonKey, profile) {
   const normalized = normalizeSeasonProfileCatalog(state.seasonProfileCatalog);
   const key = String(seasonKey);
   const existing = normalized[key] || [];
+  const profileId = String(profile?.id || "").trim();
+  const existingProfile = existing.find((entry) => entry.id === profileId) || null;
   normalized[key] = normalizeSeasonProfileCatalog({
     [key]: [
-      ...existing,
       {
-        id: String(profile?.id || "").trim(),
-        label: String(profile?.label || knownImportProfileLabels[String(profile?.id || "").trim()] || profile?.id || "").trim(),
+        ...(existingProfile || {}),
+        id: profileId,
+        label: String(profile?.label || knownImportProfileLabels[profileId] || profile?.id || "").trim(),
+        fields: Array.isArray(profile?.fields) ? profile.fields : (existingProfile?.fields || []),
+        equations: Array.isArray(profile?.equations) ? profile.equations : (existingProfile?.equations || []),
+        filters: Array.isArray(profile?.filters) ? profile.filters : (existingProfile?.filters || []),
       },
+      ...existing.filter((entry) => entry.id !== profileId),
     ],
   })[key] || [];
   state.seasonProfileCatalog = normalized;
@@ -2441,6 +2481,9 @@ function backfillSeasonProfilesFromSubmissions(eventModel = currentEvent()) {
     discovered.set(profileId, {
       id: profileId,
       label: knownImportProfileLabels[profileId] || profileId,
+      fields: parseScoutingSchemaSignatureFields(normalizeText(submission?.scoutingSchemaSignature)),
+      equations: [],
+      filters: [],
     });
   });
   if (!discovered.size) return;
@@ -2636,7 +2679,7 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
 
 function createDerivedMetricDraft(eventModel = currentEvent()) {
   return {
-    scopeType: "season",
+    scopeType: "profile",
     presetId: "blank",
     id: "",
     idManuallyEdited: false,
@@ -2660,24 +2703,7 @@ function createDerivedMetricDraft(eventModel = currentEvent()) {
 function normalizeSeasonDerivedEquationCatalog(catalog) {
   const normalized = { seasons: {} };
   Object.entries(catalog?.seasons || {}).forEach(([seasonKey, definitions]) => {
-    const seen = new Set();
-    const nextDefinitions = [];
-    (definitions || []).forEach((definition, index) => {
-      const id = String(definition?.id || "").trim();
-      const name = String(definition?.name || "").trim();
-      const formula = String(definition?.formula || "");
-      if (!id || !name || seen.has(id)) return;
-      seen.add(id);
-      nextDefinitions.push({
-        id,
-        name,
-        formula: canonicalizeStoredFormula(formula, "0"),
-        unit: String(definition?.unit || "pts").trim() || "pts",
-        description: String(definition?.description || "").trim(),
-        sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
-      });
-    });
-    normalized.seasons[String(seasonKey)] = nextDefinitions;
+    normalized.seasons[String(seasonKey)] = normalizeEquationDefinitions(definitions);
   });
   return normalized;
 }
@@ -2689,6 +2715,46 @@ function mergeSeededSeasonCatalog(storedCatalog, seededCatalog) {
       ...((seededCatalog && seededCatalog.seasons) || {}),
     },
   };
+}
+
+function normalizeEquationDefinitions(definitions) {
+  const seen = new Set();
+  const nextDefinitions = [];
+  (definitions || []).forEach((definition, index) => {
+    const id = String(definition?.id || "").trim();
+    const name = String(definition?.name || "").trim();
+    const formula = String(definition?.formula || "");
+    if (!id || !name || seen.has(id)) return;
+    seen.add(id);
+    nextDefinitions.push({
+      id,
+      name,
+      formula: canonicalizeStoredFormula(formula, "0"),
+      unit: String(definition?.unit || "pts").trim() || "pts",
+      description: String(definition?.description || "").trim(),
+      sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
+    });
+  });
+  return nextDefinitions;
+}
+
+function normalizeFilterDefinitions(definitions) {
+  const seen = new Set();
+  const nextDefinitions = [];
+  (definitions || []).forEach((definition, index) => {
+    const id = String(definition?.id || "").trim();
+    const name = String(definition?.name || "").trim();
+    if (!id || !name || seen.has(id)) return;
+    seen.add(id);
+    nextDefinitions.push({
+      id,
+      name,
+      formula: canonicalizeStoredFormula(String(definition?.formula || "").trim() || "0 > 1", "0 > 1"),
+      description: String(definition?.description || "").trim(),
+      sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
+    });
+  });
+  return nextDefinitions;
 }
 
 function normalizeSeasonProfileCatalog(catalog) {
@@ -2703,6 +2769,20 @@ function normalizeSeasonProfileCatalog(catalog) {
       nextProfiles.push({
         id,
         label: String(profile?.label || knownImportProfileLabels[id] || id).trim() || id,
+        fields: Array.isArray(profile?.fields)
+          ? profile.fields
+              .map((fieldDefinition) => ({
+                id: String(fieldDefinition?.id || "").trim(),
+                label: String(fieldDefinition?.label || fieldDefinition?.id || "").trim(),
+                type: String(fieldDefinition?.type || "").trim(),
+                unit: String(fieldDefinition?.unit || "").trim(),
+                aggregate: String(fieldDefinition?.aggregate || "").trim(),
+                optional: fieldDefinition?.optional === true,
+              }))
+              .filter((fieldDefinition) => fieldDefinition.id)
+          : [],
+        equations: normalizeEquationDefinitions(profile?.equations),
+        filters: normalizeFilterDefinitions(profile?.filters),
       });
     });
     normalized[String(seasonKey)] = nextProfiles.sort((left, right) => left.label.localeCompare(right.label));
@@ -2713,24 +2793,39 @@ function normalizeSeasonProfileCatalog(catalog) {
 function normalizeSeasonFilterCatalog(catalog) {
   const normalized = { seasons: {} };
   Object.entries(catalog?.seasons || {}).forEach(([seasonKey, definitions]) => {
-    const seen = new Set();
-    const nextDefinitions = [];
-    (definitions || []).forEach((definition, index) => {
-      const id = String(definition?.id || "").trim();
-      const name = String(definition?.name || "").trim();
-      if (!id || !name || seen.has(id)) return;
-      seen.add(id);
-      nextDefinitions.push({
-        id,
-        name,
-        formula: canonicalizeStoredFormula(String(definition?.formula || "").trim() || "0 > 1", "0 > 1"),
-        description: String(definition?.description || "").trim(),
-        sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
-      });
-    });
-    normalized.seasons[String(seasonKey)] = nextDefinitions;
+    normalized.seasons[String(seasonKey)] = normalizeFilterDefinitions(definitions);
   });
   return normalized;
+}
+
+function migrateLegacySeasonScopedConfigIntoProfiles(profileCatalog, legacyEquationCatalog, legacyFilterCatalog) {
+  const normalizedProfiles = normalizeSeasonProfileCatalog(profileCatalog);
+  const seasonKeys = new Set([
+    ...Object.keys(normalizedProfiles || {}),
+    ...Object.keys(legacyEquationCatalog?.seasons || {}),
+    ...Object.keys(legacyFilterCatalog?.seasons || {}),
+  ]);
+  const migrated = {};
+  seasonKeys.forEach((seasonKey) => {
+    const existingProfiles = normalizedProfiles?.[seasonKey] || [];
+    const baseProfiles = existingProfiles.length
+      ? existingProfiles
+      : [{
+        id: defaultScoutingProfileId,
+        label: knownImportProfileLabels[defaultScoutingProfileId] || defaultScoutingProfileId,
+        fields: [],
+        equations: [],
+        filters: [],
+      }];
+    const legacyEquations = normalizeEquationDefinitions(legacyEquationCatalog?.seasons?.[seasonKey] || []);
+    const legacyFilters = normalizeFilterDefinitions(legacyFilterCatalog?.seasons?.[seasonKey] || []);
+    migrated[seasonKey] = baseProfiles.map((profile) => ({
+      ...profile,
+      equations: profile.equations?.length ? profile.equations : legacyEquations,
+      filters: profile.filters?.length ? profile.filters : legacyFilters,
+    }));
+  });
+  return normalizeSeasonProfileCatalog(migrated);
 }
 
 function knownScouterFieldIds() {
@@ -2768,7 +2863,7 @@ function normalizeAnalysisSelection(value, eventModel = currentEvent()) {
 
 function normalizeAnalysisFilterSelection(value, eventModel = currentEvent()) {
   if (typeof value !== "string" || !value) return "";
-  return currentSeasonFilterList(eventModel).some((definition) => definition.id === value) ? value : "";
+  return currentProfileFilterList(eventModel).some((definition) => definition.id === value) ? value : "";
 }
 
 function normalizeTeamDetailMetric(value, eventModel = currentEvent()) {
@@ -3528,12 +3623,12 @@ function derivedMetricFieldOptions() {
   }));
 }
 
-function currentSeasonDefinition(eventModel = currentEvent()) {
-  return seasonFramework.seasonDefinitions?.[eventModel.season] || null;
+function currentScoringDefinition(eventModel = currentEvent()) {
+  return seasonFramework.gameDefinitions?.[eventModel.season] || seasonFramework.seasonDefinitions?.[eventModel.season] || null;
 }
 
 function currentScoringMatrixPresets(eventModel = currentEvent()) {
-  return Array.isArray(currentSeasonDefinition(eventModel)?.scoringMatrixPresets) ? currentSeasonDefinition(eventModel).scoringMatrixPresets : [];
+  return Array.isArray(currentScoringDefinition(eventModel)?.scoringMatrixPresets) ? currentScoringDefinition(eventModel).scoringMatrixPresets : [];
 }
 
 function derivedMetricScopeSummary() {
@@ -3732,6 +3827,7 @@ function commitImportPreview(options = {}) {
   setScoutingSubmissions(
     stampScoutingSubmissionMetadata(committed.submissions, currentEvent(), {
       scoutingImportSource: options.scoutingImportSource || (replaceExisting ? "event-sheet-source" : "manual"),
+      schemaFields: preview.summary.schemaFields,
     }),
     currentEvent(),
   );
@@ -3739,6 +3835,7 @@ function commitImportPreview(options = {}) {
   registerSeasonScoutingProfile(currentEvent().season, {
     id: preview.summary.profileId,
     label: preview.summary.profileLabel,
+    fields: preview.summary.schemaFields,
   });
   if (state.importDraftSource === "attached") {
     markCurrentScoutingAttachmentSuccess(preview, importedCsvText);
@@ -4044,7 +4141,7 @@ function evaluateSeasonFilterDefinitionForTeam(team, definition, options = {}) {
 
 function evaluateSeasonFilterForTeam(team, filterId, options = {}) {
   const eventModel = options.eventModel || currentEvent();
-  const definition = seasonFilterDefinitionById(filterId, eventModel);
+  const definition = profileFilterDefinitionById(filterId, eventModel);
   if (!definition) {
     return { definition, result: { kind: "error", error: `Unknown filter "${filterId}".` }, formulaContext: null };
   }
@@ -4905,7 +5002,7 @@ function renderDerivedBuilder() {
                 <button type="button" id="addDerivedEquationButton">New</button>
               </div>
               <div class="builder-list" data-builder-list-scroll="derived:equations">
-                ${currentSeasonEquationList()
+                ${currentProfileEquationList()
                   .map((definition, index) => {
                     const status = previewTeam ? equationStatusForTeam(previewTeam, definition.id) : null;
                     const rename = state.inlineRename?.kind === "derivedEquation" && state.inlineRename?.id === definition.id;
@@ -5699,9 +5796,9 @@ function renderContextMenu() {
   const collection = state.contextMenu.entityKind === "sortEquation"
     ? state.sortEquations
     : state.contextMenu.entityKind === "derivedEquation"
-      ? currentSeasonEquationList()
+      ? currentProfileEquationList()
       : state.contextMenu.entityKind === "seasonFilter"
-        ? currentSeasonFilterList()
+        ? currentProfileFilterList()
         : state.picklists;
   const item = collection.find((entry) => entry.id === state.contextMenu.id);
   const locked = state.contextMenu.entityKind === "sortEquation" && isProtectedSortEquation(item);
@@ -6150,19 +6247,19 @@ function defaultTeamsForNewPicklist() {
 
 function updateSeasonEquationList(nextDefinitions, eventModel = currentEvent()) {
   const seasonKey = String(eventModel.season);
-  state.seasonDerivedEquationCatalog = normalizeSeasonDerivedEquationCatalog({
-    ...state.seasonDerivedEquationCatalog,
-    seasons: {
-      ...(state.seasonDerivedEquationCatalog?.seasons || {}),
-      [seasonKey]: nextDefinitions,
-    },
+  const profileId = currentProfileMetricScopeKey(eventModel);
+  registerSeasonScoutingProfile(seasonKey, {
+    ...(currentImportedProfileDefinition(eventModel) || {}),
+    id: profileId,
+    label: currentImportedProfileDefinition(eventModel)?.label || knownImportProfileLabels[profileId] || profileId,
+    equations: normalizeEquationDefinitions(nextDefinitions),
   });
   ensureActiveDerivedEquation(eventModel);
   saveState();
 }
 
 function addSeasonEquation() {
-  const existing = currentSeasonEquationList();
+  const existing = currentProfileEquationList();
   const name = uniqueEntityName("New Equation", existing, "New Equation");
   const definition = {
     id: createId("derived"),
@@ -6180,7 +6277,7 @@ function addSeasonEquation() {
 }
 
 function removeSeasonEquation(id) {
-  const existing = currentSeasonEquationList();
+  const existing = currentProfileEquationList();
   const definition = existing.find((item) => item.id === id);
   if (!definition || existing.length <= 1) return;
   updateSeasonEquationList(existing.filter((item) => item.id !== id));
@@ -6191,41 +6288,42 @@ function removeSeasonEquation(id) {
 }
 
 function renameSeasonEquation(id, requestedName) {
-  const definition = currentSeasonEquationList().find((item) => item.id === id);
+  const definition = currentProfileEquationList().find((item) => item.id === id);
   if (!definition) return;
   const trimmed = requestedName.trim();
   if (!trimmed || trimmed === definition.name) return;
-  const name = uniqueEntityName(trimmed, currentSeasonEquationList().filter((item) => item.id !== id), trimmed);
-  updateSeasonEquationList(currentSeasonEquationList().map((item) => (item.id === id ? { ...item, name } : item)));
+  const name = uniqueEntityName(trimmed, currentProfileEquationList().filter((item) => item.id !== id), trimmed);
+  updateSeasonEquationList(currentProfileEquationList().map((item) => (item.id === id ? { ...item, name } : item)));
   saveState();
   render();
 }
 
 function updateSeasonEquationFormula(id, formula) {
-  updateSeasonEquationList(currentSeasonEquationList().map((item) => (
+  updateSeasonEquationList(currentProfileEquationList().map((item) => (
     item.id === id ? { ...item, formula: normalizeStoredFormula(formula, "0") } : item
   )));
 }
 
 function seasonDerivedEquationsSourceText() {
-  const canonicalCatalog = normalizeSeasonDerivedEquationCatalog(state.seasonDerivedEquationCatalog);
+  const canonicalCatalog = normalizeSeasonDerivedEquationCatalog({
+    seasons: Object.fromEntries(
+      Object.entries(state.seasonProfileCatalog || {}).map(([seasonKey, profiles]) => [
+        seasonKey,
+        profiles.find((profile) => profile.id === defaultScoutingProfileId)?.equations || profiles[0]?.equations || [],
+      ]),
+    ),
+  });
   return `(function () {\nglobalThis.SeasonDerivedEquations = ${JSON.stringify(canonicalCatalog, null, 2)};\n})();\n`;
 }
 
 function updateSeasonFilterList(definitions, eventModel = currentEvent()) {
   const seasonKey = String(eventModel.season);
-  const nextDefinitions = (definitions || []).map((definition, index) => ({
-    id: String(definition?.id || "").trim() || createId("filter"),
-    name: String(definition?.name || "").trim() || `Filter ${index + 1}`,
-    formula: String(definition?.formula || "").trim() || "0 > 1",
-    description: String(definition?.description || "").trim(),
-    sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
-  }));
-  state.seasonFilterCatalog = normalizeSeasonFilterCatalog({
-    seasons: {
-      ...(state.seasonFilterCatalog?.seasons || {}),
-      [seasonKey]: nextDefinitions,
-    },
+  const profileId = currentProfileMetricScopeKey(eventModel);
+  registerSeasonScoutingProfile(seasonKey, {
+    ...(currentImportedProfileDefinition(eventModel) || {}),
+    id: profileId,
+    label: currentImportedProfileDefinition(eventModel)?.label || knownImportProfileLabels[profileId] || profileId,
+    filters: normalizeFilterDefinitions(definitions),
   });
   ensureActiveSeasonFilter(eventModel);
   state.activeAnalysisFilterId = normalizeAnalysisFilterSelection(state.activeAnalysisFilterId, eventModel);
@@ -6233,7 +6331,7 @@ function updateSeasonFilterList(definitions, eventModel = currentEvent()) {
 }
 
 function addSeasonFilter() {
-  const existing = currentSeasonFilterList();
+  const existing = currentProfileFilterList();
   const name = uniqueEntityName("New Filter", existing, "New Filter");
   const definition = {
     id: createId("filter"),
@@ -6250,7 +6348,7 @@ function addSeasonFilter() {
 }
 
 function removeSeasonFilter(id) {
-  const existing = currentSeasonFilterList();
+  const existing = currentProfileFilterList();
   const definition = existing.find((item) => item.id === id);
   if (!definition || existing.length <= 1) return;
   updateSeasonFilterList(existing.filter((item) => item.id !== id));
@@ -6262,24 +6360,32 @@ function removeSeasonFilter(id) {
 }
 
 function renameSeasonFilter(id, requestedName) {
-  const definition = currentSeasonFilterList().find((item) => item.id === id);
+  const definition = currentProfileFilterList().find((item) => item.id === id);
   if (!definition) return;
   const trimmed = requestedName.trim();
   if (!trimmed || trimmed === definition.name) return;
-  const name = uniqueEntityName(trimmed, currentSeasonFilterList().filter((item) => item.id !== id), trimmed);
-  updateSeasonFilterList(currentSeasonFilterList().map((item) => (item.id === id ? { ...item, name } : item)));
+  const name = uniqueEntityName(trimmed, currentProfileFilterList().filter((item) => item.id !== id), trimmed);
+  updateSeasonFilterList(currentProfileFilterList().map((item) => (item.id === id ? { ...item, name } : item)));
   saveState();
   render();
 }
 
 function updateSeasonFilterFormula(id, formula) {
-  updateSeasonFilterList(currentSeasonFilterList().map((item) => (
+  updateSeasonFilterList(currentProfileFilterList().map((item) => (
     item.id === id ? { ...item, formula: normalizeStoredFormula(formula, "0 > 1") } : item
   )));
 }
 
 function seasonFiltersSourceText() {
-  return `(function () {\nglobalThis.SeasonFilters = ${JSON.stringify(state.seasonFilterCatalog, null, 2)};\n})();\n`;
+  const canonicalCatalog = normalizeSeasonFilterCatalog({
+    seasons: Object.fromEntries(
+      Object.entries(state.seasonProfileCatalog || {}).map(([seasonKey, profiles]) => [
+        seasonKey,
+        profiles.find((profile) => profile.id === defaultScoutingProfileId)?.filters || profiles[0]?.filters || [],
+      ]),
+    ),
+  });
+  return `(function () {\nglobalThis.SeasonFilters = ${JSON.stringify(canonicalCatalog, null, 2)};\n})();\n`;
 }
 
 function formulaAutocompleteCandidates(token) {
@@ -6290,7 +6396,7 @@ function formulaAutocompleteCandidates(token) {
     ...currentAvailableStatboticsFormulaIdentifiers(),
     "opr.total",
     "pridge.total",
-    ...currentSeasonEquationList().map((definition) => definition.id),
+    ...currentProfileEquationList().map((definition) => definition.id),
     "allianceMatch",
     "match",
     "if",
@@ -6815,9 +6921,9 @@ function startInlineRename(kind, id) {
   const collection = kind === "sortEquation"
     ? state.sortEquations
     : kind === "derivedEquation"
-      ? currentSeasonEquationList()
+      ? currentProfileEquationList()
       : kind === "seasonFilter"
-        ? currentSeasonFilterList()
+        ? currentProfileFilterList()
         : state.picklists;
   const item = collection.find((entry) => entry.id === id);
   if (!item || (kind === "sortEquation" && isProtectedSortEquation(item))) return;
@@ -6892,7 +6998,7 @@ function handleBuilderKeyboard(event) {
         render();
         return;
       }
-      const equations = currentSeasonEquationList();
+      const equations = currentProfileEquationList();
       const activeEquationId = ensureActiveDerivedEquation();
       const index = equations.findIndex((item) => item.id === activeEquationId);
       const next = equations[Math.max(0, Math.min(equations.length - 1, index + direction))];
@@ -7335,10 +7441,10 @@ function bindViewEvents() {
         if (draggedId === protectedEpaSortId || row.dataset.entityId === protectedEpaSortId) return;
         state.sortEquations = moveItemBefore(state.sortEquations, state.sortEquations.find((item) => item.id === draggedId), state.sortEquations.find((item) => item.id === row.dataset.entityId));
       } else if (kind === "derivedEquation") {
-        const moved = moveItemBefore(currentSeasonEquationList(), currentSeasonEquationList().find((item) => item.id === draggedId), currentSeasonEquationList().find((item) => item.id === row.dataset.entityId));
+        const moved = moveItemBefore(currentProfileEquationList(), currentProfileEquationList().find((item) => item.id === draggedId), currentProfileEquationList().find((item) => item.id === row.dataset.entityId));
         updateSeasonEquationList(moved.map((item, index) => ({ ...item, sourceOrder: index })));
       } else if (kind === "seasonFilter") {
-        const moved = moveItemBefore(currentSeasonFilterList(), currentSeasonFilterList().find((item) => item.id === draggedId), currentSeasonFilterList().find((item) => item.id === row.dataset.entityId));
+        const moved = moveItemBefore(currentProfileFilterList(), currentProfileFilterList().find((item) => item.id === draggedId), currentProfileFilterList().find((item) => item.id === row.dataset.entityId));
         updateSeasonFilterList(moved.map((item, index) => ({ ...item, sourceOrder: index })));
       } else {
         state.picklists = moveItemBefore(state.picklists, state.picklists.find((item) => item.id === draggedId), state.picklists.find((item) => item.id === row.dataset.entityId));
@@ -7363,7 +7469,7 @@ function bindViewEvents() {
       const [kind, id] = button.dataset.contextDelete.split(":");
       state.contextMenu = null;
       render();
-      const collection = kind === "sortEquation" ? state.sortEquations : kind === "derivedEquation" ? currentSeasonEquationList() : kind === "seasonFilter" ? currentSeasonFilterList() : state.picklists;
+      const collection = kind === "sortEquation" ? state.sortEquations : kind === "derivedEquation" ? currentProfileEquationList() : kind === "seasonFilter" ? currentProfileFilterList() : state.picklists;
       const item = collection.find((entry) => entry.id === id);
       if (!item) return;
       const label = kind === "sortEquation" ? "sort equation" : kind === "derivedEquation" ? "derived equation" : kind === "seasonFilter" ? "season filter" : "picklist";
