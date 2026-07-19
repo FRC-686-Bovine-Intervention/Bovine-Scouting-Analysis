@@ -158,15 +158,11 @@ The primary app import path is already better than the remaining adapter code su
 
 not year-specific translation branches in core code.
 
-### 6. Seeded equation compatibility is still sourced from a legacy profile-seed bundle
+### 6. Seeded equation compatibility now relies on persisted profiles only
 
-The app now loads seeded compatibility profiles from:
+The app no longer loads season-seeded compatibility profiles from code at boot.
 
-- [src/scouting-profile-seeds.js](D:/FIRST/Scouting/Scouting-Analysis/src/scouting-profile-seeds.js:1)
-
-Legacy season-derived-equation and season-filter storage may still be read for one-time migration, but the runtime `SeasonFilters` module no longer participates in app behavior. The app now projects those migrated season-scoped definitions onto event-key profiles before runtime use, so the remaining issue is the compatibility seed source itself rather than an active season selector in the UI runtime.
-
-This is now migration scaffolding more than runtime ownership, but it still exists and should eventually disappear.
+Legacy season-derived-equation and season-filter storage may still be read for one-time migration, but the runtime `SeasonFilters` module no longer participates in app behavior. The app now projects those migrated season-scoped definitions onto event-key profiles before runtime use, so persisted profile data is the remaining compatibility seam instead of a bundled season selector in the UI runtime.
 
 ### 7. Storage migration still carries season-owned legacy keys
 
@@ -245,7 +241,7 @@ Move to:
 
 Move from:
 
-- `ScoutingProfileSeeds.seasons[season][*].equations`
+- the legacy bundled season-seeded equation catalog
 Move to:
 
 - profile-scoped derived equation catalogs
@@ -487,6 +483,7 @@ After the previous phases are stable:
 - [x] Convert existing season filters into boolean derived equations or predicate-marked equations.
 - [x] Update analysis-filter selection to reference boolean equations instead of a separate filter catalog.
 - [x] Keep dependency diagnostics working for converted predicate equations.
+- [x] Remove the bundled season-seeded profile-equation source from app boot.
   Note: the old runtime filter concept is considered migrated; remaining `filters` mentions are compatibility language, not a separate source-of-truth artifact.
 
 ### E. Scaffold removal

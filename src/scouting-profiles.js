@@ -118,24 +118,9 @@ function materializeEventScopedProfileCatalog(profileCatalog = {}, eventModels =
   return nextCatalog;
 }
 
-function mergeSeededProfileCatalog(profileCatalog = {}, seededCatalog = {}) {
-  const nextCatalog = Object.fromEntries(
-    Object.entries(profileCatalog && typeof profileCatalog === "object" ? profileCatalog : {})
-      .map(([catalogKey, profiles]) => [normalizeText(catalogKey), Array.isArray(profiles) ? cloneJsonValue(profiles) : []])
-      .filter(([catalogKey, profiles]) => catalogKey && profiles.length),
-  );
-  Object.entries(seededCatalog && typeof seededCatalog === "object" ? seededCatalog : {}).forEach(([catalogKey, profiles]) => {
-    const normalizedKey = normalizeText(catalogKey);
-    if (!normalizedKey || nextCatalog[normalizedKey]?.length || !Array.isArray(profiles) || !profiles.length) return;
-    nextCatalog[normalizedKey] = cloneJsonValue(profiles);
-  });
-  return nextCatalog;
-}
-
 globalThis.ScoutingProfiles = {
   buildProfileVersionKey,
   materializeEventScopedProfileCatalog,
-  mergeSeededProfileCatalog,
   normalizeFieldDefinition,
   normalizeFieldMigrationRecords,
 };

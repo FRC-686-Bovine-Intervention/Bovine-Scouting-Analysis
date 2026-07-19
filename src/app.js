@@ -15,7 +15,6 @@ const metricEngine = globalThis.MetricEngine || {};
 const sheetImportAdapters = globalThis.SheetImportAdapters || {};
 const scoutingImportRepair = globalThis.ScoutingImportRepair || {};
 const eventWorkspaceApi = globalThis.EventWorkspace || {};
-const seededScoutingProfiles = globalThis.ScoutingProfileSeeds || { seasons: {} };
 const commitScoutingImport = importFoundation.commitScoutingImport;
 const buildSampleCsv = importFoundation.buildSampleCsv;
 const previewScoutingImport = importFoundation.previewScoutingImport;
@@ -137,9 +136,6 @@ const normalizeScoutingProfileMigrationRecords =
 const materializeEventScopedProfileCatalog =
   scoutingProfilesApi.materializeEventScopedProfileCatalog
   || ((catalog) => catalog || {});
-const mergeSeededProfileCatalog =
-  scoutingProfilesApi.mergeSeededProfileCatalog
-  || ((profileCatalog) => profileCatalog || {});
 const buildNormalizedScoutingProfileVersionKey =
   scoutingProfilesApi.buildProfileVersionKey
   || ((profile = {}) => normalizeText(profile?.versionKey || profile?.versionId || profile?.id));
@@ -370,18 +366,15 @@ const state = {
   recentMatchCount: Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount) || 12)),
   recentEventKeys: [],
   scoutingProfileCatalog: materializeEventScopedProfileCatalog(
-    mergeSeededProfileCatalog(
-      migrateLegacyScopedConfigIntoProfiles(
-        normalizeScoutingProfileCatalog(
-          readStoredJson(
-            storageKeys.scoutingProfiles,
-            readStoredJson(storageKeys.seasonProfiles, {}),
-          ),
+    migrateLegacyScopedConfigIntoProfiles(
+      normalizeScoutingProfileCatalog(
+        readStoredJson(
+          storageKeys.scoutingProfiles,
+          readStoredJson(storageKeys.seasonProfiles, {}),
         ),
-        initialLegacyDerivedEquationCatalog,
-        initialLegacyFilterCatalog,
       ),
-      normalizeScoutingProfileCatalog(seededScoutingProfiles.seasons || seededScoutingProfiles.catalog || {}),
+      initialLegacyDerivedEquationCatalog,
+      initialLegacyFilterCatalog,
     ),
     globalEventCatalog,
   ),
@@ -6602,24 +6595,6 @@ function updateProfileEquationFormula(id, formula) {
   updateProfileEquationList(currentProfileEquationList().map((item) => (
     item.id === id ? { ...item, formula: normalizeStoredFormula(formula, "0") } : item
   )));
-}
-
-function profileDerivedEquationsSourceText() {
-  const canonicalCatalog = {
-    seasons: normalizeScoutingProfileCatalog(
-      Object.fromEntries(
-      Object.entries(state.scoutingProfileCatalog || {}).map(([seasonKey, profiles]) => [
-        seasonKey,
-        [{
-          id: defaultScoutingProfileId,
-          label: knownImportProfileLabels[defaultScoutingProfileId] || defaultScoutingProfileId,
-          equations: profiles.find((profile) => profile.id === defaultScoutingProfileId)?.equations || profiles[0]?.equations || [],
-        }],
-      ]),
-      ),
-    ),
-  };
-  return `(function () {\nglobalThis.ScoutingProfileSeeds = ${JSON.stringify(canonicalCatalog, null, 2)};\n})();\n`;
 }
 
 function formulaAutocompleteCandidates(token) {
