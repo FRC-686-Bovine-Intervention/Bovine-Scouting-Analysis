@@ -308,8 +308,8 @@ function buildEventModelFromPayloads(payload) {
     metrics: buildMetricCatalog(scoutingSchemaSeed),
     teams: teamsWithPridge,
     teamNumbers: teamsWithPridge.map((team) => team.number),
-    defaultMetricId: "source:epa:epa.total_points",
-    defaultTeamDetailMetricId: "source:epa:epa.total_points",
+    defaultMetricId: "",
+    defaultTeamDetailMetricId: "",
     seedSortEquations: [
       {
         id: "sort-defense-backup",

@@ -287,10 +287,11 @@ function mergePersistedDynamicEventsIntoCatalog() {
 mergePersistedDynamicEventsIntoCatalog();
 
 const defaultAllianceBoard = Array(24).fill(null);
+const defaultStatboticsMetricId = "source:epa:epa.total_points";
 const protectedEpaSortEquation = {
   id: protectedEpaSortId,
-  name: "EPA",
-  metricId: "source:epa:epa.total_points",
+  name: "Statbotics EPA",
+  metricId: defaultStatboticsMetricId,
   locked: true,
 };
 
@@ -328,10 +329,10 @@ const state = {
   users: readStoredJson(storageKeys.users, seedUsers),
   theme: readStoredItem(storageKeys.theme) || "light",
   activeView: "teams",
-  metric: initialEvent.defaultMetricId,
+  metric: firstMetricIdForEvent(initialEvent),
   activeAnalysisFilterId: "",
-  teamDetailMetric: initialEvent.defaultTeamDetailMetricId,
-  picklistCompareMetric: initialEvent.defaultTeamDetailMetricId,
+  teamDetailMetric: firstMetricIdForEvent(initialEvent),
+  picklistCompareMetric: firstMetricIdForEvent(initialEvent),
   selectedTeam: initialEvent.teams[0].number,
   selectedMatch: initialEvent.matches[0].number,
   menuExpanded: readStoredItem(storageKeys.menuExpanded) === "true",
@@ -1269,6 +1270,22 @@ function currentMetrics() {
   return runtimeMetricsForEventModel(currentEvent());
 }
 
+function firstMetricIdForEvent(eventModel = currentEvent()) {
+  const metrics = runtimeMetricsForEventModel(eventModel);
+  return metrics[0]?.id || "";
+}
+
+function statboticsEpaMetric(eventModel = currentEvent()) {
+  return runtimeMetricsForEventModel(eventModel).find((metric) => metric.id === defaultStatboticsMetricId) || null;
+}
+
+function formatMetricValueForDisplay(metric, value) {
+  const numericValue = Number(value);
+  if (!metric || value === null || value === undefined || value === "" || Number.isNaN(numericValue)) return "—";
+  const digits = metric.unit === "%" ? 0 : 1;
+  return `${numericValue.toFixed(digits)}${metric.unit === "%" ? "%" : ""}`;
+}
+
 function currentDataSources() {
   const event = currentEvent();
   const workspace = currentEventWorkspace();
@@ -1519,7 +1536,9 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
   ];
 }
 
-const defaultStatboticsMetricId = "source:epa:epa.total_points";
+function defaultCriteriaTerms(eventModel = currentEvent()) {
+  return [{ operator: "+", weight: 1, metricId: firstMetricIdForEvent(eventModel) }];
+}
 
 function activeAnalysisFilter(eventModel = currentEvent()) {
   return profileFilterDefinitionById(state.activeAnalysisFilterId, eventModel);
@@ -3144,8 +3163,9 @@ function normalizeBoard(board, eventModel = currentEvent()) {
 }
 
 function normalizeAnalysisSelection(value, eventModel = currentEvent()) {
-  if (typeof value !== "string" || !value) return eventModel.defaultMetricId;
-  return currentMetrics().some((metric) => metric.id === value) ? value : eventModel.defaultMetricId;
+  const fallbackMetricId = firstMetricIdForEvent(eventModel);
+  if (typeof value !== "string" || !value) return fallbackMetricId;
+  return runtimeMetricsForEventModel(eventModel).some((metric) => metric.id === value) ? value : fallbackMetricId;
 }
 
 function normalizeAnalysisFilterSelection(value, eventModel = currentEvent()) {
@@ -3154,8 +3174,9 @@ function normalizeAnalysisFilterSelection(value, eventModel = currentEvent()) {
 }
 
 function normalizeTeamDetailMetric(value, eventModel = currentEvent()) {
-  if (typeof value !== "string" || !value) return eventModel.defaultTeamDetailMetricId;
-  return runtimeMetricsForEventModel(eventModel).some((metric) => metric.id === value) ? value : eventModel.defaultTeamDetailMetricId;
+  const fallbackMetricId = firstMetricIdForEvent(eventModel);
+  if (typeof value !== "string" || !value) return fallbackMetricId;
+  return runtimeMetricsForEventModel(eventModel).some((metric) => metric.id === value) ? value : fallbackMetricId;
 }
 
 function pickedTeams() {
@@ -3324,17 +3345,17 @@ function termsFromLegacyWeights(weights = {}) {
       return { operator: "+", weight: Number(weight), ...mapping };
     })
     .filter(Boolean);
-  return terms.length ? terms : defaultCriteriaTerms;
+  return terms.length ? terms : defaultCriteriaTerms();
 }
 
 function metricIdFromLegacyTerm(term) {
   if (typeof term?.metricId === "string" && term.metricId) return term.metricId;
   if (term?.source && term?.component) return `${term.source === "derived" ? "derived" : "source"}:${term.source}:${term.component}`.replace("derived:derived:", "derived:");
-  return currentEvent().defaultMetricId;
+  return firstMetricIdForEvent();
 }
 
 function normalizeCriteriaTerms(terms) {
-  const normalized = (Array.isArray(terms) && terms.length ? terms : defaultCriteriaTerms).slice(0, 5).map((term, index) => {
+  const normalized = (Array.isArray(terms) && terms.length ? terms : defaultCriteriaTerms()).slice(0, 5).map((term, index) => {
     const metric = metricById(metricIdFromLegacyTerm(term));
     return {
       operator: index === 0 ? "+" : term.operator === "-" ? "-" : "+",
@@ -3342,7 +3363,7 @@ function normalizeCriteriaTerms(terms) {
       metricId: metric.id,
     };
   });
-  return normalized.length ? normalized : defaultCriteriaTerms;
+  return normalized.length ? normalized : defaultCriteriaTerms();
 }
 
 function componentValue(team, term) {
@@ -3400,7 +3421,6 @@ function quantile(values, q) {
 function metricById(id) {
   const metrics = currentMetrics();
   return metrics.find((metric) => metric.id === id)
-    || metrics.find((metric) => metric.id === currentEvent().defaultMetricId)
     || metrics[0];
 }
 
@@ -4826,9 +4846,21 @@ function renderRecoveryScreen(error) {
 }
 
 function renderRankings() {
-  const epaMetric = metricById(defaultStatboticsMetricId);
+  const rankingMetric = statboticsEpaMetric();
+  const rankingMetricLabel = "Statbotics EPA";
   const ranked = [...currentTeams()]
-    .sort((a, b) => (a.eventRank || Infinity) - (b.eventRank || Infinity) || teamMetricValue(b, epaMetric) - teamMetricValue(a, epaMetric) || a.number - b.number)
+    .sort((a, b) => {
+      const leftRankingScore = rankingScoreForTeam(a);
+      const rightRankingScore = rankingScoreForTeam(b);
+      const leftSortScore = Number.isFinite(leftRankingScore) ? leftRankingScore : Number.NEGATIVE_INFINITY;
+      const rightSortScore = Number.isFinite(rightRankingScore) ? rightRankingScore : Number.NEGATIVE_INFINITY;
+      const leftRankingMetricValue = rankingMetric ? teamMetricValue(a, rankingMetric) : Number.NEGATIVE_INFINITY;
+      const rightRankingMetricValue = rankingMetric ? teamMetricValue(b, rankingMetric) : Number.NEGATIVE_INFINITY;
+      return (a.eventRank || Infinity) - (b.eventRank || Infinity)
+        || rightSortScore - leftSortScore
+        || rightRankingMetricValue - leftRankingMetricValue
+        || a.number - b.number;
+    })
     .map((team, index) => ({
       ...team,
       rank: team.eventRank || index + 1,
@@ -4842,7 +4874,7 @@ function renderRankings() {
         <div>
           <h2>Current Event Rankings</h2>
         </div>
-        <span class="muted">Sorted by ranking score, then EPA</span>
+        <span class="muted">Sorted by ranking score, then ${rankingMetricLabel}</span>
       </div>
       <div class="ranking-table" role="table" aria-label="Current event rankings">
         <div class="ranking-row ranking-header" role="row">
@@ -4851,7 +4883,7 @@ function renderRankings() {
           <span>Ranking Score</span>
           <span>Record</span>
           <span>RP</span>
-          <span>EPA</span>
+          <span>${rankingMetricLabel}</span>
           <span>Flags</span>
         </div>
         ${ranked
@@ -4860,10 +4892,10 @@ function renderRankings() {
           <button class="ranking-row" data-team="${team.number}" role="row">
             <strong>${team.rank}</strong>
             <span>${team.number} ${team.name}</span>
-            <span>${team.rankingScore.toFixed(2)}</span>
-            <span>${team.record}</span>
-            <span>${team.rp}</span>
-            <span>${teamMetricValue(team, epaMetric).toFixed(1)}</span>
+            <span>${team.rankingScore === null ? "—" : team.rankingScore.toFixed(2)}</span>
+            <span>${team.record || "—"}</span>
+            <span>${team.rp === null ? "—" : team.rp}</span>
+            <span>${formatMetricValueForDisplay(rankingMetric, rankingMetric ? teamMetricValue(team, rankingMetric) : null)}</span>
             <span>${renderDrivetrainBadge(team)}</span>
           </button>
         `,
@@ -4875,11 +4907,13 @@ function renderRankings() {
 }
 
 function rankingScoreForTeam(team) {
-  return Number(team.record?.qual?.rps || 0) || teamMetricValue(team, metricById(defaultStatboticsMetricId));
+  const rankingScore = Number(team.record?.qual?.rps);
+  return Number.isFinite(rankingScore) ? rankingScore : null;
 }
 
 function rankingPoints(team) {
-  return team.record?.qual?.rps ?? Math.max(8, Math.round(teamMetricValue(team, metricById(defaultStatboticsMetricId)) / 4));
+  const rankingPointsValue = Number(team.record?.qual?.rps);
+  return Number.isFinite(rankingPointsValue) ? rankingPointsValue : null;
 }
 
 function recordForTeam(team) {
@@ -4887,13 +4921,12 @@ function recordForTeam(team) {
     const qual = team.record.qual;
     return `${qual.wins}-${qual.losses}-${qual.ties}`;
   }
-  const wins = Math.max(1, Math.min(8, Math.round(teamMetricValue(team, metricById(defaultStatboticsMetricId)) / 9)));
-  const losses = Math.max(0, 8 - wins);
-  return `${wins}-${losses}-0`;
+  return "";
 }
 
 function renderTeams() {
-  const epaMetric = metricById(defaultStatboticsMetricId);
+  const summaryMetric = statboticsEpaMetric();
+  const summaryMetricLabel = "Statbotics EPA";
   const consistencyMetric = metricById("derived:consistency");
   return `
     <div class="team-title-row">
@@ -4911,7 +4944,7 @@ function renderTeams() {
           <span class="avatar">${team.number}</span>
           <span class="team-meta">
             <strong>${team.name}</strong>
-            <span class="muted">${teamMetricValue(team, epaMetric).toFixed(1)} EPA / ${teamMetricValue(team, consistencyMetric)}% consistency</span>
+            <span class="muted">${formatMetricValueForDisplay(summaryMetric, teamMetricValue(team, summaryMetric))} ${summaryMetricLabel} / ${teamMetricValue(team, consistencyMetric)}% consistency</span>
             ${renderDrivetrainBadge(team)}
           </span>
         </button>
@@ -4926,7 +4959,7 @@ function renderTeamDetail(team) {
   const availableTrendMetrics = currentMetrics().filter((metric) => metricUsesMatchDistribution(team, metric));
   const selectedMetric = availableTrendMetrics.find((metric) => metric.id === state.teamDetailMetric) || availableTrendMetrics[0] || teamDetailMetric();
   const scoutingConfidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
-  const epaMetric = metricById(defaultStatboticsMetricId);
+  const epaMetric = statboticsEpaMetric();
   const oprMetric = metricById("source:opr:total");
   const pridgeMetric = metricById("source:pridge:total");
   return `
@@ -4945,7 +4978,7 @@ function renderTeamDetail(team) {
       <div class="stat-grid">
         <div class="stat"><span>${escapeHtml(selectedMetric.label)}</span><strong>${teamMetricValue(team, selectedMetric).toFixed(selectedMetric.unit === "%" ? 0 : 1)}${selectedMetric.unit === "%" ? "%" : ""}</strong></div>
         <div class="stat"><span>Scouting Confidence</span><strong>${escapeHtml(confidenceLabel(scoutingConfidence.tier))}</strong></div>
-        <div class="stat"><span>EPA</span><strong>${teamMetricValue(team, epaMetric).toFixed(1)}</strong></div>
+        <div class="stat"><span>Statbotics EPA</span><strong>${formatMetricValueForDisplay(epaMetric, teamMetricValue(team, epaMetric))}</strong></div>
         <div class="stat"><span>OPR</span><strong>${teamMetricValue(team, oprMetric).toFixed(1)}</strong></div>
       </div>
       <div class="team-detail-grid">
@@ -5527,7 +5560,8 @@ function renderMatchNavigator(match, includeBack) {
 }
 
 function renderAllianceCard(title, teamNumbers) {
-  const epaMetric = metricById(defaultStatboticsMetricId);
+  const summaryMetric = statboticsEpaMetric();
+  const summaryMetricLabel = "Statbotics EPA";
   const consistencyMetric = metricById("derived:consistency");
   return `
     <article class="card">
@@ -5541,7 +5575,7 @@ function renderAllianceCard(title, teamNumbers) {
                 <span class="avatar">${team.number}</span>
                 <span class="team-meta">
                   <strong>${team.name}</strong>
-                  <span class="muted">${teamMetricValue(team, epaMetric).toFixed(1)} EPA / ${teamMetricValue(team, consistencyMetric)}% consistency</span>
+                  <span class="muted">${formatMetricValueForDisplay(summaryMetric, teamMetricValue(team, summaryMetric))} ${summaryMetricLabel} / ${teamMetricValue(team, consistencyMetric)}% consistency</span>
                   ${renderDrivetrainBadge(team)}
                 </span>
               </button>
@@ -6531,7 +6565,7 @@ function firstVisibleGridColumn() {
 function defaultTeamsForNewPicklist() {
   const firstColumn = firstVisibleGridColumn();
   if (!firstColumn) {
-    const defaultMetric = metricById(currentEvent().defaultMetricId);
+    const defaultMetric = metricById(normalizeAnalysisSelection(state.metric));
     return [...currentTeams()]
       .sort((a, b) => teamMetricValue(b, defaultMetric) - teamMetricValue(a, defaultMetric) || a.number - b.number)
       .map((team) => team.number);
@@ -7013,7 +7047,7 @@ function removeSortEquation(id) {
   const nextEquations = state.sortEquations.filter((equation) => equation.id !== id);
   state.sortEquations = nextEquations;
   state.activeSortEquation = nextEquations[Math.min(nextEquations.length - 1, nextEquations.findIndex((equation) => equation.id === state.activeSortEquation))]?.id || nextEquations[0].id;
-  state.metric = state.metric === `sort:${id}` ? "epa" : state.metric;
+  state.metric = state.metric === `sort:${id}` ? firstMetricIdForEvent() : state.metric;
   state.loadedSources = state.loadedSources.filter((entry) => entry !== `sort:${id}`);
   state.picklistColumns = state.picklistColumns.map((entry) => (entry === `sort:${id}` ? "" : entry));
   if (state.contextMenu?.id === id) state.contextMenu = null;
@@ -7046,12 +7080,12 @@ function renameSortEquation(id, requestedName) {
 function duplicateSortEquation(id) {
   const equation = state.sortEquations.find((item) => item.id === id);
   if (!equation) return;
-  const baseName = isProtectedSortEquation(equation) ? "EPA Copy" : `${equation.name} Copy`;
+  const baseName = isProtectedSortEquation(equation) ? "Statbotics EPA Copy" : `${equation.name} Copy`;
   const name = uniqueEntityName(baseName, state.sortEquations, baseName);
   const duplicate = {
     id: createId("sort"),
     name,
-    terms: normalizeCriteriaTerms(equation.metricId ? defaultCriteriaTerms : equation.terms),
+    terms: normalizeCriteriaTerms(equation.metricId ? defaultCriteriaTerms() : equation.terms),
     locked: false,
   };
   state.sortEquations = [...state.sortEquations, duplicate];
@@ -7419,7 +7453,7 @@ function bindViewEvents() {
   });
   document.querySelector("#addSortEquationButton")?.addEventListener("click", () => {
     const name = uniqueEntityName("Sort Equation", state.sortEquations, "Sort Equation");
-    const equation = { id: createId("sort"), name, terms: normalizeCriteriaTerms(defaultCriteriaTerms) };
+    const equation = { id: createId("sort"), name, terms: normalizeCriteriaTerms(defaultCriteriaTerms()) };
     state.sortEquations = [...state.sortEquations, equation];
     state.activeSortEquation = equation.id;
     state.builderFocus.sortBuilder = "list";
@@ -7634,7 +7668,7 @@ function bindViewEvents() {
     const equation = activeSortEquation();
     if (isProtectedSortEquation(equation)) return;
     if (equation.terms.length >= 5) return;
-    const terms = normalizeCriteriaTerms([...equation.terms, { operator: "+", weight: 1, metricId: currentEvent().defaultMetricId }]);
+    const terms = normalizeCriteriaTerms([...equation.terms, { operator: "+", weight: 1, metricId: firstMetricIdForEvent() }]);
     updateSortEquation(equation.id, (current) => ({ ...current, terms }));
   });
   document.querySelectorAll(".term-weight, .term-operator, .term-metric").forEach((control) => {
