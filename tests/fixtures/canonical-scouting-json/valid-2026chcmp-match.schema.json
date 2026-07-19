@@ -2,8 +2,8 @@
   "meta": {
     "format": "frc-scouting-analysis/v1",
     "sourceApp": "Team 686 Scouting",
-    "templateProfileId": "",
-    "profileLabel": "",
+    "templateProfileId": "canonical-json-v1",
+    "profileLabel": "Canonical JSON",
     "translationVersion": ""
   },
   "schema": {
@@ -146,5 +146,10 @@
         "aggregate": ""
       }
     ]
+  },
+  "profile": {
+    "id": "canonical-json-v1",
+    "label": "Canonical JSON",
+    "equations": []
   }
 }

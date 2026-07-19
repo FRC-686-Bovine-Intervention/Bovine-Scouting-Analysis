@@ -11,6 +11,15 @@ const buildCanonicalEntriesMetaForEventModel =
 const buildCanonicalSchemaMeta =
   scoutingJsonSchema.buildCanonicalSchemaMeta ||
   ((options = {}) => ({ format: "frc-scouting-analysis/v1", sourceApp: String(options.sourceApp || "").trim(), templateProfileId: String(options.templateProfileId || "").trim(), profileLabel: String(options.profileLabel || "").trim(), translationVersion: String(options.translationVersion || "").trim() }));
+const normalizeCanonicalProfile =
+  scoutingJsonSchema.normalizeCanonicalProfile ||
+  ((profile, schemaMeta = {}) => ({
+    id: String(profile?.id || profile?.profileId || schemaMeta?.templateProfileId || genericSheetTemplateProfileId).trim(),
+    label: String(profile?.label || profile?.name || schemaMeta?.profileLabel || profile?.id || genericSheetTemplateProfileId).trim(),
+    versionKey: String(profile?.versionKey || profile?.versionId || "").trim(),
+    equations: Array.isArray(profile?.equations) ? profile.equations : [],
+    fieldMigrations: Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords) ? (profile.fieldMigrations || profile.fieldMigrationRecords) : [],
+  }));
 const buildCanonicalMetaForEventModel =
   scoutingJsonSchema.buildCanonicalMetaForEventModel ||
   buildCanonicalEntriesMetaForEventModel;
@@ -848,6 +857,13 @@ function buildCanonicalDataset(eventModel, records, options = {}) {
     profileLabel,
     translationVersion,
   });
+  const profile = normalizeCanonicalProfile(options.profileDefinition || {
+    id: templateProfileId,
+    label: profileLabel,
+    equations: options.profileEquations,
+    fieldMigrations: options.fieldMigrations,
+    versionKey: options.profileVersionKey,
+  }, schemaMeta);
   const schema = {
     ...baseSchema,
     schemaId: schemaVersion,
@@ -865,10 +881,12 @@ function buildCanonicalDataset(eventModel, records, options = {}) {
     schemaFile: {
       meta: schemaMeta,
       schema,
+      profile,
     },
     meta: entriesMeta,
     schemaMeta,
     schema,
+    profile,
     entries,
     translatorVersion: translationVersion,
     templateProfileId,
@@ -892,6 +910,7 @@ function buildCanonicalSchemaJsonText(dataset) {
     {
       meta: dataset?.schemaFile?.meta || dataset?.schemaMeta || {},
       schema: dataset?.schemaFile?.schema || dataset?.schema || {},
+      profile: dataset?.schemaFile?.profile || dataset?.profile || {},
     },
     null,
     2,
@@ -904,6 +923,7 @@ function buildCanonicalJsonText(dataset) {
       meta: dataset?.entriesFile?.meta || dataset?.meta || {},
       schemaMeta: dataset?.schemaFile?.meta || dataset?.schemaMeta || {},
       schema: dataset?.schemaFile?.schema || dataset?.schema || {},
+      profile: dataset?.schemaFile?.profile || dataset?.profile || {},
       entries: dataset?.entriesFile?.entries || dataset?.entries || [],
     },
     null,

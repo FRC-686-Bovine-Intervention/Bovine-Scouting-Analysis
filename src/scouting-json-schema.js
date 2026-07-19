@@ -55,6 +55,87 @@ function normalizeSchemaField(fieldDefinition) {
   };
 }
 
+function normalizeProfileEquation(definition, index = 0) {
+  const id = normalizeText(definition?.id);
+  const name = normalizeText(definition?.name || definition?.label || id);
+  if (!id || !name) return null;
+  return {
+    id,
+    name,
+    formula: normalizeText(definition?.formula || definition?.expression),
+    unit: normalizeText(definition?.unit) || "pts",
+    description: normalizeText(definition?.description),
+    usage: normalizeText(definition?.usage),
+    sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
+  };
+}
+
+function normalizeProfileMigrationRecord(record, index = 0) {
+  const kind = normalizeText(record?.kind).toLowerCase();
+  const id = normalizeText(record?.id) || `field-migration-${index + 1}`;
+  if (kind === "rename") {
+    const fromFieldId = normalizeText(record?.fromFieldId || record?.from || record?.fieldId);
+    const toFieldId = normalizeText(record?.toFieldId || record?.to);
+    if (!fromFieldId || !toFieldId) return null;
+    return {
+      id,
+      kind,
+      fromFieldId,
+      toFieldId,
+      label: normalizeText(record?.label || `${fromFieldId} -> ${toFieldId}`),
+      note: normalizeText(record?.note || record?.description),
+      recordedAt: normalizeText(record?.recordedAt || record?.timestamp),
+    };
+  }
+  if (kind === "add" || kind === "remove") {
+    const fieldId = normalizeText(record?.fieldId || record?.toFieldId || record?.fromFieldId);
+    if (!fieldId) return null;
+    return {
+      id,
+      kind,
+      fieldId,
+      label: normalizeText(record?.label || fieldId),
+      note: normalizeText(record?.note || record?.description),
+      recordedAt: normalizeText(record?.recordedAt || record?.timestamp),
+    };
+  }
+  return null;
+}
+
+function selectSchemaProfile(schemaSource, schemaMeta = {}) {
+  if (schemaSource?.profile && typeof schemaSource.profile === "object" && !Array.isArray(schemaSource.profile)) {
+    return schemaSource.profile;
+  }
+  if (Array.isArray(schemaSource?.profiles)) {
+    const templateProfileId = normalizeText(schemaMeta?.templateProfileId);
+    return schemaSource.profiles.find((profile) => normalizeText(profile?.id || profile?.profileId) === templateProfileId)
+      || schemaSource.profiles[0]
+      || null;
+  }
+  return null;
+}
+
+function normalizeCanonicalProfile(profile, schemaMeta = {}) {
+  const profileId = normalizeText(profile?.id || profile?.profileId) || normalizeText(schemaMeta?.templateProfileId);
+  const profileLabel = normalizeText(profile?.label || profile?.name) || normalizeText(schemaMeta?.profileLabel) || profileId;
+  if (!profileId && !profileLabel && !Array.isArray(profile?.equations) && !Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords)) {
+    return null;
+  }
+  return {
+    id: profileId || canonicalTemplateProfileId,
+    label: profileLabel || profileId || canonicalTemplateProfileId,
+    versionKey: normalizeText(profile?.versionKey || profile?.versionId),
+    equations: (Array.isArray(profile?.equations) ? profile.equations : [])
+      .map((definition, index) => normalizeProfileEquation(definition, index))
+      .filter(Boolean),
+    fieldMigrations: (Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords)
+      ? (profile.fieldMigrations || profile.fieldMigrationRecords)
+      : [])
+      .map((record, index) => normalizeProfileMigrationRecord(record, index))
+      .filter(Boolean),
+  };
+}
+
 function buildCanonicalSchemaForEventModel(eventModel, options = {}) {
   const schemaId = normalizeText(options.schemaId) || `${eventModel?.season || "season"}-match-v1`;
   return {
@@ -95,12 +176,19 @@ function normalizeCanonicalPayload(payload, schemaPayload = null) {
   const entriesMeta = entriesPayload?.meta && typeof entriesPayload.meta === "object" && !Array.isArray(entriesPayload.meta)
     ? entriesPayload.meta
     : {};
-  const schemaMeta = schemaSource?.meta && typeof schemaSource.meta === "object" && !Array.isArray(schemaSource.meta)
-    ? schemaSource.meta
-    : {};
+  const schemaMeta = schemaPayload
+    ? (schemaSource?.meta && typeof schemaSource.meta === "object" && !Array.isArray(schemaSource.meta)
+      ? schemaSource.meta
+      : {})
+    : (entriesPayload?.schemaMeta && typeof entriesPayload.schemaMeta === "object" && !Array.isArray(entriesPayload.schemaMeta)
+      ? entriesPayload.schemaMeta
+      : (schemaSource?.meta && typeof schemaSource.meta === "object" && !Array.isArray(schemaSource.meta)
+        ? schemaSource.meta
+        : {}));
   const schema = schemaSource?.schema && typeof schemaSource.schema === "object" && !Array.isArray(schemaSource.schema)
     ? schemaSource.schema
     : {};
+  const profile = normalizeCanonicalProfile(selectSchemaProfile(schemaSource, schemaMeta), schemaMeta);
   const entries = Array.isArray(entriesPayload?.entries) ? entriesPayload.entries : null;
   return {
     entriesPayload,
@@ -108,6 +196,7 @@ function normalizeCanonicalPayload(payload, schemaPayload = null) {
     meta: entriesMeta,
     schemaMeta,
     schema,
+    profile,
     entries,
   };
 }
@@ -119,11 +208,12 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
   const meta = normalized.meta;
   const schemaMeta = normalized.schemaMeta;
   const schema = normalized.schema;
+  const profile = normalized.profile;
   const entries = normalized.entries;
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     errors.push("Canonical scouting entries JSON must be a JSON object.");
-    return { errors, warnings, meta, schemaMeta, schema, entries, schemaFieldMap: new Map(), expectedFieldMap: new Map() };
+    return { errors, warnings, meta, schemaMeta, schema, profile, entries, schemaFieldMap: new Map(), expectedFieldMap: new Map() };
   }
 
   if (!payload?.meta || typeof payload.meta !== "object" || Array.isArray(payload.meta)) {
@@ -228,6 +318,7 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
       schemaId,
       fields: Array.isArray(schema.fields) ? schema.fields : [],
     },
+    profile,
     entries,
     schemaFieldMap,
     expectedFieldMap,
@@ -242,6 +333,7 @@ globalThis.ScoutingJsonSchema = {
   canonicalFormatId,
   canonicalTemplateProfileId,
   inferCanonicalFieldType,
+  normalizeCanonicalProfile,
   normalizeCanonicalPayload,
   requiredEntryIdentityFields,
   validateCanonicalSchema,

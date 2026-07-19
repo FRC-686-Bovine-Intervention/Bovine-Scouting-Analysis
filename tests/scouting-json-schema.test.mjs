@@ -87,6 +87,7 @@ runTest("validateCanonicalSchema accepts fixture-backed canonical scouting JSON"
 
   assert.equal(validation.errors.length, 0);
   assert.equal(validation.schema.schemaId, "2026-match-v1");
+  assert.equal(validation.profile.id, "canonical-json-v1");
   assert.equal(validation.schemaFieldMap.get("autoFuelPct").type, "number");
 });
 
@@ -123,5 +124,6 @@ runTest("validateCanonicalSchema accepts split entries and schema artifacts", ()
 
   assert.equal(validation.errors.length, 0);
   assert.equal(validation.schemaMeta.templateProfileId, "canonical-json-v1");
+  assert.equal(validation.profile.id, "canonical-json-v1");
   assert.equal(validation.entries.length, 1);
 });

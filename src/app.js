@@ -751,11 +751,12 @@ function markCurrentScoutingAttachmentSuccess(preview, csvText, update = {}) {
   const profileId = preview?.summary?.profileId || preview?.summary?.metadata?.templateProfileId || currentScoutingAttachment()?.profileId || currentScoutingAttachment()?.translatorId || "";
   const profileLabel = preview?.summary?.profileLabel || preview?.summary?.metadata?.profileLabel || "";
   const translationVersion = preview?.summary?.metadata?.translationVersion || "";
+  const explicitProfileVersionKey = normalizeText(preview?.summary?.profileDefinition?.versionKey);
   state.eventWorkspace = markEventWorkspaceScoutingAttachmentSuccess(currentEventWorkspace(), {
     ...update,
     profileId,
     profileLabel,
-    profileVersionKey: buildScoutingProfileVersionKey({ profileId, schemaSignature, translationVersion }),
+    profileVersionKey: explicitProfileVersionKey || buildScoutingProfileVersionKey({ profileId, schemaSignature, translationVersion }),
     schemaSignature,
     translatorVersion: translationVersion,
     sourceFingerprint: buildCombinedScoutingSourceFingerprint(csvText, update.schemaJsonText || ""),
@@ -4248,6 +4249,9 @@ function commitImportPreview(options = {}) {
     id: preview.summary.profileId,
     label: preview.summary.profileLabel,
     fields: preview.summary.schemaFields,
+    equations: preview.summary.profileDefinition?.equations,
+    fieldMigrations: preview.summary.profileDefinition?.fieldMigrations,
+    versionKey: preview.summary.profileDefinition?.versionKey,
   });
   if (state.importDraftSource === "attached") {
     markCurrentScoutingAttachmentSuccess(preview, importedCsvText, { schemaJsonText: importedSchemaJsonText });
@@ -4356,7 +4360,10 @@ function loadPreparedScoutingJson(jsonText, options = {}) {
 
 function loadPreparedScoutingSheet(csvText, profileId = "", options = {}) {
   if (typeof sharedTranslateEventSheetToCanonical === "function") {
-    const translated = sharedTranslateEventSheetToCanonical(currentEvent(), csvText, { templateProfileId: profileId });
+    const translated = sharedTranslateEventSheetToCanonical(currentEvent(), csvText, {
+      templateProfileId: profileId,
+      profileDefinition: currentImportedProfileDefinition(currentEvent()),
+    });
     loadPreparedScoutingJson(buildCanonicalSheetJsonText(translated), {
       ...options,
       profileId: translated.templateProfileId || profileId,

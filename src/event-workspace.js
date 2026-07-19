@@ -396,7 +396,9 @@ function rebuildSampleBackedScoutingState({
     ? previewScoutingJsonImport({
         jsonText: JSON.stringify({
           meta: translated.meta || {},
+          schemaMeta: translated.schemaMeta || {},
           schema: translated.schema || {},
+          profile: translated.profile || translated.schemaFile?.profile || {},
           entries: translated.entries || [],
         }),
         eventModel,

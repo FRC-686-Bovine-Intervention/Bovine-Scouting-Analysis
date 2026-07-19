@@ -106,5 +106,46 @@
         "aggregate": "average"
       }
     ]
+  },
+  "profile": {
+    "id": "match-current-v2",
+    "label": "Current Match Template",
+    "equations": [
+      {
+        "id": "scoutingTotal",
+        "name": "Scouting Total",
+        "formula": "scouting.auto + scouting.speaker + scouting.amp + scouting.trap",
+        "unit": "pts",
+        "description": "Per-match scouting total from the imported scoring components."
+      },
+      {
+        "id": "auto",
+        "name": "Auto",
+        "formula": "average(scouting.autoSpeakerMade * 5 + scouting.autoAmpMade * 2)",
+        "unit": "pts",
+        "description": "Average scouted autonomous points per match."
+      },
+      {
+        "id": "speaker",
+        "name": "Speaker",
+        "formula": "average(scouting.teleSpeakerMade * 2)",
+        "unit": "pts",
+        "description": "Average scouted teleop speaker points per match."
+      },
+      {
+        "id": "amp",
+        "name": "Amp",
+        "formula": "average(scouting.teleAmpMade)",
+        "unit": "pts",
+        "description": "Average scouted teleop amp points per match."
+      },
+      {
+        "id": "trap",
+        "name": "Trap",
+        "formula": "0",
+        "unit": "pts",
+        "description": "Trap scoring is not present in the thin import layer and currently defaults to zero."
+      }
+    ]
   }
 }

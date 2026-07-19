@@ -59,6 +59,7 @@ runTest("previewScoutingJsonImport accepts canonical scouting JSON and preserves
   assert.equal(preview.ok, true);
   assert.equal(preview.summary.profileId, "canonical-json-v1");
   assert.equal(preview.summary.metadata.schemaId, "2026-match-v1");
+  assert.equal(preview.summary.profileDefinition.id, "canonical-json-v1");
   assert.equal(preview.summary.submissions[0].rawMetrics.autoFuelPct, 80);
   assert.equal(preview.summary.submissions[0].rawMetrics.autoPrimaryRole, "Score");
   assert.equal(preview.summary.submissions[0].provenance.mode, "canonical-json-import");
@@ -402,4 +403,62 @@ runTest("previewScoutingJsonImport can combine split entries and schema artifact
   assert.equal(preview.summary.submissions[0].scoutUser, "Scout Split");
   assert.equal(preview.summary.submissions[0].station, "2");
   assert.equal(preview.summary.submissions[0].provenance.sourceApp, "Split Exporter");
+});
+
+runTest("previewScoutingJsonImport surfaces profile equations from schema artifacts", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
+  const eventModel = {
+    ...season2026,
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: season2026.label,
+    metrics: context.SeasonFramework.buildMetrics(season2026),
+    criteriaSources: context.SeasonFramework.buildCriteriaSources(season2026),
+  };
+
+  const preview = context.ScoutingJsonImport.previewScoutingJsonImport({
+    jsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        season: 2026,
+        eventKey: "2026chcmp",
+        entryType: "match",
+      },
+      entries: [
+        {
+          entryId: "profile-1",
+          matchNumber: 1,
+          teamNumber: 686,
+          alliance: "red",
+          rawMetrics: { autoFuelPct: 80, scoutUser: "Scout A", station: "1" },
+        },
+      ],
+    }),
+    schemaJsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        templateProfileId: "match-current-v2",
+        profileLabel: "Current Match Template",
+      },
+      schema: context.ScoutingJsonSchema.buildCanonicalSchemaForEventModel(eventModel),
+      profile: {
+        id: "match-current-v2",
+        label: "Current Match Template",
+        equations: [
+          { id: "scoutingTotal", name: "Scouting Total", formula: "scouting.auto + scouting.cycle + scouting.endgame", unit: "pts" },
+          { id: "shareGate", name: "Share Gate", formula: "scouting.autoFuelPct > 0", unit: "bool", usage: "predicate" },
+        ],
+      },
+    }),
+    eventModel,
+    activeEventKey: "2026chcmp",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, true);
+  assert.equal(preview.summary.profileDefinition.id, "match-current-v2");
+  assert.equal(preview.summary.profileDefinition.equations.length, 2);
+  assert.equal(preview.summary.profileDefinition.equations[0].id, "scoutingTotal");
+  assert.equal(preview.summary.profileDefinition.equations[1].usage, "predicate");
 });

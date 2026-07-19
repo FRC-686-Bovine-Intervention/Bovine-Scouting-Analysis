@@ -5,10 +5,18 @@ const requiredIdentityFields = scoutingJsonSchema.requiredEntryIdentityFields ||
 const canonicalFormatId = scoutingJsonSchema.canonicalFormatId || "frc-scouting-analysis/v1";
 const canonicalTemplateProfileId = scoutingJsonSchema.canonicalTemplateProfileId || "canonical-json-v1";
 const buildCanonicalSchemaForEventModel = scoutingJsonSchema.buildCanonicalSchemaForEventModel || (() => ({ schemaId: canonicalTemplateProfileId, fields: [] }));
+const normalizeCanonicalProfile = scoutingJsonSchema.normalizeCanonicalProfile || ((profile, schemaMeta = {}) => ({
+  id: String(profile?.id || profile?.profileId || schemaMeta?.templateProfileId || canonicalTemplateProfileId).trim(),
+  label: String(profile?.label || profile?.name || schemaMeta?.profileLabel || profile?.id || canonicalTemplateProfileId).trim(),
+  versionKey: String(profile?.versionKey || profile?.versionId || "").trim(),
+  equations: Array.isArray(profile?.equations) ? profile.equations : [],
+  fieldMigrations: Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords) ? (profile.fieldMigrations || profile.fieldMigrationRecords) : [],
+}));
 const normalizeCanonicalPayload = scoutingJsonSchema.normalizeCanonicalPayload || ((payload, schemaPayload = null) => ({
   meta: payload?.meta || {},
   schemaMeta: (schemaPayload || payload)?.meta || {},
   schema: (schemaPayload || payload)?.schema || {},
+  profile: normalizeCanonicalProfile((schemaPayload || payload)?.profile, (schemaPayload || payload)?.meta || {}),
   entries: Array.isArray(payload?.entries) ? payload.entries : [],
 }));
 const validateCanonicalSchema = scoutingJsonSchema.validateCanonicalSchema || (() => ({
@@ -167,6 +175,7 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
   const meta = validation.meta || normalizedPayload.meta || {};
   const schemaMeta = validation.schemaMeta || normalizedPayload.schemaMeta || {};
   const schema = validation.schema || {};
+  const profileDefinition = validation.profile || normalizedPayload.profile || normalizeCanonicalProfile(null, schemaMeta);
   const entries = validation.entries;
 
   if (errors.length) {
@@ -276,6 +285,11 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
     summary: {
       profileId: profileIdOverride || normalizeText(schemaMeta.templateProfileId) || normalizeText(meta.templateProfileId) || canonicalTemplateProfileId,
       profileLabel: profileLabelOverride || normalizeText(schemaMeta.profileLabel) || normalizeText(meta.profileLabel) || "Canonical Scouting JSON",
+      profileDefinition: {
+        ...profileDefinition,
+        id: profileIdOverride || normalizeText(profileDefinition?.id) || normalizeText(schemaMeta.templateProfileId) || normalizeText(meta.templateProfileId) || canonicalTemplateProfileId,
+        label: profileLabelOverride || normalizeText(profileDefinition?.label) || normalizeText(schemaMeta.profileLabel) || normalizeText(meta.profileLabel) || "Canonical Scouting JSON",
+      },
       schemaVersion: normalizeText(schema.schemaId) || canonicalTemplateProfileId,
       rowCount: parsedRows.length,
       newRows: parsedRows.length,

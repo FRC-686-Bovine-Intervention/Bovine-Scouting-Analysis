@@ -194,8 +194,9 @@ runTest("translateEventSheetToCanonical can emit split entries and schema artifa
   const schemaArtifact = JSON.parse(context.SheetImportAdapters.buildCanonicalSchemaJsonText(dataset));
 
   assert.deepEqual(Object.keys(entriesArtifact).sort(), ["entries", "meta"]);
-  assert.deepEqual(Object.keys(schemaArtifact).sort(), ["meta", "schema"]);
+  assert.deepEqual(Object.keys(schemaArtifact).sort(), ["meta", "profile", "schema"]);
   assert.equal(entriesArtifact.meta.eventKey, "2026chcmp");
   assert.equal(schemaArtifact.meta.templateProfileId, "canonical-json-v1");
+  assert.equal(schemaArtifact.profile.id, "canonical-json-v1");
   assert.equal(entriesArtifact.entries[0].rawMetrics.scoutUser, "Scout B");
 });
