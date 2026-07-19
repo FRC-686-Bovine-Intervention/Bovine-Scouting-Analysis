@@ -1,0 +1,12 @@
+{
+  "meta": {
+    "format": "frc-scouting-analysis/v1",
+    "sourceApp": "",
+    "templateProfileId": "",
+    "profileLabel": "",
+    "translationVersion": ""
+  },
+  "schema": {
+    "schemaId": "2026-match-v1"
+  }
+}

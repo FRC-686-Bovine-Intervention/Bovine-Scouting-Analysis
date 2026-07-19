@@ -1,0 +1,278 @@
+{
+  "meta": {
+    "format": "frc-scouting-analysis/v1",
+    "sourceApp": "legacy-sheet-translator",
+    "templateProfileId": "match-current-v2",
+    "profileLabel": "Current Match Template",
+    "translationVersion": "2026-thin-v2"
+  },
+  "schema": {
+    "schemaId": "match-v2",
+    "fields": [
+      {
+        "id": "autoFuelPct",
+        "label": "Auto Fuel %",
+        "type": "number",
+        "unit": "%",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "transitionFuelPct",
+        "label": "Transition Fuel %",
+        "type": "number",
+        "unit": "%",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "shift1FuelPct",
+        "label": "Shift 1 Fuel %",
+        "type": "number",
+        "unit": "%",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "shift2FuelPct",
+        "label": "Shift 2 Fuel %",
+        "type": "number",
+        "unit": "%",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "shift3FuelPct",
+        "label": "Shift 3 Fuel %",
+        "type": "number",
+        "unit": "%",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "shift4FuelPct",
+        "label": "Shift 4 Fuel %",
+        "type": "number",
+        "unit": "%",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "endgameFuelPct",
+        "label": "Endgame Fuel %",
+        "type": "number",
+        "unit": "%",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "overallShooter",
+        "label": "Overall Shooter",
+        "type": "number",
+        "unit": "rating",
+        "optional": true,
+        "aggregate": "average"
+      },
+      {
+        "id": "overallPasser",
+        "label": "Overall Passer",
+        "type": "number",
+        "unit": "rating",
+        "optional": true,
+        "aggregate": "average"
+      },
+      {
+        "id": "overallIntake",
+        "label": "Overall Intake",
+        "type": "number",
+        "unit": "rating",
+        "optional": true,
+        "aggregate": "average"
+      },
+      {
+        "id": "overallDriver",
+        "label": "Overall Driver",
+        "type": "number",
+        "unit": "rating",
+        "optional": true,
+        "aggregate": "average"
+      },
+      {
+        "id": "overallDefenseAvoidance",
+        "label": "Overall Defense Avoidance",
+        "type": "number",
+        "unit": "rating",
+        "optional": true,
+        "aggregate": "average"
+      },
+      {
+        "id": "overallDefense",
+        "label": "Overall Defense",
+        "type": "number",
+        "unit": "rating",
+        "optional": true,
+        "aggregate": "average"
+      },
+      {
+        "id": "noShow",
+        "label": "No Show",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "alliance",
+        "label": "Alliance",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "startingPosition",
+        "label": "Starting Position",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "autoPrimaryRole",
+        "label": "Auto Primary Role",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "autoSecondaryRole",
+        "label": "Auto Secondary Role",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "autoClimbAttempt",
+        "label": "Auto Climb Attempt",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "transitionPrimaryRole",
+        "label": "Transition Primary Role",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "transitionSecondaryRole",
+        "label": "Transition Secondary Role",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "shift1PrimaryRole",
+        "label": "Shift 1 Primary Role",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "shift1SecondaryRole",
+        "label": "Shift 1 Secondary Role",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "shift2PrimaryRole",
+        "label": "Shift 2 Primary Role",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "shift2SecondaryRole",
+        "label": "Shift 2 Secondary Role",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "shift3PrimaryRole",
+        "label": "Shift 3 Primary Role",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "shift3SecondaryRole",
+        "label": "Shift 3 Secondary Role",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "shift4PrimaryRole",
+        "label": "Shift 4 Primary Role",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "shift4SecondaryRole",
+        "label": "Shift 4 Secondary Role",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "endgamePrimaryRole",
+        "label": "Endgame Primary Role",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "endgameSecondaryRole",
+        "label": "Endgame Secondary Role",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "teleopClimbAttempt",
+        "label": "Tele-Op Climb Attempt",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      },
+      {
+        "id": "overallNotes",
+        "label": "Overall Notes",
+        "type": "string",
+        "unit": "text",
+        "optional": true,
+        "aggregate": ""
+      }
+    ]
+  }
+}

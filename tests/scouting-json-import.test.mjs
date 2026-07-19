@@ -49,7 +49,8 @@ runTest("previewScoutingJsonImport accepts canonical scouting JSON and preserves
   };
 
   const preview = context.ScoutingJsonImport.previewScoutingJsonImport({
-    jsonText: fs.readFileSync(path.resolve("tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.json"), "utf8"),
+    jsonText: fs.readFileSync(path.resolve("tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.entries.json"), "utf8"),
+    schemaJsonText: fs.readFileSync(path.resolve("tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.schema.json"), "utf8"),
     eventModel,
     activeEventKey: "2026chcmp",
     existingSubmissions: [],
@@ -169,7 +170,8 @@ runTest("previewScoutingJsonImport rejects canonical JSON that omits schema fiel
   };
 
   const preview = context.ScoutingJsonImport.previewScoutingJsonImport({
-    jsonText: fs.readFileSync(path.resolve("tests/fixtures/canonical-scouting-json/invalid-missing-schema-fields.json"), "utf8"),
+    jsonText: fs.readFileSync(path.resolve("tests/fixtures/canonical-scouting-json/invalid-missing-schema-fields.entries.json"), "utf8"),
+    schemaJsonText: fs.readFileSync(path.resolve("tests/fixtures/canonical-scouting-json/invalid-missing-schema-fields.schema.json"), "utf8"),
     eventModel,
     activeEventKey: "2026chcmp",
     existingSubmissions: [],

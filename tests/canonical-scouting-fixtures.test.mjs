@@ -85,11 +85,19 @@ const importFoundation = context.ImportFoundation;
 const sheetImportAdapters = context.SheetImportAdapters;
 const eventCatalog = context.eventCatalog;
 
+function readCanonicalFixturePair(fixture) {
+  return {
+    jsonText: fs.readFileSync(path.resolve(fixture.entriesFixturePath), "utf8"),
+    schemaJsonText: fs.readFileSync(path.resolve(fixture.schemaFixturePath), "utf8"),
+  };
+}
+
 const migrationFixtures = [
   {
     eventKey: "2024mdsev",
     season: 2024,
-    canonicalFixturePath: "tests/fixtures/canonical-scouting-datasets/2024mdsev.json",
+    entriesFixturePath: "tests/fixtures/canonical-scouting-datasets/2024mdsev.entries.json",
+    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2024mdsev.schema.json",
     rawSheetPath: "src/real-source-cache/2024mdsev-sheet.csv",
     representativeMetrics: [
       { teamNumber: 686, metricId: "derived:autoSpeakerAccuracy", tolerance: 0.001 },
@@ -100,7 +108,8 @@ const migrationFixtures = [
   {
     eventKey: "2025chcmp",
     season: 2025,
-    canonicalFixturePath: "tests/fixtures/canonical-scouting-datasets/2025chcmp.json",
+    entriesFixturePath: "tests/fixtures/canonical-scouting-datasets/2025chcmp.entries.json",
+    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2025chcmp.schema.json",
     teamCalculationsPath: "tests/fixtures/2025 CHS DCMP Scouting Analysis - TeamCalculations.csv",
     representativeTeams: [
       {
@@ -120,7 +129,8 @@ const migrationFixtures = [
   {
     eventKey: "2026chcmp",
     season: 2026,
-    canonicalFixturePath: "tests/fixtures/canonical-scouting-datasets/2026chcmp.json",
+    entriesFixturePath: "tests/fixtures/canonical-scouting-datasets/2026chcmp.entries.json",
+    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2026chcmp.schema.json",
     teamCalculationsPath: "tests/fixtures/2026 Scouting Analysis CHCMP - TeamCalculations.csv",
     representativeTeams: [
       {
@@ -156,9 +166,10 @@ migrationFixtures.forEach((fixture) => {
     assert.ok(eventModel, `Event ${fixture.eventKey} should exist`);
     assert.equal(eventModel.season, fixture.season);
 
-    const jsonText = fs.readFileSync(path.resolve(fixture.canonicalFixturePath), "utf8");
+    const { jsonText, schemaJsonText } = readCanonicalFixturePair(fixture);
     const preview = scoutingJsonImport.previewScoutingJsonImport({
       jsonText,
+      schemaJsonText,
       eventModel,
       activeEventKey: fixture.eventKey,
       existingSubmissions: [],
@@ -185,7 +196,7 @@ runTest("2024mdsev canonical fixture preserves representative outputs from the l
     translationVersion: translated.translatorVersion,
   });
   const canonicalPreview = scoutingJsonImport.previewScoutingJsonImport({
-    jsonText: fs.readFileSync(path.resolve(fixture.canonicalFixturePath), "utf8"),
+    ...readCanonicalFixturePair(fixture),
     eventModel,
     activeEventKey: fixture.eventKey,
     existingSubmissions: [],
@@ -235,7 +246,7 @@ runTest("2024mdsev canonical fixture preserves representative outputs from the l
     const eventModel = eventCatalog.find((event) => event.key === fixture.eventKey);
     const seasonDefinition = seasonFramework.gameDefinitions[fixture.season];
     const preview = scoutingJsonImport.previewScoutingJsonImport({
-      jsonText: fs.readFileSync(path.resolve(fixture.canonicalFixturePath), "utf8"),
+      ...readCanonicalFixturePair(fixture),
       eventModel,
       activeEventKey: fixture.eventKey,
       existingSubmissions: [],
