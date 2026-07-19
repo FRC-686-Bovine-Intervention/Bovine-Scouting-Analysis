@@ -53,8 +53,7 @@ const gameDefinitions = {
 
 const sourceLabels = scoutingSchemaRuntime.sourceLabels || {
   scouter: "Scouting",
-  epa: "EPA",
-  opr: "OPR",
+  statbotics: "Statbotics",
   pridge: "pRidge",
   derived: "Derived",
 };
@@ -156,7 +155,7 @@ function buildMetrics(season) {
       shortLabel: component.label,
       unit: component.unit,
     })),
-    ...["epa"].flatMap((sourceId) => [
+    ...["statbotics"].flatMap((sourceId) => [
       {
         id: `source:${sourceId}:total`,
         kind: "source",
@@ -176,15 +175,6 @@ function buildMetrics(season) {
         unit: component.unit,
       })),
     ]),
-    {
-      id: "source:opr:total",
-      kind: "source",
-      sourceId: "opr",
-      componentId: "total",
-      label: sourceLabels.opr,
-      shortLabel: sourceLabels.opr,
-      unit: "pts",
-    },
     {
       id: "source:pridge:total",
       kind: "source",
@@ -229,9 +219,8 @@ function buildCriteriaSources(season) {
   const scoringComponents = [{ id: "total", label: "Total" }, ...season.scoringComponents.map((component) => ({ id: component.id, label: component.label }))];
   const scouterComponents = scouterMetricDefinitions(season).map((component) => ({ id: component.id, label: component.label }));
   return [
-    { id: "epa", label: sourceLabels.epa, components: scoringComponents },
+    { id: "statbotics", label: sourceLabels.statbotics, components: scoringComponents },
     { id: "scouter", label: sourceLabels.scouter, components: scouterComponents },
-    { id: "opr", label: sourceLabels.opr, components: [{ id: "total", label: "Total" }] },
     { id: "pridge", label: sourceLabels.pridge, components: [{ id: "total", label: "Total" }] },
     {
       id: "derived",

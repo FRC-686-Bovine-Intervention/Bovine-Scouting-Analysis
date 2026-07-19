@@ -34,20 +34,6 @@ function loadBrowserScript(relativePath, exportName) {
 
 const providerSeasonMetadata = loadBrowserScript("src/provider-season-metadata.js", "ProviderSeasonMetadata");
 
-runTest("provider season metadata keeps only provider-facing season context", () => {
-  const metadata2025 = providerSeasonMetadata.seasons[2025];
-
-  assert.equal(metadata2025.label, "Reefscape");
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(metadata2025.scoringComponents.map((component) => component.id))),
-    ["auto", "coral", "algae", "climb"],
-  );
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(Object.keys(metadata2025.breakdownMap))),
-    ["auto", "coral", "algae", "climb"],
-  );
-  assert.equal("scouterMetrics" in metadata2025, false);
-  assert.equal("formulaFields" in metadata2025, false);
-  assert.equal("derivedMetrics" in metadata2025, false);
-  assert.equal("scoringMatrixPresets" in metadata2025, false);
+runTest("provider season metadata can remain empty so provider-backed years stay generic", () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(providerSeasonMetadata.seasons)), {});
 });

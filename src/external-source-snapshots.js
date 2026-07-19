@@ -34,12 +34,11 @@ function buildExternalSourceSnapshot(sourceId, eventModel = {}) {
   if (sourceId === "statbotics") {
     return {
       eventKey: eventModel.key,
-      scoringComponents: scoringComponentIds,
       teams: (eventModel.teams || []).map((team) => ({
         number: team.number,
-        total: team.sources?.epa?.total,
-        components: Object.fromEntries(scoringComponentIds.map((componentId) => [componentId, team.sources?.epa?.components?.[componentId] ?? null])),
-        trend: team.sources?.epa?.trend || [],
+        total: team.sources?.statbotics?.total,
+        components: { ...(team.sources?.statbotics?.components || {}) },
+        trend: team.sources?.statbotics?.trend || [],
       })),
     };
   }

@@ -45,7 +45,7 @@ runTest("createEventWorkspace builds default external sources and a default scou
     seasonLabel: "2026 Season",
     dataSources: [
       { name: "The Blue Alliance", notes: "Teams and qualification schedule are sourced from real TBA event snapshots." },
-      { name: "Statbotics EPA", notes: "EPA totals and season-specific scoring breakdowns are sourced from Statbotics." },
+      { name: "Statbotics", notes: "Raw Statbotics event metrics are sourced from Statbotics." },
       { name: "pRidge", notes: "pRidge is still modeled locally until we wire a dedicated source." },
     ],
     sheet: {
@@ -75,7 +75,7 @@ runTest("createEventWorkspace supports external-only events with an unconfigured
     seasonLabel: "Future Game",
     dataSources: [
       { name: "The Blue Alliance", notes: "Snapshot-backed for now." },
-      { name: "Statbotics EPA", notes: "EPA snapshot-backed for now." },
+      { name: "Statbotics", notes: "Statbotics snapshot-backed for now." },
       { name: "pRidge", notes: "Local pRidge source." },
     ],
   });
@@ -618,7 +618,7 @@ runTest("external source helpers stamp refresh metadata and polling state", () =
     name: "External Event",
     dataSources: [
       { name: "The Blue Alliance", notes: "TBA snapshot" },
-      { name: "Statbotics EPA", notes: "Statbotics snapshot" },
+      { name: "Statbotics", notes: "Statbotics snapshot" },
       { name: "pRidge", notes: "pRidge snapshot" },
     ],
   });

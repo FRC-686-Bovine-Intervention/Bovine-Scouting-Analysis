@@ -5,8 +5,7 @@ function normalizeText(value) {
 
 const sourceLabels = {
   scouter: "Scouting",
-  epa: "EPA",
-  opr: "OPR",
+  statbotics: "Statbotics",
   pridge: "pRidge",
   derived: "Derived",
 };
@@ -73,7 +72,7 @@ function buildMetricCatalog(schemaOrEventModel = {}) {
       shortLabel: component.label,
       unit: component.unit,
     })),
-    ...["epa"].flatMap((sourceId) => [
+    ...["statbotics"].flatMap((sourceId) => [
       {
         id: `source:${sourceId}:total`,
         kind: "source",
@@ -93,15 +92,6 @@ function buildMetricCatalog(schemaOrEventModel = {}) {
         unit: component.unit,
       })),
     ]),
-    {
-      id: "source:opr:total",
-      kind: "source",
-      sourceId: "opr",
-      componentId: "total",
-      label: sourceLabels.opr,
-      shortLabel: sourceLabels.opr,
-      unit: "pts",
-    },
     {
       id: "source:pridge:total",
       kind: "source",

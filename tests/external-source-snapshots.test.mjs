@@ -44,7 +44,7 @@ runTest("buildExternalSourceSnapshot captures provider-specific event slices", (
       {
         number: 1,
         sources: {
-          epa: { total: 12, components: { auto: 4, teleop: 8 }, trend: [10, 12] },
+          statbotics: { total: 12, components: { auto: 4, teleop: 8, "epa.total_points": 12 }, trend: [10, 12] },
           pridge: { total: 11, components: { auto: 3, teleop: 8 }, trend: [9, 11] },
         },
       },
@@ -99,7 +99,7 @@ runTest("seedExternalSourceFingerprints fills missing external baselines without
     teamNumbers: [1],
     scoringComponents: [{ id: "auto" }],
     matches: [],
-    teams: [{ number: 1, sources: { epa: { total: 12, components: { auto: 4 }, trend: [] }, pridge: { total: 11, components: { auto: 3 }, trend: [] } } }],
+    teams: [{ number: 1, sources: { statbotics: { total: 12, components: { auto: 4 }, trend: [] }, pridge: { total: 11, components: { auto: 3 }, trend: [] } } }],
   };
   const workspace = {
     sources: {

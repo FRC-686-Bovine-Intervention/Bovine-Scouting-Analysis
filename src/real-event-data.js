@@ -48,7 +48,7 @@ function minimalEventModelFromSnapshot(snapshot) {
     key: snapshot?.key || "",
     name: tbaEvent?.name || snapshot?.key || "",
     season,
-    seasonLabel: seasonDefinition.label || String(season || ""),
+    seasonLabel: seasonDefinition.label || (season ? `${season} Season` : ""),
     scoringComponents: seasonDefinition.scoringComponents || [],
     scoringMatrixPresets: scoutingSchemaSeed.scoringMatrixPresets || [],
     scouterMetricDefinitions: explicitScouterMetricDefinitions,

@@ -217,7 +217,7 @@ async function loadEventByCode(eventCode, options = {}) {
     "X-TBA-Auth-Key": tbaAuthKey,
   };
 
-  const [tbaEventResult, tbaTeamsResult, tbaMatchesResult, tbaRankingsResult, tbaOprsResult, statboticsEventResult, statboticsTeamEventsResult] = await Promise.all([
+  const [tbaEventResult, tbaTeamsResult, tbaMatchesResult, tbaRankingsResult, tbaTeamStatsResult, statboticsEventResult, statboticsTeamEventsResult] = await Promise.all([
     settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}`, { ...options, headers: tbaHeaders })),
     settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/teams`, { ...options, headers: tbaHeaders })),
     settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/matches`, { ...options, headers: tbaHeaders })),
@@ -241,7 +241,7 @@ async function loadEventByCode(eventCode, options = {}) {
     tbaTeams: Array.isArray(tbaTeamsResult.value) ? tbaTeamsResult.value : [],
     tbaMatches: Array.isArray(tbaMatchesResult.value) ? tbaMatchesResult.value : [],
     tbaRankings: tbaRankingsResult.ok ? (tbaRankingsResult.value || {}) : {},
-    tbaOprs: tbaOprsResult.ok ? (tbaOprsResult.value || {}) : {},
+    tbaTeamStats: tbaTeamStatsResult.ok ? (tbaTeamStatsResult.value || {}) : {},
     statboticsEvent: statboticsEventResult.ok ? (statboticsEventResult.value || {}) : {},
     statboticsTeamEvents: statboticsTeamEventsResult.ok ? (statboticsTeamEventsResult.value?.payload || []) : [],
     catalogSource: "dynamic-external",
@@ -251,15 +251,15 @@ async function loadEventByCode(eventCode, options = {}) {
   if (!tbaRankingsResult.ok) {
     warnings.push(formatProviderError("The Blue Alliance rankings", tbaRankingsResult.error));
   }
-  if (!tbaOprsResult.ok) {
-    warnings.push(formatProviderError("The Blue Alliance OPRs", tbaOprsResult.error));
+  if (!tbaTeamStatsResult.ok) {
+    warnings.push(formatProviderError("The Blue Alliance team stats", tbaTeamStatsResult.error));
   }
   const sourceStates = {
     tba: buildReadySourceState("tba", eventModel, timestamp, {
       notes: [
         "Loaded from The Blue Alliance live API.",
         !tbaRankingsResult.ok ? "Rankings were unavailable, so ranking views may be degraded." : "",
-        !tbaOprsResult.ok ? "OPR values were unavailable, so OPR-backed views may be degraded." : "",
+        !tbaTeamStatsResult.ok ? "Team-stat values such as OPR, DPR, and CCWM were unavailable, so TBA-backed stat views may be degraded." : "",
       ].filter(Boolean).join(" "),
     }),
   };

@@ -844,7 +844,7 @@ runTest("metricTrendValues returns direct and derived trends", () => {
         components: { auto: 10 },
         componentTrend: { auto: [4, 10, 16] },
       },
-      epa: {
+      statbotics: {
         total: 50,
         trend: [40, 50, 60],
         components: { auto: 15 },
@@ -860,7 +860,7 @@ runTest("metricTrendValues returns direct and derived trends", () => {
   );
 
   assert.deepEqual(
-    metricEngine.metricTrendValues(team, { kind: "source", sourceId: "epa", componentId: "auto" }),
+    metricEngine.metricTrendValues(team, { kind: "source", sourceId: "statbotics", componentId: "auto" }),
     [12, 15, 18],
   );
 

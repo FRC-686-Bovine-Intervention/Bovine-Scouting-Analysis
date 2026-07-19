@@ -181,22 +181,19 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.eventModel.teams.length, 6);
   assert.equal(result.eventModel.teams[0].eventRank, 1);
   assert.equal(result.eventModel.teams[0].record.qual.wins, 8);
-  assert.equal(result.eventModel.teams[0].sources.opr.total, 51.2);
   assert.equal(result.eventModel.teams[0].sources.tba.components["opr.total"], 51.2);
   assert.equal(result.eventModel.teams[0].sources.tba.components["dpr.total"], 9.8);
   assert.equal(result.eventModel.teams[0].sources.tba.components["ccwm.total"], 41.4);
   assert.equal(result.eventModel.teams[0].sources.tba.components.rank, 1);
   assert.equal(result.eventModel.teams[0].sources.tba.components["record.wins"], 8);
   assert.equal(result.eventModel.teams[0].sources.tba.components["sort_orders.0"], 3.2);
-  assert.equal(result.eventModel.teams[0].sources.epa.components["epa.total_points"], 42.5);
-  assert.equal(result.eventModel.teams[0].sources.epa.components["epa.breakdown.auto_points"], 10);
-  assert.equal(result.eventModel.teams[0].sources.epa.components["epa.stats.pre_elim"], 43);
-  assert.equal(result.eventModel.teams[0].sources.epa.components["record.qual.rank"], 4);
-  assert.equal(Array.isArray(result.eventModel.teams[0].sources.epa.trend), true);
-  assert.equal(result.eventModel.teams[0].sources.epa.trend.length, 0);
+  assert.equal(result.eventModel.teams[0].sources.statbotics.components["epa.total_points"], 42.5);
+  assert.equal(result.eventModel.teams[0].sources.statbotics.components["epa.breakdown.auto_points"], 10);
+  assert.equal(result.eventModel.teams[0].sources.statbotics.components["epa.stats.pre_elim"], 43);
+  assert.equal(result.eventModel.teams[0].sources.statbotics.components["record.qual.rank"], 4);
+  assert.equal(Array.isArray(result.eventModel.teams[0].sources.statbotics.trend), true);
+  assert.equal(result.eventModel.teams[0].sources.statbotics.trend.length, 0);
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].derived || {})), {});
-  assert.equal(Array.isArray(result.eventModel.teams[0].sources.opr.trend), true);
-  assert.equal(result.eventModel.teams[0].sources.opr.trend.length, 0);
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.seedSortEquations || [])), []);
   assert.equal(result.eventModel.seedPicklists[1].name, "Backup / Live Sources");
   assert.equal(Array.isArray(result.eventModel.scoringMatrixPresets), true);
@@ -283,8 +280,8 @@ await runTest("loadEventByCode falls back to the query-form Statbotics team_even
 
   assert.equal(result.sourceStates.statbotics.status, "ready");
   assert.match(result.sourceStates.statbotics.provenance.notes, /query-form team_events endpoint/i);
-  assert.equal(result.eventModel.teams[0].sources.epa.components["epa.total_points"], 42.5);
-  assert.equal(result.eventModel.teams[0].sources.epa.components["record.qual.rank"], 4);
+  assert.equal(result.eventModel.teams[0].sources.statbotics.components["epa.total_points"], 42.5);
+  assert.equal(result.eventModel.teams[0].sources.statbotics.components["record.qual.rank"], 4);
 });
 
 await runTest("loadEventByCode falls back to a generic season shell for unknown years while preserving provider metrics", async () => {
@@ -351,9 +348,9 @@ await runTest("loadEventByCode falls back to a generic season shell for unknown 
   assert.equal(result.eventModel.seasonLabel, "2023 Season");
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.scoringComponents || [])), []);
   assert.equal(result.eventModel.teams[0].sources.tba.components["record.wins"], undefined);
-  assert.equal(result.eventModel.teams[0].sources.epa.components["epa.total_points"], 55.5);
-  assert.equal(result.eventModel.teams[0].sources.epa.components["epa.breakdown.auto_points"], 12);
-  assert.equal(result.eventModel.teams[0].sources.epa.components["record.qual.rank"], 3);
+  assert.equal(result.eventModel.teams[0].sources.statbotics.components["epa.total_points"], 55.5);
+  assert.equal(result.eventModel.teams[0].sources.statbotics.components["epa.breakdown.auto_points"], 12);
+  assert.equal(result.eventModel.teams[0].sources.statbotics.components["record.qual.rank"], 3);
   assert.equal(result.eventModel.matches[0].scoreBreakdown.red.mobilityPoints, 9);
 });
 

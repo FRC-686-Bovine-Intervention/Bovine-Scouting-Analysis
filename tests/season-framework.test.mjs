@@ -53,16 +53,25 @@ runTest("season metrics expose pRidge as a total-only source", () => {
   assert.equal(pridgeCriteriaSource.components.map((component) => component.id).join(","), "total");
 });
 
-runTest("season metrics expose OPR as a total-only source", () => {
+runTest("season metrics expose Statbotics under its provider name", () => {
   const season = seasonFramework.gameDefinitions[2024];
   const metrics = seasonFramework.buildMetrics(season);
   const criteriaSources = seasonFramework.buildCriteriaSources(season);
 
-  const oprMetrics = metrics.filter((metric) => metric.sourceId === "opr");
-  assert.equal(oprMetrics.map((metric) => metric.id).join(","), "source:opr:total");
+  const statboticsMetrics = metrics.filter((metric) => metric.sourceId === "statbotics");
+  assert.equal(statboticsMetrics.map((metric) => metric.id).join(","), "source:statbotics:total,source:statbotics:auto,source:statbotics:speaker,source:statbotics:amp,source:statbotics:trap");
 
-  const oprCriteriaSource = criteriaSources.find((source) => source.id === "opr");
-  assert.equal(oprCriteriaSource.components.map((component) => component.id).join(","), "total");
+  const statboticsCriteriaSource = criteriaSources.find((source) => source.id === "statbotics");
+  assert.equal(statboticsCriteriaSource.components.map((component) => component.id).join(","), "total,auto,speaker,amp,trap");
+});
+
+runTest("season metrics do not expose OPR as a separate source", () => {
+  const season = seasonFramework.gameDefinitions[2024];
+  const metrics = seasonFramework.buildMetrics(season);
+  const criteriaSources = seasonFramework.buildCriteriaSources(season);
+
+  assert.equal(metrics.some((metric) => metric.sourceId === "opr"), false);
+  assert.equal(criteriaSources.some((source) => source.id === "opr"), false);
 });
 
 runTest("formula field definitions include scoring components for derived equations", () => {

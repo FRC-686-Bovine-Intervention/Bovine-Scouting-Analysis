@@ -87,18 +87,24 @@ function sourceValue(team, sourceId, componentId = "total") {
   return Number(team.sources?.[sourceId]?.components?.[componentId] || 0);
 }
 
+function tbaComponentValue(team, componentId) {
+  return Number(team.sources?.tba?.components?.[componentId] || 0);
+}
+
 function buildSeedPicklists(teams) {
-  const byEpa = [...teams].sort((a, b) => sourceValue(b, "epa") - sourceValue(a, "epa") || a.number - b.number).map((team) => team.number);
+  const byStatbotics = [...teams]
+    .sort((a, b) => sourceValue(b, "statbotics") - sourceValue(a, "statbotics") || a.number - b.number)
+    .map((team) => team.number);
   const byPridge = [...teams]
     .sort((a, b) => {
       const left = sourceValue(a, "pridge");
       const right = sourceValue(b, "pridge");
       if (Number.isFinite(right) && Number.isFinite(left) && right !== left) return right - left;
-      return sourceValue(b, "opr") - sourceValue(a, "opr") || a.number - b.number;
+      return tbaComponentValue(b, "opr.total") - tbaComponentValue(a, "opr.total") || a.number - b.number;
     })
     .map((team) => team.number);
   return [
-    { id: "pick-first-pick", name: "First Pick", teams: byEpa },
+    { id: "pick-first-pick", name: "First Pick", teams: byStatbotics },
     { id: "pick-backup-live", name: "Backup / Live Sources", teams: byPridge },
   ];
 }
@@ -152,14 +158,23 @@ function buildRankingMap(rankingsPayload) {
   return new Map(rankings.map((entry) => [parseTeamNumberFromKey(entry?.team_key), entry]));
 }
 
-function buildOprMap(oprsPayload) {
-  const oprs = oprsPayload?.oprs && typeof oprsPayload.oprs === "object" ? oprsPayload.oprs : {};
-  return new Map(Object.entries(oprs).map(([teamKey, value]) => [parseTeamNumberFromKey(teamKey), Number(value || 0)]));
+function buildTbaTeamValueMap(teamStatsPayload, key) {
+  const values = teamStatsPayload?.[key] && typeof teamStatsPayload[key] === "object" ? teamStatsPayload[key] : {};
+  return new Map(Object.entries(values).map(([teamKey, value]) => [parseTeamNumberFromKey(teamKey), Number(value || 0)]));
 }
 
-function buildTeamStatMap(oprsPayload, key, fieldId) {
-  const values = oprsPayload?.[key] && typeof oprsPayload[key] === "object" ? oprsPayload[key] : {};
-  return new Map(Object.entries(values).map(([teamKey, value]) => [parseTeamNumberFromKey(teamKey), { fieldId, value: Number(value || 0) }]));
+function buildTbaTeamStatEntries(teamStatsPayload, teamNumber) {
+  const teamValueMaps = [
+    { fieldId: "opr.total", valuesByTeamNumber: buildTbaTeamValueMap(teamStatsPayload, "oprs") },
+    { fieldId: "dpr.total", valuesByTeamNumber: buildTbaTeamValueMap(teamStatsPayload, "dprs") },
+    { fieldId: "ccwm.total", valuesByTeamNumber: buildTbaTeamValueMap(teamStatsPayload, "ccwms") },
+  ];
+  return teamValueMaps
+    .map(({ fieldId, valuesByTeamNumber }) => {
+      const value = valuesByTeamNumber.get(teamNumber);
+      return Number.isFinite(Number(value)) ? { fieldId, value: Number(value) } : null;
+    })
+    .filter(Boolean);
 }
 
 function buildTbaEventComponents(rankingEntry, tbaStatEntries = []) {
@@ -179,15 +194,14 @@ function emptySourceComponents(season, fallback = null) {
   return Object.fromEntries(season.scoringComponents.map((component) => [component.id, fallback]));
 }
 
-function buildTeam(teamInfo, teamEvent, scoutingSchema, rankingEntry, oprValue, tbaComponents) {
-  const epa = Number(teamEvent?.epa?.total_points || 0);
+function buildTeam(teamInfo, teamEvent, scoutingSchema, rankingEntry, tbaComponents) {
+  const statboticsTotal = Number(teamEvent?.epa?.total_points || 0);
   const statboticsComponents = Object.fromEntries(
     flattenStatboticsScalarEntries(teamEvent || {}).filter(([fieldId]) => fieldId !== "team_name" && fieldId !== "event_name"),
   );
   const qualRecord = teamEvent?.record?.qual || {};
   const scouterFields = Array.isArray(scoutingSchema?.scouterMetricDefinitions) ? scoutingSchema.scouterMetricDefinitions : [];
   const emptyScouterComponents = Object.fromEntries(scouterFields.map((component) => [component.id, 0]));
-  const opr = Number.isFinite(Number(oprValue)) ? round(oprValue) : round(epa * 1.04);
   const normalizedRankingRecord = normalizeQualRecord(rankingEntry?.record);
   const rankingSortOrders = Array.isArray(rankingEntry?.sort_orders) ? rankingEntry.sort_orders : [];
   const rankingScore = rankingSortOrders.length ? Number(rankingSortOrders[0] || 0) : Number(qualRecord.rps_per_match || 0);
@@ -210,9 +224,8 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, rankingEntry, oprValue, 
     },
     sources: {
       scouter: { total: 0, components: emptyScouterComponents, trend: [], componentTrend: Object.fromEntries(scouterFields.map((component) => [component.id, []])) },
-      epa: { total: round(epa), components: { ...statboticsComponents }, trend: [] },
+      statbotics: { total: round(statboticsTotal), components: { ...statboticsComponents }, trend: [] },
       tba: { total: null, components: { ...(tbaComponents || {}) }, trend: [] },
-      opr: { total: round(opr), components: emptySourceComponents(scoutingSchema, null), trend: [] },
       pridge: { total: null, components: emptySourceComponents(scoutingSchema), trend: [] },
     },
     derived: {},
@@ -238,9 +251,7 @@ function buildEventModelFromPayloads(payload) {
   };
   const teamEventsByNumber = new Map((payload.statboticsTeamEvents || []).map((teamEvent) => [Number(teamEvent.team), teamEvent]));
   const rankingsByTeamNumber = buildRankingMap(payload.tbaRankings);
-  const oprByTeamNumber = buildOprMap(payload.tbaOprs);
-  const dprByTeamNumber = buildTeamStatMap(payload.tbaOprs, "dprs", "dpr.total");
-  const ccwmByTeamNumber = buildTeamStatMap(payload.tbaOprs, "ccwms", "ccwm.total");
+  const tbaTeamStats = payload.tbaTeamStats || {};
   const teams = (payload.tbaTeams || [])
     .map((teamInfo) => {
       const teamNumber = Number(teamInfo.team_number);
@@ -249,12 +260,9 @@ function buildEventModelFromPayloads(payload) {
         teamEventsByNumber.get(teamNumber) || {},
         scoutingSchemaSeed,
         rankingsByTeamNumber.get(teamNumber) || null,
-        oprByTeamNumber.get(teamNumber),
         buildTbaEventComponents(rankingsByTeamNumber.get(teamNumber) || null, [
-          { fieldId: "opr.total", value: oprByTeamNumber.get(teamNumber) },
-          dprByTeamNumber.get(teamNumber),
-          ccwmByTeamNumber.get(teamNumber),
-        ].filter((entry) => entry && Number.isFinite(Number(entry.value)))),
+          ...buildTbaTeamStatEntries(tbaTeamStats, teamNumber),
+        ]),
       );
     })
     .sort((left, right) => left.number - right.number);
@@ -322,10 +330,10 @@ function buildEventModelFromPayloads(payload) {
         notes: "Teams and qualification schedule are sourced from real TBA event snapshots.",
       },
       {
-        name: "Statbotics EPA",
+        name: "Statbotics",
         status: "Snapshot loaded",
         updated: payload.statboticsEvent?.status || "Event snapshot available",
-        notes: "EPA totals and season-specific scoring breakdowns are sourced from Statbotics.",
+        notes: "Raw Statbotics event metrics are sourced from Statbotics.",
       },
       {
         name: "pRidge",
@@ -351,7 +359,7 @@ function buildEventModelFromSnapshot(snapshot) {
     tbaTeams: parseJson(snapshot.tbaTeamsText, []),
     tbaMatches: parseJson(snapshot.tbaMatchesText, []),
     tbaRankings: parseJson(snapshot.tbaRankingsText, {}),
-    tbaOprs: parseJson(snapshot.tbaOprsText, {}),
+    tbaTeamStats: parseJson(snapshot.tbaTeamStatsText || snapshot.tbaOprsText, {}),
     statboticsEvent: parseJson(snapshot.statboticsEventText, {}),
     statboticsTeamEvents: parseJson(snapshot.statboticsTeamEventsText, []),
     catalogSource: snapshot.catalogSource || "snapshot",
@@ -368,7 +376,7 @@ function buildEventModelFromProviderBundle(bundle) {
     tbaTeams: bundle.tbaTeams || [],
     tbaMatches: bundle.tbaMatches || [],
     tbaRankings: bundle.tbaRankings || {},
-    tbaOprs: bundle.tbaOprs || {},
+    tbaTeamStats: bundle.tbaTeamStats || bundle.tbaOprs || {},
     statboticsEvent: bundle.statboticsEvent || {},
     statboticsTeamEvents: bundle.statboticsTeamEvents || [],
     catalogSource: bundle.catalogSource || "dynamic-external",

@@ -287,10 +287,10 @@ function mergePersistedDynamicEventsIntoCatalog() {
 mergePersistedDynamicEventsIntoCatalog();
 
 const defaultAllianceBoard = Array(24).fill(null);
-const defaultStatboticsMetricId = "source:epa:epa.total_points";
+const defaultStatboticsMetricId = "source:statbotics:epa.total_points";
 const protectedEpaSortEquation = {
   id: protectedEpaSortId,
-  name: "Statbotics EPA",
+  name: "Statbotics",
   metricId: defaultStatboticsMetricId,
   locked: true,
 };
@@ -825,7 +825,7 @@ async function refreshDataSource(sourceId, options = {}) {
     return;
   }
   const event = currentEvent();
-  const label = { tba: "The Blue Alliance", statbotics: "Statbotics EPA", pridge: "pRidge" }[sourceId] || sourceId;
+  const label = { tba: "The Blue Alliance", statbotics: "Statbotics", pridge: "pRidge" }[sourceId] || sourceId;
   const trigger = options.trigger || "manual";
   const snapshot = buildExternalSourceSnapshot(sourceId, event);
   const nextFingerprint = buildExternalSnapshotFingerprint(snapshot);
@@ -1260,7 +1260,7 @@ function runtimeMetricsForEventModel(eventModel = currentEvent()) {
     derivedMetricDefinitions: currentDerivedMetricDefinitions(eventModel),
   };
   return [
-    ...(buildRuntimeMetrics(runtimeEventModel) || []).filter((metric) => !(metric.kind === "source" && metric.sourceId === "epa")),
+    ...(buildRuntimeMetrics(runtimeEventModel) || []).filter((metric) => !(metric.kind === "source" && metric.sourceId === "statbotics")),
     ...currentDynamicStatboticsMetricDefinitions(runtimeEventModel),
     ...currentDynamicTbaMetricDefinitions(runtimeEventModel),
   ];
@@ -1287,7 +1287,7 @@ function currentDataSources() {
   const now = Date.now();
   const externalSources = [
     { sourceId: "tba", label: "The Blue Alliance" },
-    { sourceId: "statbotics", label: "Statbotics EPA" },
+    { sourceId: "statbotics", label: "Statbotics" },
     { sourceId: "pridge", label: "pRidge" },
   ].map((definition) => {
     const sourceState = workspace.sources?.[definition.sourceId] || {};
@@ -1692,7 +1692,7 @@ function collectStatboticsMetricDefinitions(eventModel = currentEvent()) {
   };
 
   (eventModel.teams || []).forEach((team) => {
-    Object.entries(team?.sources?.epa?.components || {}).forEach(([fieldId, value]) => {
+    Object.entries(team?.sources?.statbotics?.components || {}).forEach(([fieldId, value]) => {
       addDefinition(fieldId, value);
     });
   });
@@ -1726,9 +1726,9 @@ function collectStatboticsMetricDefinitions(eventModel = currentEvent()) {
   const metricDefinitions = formulaDefinitions
     .filter((definition) => definition.type === "number")
     .map((definition) => ({
-      id: `source:epa:${definition.fieldId}`,
+      id: `source:statbotics:${definition.fieldId}`,
       kind: "source",
-      sourceId: "epa",
+      sourceId: "statbotics",
       componentId: definition.fieldId,
       label: definition.label,
       shortLabel: definition.shortLabel,
@@ -3318,32 +3318,37 @@ function updateSortEquation(id, updater) {
   render();
 }
 
+function normalizeLegacyMetricId(id) {
+  const normalizedId = String(id || "");
+  if (normalizedId === "opr" || normalizedId === "source:opr:total") return "source:tba:opr.total";
+  if (normalizedId.startsWith("source:epa:")) return `source:statbotics:${normalizedId.slice("source:epa:".length)}`;
+  return normalizedId;
+}
+
 function termsFromLegacyWeights(weights = {}) {
-  const mappings = {
-    "source:epa:epa.total_points": { metricId: "source:epa:epa.total_points" },
-    opr: { metricId: "source:opr:total" },
-    "source:opr:total": { metricId: "source:opr:total" },
-    pridge: { metricId: "source:pridge:total" },
-    "source:pridge:total": { metricId: "source:pridge:total" },
-    defenseImpact: { metricId: "derived:defenseImpact" },
-    "derived:defenseImpact": { metricId: "derived:defenseImpact" },
-    consistency: { metricId: "derived:consistency" },
-    "derived:consistency": { metricId: "derived:consistency" },
-  };
   const terms = Object.entries(weights)
     .filter(([, weight]) => Number(weight) !== 0)
     .map(([id, weight]) => {
-      const mapping = mappings[id];
-      if (!mapping) return null;
-      return { operator: "+", weight: Number(weight), ...mapping };
+      const metricId = {
+        pridge: "source:pridge:total",
+        "source:pridge:total": "source:pridge:total",
+        defenseImpact: "derived:defenseImpact",
+        "derived:defenseImpact": "derived:defenseImpact",
+        consistency: "derived:consistency",
+        "derived:consistency": "derived:consistency",
+      }[id] || normalizeLegacyMetricId(id);
+      return metricId ? { operator: "+", weight: Number(weight), metricId } : null;
     })
     .filter(Boolean);
   return terms.length ? terms : defaultCriteriaTerms();
 }
 
 function metricIdFromLegacyTerm(term) {
-  if (typeof term?.metricId === "string" && term.metricId) return term.metricId;
-  if (term?.source && term?.component) return `${term.source === "derived" ? "derived" : "source"}:${term.source}:${term.component}`.replace("derived:derived:", "derived:");
+  if (typeof term?.metricId === "string" && term.metricId) return normalizeLegacyMetricId(term.metricId);
+  if (term?.source && term?.component) {
+    const metricId = `${term.source === "derived" ? "derived" : "source"}:${term.source}:${term.component}`.replace("derived:derived:", "derived:");
+    return normalizeLegacyMetricId(metricId);
+  }
   return "";
 }
 
@@ -3413,14 +3418,14 @@ function quantile(values, q) {
 
 function metricById(id) {
   const metrics = currentMetrics();
-  return metrics.find((metric) => metric.id === id) || null;
+  const normalizedId = normalizeLegacyMetricId(id);
+  return metrics.find((metric) => metric.id === normalizedId) || null;
 }
 
 function metricTokenLabel(metric) {
   if (!metric) return "";
   if (metric.kind === "source" && metric.sourceId === "tba") return `tba.${metric.componentId}`;
-  if (metric.kind === "source" && metric.sourceId === "epa") return `statbotics.${metric.componentId}`;
-  if (metric.kind === "source" && metric.sourceId === "opr" && metric.componentId === "total") return "tba.opr.total";
+  if (metric.kind === "source" && metric.sourceId === "statbotics") return `statbotics.${metric.componentId}`;
   if (metric.kind === "source" && metric.sourceId === "pridge" && metric.componentId === "total") return "pridge.total";
   return metric.label || metric.id || "";
 }
@@ -4940,7 +4945,7 @@ function renderTeamDetail(team) {
   const detailTrendMetrics = currentMetrics().filter((metric) => metricUsesMatchDistribution(team, metric));
   const detailSelectedMetric = detailTrendMetrics.find((metric) => metric.id === state.teamDetailMetric) || null;
   const detailScoutingConfidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
-  const detailOprMetric = metricById("source:opr:total");
+  const detailOprMetric = metricById("source:tba:opr.total");
   const detailPridgeMetric = metricById("source:pridge:total");
   return `
     <article class="card">
@@ -7080,7 +7085,7 @@ function renameSortEquation(id, requestedName) {
 function duplicateSortEquation(id) {
   const equation = state.sortEquations.find((item) => item.id === id);
   if (!equation) return;
-  const baseName = isProtectedSortEquation(equation) ? "Statbotics EPA Copy" : `${equation.name} Copy`;
+  const baseName = isProtectedSortEquation(equation) ? "Statbotics Copy" : `${equation.name} Copy`;
   const name = uniqueEntityName(baseName, state.sortEquations, baseName);
   const duplicate = {
     id: createId("sort"),
