@@ -211,6 +211,7 @@ const storageKeys = {
   scoutingWindow: "frc-scouting-window",
   recentMatchCount: "frc-scouting-recent-match-count",
   tbaAuthKey: "frc-scouting-tba-auth-key",
+  statboticsBaseUrl: "frc-scouting-statbotics-base-url",
   recentEvents: "frc-scouting-recent-events",
   scoutingProfiles: "frc-scouting-scouting-profiles",
   seasonProfiles: "frc-scouting-season-profiles",
@@ -227,6 +228,7 @@ const globalStorageKeys = new Set([
   storageKeys.activeEvent,
   storageKeys.menuExpanded,
   storageKeys.tbaAuthKey,
+  storageKeys.statboticsBaseUrl,
   storageKeys.recentEvents,
   storageKeys.scoutingProfiles,
   storageKeys.seasonProfiles,
@@ -262,6 +264,7 @@ const picklistCompareLimit = 4;
 const protectedEpaSortId = "sort-epa";
 const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
 const maskedTbaAuthKeyValue = "............";
+const defaultStatboticsBaseUrl = "https://api.statbotics.io/v3";
 
 function readBootstrapStoredJson(key, fallback) {
   try {
@@ -313,6 +316,10 @@ const initialEventKey = resolveEventKey(readStoredItem(storageKeys.activeEvent))
 const initialEvent = eventModelByKey(initialEventKey);
 const initialWorkspace = createEventWorkspace(initialEvent, readStoredJson(storageKeys.eventWorkspace, null, initialEventKey));
 const initialTbaAuthKey = readStoredItem(storageKeys.tbaAuthKey) || normalizeText(globalThis.__TBA_AUTH_KEY || globalThis.TBA_AUTH_KEY);
+const initialStatboticsBaseUrl =
+  readStoredItem(storageKeys.statboticsBaseUrl)
+  || normalizeText(globalThis.__STATBOTICS_BASE_URL || globalThis.STATBOTICS_BASE_URL)
+  || defaultStatboticsBaseUrl;
 const initialLegacyDerivedEquationCatalog = normalizeSeasonDerivedEquationCatalog(
   readStoredJson(storageKeys.seasonDerivedEquations, {}),
 );
@@ -355,6 +362,9 @@ const state = {
   tbaAuthKeyDraft: initialTbaAuthKey ? maskedTbaAuthKeyValue : "",
   tbaAuthKeyMasked: Boolean(initialTbaAuthKey),
   tbaAuthKeyDirty: false,
+  statboticsBaseUrl: initialStatboticsBaseUrl,
+  statboticsBaseUrlDraft: initialStatboticsBaseUrl,
+  statboticsBaseUrlDirty: false,
   importResult: null,
   scoutingWindow: readStoredItem(storageKeys.scoutingWindow) || "all",
   recentMatchCount: Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount) || 12)),
@@ -391,6 +401,7 @@ state.recentEventKeys = normalizeRecentEventKeys(readStoredJson(storageKeys.rece
 globalThis.__scoutingAppState = state;
 globalThis.__scoutingActiveEventKey = state.activeEventKey;
 globalThis.__TBA_AUTH_KEY = state.tbaAuthKey;
+globalThis.__STATBOTICS_BASE_URL = state.statboticsBaseUrl;
 let pendingScoutingAutoloadToken = "";
 let attemptedScoutingAutoloadToken = "";
 const pendingExternalRefreshSourceIds = new Set();
@@ -642,6 +653,22 @@ function setTbaAuthKey(value, options = {}) {
       localStorage.setItem(storageKeys.tbaAuthKey, state.tbaAuthKey);
     } else {
       localStorage.removeItem(storageKeys.tbaAuthKey);
+    }
+  }
+}
+
+function normalizeStatboticsBaseUrl(value) {
+  return normalizeText(value) || defaultStatboticsBaseUrl;
+}
+
+function setStatboticsBaseUrl(value, options = {}) {
+  state.statboticsBaseUrl = normalizeStatboticsBaseUrl(value);
+  globalThis.__STATBOTICS_BASE_URL = state.statboticsBaseUrl;
+  if (options.save) {
+    if (state.statboticsBaseUrl === defaultStatboticsBaseUrl) {
+      localStorage.removeItem(storageKeys.statboticsBaseUrl);
+    } else {
+      localStorage.setItem(storageKeys.statboticsBaseUrl, state.statboticsBaseUrl);
     }
   }
 }
@@ -1180,6 +1207,34 @@ function saveTbaAuthKeyDraft() {
   setTbaAuthKey(state.tbaAuthKeyDraft, { save: true });
   resetTbaAuthKeyDraft();
   state.eventLookupResult = { kind: "success", message: state.tbaAuthKey ? "Saved the TBA auth key locally." : "Removed the saved TBA auth key." };
+  saveState();
+  render();
+  return true;
+}
+
+function updateStatboticsBaseUrlDraft(value) {
+  state.statboticsBaseUrlDraft = normalizeText(value);
+  state.statboticsBaseUrlDirty = true;
+}
+
+function restoreStatboticsBaseUrlDraftIfNeeded() {
+  if (state.statboticsBaseUrlDirty) return;
+  state.statboticsBaseUrlDraft = state.statboticsBaseUrl;
+  const input = document.querySelector("#adminStatboticsBaseUrlInput");
+  if (input) input.value = state.statboticsBaseUrlDraft;
+}
+
+function saveStatboticsBaseUrlDraft() {
+  if (!state.statboticsBaseUrlDirty) return false;
+  setStatboticsBaseUrl(state.statboticsBaseUrlDraft, { save: true });
+  state.statboticsBaseUrlDraft = state.statboticsBaseUrl;
+  state.statboticsBaseUrlDirty = false;
+  state.eventLookupResult = {
+    kind: "success",
+    message: state.statboticsBaseUrl === defaultStatboticsBaseUrl
+      ? `Using the default Statbotics base URL (${defaultStatboticsBaseUrl}).`
+      : `Saved Statbotics base URL ${state.statboticsBaseUrl}.`,
+  };
   saveState();
   render();
   return true;
@@ -2856,6 +2911,7 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
   try {
     const loadResult = await loadExternalEventByCode(normalizedEventCode, {
       tbaAuthKey: state.tbaAuthKey,
+      statboticsBaseUrl: state.statboticsBaseUrl,
     });
     const registeredEvent = registerEventModel(loadResult.eventModel);
     switchActiveEvent(registeredEvent.key, {
@@ -6284,6 +6340,24 @@ function renderAdmin() {
                 <button type="button" id="saveTbaAuthKeyButton" ${state.tbaAuthKeyDirty ? "" : "disabled"}>Save</button>
               </div>
             </label>
+            <label>
+              Statbotics Base URL
+              <div class="admin-actions admin-field-row">
+                <input
+                  id="adminStatboticsBaseUrlInput"
+                  class="admin-input"
+                  type="text"
+                  value="${escapeAttribute(state.statboticsBaseUrlDraft)}"
+                  placeholder="${escapeAttribute(defaultStatboticsBaseUrl)}"
+                  aria-label="Statbotics base URL"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                />
+                <button type="button" id="saveStatboticsBaseUrlButton" ${state.statboticsBaseUrlDirty ? "" : "disabled"}>Save</button>
+              </div>
+              <span class="muted">Use the default official host or override with <code>https://api-statbotics.iterativerefinement.com/v3</code> while the main Statbotics API is unavailable.</span>
+            </label>
             <div class="admin-actions">
               <button type="button" id="clearCurrentEventScoutingDataButton">Clear Saved Scouting Data</button>
             </div>
@@ -7212,6 +7286,16 @@ function bindViewEvents() {
   });
   document.querySelector("#saveTbaAuthKeyButton")?.addEventListener("click", () => {
     saveTbaAuthKeyDraft();
+  });
+  document.querySelector("#adminStatboticsBaseUrlInput")?.addEventListener("input", (event) => {
+    updateStatboticsBaseUrlDraft(event.target.value);
+    document.querySelector("#saveStatboticsBaseUrlButton")?.removeAttribute("disabled");
+  });
+  document.querySelector("#adminStatboticsBaseUrlInput")?.addEventListener("blur", () => {
+    restoreStatboticsBaseUrlDraftIfNeeded();
+  });
+  document.querySelector("#saveStatboticsBaseUrlButton")?.addEventListener("click", () => {
+    saveStatboticsBaseUrlDraft();
   });
   document.querySelector("#chooseLocalScoutingFileButton")?.addEventListener("click", async () => {
     await chooseLocalScoutingAttachmentFile();

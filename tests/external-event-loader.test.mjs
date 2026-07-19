@@ -212,6 +212,79 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.warnings.length, 0);
 });
 
+await runTest("loadEventByCode falls back to the query-form Statbotics team_events endpoint after a 404", async () => {
+  const baseUrls = {
+    tba: "https://tba.test/api",
+    statbotics: "https://statbotics.test/api",
+  };
+  const context = loadBrowserContext([
+    "src/legacy-scouting-schema-seeds.js",
+    "src/season-framework.js",
+    "src/prior-ridge.js",
+    "src/event-model-builder.js",
+    "src/external-source-snapshots.js",
+    "src/external-event-loader.js",
+  ]);
+  const teamEvents = [
+    { team: 111, epa: { total_points: 42.5, breakdown: { auto_points: 10 }, stats: { start: 39 } }, record: { qual: { count: 12, rank: 4, rps_per_match: 2.8 } } },
+    { team: 222, epa: { total_points: 38.2, breakdown: { auto_points: 9 }, stats: { start: 35 } }, record: { qual: { count: 12, rank: 10, rps_per_match: 2.1 } } },
+    { team: 333, epa: { total_points: 36.8, breakdown: { auto_points: 8 }, stats: { start: 34 } }, record: { qual: { count: 12, rank: 12, rps_per_match: 2.0 } } },
+    { team: 444, epa: { total_points: 31.5, breakdown: { auto_points: 7 }, stats: { start: 30 } }, record: { qual: { count: 12, rank: 18, rps_per_match: 1.8 } } },
+    { team: 555, epa: { total_points: 28.1, breakdown: { auto_points: 6 }, stats: { start: 27 } }, record: { qual: { count: 12, rank: 22, rps_per_match: 1.6 } } },
+    { team: 666, epa: { total_points: 26.9, breakdown: { auto_points: 5 }, stats: { start: 26 } }, record: { qual: { count: 12, rank: 24, rps_per_match: 1.5 } } },
+  ];
+  const fetchImpl = createFetchStub({
+    [`${baseUrls.tba}/event/2026query`]: { key: "2026query", year: 2026, name: "Query Fallback Event" },
+    [`${baseUrls.tba}/event/2026query/teams`]: [
+      { team_number: 111, nickname: "Alpha" },
+      { team_number: 222, nickname: "Beta" },
+      { team_number: 333, nickname: "Gamma" },
+      { team_number: 444, nickname: "Delta" },
+      { team_number: 555, nickname: "Epsilon" },
+      { team_number: 666, nickname: "Zeta" },
+    ],
+    [`${baseUrls.tba}/event/2026query/matches`]: [
+      {
+        comp_level: "qm",
+        match_number: 1,
+        set_number: 1,
+        winning_alliance: "red",
+        alliances: {
+          red: { team_keys: ["frc111", "frc222", "frc333"], score: 180 },
+          blue: { team_keys: ["frc444", "frc555", "frc666"], score: 150 },
+        },
+      },
+    ],
+    [`${baseUrls.tba}/event/2026query/rankings`]: {
+      rankings: [
+        { team_key: "frc111", rank: 1, sort_orders: [3.2], record: { wins: 8, losses: 1, ties: 0 }, dq: 0, matches_played: 9, extra_stats: [], qual_average: null },
+      ],
+      sort_order_info: [],
+      extra_stats_info: [],
+    },
+    [`${baseUrls.tba}/event/2026query/oprs`]: {
+      oprs: { frc111: 51.2, frc222: 47.7, frc333: 46.1, frc444: 40.4, frc555: 38.9, frc666: 35.5 },
+      dprs: {},
+      ccwms: {},
+    },
+    [`${baseUrls.statbotics}/event/2026query`]: { year: 2026, status: "In Progress" },
+    [`${baseUrls.statbotics}/team_events?event=2026query`]: teamEvents,
+  });
+
+  const result = await context.ExternalEventLoader.loadEventByCode("2026query", {
+    fetchImpl,
+    tbaAuthKey: "unit-test-key",
+    tbaBaseUrl: baseUrls.tba,
+    statboticsBaseUrl: baseUrls.statbotics,
+    timestamp: "2026-07-19T13:00:00Z",
+  });
+
+  assert.equal(result.sourceStates.statbotics.status, "ready");
+  assert.match(result.sourceStates.statbotics.provenance.notes, /query-form team_events endpoint/i);
+  assert.equal(result.eventModel.teams[0].sources.epa.components["epa.total_points"], 42.5);
+  assert.equal(result.eventModel.teams[0].sources.epa.components["record.qual.rank"], 4);
+});
+
 await runTest("loadEventByCode falls back to a generic season shell for unknown years while preserving provider metrics", async () => {
   const baseUrls = {
     tba: "https://tba.test/api",

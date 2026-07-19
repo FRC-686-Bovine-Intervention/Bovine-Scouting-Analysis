@@ -44,9 +44,20 @@ function resolveTbaAuthKey(options = {}) {
   return normalizeText(options.tbaAuthKey) || normalizeText(globalThis.__TBA_AUTH_KEY) || normalizeText(globalThis.TBA_AUTH_KEY);
 }
 
+function resolveStatboticsBaseUrl(options = {}) {
+  return normalizeText(options.statboticsBaseUrl)
+    || normalizeText(globalThis.__STATBOTICS_BASE_URL)
+    || normalizeText(globalThis.STATBOTICS_BASE_URL)
+    || "https://api.statbotics.io/v3";
+}
+
 function formatProviderError(provider, error) {
   const message = normalizeText(error?.message) || `Unable to load ${provider}.`;
   return `${provider}: ${message}`;
+}
+
+function isNotFoundError(error) {
+  return Number(error?.status || 0) === 404;
 }
 
 async function fetchJson(url, options = {}) {
@@ -69,6 +80,25 @@ async function settle(promise) {
     return { ok: true, value: await promise };
   } catch (error) {
     return { ok: false, error };
+  }
+}
+
+async function fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode, options = {}) {
+  const legacyUrl = `${statboticsBaseUrl}/team_events/event/${normalizedEventCode}`;
+  try {
+    return {
+      payload: await fetchJson(legacyUrl, options),
+      requestUrl: legacyUrl,
+      fallbackUsed: false,
+    };
+  } catch (error) {
+    if (!isNotFoundError(error)) throw error;
+    const queryUrl = `${statboticsBaseUrl}/team_events?event=${encodeURIComponent(normalizedEventCode)}`;
+    return {
+      payload: await fetchJson(queryUrl, options),
+      requestUrl: queryUrl,
+      fallbackUsed: true,
+    };
   }
 }
 
@@ -181,7 +211,7 @@ async function loadEventByCode(eventCode, options = {}) {
 
   const timestamp = normalizeText(options.timestamp) || new Date().toISOString();
   const tbaBaseUrl = normalizeText(options.tbaBaseUrl) || "https://www.thebluealliance.com/api/v3";
-  const statboticsBaseUrl = normalizeText(options.statboticsBaseUrl) || "https://api.statbotics.io/v3";
+  const statboticsBaseUrl = resolveStatboticsBaseUrl(options);
   const tbaHeaders = {
     Accept: "application/json",
     "X-TBA-Auth-Key": tbaAuthKey,
@@ -194,7 +224,7 @@ async function loadEventByCode(eventCode, options = {}) {
     settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/rankings`, { ...options, headers: tbaHeaders })),
     settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/oprs`, { ...options, headers: tbaHeaders })),
     settle(fetchJson(`${statboticsBaseUrl}/event/${normalizedEventCode}`, options)),
-    settle(fetchJson(`${statboticsBaseUrl}/team_events/event/${normalizedEventCode}`, options)),
+    settle(fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode, options)),
   ]);
 
   if (!tbaEventResult.ok) throw new Error(formatProviderError("The Blue Alliance event lookup failed", tbaEventResult.error));
@@ -213,7 +243,7 @@ async function loadEventByCode(eventCode, options = {}) {
     tbaRankings: tbaRankingsResult.ok ? (tbaRankingsResult.value || {}) : {},
     tbaOprs: tbaOprsResult.ok ? (tbaOprsResult.value || {}) : {},
     statboticsEvent: statboticsEventResult.ok ? (statboticsEventResult.value || {}) : {},
-    statboticsTeamEvents: statboticsTeamEventsResult.ok ? (statboticsTeamEventsResult.value || []) : [],
+    statboticsTeamEvents: statboticsTeamEventsResult.ok ? (statboticsTeamEventsResult.value?.payload || []) : [],
     catalogSource: "dynamic-external",
   });
 
@@ -235,8 +265,11 @@ async function loadEventByCode(eventCode, options = {}) {
   };
 
   if (statboticsEventResult.ok && statboticsTeamEventsResult.ok) {
+    const statboticsTeamEventsNote = statboticsTeamEventsResult.value?.fallbackUsed
+      ? " Loaded team-event rows through the query-form team_events endpoint because the legacy event route returned 404."
+      : "";
     sourceStates.statbotics = buildReadySourceState("statbotics", eventModel, timestamp, {
-      notes: "Loaded from the Statbotics live API.",
+      notes: `Loaded from the Statbotics live API.${statboticsTeamEventsNote}`,
     });
   } else {
     const statboticsError = !statboticsEventResult.ok ? statboticsEventResult.error : statboticsTeamEventsResult.error;

@@ -4,11 +4,16 @@ import { realEventSourceConfig } from "./real-event-snapshot-config.mjs";
 import { writeRealEventSnapshots } from "./real-event-snapshot-builder.mjs";
 
 const cacheDir = path.resolve("src/real-source-cache");
+const defaultStatboticsBaseUrl = "https://api.statbotics.io/v3";
 
 function requireEnv(name) {
   const value = String(process.env[name] || "").trim();
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
   return value;
+}
+
+function optionalEnv(name) {
+  return String(process.env[name] || "").trim();
 }
 
 async function fetchJson(url, options = {}) {
@@ -52,7 +57,24 @@ async function fetchJsonWithCacheFallback(url, eventKey, suffix, fallback) {
   }
 }
 
-async function syncEvent(eventConfig, headers) {
+async function fetchStatboticsTeamEventsWithCacheFallback(statboticsBaseUrl, eventKey) {
+  const legacyUrl = `${statboticsBaseUrl}/team_events/event/${eventKey}`;
+  try {
+    return await fetchJson(legacyUrl);
+  } catch (error) {
+    if (error?.status !== 404) throw error;
+    const queryUrl = `${statboticsBaseUrl}/team_events?event=${encodeURIComponent(eventKey)}`;
+    try {
+      return await fetchJson(queryUrl);
+    } catch (queryError) {
+      if (queryError?.status !== 404) throw queryError;
+      console.warn(`  ${legacyUrl} and ${queryUrl} returned 404; keeping cached statbotics-team-events.json.`);
+      return readCachedJson(eventKey, "statbotics-team-events.json", []);
+    }
+  }
+}
+
+async function syncEvent(eventConfig, headers, statboticsBaseUrl) {
   const key = eventConfig.key;
   console.log(`Syncing ${key}...`);
 
@@ -60,8 +82,8 @@ async function syncEvent(eventConfig, headers) {
     fetchJson(`https://www.thebluealliance.com/api/v3/event/${key}`, { headers }),
     fetchJson(`https://www.thebluealliance.com/api/v3/event/${key}/teams`, { headers }),
     fetchJson(`https://www.thebluealliance.com/api/v3/event/${key}/matches`, { headers }),
-    fetchJsonWithCacheFallback(`https://api.statbotics.io/v3/event/${key}`, key, "statbotics-event.json", {}),
-    fetchJsonWithCacheFallback(`https://api.statbotics.io/v3/team_events/event/${key}`, key, "statbotics-team-events.json", []),
+    fetchJsonWithCacheFallback(`${statboticsBaseUrl}/event/${key}`, key, "statbotics-event.json", {}),
+    fetchStatboticsTeamEventsWithCacheFallback(statboticsBaseUrl, key),
     eventConfig.sheet?.csvUrl ? fetchText(eventConfig.sheet.csvUrl) : Promise.resolve(""),
   ]);
 
@@ -80,13 +102,14 @@ async function syncEvent(eventConfig, headers) {
 async function main() {
   fs.mkdirSync(cacheDir, { recursive: true });
   const tbaAuthKey = requireEnv("TBA_AUTH_KEY");
+  const statboticsBaseUrl = optionalEnv("STATBOTICS_BASE_URL") || defaultStatboticsBaseUrl;
   const headers = {
     "X-TBA-Auth-Key": tbaAuthKey,
     Accept: "application/json",
   };
 
   for (const eventConfig of realEventSourceConfig) {
-    await syncEvent(eventConfig, headers);
+    await syncEvent(eventConfig, headers, statboticsBaseUrl);
   }
 
   const { outputPath } = writeRealEventSnapshots(realEventSourceConfig);

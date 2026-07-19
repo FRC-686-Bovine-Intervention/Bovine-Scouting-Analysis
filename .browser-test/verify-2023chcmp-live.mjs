@@ -3,6 +3,8 @@ import { chromium } from "playwright";
 const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
 const eventKey = "2023chcmp";
 const tbaAuthKey = String(process.env.TBA_AUTH_KEY || "").trim();
+const defaultStatboticsBaseUrl = "https://api.statbotics.io/v3";
+const statboticsBaseUrl = String(process.env.STATBOTICS_BASE_URL || "").trim() || defaultStatboticsBaseUrl;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -53,6 +55,25 @@ async function settle(promise) {
   }
 }
 
+async function fetchStatboticsTeamEvents(baseUrl, eventCode) {
+  const legacyUrl = `${baseUrl}/team_events/event/${eventCode}`;
+  try {
+    return {
+      payload: await fetchJson(legacyUrl),
+      endpoint: legacyUrl,
+      fallbackUsed: false,
+    };
+  } catch (error) {
+    if (Number(error?.status || 0) !== 404) throw error;
+    const queryUrl = `${baseUrl}/team_events?event=${encodeURIComponent(eventCode)}`;
+    return {
+      payload: await fetchJson(queryUrl),
+      endpoint: queryUrl,
+      fallbackUsed: true,
+    };
+  }
+}
+
 async function waitForApp(page) {
   await page.waitForLoadState("load");
   await page.waitForTimeout(1000);
@@ -89,7 +110,7 @@ try {
     settle(fetchJson(`https://www.thebluealliance.com/api/v3/event/${eventKey}/rankings`, { headers: tbaHeaders })),
     settle(fetchJson(`https://www.thebluealliance.com/api/v3/event/${eventKey}/oprs`, { headers: tbaHeaders })),
     settle(fetchJson(`https://www.thebluealliance.com/api/v3/event/${eventKey}/matches`, { headers: tbaHeaders })),
-    settle(fetchJson(`https://api.statbotics.io/v3/team_events/event/${eventKey}`)),
+    settle(fetchStatboticsTeamEvents(statboticsBaseUrl, eventKey)),
   ]);
   if (!tbaRankingsResult.ok) throw tbaRankingsResult.error;
   if (!tbaOprsResult.ok) throw tbaOprsResult.error;
@@ -98,26 +119,39 @@ try {
   const tbaOprs = tbaOprsResult.value;
   const tbaMatches = tbaMatchesResult.value;
   const statboticsProviderStatus = statboticsTeamEventsResult.ok
-    ? { ok: true, endpoint: `https://api.statbotics.io/v3/team_events/event/${eventKey}` }
+    ? {
+        ok: true,
+        endpoint: statboticsTeamEventsResult.value.endpoint,
+        fallbackUsed: Boolean(statboticsTeamEventsResult.value.fallbackUsed),
+      }
     : {
         ok: false,
-        endpoint: `https://api.statbotics.io/v3/team_events/event/${eventKey}`,
+        endpoint: `${statboticsBaseUrl}/team_events/event/${eventKey}`,
         status: Number(statboticsTeamEventsResult.error?.status || 0) || null,
         message: String(statboticsTeamEventsResult.error?.message || "Unknown Statbotics error."),
       };
-  const statboticsTeamEvents = statboticsTeamEventsResult.ok ? statboticsTeamEventsResult.value : [];
+  const statboticsTeamEvents = statboticsTeamEventsResult.ok ? statboticsTeamEventsResult.value.payload : [];
 
-  await page.addInitScript((injectedKey) => {
+  await page.addInitScript(({ injectedKey, injectedStatboticsBaseUrl }) => {
     globalThis.__TBA_AUTH_KEY = injectedKey;
-  }, tbaAuthKey);
+    globalThis.__STATBOTICS_BASE_URL = injectedStatboticsBaseUrl;
+  }, {
+    injectedKey: tbaAuthKey,
+    injectedStatboticsBaseUrl: statboticsBaseUrl,
+  });
 
   await page.goto(appUrl);
   await waitForApp(page);
   await login(page);
-  await page.evaluate((injectedKey) => {
+  await page.evaluate(({ injectedKey, injectedStatboticsBaseUrl }) => {
     localStorage.setItem("frc-scouting-tba-auth-key", injectedKey);
     globalThis.__TBA_AUTH_KEY = injectedKey;
-  }, tbaAuthKey);
+    localStorage.setItem("frc-scouting-statbotics-base-url", injectedStatboticsBaseUrl);
+    globalThis.__STATBOTICS_BASE_URL = injectedStatboticsBaseUrl;
+  }, {
+    injectedKey: tbaAuthKey,
+    injectedStatboticsBaseUrl: statboticsBaseUrl,
+  });
   await openAdmin(page);
 
   await page.locator("#adminEventCodeInput").fill(eventKey);
@@ -225,6 +259,7 @@ try {
     assert(result.verification.statboticsDiff.missingFromDerivedCatalog.length === 0, `Statbotics derived catalog is missing identifiers: ${JSON.stringify(result.verification.statboticsDiff)}`);
     assert(result.verification.statboticsDiff.extrasInDerivedCatalog.length === 0, `Statbotics derived catalog has extra identifiers: ${JSON.stringify(result.verification.statboticsDiff)}`);
   }
+  result.statboticsBaseUrl = statboticsBaseUrl;
   result.statboticsProviderStatus = statboticsProviderStatus;
 } finally {
   await browser.close();
