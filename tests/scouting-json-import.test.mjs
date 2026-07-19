@@ -83,7 +83,6 @@ runTest("previewScoutingJsonImport preserves explicit entry provenance", () => {
         season: 2026,
         eventKey: "2026chcmp",
         entryType: "match",
-        sourceApp: "Custom Scouting App",
       },
       schema: context.ScoutingJsonSchema.buildCanonicalSchemaForEventModel(eventModel),
       entries: [
@@ -91,17 +90,23 @@ runTest("previewScoutingJsonImport preserves explicit entry provenance", () => {
           entryId: "entry-provenance",
           matchNumber: 3,
           teamNumber: 686,
-          scoutUser: "Scout A",
           alliance: "red",
-          station: "1",
           provenance: {
             collectedAt: "2026-04-05T13:50:00Z",
             sourceRowNumber: 41,
             notes: "Imported from tablet sync",
           },
-          rawMetrics: { autoFuelPct: 80 },
+          rawMetrics: { autoFuelPct: 80, scoutUser: "Scout A", station: "1" },
         },
       ],
+    }),
+    schemaJsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        sourceApp: "Custom Scouting App",
+        templateProfileId: "canonical-json-v1",
+      },
+      schema: context.ScoutingJsonSchema.buildCanonicalSchemaForEventModel(eventModel),
     }),
     eventModel,
     activeEventKey: "2026chcmp",
@@ -200,19 +205,15 @@ runTest("previewScoutingJsonImport flags duplicate rows by canonical event, matc
           entryId: "a",
           matchNumber: 5,
           teamNumber: 686,
-          scoutUser: "Scout A",
           alliance: "blue",
-          station: "1",
-          rawMetrics: { autoFuelPct: 60 },
+          rawMetrics: { autoFuelPct: 60, scoutUser: "Scout A", station: "1" },
         },
         {
           entryId: "b",
           matchNumber: 5,
           teamNumber: 686,
-          scoutUser: "Scout B",
           alliance: "blue",
-          station: "2",
-          rawMetrics: { autoFuelPct: 55 },
+          rawMetrics: { autoFuelPct: 55, scoutUser: "Scout B", station: "2" },
         },
       ],
     }),
@@ -255,19 +256,15 @@ runTest("previewScoutingJsonImport still detects duplicates when helper scripts 
           entryId: "a",
           matchNumber: 5,
           teamNumber: 686,
-          scoutUser: "Scout A",
           alliance: "blue",
-          station: "1",
-          rawMetrics: { autoFuelPct: 60 },
+          rawMetrics: { autoFuelPct: 60, scoutUser: "Scout A", station: "1" },
         },
         {
           entryId: "b",
           matchNumber: 5,
           teamNumber: 686,
-          scoutUser: "Scout B",
           alliance: "blue",
-          station: "2",
-          rawMetrics: { autoFuelPct: 55 },
+          rawMetrics: { autoFuelPct: 55, scoutUser: "Scout B", station: "2" },
         },
       ],
     }),
@@ -300,7 +297,6 @@ runTest("previewScoutingJsonImport honors payload schema fields instead of forci
         season: 2026,
         eventKey: "2026chcmp",
         entryType: "match",
-        templateProfileId: "canonical-json-v1",
       },
       schema: {
         schemaId: "2026-match-drifted",
@@ -314,15 +310,28 @@ runTest("previewScoutingJsonImport honors payload schema fields instead of forci
           entryId: "drifted-1",
           matchNumber: 12,
           teamNumber: 686,
-          scoutUser: "Scout A",
           alliance: "blue",
-          station: "1",
           rawMetrics: {
             autoFuelPct: 65,
             customDriverTag: "calm",
+            scoutUser: "Scout A",
+            station: "1",
           },
         },
       ],
+    }),
+    schemaJsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        templateProfileId: "canonical-json-v1",
+      },
+      schema: {
+        schemaId: "2026-match-drifted",
+        fields: [
+          { id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%", aggregate: "average" },
+          { id: "customDriverTag", label: "Driver Tag", type: "string", unit: "text", aggregate: "mode" },
+        ],
+      },
     }),
     eventModel,
     activeEventKey: "2026chcmp",
@@ -334,4 +343,61 @@ runTest("previewScoutingJsonImport honors payload schema fields instead of forci
   assert.equal(preview.summary.submissions[0].validity, "valid");
   assert.deepEqual(JSON.parse(JSON.stringify(preview.warnings)), []);
   assert.deepEqual(preview.summary.schemaFields.map((field) => field.id), ["autoFuelPct", "customDriverTag"]);
+});
+
+runTest("previewScoutingJsonImport can combine split entries and schema artifacts", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
+  const eventModel = {
+    ...season2026,
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: season2026.label,
+    metrics: context.SeasonFramework.buildMetrics(season2026),
+    criteriaSources: context.SeasonFramework.buildCriteriaSources(season2026),
+  };
+
+  const preview = context.ScoutingJsonImport.previewScoutingJsonImport({
+    jsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        season: 2026,
+        eventKey: "2026chcmp",
+        entryType: "match",
+      },
+      entries: [
+        {
+          entryId: "split-1",
+          matchNumber: 4,
+          teamNumber: 686,
+          alliance: "blue",
+          rawMetrics: {
+            scoutUser: "Scout Split",
+            station: "2",
+            autoFuelPct: 70,
+          },
+        },
+      ],
+    }),
+    schemaJsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        sourceApp: "Split Exporter",
+        templateProfileId: "canonical-json-v1",
+        profileLabel: "Canonical JSON",
+        translationVersion: "split-v1",
+      },
+      schema: context.ScoutingJsonSchema.buildCanonicalSchemaForEventModel(eventModel),
+    }),
+    eventModel,
+    activeEventKey: "2026chcmp",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, true);
+  assert.equal(preview.summary.metadata.templateProfileId, "canonical-json-v1");
+  assert.equal(preview.summary.metadata.translationVersion, "split-v1");
+  assert.equal(preview.summary.submissions[0].scoutUser, "Scout Split");
+  assert.equal(preview.summary.submissions[0].station, "2");
+  assert.equal(preview.summary.submissions[0].provenance.sourceApp, "Split Exporter");
 });

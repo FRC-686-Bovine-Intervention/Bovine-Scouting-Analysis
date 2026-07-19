@@ -56,13 +56,15 @@ runTest("translateEventSheetToCanonical emits canonical dataset metadata and ent
   });
 
   assert.equal(dataset.meta.format, "frc-scouting-analysis/v1");
-  assert.equal(dataset.meta.templateProfileId, "match-legacy-v1");
-  assert.equal(dataset.meta.translationVersion, "2026-thin-v2");
+  assert.equal(dataset.schemaMeta.templateProfileId, "match-legacy-v1");
+  assert.equal(dataset.schemaMeta.translationVersion, "2026-thin-v2");
   assert.equal(dataset.schema.schemaId, "match-v1");
   assert.equal(dataset.entries.length, 1);
   assert.equal(dataset.entries[0].teamNumber, 1262);
   assert.equal(dataset.entries[0].rawMetrics.autoPrimaryRole, "Score");
   assert.equal(dataset.entries[0].rawMetrics.overallShooter, null);
+  assert.equal(dataset.entries[0].rawMetrics.scoutUser, "Scout");
+  assert.equal(dataset.entries[0].rawMetrics.station, "Hub");
   assert.equal(dataset.entries[0].provenance.mode, "legacy-sheet-translation");
   assert.equal(dataset.entries[0].provenance.sourceRowNumber, 2);
   assert.equal(dataset.entries[0].provenance.translatorVersion, "2026-thin-v2");
@@ -116,7 +118,7 @@ runTest("translateEventSheetToCanonical can match a legacy adapter by headers ev
 
   const dataset = context.SheetImportAdapters.translateEventSheetToCanonical(eventModel, rawSheetCsv);
 
-  assert.equal(dataset.meta.translationVersion, "2026-thin-v2");
+  assert.equal(dataset.schemaMeta.translationVersion, "2026-thin-v2");
   assert.equal(dataset.entries.length, 1);
   assert.equal(dataset.entries[0].teamNumber, 1262);
   assert.equal(dataset.entries[0].rawMetrics.autoPrimaryRole, "Score");
@@ -140,7 +142,7 @@ runTest("legacy scoring-component backfill follows the matched adapter instead o
 
   const dataset = context.SheetImportAdapters.translateEventSheetToCanonical(eventModel, rawSheetCsv);
 
-  assert.equal(dataset.meta.translationVersion, "2025-thin-v2");
+  assert.equal(dataset.schemaMeta.translationVersion, "2025-thin-v2");
   assert.equal(dataset.entries.length, 1);
   assert.equal(dataset.entries[0].rawMetrics.auto, 20);
   assert.equal(dataset.entries[0].rawMetrics.coral, 20);
@@ -164,11 +166,36 @@ runTest("translateEventSheetToCanonical falls back to generic canonical sheet co
 
   const dataset = context.SheetImportAdapters.translateEventSheetToCanonical(eventModel, rawSheetCsv);
 
-  assert.equal(dataset.meta.templateProfileId, "canonical-json-v1");
-  assert.equal(dataset.meta.translationVersion, "sheet-fallback-v1");
+  assert.equal(dataset.schemaMeta.templateProfileId, "canonical-json-v1");
+  assert.equal(dataset.schemaMeta.translationVersion, "sheet-fallback-v1");
   assert.equal(dataset.entries.length, 1);
-  assert.equal(dataset.entries[0].scoutUser, "Scout B");
+  assert.equal(dataset.entries[0].rawMetrics.scoutUser, "Scout B");
   assert.equal(dataset.entries[0].rawMetrics.customDriverTag, "aggressive");
   assert.equal(dataset.entries[0].rawMetrics.customAutoBursts, 5);
   assert.equal(dataset.entries[0].provenance.mode, "sheet-column-canonicalization");
+});
+
+runTest("translateEventSheetToCanonical can emit split entries and schema artifacts", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
+  const eventModel = {
+    ...season2026,
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: season2026.label,
+  };
+  const rawSheetCsv = [
+    "Match Number,Team Number,Scout User,Alliance,Station,Custom Driver Tag",
+    "7,2537,Scout B,blue,2,aggressive",
+  ].join("\n");
+
+  const dataset = context.SheetImportAdapters.translateEventSheetToCanonical(eventModel, rawSheetCsv);
+  const entriesArtifact = JSON.parse(context.SheetImportAdapters.buildCanonicalEntriesJsonText(dataset));
+  const schemaArtifact = JSON.parse(context.SheetImportAdapters.buildCanonicalSchemaJsonText(dataset));
+
+  assert.deepEqual(Object.keys(entriesArtifact).sort(), ["entries", "meta"]);
+  assert.deepEqual(Object.keys(schemaArtifact).sort(), ["meta", "schema"]);
+  assert.equal(entriesArtifact.meta.eventKey, "2026chcmp");
+  assert.equal(schemaArtifact.meta.templateProfileId, "canonical-json-v1");
+  assert.equal(entriesArtifact.entries[0].rawMetrics.scoutUser, "Scout B");
 });

@@ -5,9 +5,15 @@ const scoutingJsonSchema = globalThis.ScoutingJsonSchema || {};
 const buildCanonicalSchemaForEventModel =
   scoutingJsonSchema.buildCanonicalSchemaForEventModel ||
   ((eventModel, options = {}) => ({ schemaId: String(options.schemaId || `${eventModel?.season || "season"}-match-v1`), fields: [] }));
+const buildCanonicalEntriesMetaForEventModel =
+  scoutingJsonSchema.buildCanonicalEntriesMetaForEventModel ||
+  ((eventModel, options = {}) => ({ format: "frc-scouting-analysis/v1", season: Number(options.season || eventModel?.season || 0), eventKey: String(options.eventKey || eventModel?.key || ""), entryType: "match" }));
+const buildCanonicalSchemaMeta =
+  scoutingJsonSchema.buildCanonicalSchemaMeta ||
+  ((options = {}) => ({ format: "frc-scouting-analysis/v1", sourceApp: String(options.sourceApp || "").trim(), templateProfileId: String(options.templateProfileId || "").trim(), profileLabel: String(options.profileLabel || "").trim(), translationVersion: String(options.translationVersion || "").trim() }));
 const buildCanonicalMetaForEventModel =
   scoutingJsonSchema.buildCanonicalMetaForEventModel ||
-  ((eventModel, options = {}) => ({ format: "frc-scouting-analysis/v1", season: Number(options.season || eventModel?.season || 0), eventKey: String(options.eventKey || eventModel?.key || ""), entryType: "match" }));
+  buildCanonicalEntriesMetaForEventModel;
 const genericSheetTranslationVersion = "sheet-fallback-v1";
 const genericSheetTemplateProfileId = "canonical-json-v1";
 const genericSheetProfileLabel = "Canonical Sheet Bridge";
@@ -773,13 +779,15 @@ function canonicalEntriesFromRecords(records, options = {}) {
     entryId: record.entryId || `sheet-entry-${index + 1}`,
     matchNumber: record.matchNumber,
     teamNumber: record.teamNumber,
-    scoutUser: record.scoutUser,
     alliance: record.alliance,
-    station: record.station,
-    defensePlayed: Boolean(record.defensePlayed),
-    robotStatus: record.robotStatus || "",
-    notes: record.notes || "",
-    rawMetrics: { ...(record.metrics || {}) },
+    rawMetrics: {
+      ...(record.metrics || {}),
+      scoutUser: record.scoutUser || "",
+      station: record.station || "",
+      defensePlayed: Boolean(record.defensePlayed),
+      robotStatus: record.robotStatus || "",
+      notes: record.notes || "",
+    },
     provenance: Object.fromEntries(
       Object.entries({
         mode: provenanceMode || record?.provenance?.mode || "legacy-sheet-translation",
@@ -819,47 +827,84 @@ function buildCanonicalDataset(eventModel, records, options = {}) {
       ...normalizedField,
     });
   });
-  const meta = {
+  const profileLabel =
+    String(options.profileLabel || "").trim()
+    || {
+      "match-current-v2": "Current Match Template",
+      "match-legacy-v1": "Legacy Match Template",
+      "canonical-json-v1": genericSheetProfileLabel,
+    }[templateProfileId]
+    || templateProfileId;
+  const entriesMeta = {
     ...buildCanonicalMetaForEventModel(eventModel, {
       eventKey: eventModel.key,
       season: eventModel.season,
       entryType: "match",
-      sourceApp: String(options.sourceApp || "").trim() || "legacy-sheet-translator",
     }),
-    templateProfileId,
-    profileLabel:
-      String(options.profileLabel || "").trim()
-      || {
-        "match-current-v2": "Current Match Template",
-        "match-legacy-v1": "Legacy Match Template",
-        "canonical-json-v1": genericSheetProfileLabel,
-      }[templateProfileId]
-      || templateProfileId,
-    translationVersion,
   };
+  const schemaMeta = buildCanonicalSchemaMeta({
+    sourceApp: String(options.sourceApp || "").trim() || "legacy-sheet-translator",
+    templateProfileId,
+    profileLabel,
+    translationVersion,
+  });
+  const schema = {
+    ...baseSchema,
+    schemaId: schemaVersion,
+    fields: [...mergedSchemaFieldMap.values()],
+  };
+  const entries = canonicalEntriesFromRecords(normalizedRecords, {
+    translationVersion,
+    provenanceMode: options.provenanceMode,
+  });
   return {
-    meta,
-    schema: {
-      ...baseSchema,
-      schemaId: schemaVersion,
-      fields: [...mergedSchemaFieldMap.values()],
+    entriesFile: {
+      meta: entriesMeta,
+      entries,
     },
-    entries: canonicalEntriesFromRecords(normalizedRecords, {
-      translationVersion,
-      provenanceMode: options.provenanceMode,
-    }),
+    schemaFile: {
+      meta: schemaMeta,
+      schema,
+    },
+    meta: entriesMeta,
+    schemaMeta,
+    schema,
+    entries,
     translatorVersion: translationVersion,
     templateProfileId,
-    profileLabel: meta.profileLabel,
+    profileLabel,
   };
+}
+
+function buildCanonicalEntriesJsonText(dataset) {
+  return JSON.stringify(
+    {
+      meta: dataset?.entriesFile?.meta || dataset?.meta || {},
+      entries: dataset?.entriesFile?.entries || dataset?.entries || [],
+    },
+    null,
+    2,
+  );
+}
+
+function buildCanonicalSchemaJsonText(dataset) {
+  return JSON.stringify(
+    {
+      meta: dataset?.schemaFile?.meta || dataset?.schemaMeta || {},
+      schema: dataset?.schemaFile?.schema || dataset?.schema || {},
+    },
+    null,
+    2,
+  );
 }
 
 function buildCanonicalJsonText(dataset) {
   return JSON.stringify(
     {
-      meta: dataset?.meta || {},
-      schema: dataset?.schema || {},
-      entries: dataset?.entries || [],
+      meta: dataset?.entriesFile?.meta || dataset?.meta || {},
+      schemaMeta: dataset?.schemaFile?.meta || dataset?.schemaMeta || {},
+      schema: dataset?.schemaFile?.schema || dataset?.schema || {},
+      entries: dataset?.entriesFile?.entries || dataset?.entries || [],
     },
     null,
     2,
@@ -941,16 +986,16 @@ function reefscape2025ClimbPoints(value) {
 function adaptEventSheetCsv(eventModel, csvText, options = {}) {
   if (!csvText) return "";
   const dataset = translateEventSheetToCanonical(eventModel, csvText, options);
-  if (dataset?.meta?.templateProfileId === genericSheetTemplateProfileId) return csvText;
+  if (dataset?.templateProfileId === genericSheetTemplateProfileId) return csvText;
   const records = dataset.entries.map((entry) => ({
     matchNumber: entry.matchNumber,
     teamNumber: entry.teamNumber,
-    scoutUser: entry.scoutUser,
+    scoutUser: entry.rawMetrics?.scoutUser || entry.scoutUser,
     alliance: entry.alliance,
-    station: entry.station,
-    defensePlayed: entry.defensePlayed,
-    robotStatus: entry.robotStatus,
-    notes: entry.notes,
+    station: entry.rawMetrics?.station || entry.station,
+    defensePlayed: entry.rawMetrics?.defensePlayed ?? entry.defensePlayed,
+    robotStatus: entry.rawMetrics?.robotStatus || entry.robotStatus,
+    notes: entry.rawMetrics?.notes || entry.notes,
     metrics: entry.rawMetrics || {},
   }));
   return buildCanonicalImportCsv(eventModel, records, {
@@ -966,7 +1011,9 @@ globalThis.SheetImportAdapters = {
   adapt2025SheetCsv: (eventModel, csvText) => adaptEventSheetCsv({ ...eventModel, season: 2025 }, csvText),
   adapt2026SheetCsv: (eventModel, csvText) => adaptEventSheetCsv({ ...eventModel, season: 2026 }, csvText),
   adaptEventSheetCsv,
+  buildCanonicalEntriesJsonText,
   buildCanonicalJsonText,
+  buildCanonicalSchemaJsonText,
   buildCanonicalImportCsv,
   importTranslationVersionForEvent,
   parseCsvText,

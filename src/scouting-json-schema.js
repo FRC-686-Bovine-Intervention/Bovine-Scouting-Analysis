@@ -2,8 +2,9 @@
 const seasonFramework = globalThis.SeasonFramework || {};
 const canonicalFormatId = "frc-scouting-analysis/v1";
 const canonicalTemplateProfileId = "canonical-json-v1";
-const requiredEntryIdentityFields = ["matchNumber", "teamNumber", "scoutUser", "alliance", "station"];
-const requiredMetaFields = ["format", "season", "eventKey", "entryType"];
+const requiredEntryIdentityFields = ["matchNumber", "teamNumber", "alliance"];
+const requiredEntriesMetaFields = ["format", "season", "eventKey", "entryType"];
+const requiredSchemaMetaFields = ["format"];
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -63,49 +64,100 @@ function buildCanonicalSchemaForEventModel(eventModel, options = {}) {
 }
 
 function buildCanonicalMetaForEventModel(eventModel, options = {}) {
+  return buildCanonicalEntriesMetaForEventModel(eventModel, options);
+}
+
+function buildCanonicalEntriesMetaForEventModel(eventModel, options = {}) {
   return {
     format: canonicalFormatId,
     eventKey: normalizeText(options.eventKey) || normalizeText(eventModel?.key),
     season: Number(options.season || eventModel?.season || 0),
     entryType: normalizeText(options.entryType) || "match",
     exportedAt: normalizeText(options.exportedAt),
-    sourceApp: normalizeText(options.sourceApp),
   };
 }
 
-function validateCanonicalSchema(payload, eventModel, activeEventKey) {
+function buildCanonicalSchemaMeta(options = {}) {
+  return {
+    format: canonicalFormatId,
+    sourceApp: normalizeText(options.sourceApp),
+    templateProfileId: normalizeText(options.templateProfileId) || canonicalTemplateProfileId,
+    profileLabel: normalizeText(options.profileLabel),
+    translationVersion: normalizeText(options.translationVersion),
+  };
+}
+
+function normalizeCanonicalPayload(payload, schemaPayload = null) {
+  const entriesPayload = payload && typeof payload === "object" && !Array.isArray(payload) ? payload : {};
+  const schemaSource = schemaPayload && typeof schemaPayload === "object" && !Array.isArray(schemaPayload)
+    ? schemaPayload
+    : entriesPayload;
+  const entriesMeta = entriesPayload?.meta && typeof entriesPayload.meta === "object" && !Array.isArray(entriesPayload.meta)
+    ? entriesPayload.meta
+    : {};
+  const schemaMeta = schemaSource?.meta && typeof schemaSource.meta === "object" && !Array.isArray(schemaSource.meta)
+    ? schemaSource.meta
+    : {};
+  const schema = schemaSource?.schema && typeof schemaSource.schema === "object" && !Array.isArray(schemaSource.schema)
+    ? schemaSource.schema
+    : {};
+  const entries = Array.isArray(entriesPayload?.entries) ? entriesPayload.entries : null;
+  return {
+    entriesPayload,
+    schemaPayload: schemaSource,
+    meta: entriesMeta,
+    schemaMeta,
+    schema,
+    entries,
+  };
+}
+
+function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayload = null) {
   const errors = [];
   const warnings = [];
-  const meta = payload?.meta && typeof payload.meta === "object" ? payload.meta : {};
-  const schema = payload?.schema && typeof payload.schema === "object" ? payload.schema : {};
-  const entries = Array.isArray(payload?.entries) ? payload.entries : null;
+  const normalized = normalizeCanonicalPayload(payload, schemaPayload);
+  const meta = normalized.meta;
+  const schemaMeta = normalized.schemaMeta;
+  const schema = normalized.schema;
+  const entries = normalized.entries;
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    errors.push("Canonical scouting JSON must be a JSON object.");
-    return { errors, warnings, meta, schema, entries, schemaFieldMap: new Map(), expectedFieldMap: new Map() };
+    errors.push("Canonical scouting entries JSON must be a JSON object.");
+    return { errors, warnings, meta, schemaMeta, schema, entries, schemaFieldMap: new Map(), expectedFieldMap: new Map() };
   }
 
   if (!payload?.meta || typeof payload.meta !== "object" || Array.isArray(payload.meta)) {
-    errors.push("Canonical scouting JSON must include a meta object.");
+    errors.push("Canonical scouting entries JSON must include a meta object.");
   }
-  if (!payload?.schema || typeof payload.schema !== "object" || Array.isArray(payload.schema)) {
+  if (!schemaPayload && (!payload?.schema || typeof payload.schema !== "object" || Array.isArray(payload.schema))) {
     errors.push("Canonical scouting JSON must include a schema object.");
   }
+  if (schemaPayload && (!schemaPayload?.schema || typeof schemaPayload.schema !== "object" || Array.isArray(schemaPayload.schema))) {
+    errors.push("Canonical scouting schema JSON must include a schema object.");
+  }
   if (!entries) {
-    errors.push("Canonical scouting JSON must include an entries array.");
+    errors.push("Canonical scouting entries JSON must include an entries array.");
   }
 
-  requiredMetaFields.forEach((fieldId) => {
+  requiredEntriesMetaFields.forEach((fieldId) => {
     if (!normalizeText(meta[fieldId])) {
-      errors.push(`Canonical scouting JSON meta.${fieldId} is required.`);
+      errors.push(`Canonical scouting entries JSON meta.${fieldId} is required.`);
+    }
+  });
+  requiredSchemaMetaFields.forEach((fieldId) => {
+    if (!normalizeText(schemaMeta[fieldId])) {
+      errors.push(`Canonical scouting schema JSON meta.${fieldId} is required.`);
     }
   });
 
   if (normalizeText(meta.format) && normalizeText(meta.format) !== canonicalFormatId) {
-    errors.push(`Canonical scouting JSON format must be ${canonicalFormatId}.`);
+    errors.push(`Canonical scouting entries JSON format must be ${canonicalFormatId}.`);
+  }
+  if (normalizeText(schemaMeta.format) && normalizeText(schemaMeta.format) !== canonicalFormatId) {
+    errors.push(`Canonical scouting schema JSON format must be ${canonicalFormatId}.`);
   }
   if (normalizeText(meta.entryType) && normalizeText(meta.entryType) !== "match") {
-    errors.push(`Canonical scouting JSON meta.entryType must be match, received ${normalizeText(meta.entryType)}.`);
+    errors.push(`Canonical scouting entries JSON meta.entryType must be match, received ${normalizeText(meta.entryType)}.`);
   }
   if (normalizeText(meta.season) && String(meta.season) !== String(eventModel?.season)) {
     errors.push(`Metadata season ${meta.season} does not match active season ${eventModel?.season}.`);
@@ -116,10 +168,10 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey) {
 
   const schemaId = normalizeText(schema.schemaId);
   if (!schemaId) {
-    errors.push("Canonical scouting JSON schema.schemaId is required.");
+    errors.push("Canonical scouting schema JSON schema.schemaId is required.");
   }
   if (!Array.isArray(schema.fields)) {
-    errors.push("Canonical scouting JSON schema.fields must be an array.");
+    errors.push("Canonical scouting schema JSON schema.fields must be an array.");
   }
 
   const expectedFields = buildCanonicalSchemaForEventModel(eventModel).fields;
@@ -170,6 +222,7 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey) {
     errors,
     warnings,
     meta,
+    schemaMeta,
     schema: {
       ...schema,
       schemaId,
@@ -182,11 +235,14 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey) {
 }
 
 globalThis.ScoutingJsonSchema = {
+  buildCanonicalEntriesMetaForEventModel,
+  buildCanonicalSchemaMeta,
   buildCanonicalMetaForEventModel,
   buildCanonicalSchemaForEventModel,
   canonicalFormatId,
   canonicalTemplateProfileId,
   inferCanonicalFieldType,
+  normalizeCanonicalPayload,
   requiredEntryIdentityFields,
   validateCanonicalSchema,
 };

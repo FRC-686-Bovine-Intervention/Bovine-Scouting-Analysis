@@ -97,3 +97,29 @@ runTest("validateCanonicalSchema rejects missing schema.fields with actionable e
 
   assert.equal(validation.errors.some((error) => error.includes("schema.fields must be an array")), true);
 });
+
+runTest("validateCanonicalSchema accepts split entries and schema artifacts", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
+  const eventModel = buildEventModel(context);
+  const entriesPayload = {
+    meta: {
+      format: "frc-scouting-analysis/v1",
+      season: 2026,
+      eventKey: "2026chcmp",
+      entryType: "match",
+    },
+    entries: [{ entryId: "split-1", matchNumber: 1, teamNumber: 686, alliance: "red", rawMetrics: { autoFuelPct: 80 } }],
+  };
+  const schemaPayload = {
+    meta: {
+      format: "frc-scouting-analysis/v1",
+      templateProfileId: "canonical-json-v1",
+    },
+    schema: context.ScoutingJsonSchema.buildCanonicalSchemaForEventModel(eventModel),
+  };
+  const validation = context.ScoutingJsonSchema.validateCanonicalSchema(entriesPayload, eventModel, "2026chcmp", schemaPayload);
+
+  assert.equal(validation.errors.length, 0);
+  assert.equal(validation.schemaMeta.templateProfileId, "canonical-json-v1");
+  assert.equal(validation.entries.length, 1);
+});
