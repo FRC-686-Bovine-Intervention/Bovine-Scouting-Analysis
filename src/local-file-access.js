@@ -137,6 +137,22 @@ function isUserCancelledPicker(error) {
   return name === "AbortError" || message.includes("aborted") || message.includes("cancel");
 }
 
+function hasActiveUserActivation(deps = {}) {
+  const userActivation = deps.userActivation || globalThis.navigator?.userActivation;
+  return Boolean(userActivation?.isActive);
+}
+
+async function readTextFromHandleFile(handle) {
+  if (typeof handle?.getFile !== "function") {
+    throw new Error("The saved local scouting file handle is unreadable.");
+  }
+  const file = await handle.getFile();
+  if (!file || typeof file.text !== "function") {
+    throw new Error("The saved local scouting file could not be opened.");
+  }
+  return file.text();
+}
+
 async function pickAttachmentFileWithInput(options = {}, deps = {}) {
   const documentRef = deps.document || globalThis.document;
   if (!documentRef?.body || typeof documentRef.createElement !== "function") {
@@ -229,23 +245,24 @@ async function readAttachmentText(attachmentId, deps = {}) {
   if (handle && typeof handle === "object" && handle.kind === "snapshot") {
     return String(handle.text || "");
   }
-  if (typeof handle.queryPermission === "function") {
+
+  try {
+    return await readTextFromHandleFile(handle);
+  } catch (error) {
+    if (typeof handle.queryPermission !== "function") throw error;
     let permission = await handle.queryPermission({ mode: "read" });
-    if (permission === "prompt" && typeof handle.requestPermission === "function") {
+    if (
+      permission === "prompt"
+      && typeof handle.requestPermission === "function"
+      && hasActiveUserActivation(deps)
+    ) {
       permission = await handle.requestPermission({ mode: "read" });
     }
     if (permission !== "granted") {
       throw new Error("Permission to read the local scouting file was denied.");
     }
+    return readTextFromHandleFile(handle);
   }
-  if (typeof handle.getFile !== "function") {
-    throw new Error("The saved local scouting file handle is unreadable.");
-  }
-  const file = await handle.getFile();
-  if (!file || typeof file.text !== "function") {
-    throw new Error("The saved local scouting file could not be opened.");
-  }
-  return file.text();
 }
 
 async function removeAttachment(attachmentId, deps = {}) {

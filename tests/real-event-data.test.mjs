@@ -87,7 +87,10 @@ runTest("real event model preserves qualification alliance scores and score brea
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/event-model-builder.js", "src/real-event-data.js"], {
     realEventSnapshots: snapshots,
   });
-  const [eventModel] = context.eventCatalog;
+  const [catalogEntry] = context.eventCatalog;
+  const eventModel = context.RealEventData?.hydrateEventModel
+    ? context.RealEventData.hydrateEventModel(catalogEntry)
+    : catalogEntry;
   assert.ok(eventModel, "Event model should be created");
   assert.equal(eventModel.matchesComplete, 1);
   assert.equal(eventModel.matches.length, 1);
@@ -145,7 +148,10 @@ runTest("real event model leaves score breakdown null when snapshots only provid
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/event-model-builder.js", "src/real-event-data.js"], {
     realEventSnapshots: snapshots,
   });
-  const [eventModel] = context.eventCatalog;
+  const [catalogEntry] = context.eventCatalog;
+  const eventModel = context.RealEventData?.hydrateEventModel
+    ? context.RealEventData.hydrateEventModel(catalogEntry)
+    : catalogEntry;
   assert.equal(eventModel.matches[0].redScore, 75);
   assert.equal(eventModel.matches[0].blueScore, 81);
   assert.equal(eventModel.matches[0].winningAlliance, "blue");
@@ -158,4 +164,37 @@ runTest("real event data does not invent fallback events when no real snapshots 
   });
 
   assert.deepEqual(JSON.parse(JSON.stringify(context.eventCatalog || [])), []);
+});
+
+runTest("real event data merges framework season metadata when provider season metadata is empty", () => {
+  const context = loadBrowserContext([
+    "src/provider-season-metadata.js",
+    "src/scouting-schema-runtime.js",
+    "src/legacy-scouting-schema-seeds.js",
+    "src/season-framework.js",
+    "src/event-model-builder.js",
+    "src/real-event-data.js",
+  ], {
+    realEventSnapshots: {
+      events: [
+        {
+          key: "2024mdsev",
+          year: 2024,
+          importProfileId: "",
+          sheet: null,
+          tbaEventText: JSON.stringify({ name: "2024 CHS District Severn MD Event" }),
+          tbaTeamsText: JSON.stringify([{ team_number: 1719, nickname: "Alpha" }]),
+          tbaMatchesText: JSON.stringify([]),
+          statboticsEventText: JSON.stringify({ status: "Completed" }),
+          statboticsTeamEventsText: JSON.stringify([]),
+        },
+      ],
+    },
+  });
+
+  const [eventModel] = context.eventCatalog;
+  assert.equal(eventModel.season, 2024);
+  assert.equal(eventModel.seasonLabel, "Crescendo");
+  assert.deepEqual(JSON.parse(JSON.stringify(eventModel.scoringComponents.map((component) => component.id))), ["auto", "speaker", "amp", "trap"]);
+  assert.equal(context.SeasonFramework.formulaFieldDefinitions(eventModel).length > 0, true);
 });

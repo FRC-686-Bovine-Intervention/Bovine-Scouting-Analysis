@@ -55,6 +55,8 @@ runTest("generic metric catalog exposes provider totals and schema-driven scouti
   assert.equal(metrics.some((metric) => metric.id === "source:opr:total"), false);
   assert.equal(metrics.some((metric) => metric.id === "source:pridge:total"), true);
   assert.equal(metrics.some((metric) => metric.id === "derived:fuelContributionAvg"), true);
+  assert.equal(metrics.some((metric) => metric.id === "derived:defenseImpact"), false);
+  assert.equal(metrics.some((metric) => metric.id === "derived:consistency"), false);
 });
 
 runTest("formula field definitions remain schema-driven when explicit formula fields are absent", () => {

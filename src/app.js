@@ -242,6 +242,7 @@ const importProfileOptions = [
   { id: "match-current-v2", label: "Current Match Template" },
   { id: "match-legacy-v1", label: "Legacy Match Template" },
 ];
+const defaultTbaAuthKey = "eEFUlYooyVPeyGj1T07Z3AVTQoDHPM4MssTRD9XLDCapqhGepo1UQCj0OlL7AtqK";
 
 const navItems = [
   { view: "teams", label: "Teams", icon: "teams" },
@@ -315,7 +316,10 @@ const defaultScoutingProfileId = "match-current-v2";
 const initialEventKey = resolveEventKey(readStoredItem(storageKeys.activeEvent));
 const initialEvent = eventModelByKey(initialEventKey);
 const initialWorkspace = createEventWorkspace(initialEvent, readStoredJson(storageKeys.eventWorkspace, null, initialEventKey));
-const initialTbaAuthKey = readStoredItem(storageKeys.tbaAuthKey) || normalizeText(globalThis.__TBA_AUTH_KEY || globalThis.TBA_AUTH_KEY);
+const initialTbaAuthKey =
+  readStoredItem(storageKeys.tbaAuthKey)
+  || normalizeText(globalThis.__TBA_AUTH_KEY || globalThis.TBA_AUTH_KEY)
+  || defaultTbaAuthKey;
 const initialStatboticsBaseUrl =
   readStoredItem(storageKeys.statboticsBaseUrl)
   || normalizeText(globalThis.__STATBOTICS_BASE_URL || globalThis.STATBOTICS_BASE_URL)

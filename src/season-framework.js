@@ -184,24 +184,6 @@ function buildMetrics(season) {
       shortLabel: sourceLabels.pridge,
       unit: "pts",
     },
-    {
-      id: "derived:defenseImpact",
-      kind: "derived",
-      sourceId: "derived",
-      componentId: "defenseImpact",
-      label: "Defense Impact",
-      shortLabel: "Defense Impact",
-      unit: "pts",
-    },
-    {
-      id: "derived:consistency",
-      kind: "derived",
-      sourceId: "derived",
-      componentId: "consistency",
-      label: "Consistency",
-      shortLabel: "Consistency",
-      unit: "%",
-    },
     ...derivedMetricDefinitions(season).map((metricDefinition) => ({
       id: `derived:${metricDefinition.id}`,
       kind: "derived",
@@ -226,8 +208,6 @@ function buildCriteriaSources(season) {
       id: "derived",
       label: sourceLabels.derived,
       components: [
-        { id: "defenseImpact", label: "Defense Impact" },
-        { id: "consistency", label: "Consistency" },
         ...derivedMetricDefinitions(season).map((metricDefinition) => ({ id: metricDefinition.id, label: metricDefinition.label })),
       ],
     },

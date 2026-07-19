@@ -53,6 +53,19 @@ runTest("season metrics expose pRidge as a total-only source", () => {
   assert.equal(pridgeCriteriaSource.components.map((component) => component.id).join(","), "total");
 });
 
+runTest("season metrics do not inject legacy derived metrics that no longer exist", () => {
+  const season = seasonFramework.gameDefinitions[2026];
+  const metrics = seasonFramework.buildMetrics(season);
+  const criteriaSources = seasonFramework.buildCriteriaSources(season);
+
+  assert.equal(metrics.some((metric) => metric.id === "derived:defenseImpact"), false);
+  assert.equal(metrics.some((metric) => metric.id === "derived:consistency"), false);
+
+  const derivedCriteriaSource = criteriaSources.find((source) => source.id === "derived");
+  assert.equal(derivedCriteriaSource.components.some((component) => component.id === "defenseImpact"), false);
+  assert.equal(derivedCriteriaSource.components.some((component) => component.id === "consistency"), false);
+});
+
 runTest("season metrics expose Statbotics under its provider name", () => {
   const season = seasonFramework.gameDefinitions[2024];
   const metrics = seasonFramework.buildMetrics(season);

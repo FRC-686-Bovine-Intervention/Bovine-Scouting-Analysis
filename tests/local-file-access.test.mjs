@@ -96,6 +96,62 @@ async function main() {
     assert.equal(text, "Match,Team\n1,686\n");
   });
 
+  await runTest("readAttachmentText reads an existing handle without prompting when getFile already works", async () => {
+    const storage = createMemoryStorage();
+    const context = loadBrowserContext(["src/local-file-access.js"]);
+    let requestPermissionCalls = 0;
+    await storage.set("attachment-works-without-prompt", {
+      async queryPermission() {
+        return "prompt";
+      },
+      async requestPermission() {
+        requestPermissionCalls += 1;
+        return "granted";
+      },
+      async getFile() {
+        return {
+          async text() {
+            return "{\"ok\":true}";
+          },
+        };
+      },
+    });
+
+    const text = await context.LocalFileAccess.readAttachmentText("attachment-works-without-prompt", { storage });
+
+    assert.equal(text, "{\"ok\":true}");
+    assert.equal(requestPermissionCalls, 0);
+  });
+
+  await runTest("readAttachmentText avoids requestPermission without user activation and surfaces a clean denial", async () => {
+    const storage = createMemoryStorage();
+    const context = loadBrowserContext(["src/local-file-access.js"]);
+    let requestPermissionCalls = 0;
+    await storage.set("attachment-needs-activation", {
+      async queryPermission() {
+        return "prompt";
+      },
+      async requestPermission() {
+        requestPermissionCalls += 1;
+        throw new Error("requestPermission should not be called without user activation");
+      },
+      async getFile() {
+        const error = new Error("User activation is required to request permissions.");
+        error.name = "NotAllowedError";
+        throw error;
+      },
+    });
+
+    await assert.rejects(
+      () => context.LocalFileAccess.readAttachmentText("attachment-needs-activation", {
+        storage,
+        userActivation: { isActive: false },
+      }),
+      /Permission to read the local scouting file was denied/i,
+    );
+    assert.equal(requestPermissionCalls, 0);
+  });
+
   await runTest("readAttachmentText surfaces a clear error when no stored handle exists", async () => {
     const storage = createMemoryStorage();
     const context = loadBrowserContext(["src/local-file-access.js"]);

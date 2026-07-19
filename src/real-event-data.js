@@ -3,7 +3,10 @@ const eventModelBuilder = globalThis.EventModelBuilder || {};
 const seasonFramework = globalThis.SeasonFramework || {};
 const providerSeasonMetadata = globalThis.ProviderSeasonMetadata || {};
 const scoutingSchemaRuntime = globalThis.ScoutingSchemaRuntime || {};
-const seasonMetadataByYear = providerSeasonMetadata.seasons || seasonFramework.gameDefinitions || {};
+const seasonMetadataByYear = {
+  ...(seasonFramework.gameDefinitions || {}),
+  ...(providerSeasonMetadata.seasons || {}),
+};
 const buildMetricCatalog =
   scoutingSchemaRuntime.buildMetricCatalog
   || seasonFramework.buildMetrics
@@ -65,6 +68,26 @@ const buildEventModelFromSnapshot =
   eventModelBuilder.buildEventModelFromSnapshot ||
   minimalEventModelFromSnapshot;
 
+function buildCatalogEventRecord(snapshot) {
+  const eventModel = minimalEventModelFromSnapshot(snapshot);
+  if (buildEventModelFromSnapshot === minimalEventModelFromSnapshot) {
+    return { ...eventModel, __snapshot: snapshot, __hydrated: true };
+  }
+  return { ...eventModel, __snapshot: snapshot, __hydrated: false };
+}
+
+function hydrateEventModel(eventModel) {
+  if (!eventModel || eventModel.__hydrated || !eventModel.__snapshot) return eventModel;
+  return {
+    ...buildEventModelFromSnapshot(eventModel.__snapshot),
+    __snapshot: eventModel.__snapshot,
+    __hydrated: true,
+  };
+}
+
 const snapshots = Array.isArray(globalThis.realEventSnapshots?.events) ? globalThis.realEventSnapshots.events : [];
-globalThis.eventCatalog = snapshots.map(buildEventModelFromSnapshot);
+globalThis.eventCatalog = snapshots.map(buildCatalogEventRecord);
+globalThis.RealEventData = {
+  hydrateEventModel,
+};
 })();

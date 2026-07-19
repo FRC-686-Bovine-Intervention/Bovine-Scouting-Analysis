@@ -3,7 +3,10 @@ const seasonFramework = globalThis.SeasonFramework || {};
 const providerSeasonMetadata = globalThis.ProviderSeasonMetadata || {};
 const scoutingSchemaRuntime = globalThis.ScoutingSchemaRuntime || {};
 const priorRidge = globalThis.PriorRidge || {};
-const seasonMetadataByYear = providerSeasonMetadata.seasons || seasonFramework.gameDefinitions || {};
+const seasonMetadataByYear = {
+  ...(seasonFramework.gameDefinitions || {}),
+  ...(providerSeasonMetadata.seasons || {}),
+};
 const buildMetricCatalog =
   scoutingSchemaRuntime.buildMetricCatalog
   || seasonFramework.buildMetrics

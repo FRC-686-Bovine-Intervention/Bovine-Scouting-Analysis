@@ -396,10 +396,16 @@ select {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  min-width: 0;
+}
+
+.admin-field-row > * {
+  min-width: 0;
 }
 
 .admin-field-row input {
-  width: auto;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
 }
 
