@@ -185,6 +185,25 @@ runTest("setScoutingSourceLocation stores local file paths separately from remot
   assert.equal(context.EventWorkspace.activeScoutingAttachment(updatedWorkspace).status, "stale");
 });
 
+runTest("setScoutingSchemaSourceLocation stores companion schema paths and urls separately", () => {
+  const context = loadBrowserContext(["src/event-workspace.js"]);
+  const workspace = context.EventWorkspace.createEventWorkspace({
+    key: "2026schema",
+    season: 2026,
+    name: "Schema Event",
+  });
+
+  const localSchemaWorkspace = context.EventWorkspace.setScoutingSchemaSourceLocation(workspace, "schema.json");
+  assert.equal(context.EventWorkspace.activeScoutingAttachmentSchemaSourceValue(localSchemaWorkspace), "schema.json");
+  assert.equal(context.EventWorkspace.activeScoutingAttachment(localSchemaWorkspace).location.schemaPath, "schema.json");
+  assert.equal(context.EventWorkspace.activeScoutingAttachment(localSchemaWorkspace).location.schemaUrl, "");
+
+  const remoteSchemaWorkspace = context.EventWorkspace.setScoutingSchemaSourceLocation(localSchemaWorkspace, "https://example.com/schema.json");
+  assert.equal(context.EventWorkspace.activeScoutingAttachmentSchemaSourceValue(remoteSchemaWorkspace), "https://example.com/schema.json");
+  assert.equal(context.EventWorkspace.activeScoutingAttachment(remoteSchemaWorkspace).location.schemaPath, "");
+  assert.equal(context.EventWorkspace.activeScoutingAttachment(remoteSchemaWorkspace).location.schemaUrl, "https://example.com/schema.json");
+});
+
 runTest("setScoutingSourceLocation converts local sheet-backed attachments into loadable local CSV sources", () => {
   const context = loadBrowserContext(["src/event-workspace.js"]);
   const workspace = context.EventWorkspace.createEventWorkspace({
@@ -608,6 +627,11 @@ runTest("describeActiveScoutingAttachmentLoad classifies sample, sheet, and json
   const localJsonLoad = context.EventWorkspace.describeActiveScoutingAttachmentLoad(localJsonWorkspace, {});
   assert.equal(localJsonLoad.kind, "local-json");
   assert.equal(localJsonLoad.canLoad, true);
+
+  const schemaDecoratedWorkspace = context.EventWorkspace.setScoutingSchemaSourceLocation(localJsonWorkspace, "https://example.com/schema.json");
+  const schemaDecoratedLoad = context.EventWorkspace.describeActiveScoutingAttachmentLoad(schemaDecoratedWorkspace, {});
+  assert.equal(schemaDecoratedLoad.schemaUrl, "https://example.com/schema.json");
+  assert.equal(schemaDecoratedLoad.schemaPath, "");
 });
 
 runTest("external source helpers stamp refresh metadata and polling state", () => {

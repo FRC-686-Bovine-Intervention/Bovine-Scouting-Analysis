@@ -63,10 +63,12 @@ function buildDefaultScoutingAttachment(eventModel) {
         label: `${normalizeText(eventModel?.name) || normalizeText(eventModel?.key)} Scouting`,
         format: "scouting-json",
         locationKind: "manual",
-        location: {
-          url: "",
-          sampleKey: "",
-        },
+          location: {
+            url: "",
+            sampleKey: "",
+            schemaUrl: "",
+            schemaPath: "",
+          },
         translatorId: "canonical-json-v1",
         profileId: "canonical-json-v1",
         profileLabel: "Canonical JSON",
@@ -94,10 +96,12 @@ function buildDefaultScoutingAttachment(eventModel) {
       label: `${normalizeText(eventModel.name) || normalizeText(eventModel.key)} Scouting`,
       format: hasSample ? "legacy-sheet-csv" : "legacy-sheet-url",
       locationKind: hasSample ? "embedded-sample" : url ? "url" : "manual",
-      location: {
-        url,
-        sampleKey: hasSample ? `${eventModel.key}:sample-sheet` : "",
-      },
+        location: {
+          url,
+          sampleKey: hasSample ? `${eventModel.key}:sample-sheet` : "",
+          schemaUrl: "",
+          schemaPath: "",
+        },
       translatorId: normalizeText(eventModel.sheet.recommendedProfileId) || "match-current-v2",
       profileId: normalizeText(eventModel.sheet.recommendedProfileId) || "match-current-v2",
       profileLabel: "",
@@ -126,12 +130,14 @@ function normalizeScoutingAttachment(attachment, eventModel) {
     label: normalizeText(attachment?.label) || normalizeText(defaultAttachment.label) || attachmentId,
     format: normalizeText(attachment?.format) || normalizeText(defaultAttachment.format) || "legacy-sheet-url",
     locationKind: normalizeText(attachment?.locationKind) || normalizeText(defaultAttachment.locationKind) || "manual",
-    location: {
-      url: normalizeText(attachment?.location?.url)
-        || ((normalizeText(attachment?.locationKind) === "path" || normalizeText(attachment?.location?.path)) ? "" : normalizeText(defaultAttachment?.location?.url)),
-      sampleKey: normalizeText(attachment?.location?.sampleKey) || normalizeText(defaultAttachment?.location?.sampleKey),
-      path: normalizeText(attachment?.location?.path),
-    },
+      location: {
+        url: normalizeText(attachment?.location?.url)
+          || ((normalizeText(attachment?.locationKind) === "path" || normalizeText(attachment?.location?.path)) ? "" : normalizeText(defaultAttachment?.location?.url)),
+        sampleKey: normalizeText(attachment?.location?.sampleKey) || normalizeText(defaultAttachment?.location?.sampleKey),
+        path: normalizeText(attachment?.location?.path),
+        schemaUrl: normalizeText(attachment?.location?.schemaUrl),
+        schemaPath: normalizeText(attachment?.location?.schemaPath),
+      },
     translatorId: normalizeText(attachment?.translatorId) || normalizeText(defaultAttachment.translatorId) || "match-current-v2",
     profileId: normalizeText(attachment?.profileId) || normalizeText(defaultAttachment.profileId) || normalizeText(attachment?.translatorId) || normalizeText(defaultAttachment.translatorId) || "match-current-v2",
     profileLabel: normalizeText(attachment?.profileLabel) || normalizeText(defaultAttachment.profileLabel),
@@ -258,6 +264,13 @@ function activeScoutingAttachmentSourceValue(workspace, eventModel) {
   return scoutingSourceUrl(workspace) || normalizeText(eventModel?.sheet?.url);
 }
 
+function activeScoutingAttachmentSchemaSourceValue(workspace) {
+  const attachment = activeScoutingAttachment(workspace);
+  if (!attachment) return "";
+  if (normalizeText(attachment?.location?.schemaPath)) return normalizeText(attachment.location.schemaPath);
+  return normalizeText(attachment?.location?.schemaUrl);
+}
+
 function activeScoutingAttachmentFormat(workspace, eventModel) {
   const attachment = activeScoutingAttachment(workspace);
   const explicitFormat = normalizeText(attachment?.format).toLowerCase();
@@ -277,32 +290,34 @@ function describeActiveScoutingAttachmentLoad(workspace, eventModel) {
   const format = activeScoutingAttachmentFormat(workspace, eventModel);
   const url = scoutingSourceUrl(workspace);
   const path = normalizeText(attachment?.location?.path);
+  const schemaUrl = normalizeText(attachment?.location?.schemaUrl);
+  const schemaPath = normalizeText(attachment?.location?.schemaPath);
   const sampleKey = activeScoutingAttachmentSampleKey(workspace);
   if (!attachment) {
-    return { kind: "none", format: "", url: "", path: "", sampleKey: "", canLoad: false };
+    return { kind: "none", format: "", url: "", path: "", schemaUrl: "", schemaPath: "", sampleKey: "", canLoad: false };
   }
   if (attachment.locationKind === "embedded-sample" && activeScoutingAttachmentHasSample(workspace, eventModel)) {
-    return { kind: "embedded-sample", format, url, path, sampleKey, canLoad: true };
+    return { kind: "embedded-sample", format, url, path, schemaUrl, schemaPath, sampleKey, canLoad: true };
   }
   if (path && format === "scouting-json") {
-    return { kind: "local-json", format, url, path, sampleKey, canLoad: true };
+    return { kind: "local-json", format, url, path, schemaUrl, schemaPath, sampleKey, canLoad: true };
   }
   if (path && format === "legacy-sheet-csv") {
-    return { kind: "local-csv", format, url, path, sampleKey, canLoad: true };
+    return { kind: "local-csv", format, url, path, schemaUrl, schemaPath, sampleKey, canLoad: true };
   }
   if (url && format === "scouting-json") {
-    return { kind: "remote-json", format, url, path, sampleKey, canLoad: true };
+    return { kind: "remote-json", format, url, path, schemaUrl, schemaPath, sampleKey, canLoad: true };
   }
   if (url && looksLikeGoogleSheetUrl(url)) {
-    return { kind: "google-sheet-url", format, url, path, sampleKey, canLoad: true };
+    return { kind: "google-sheet-url", format, url, path, schemaUrl, schemaPath, sampleKey, canLoad: true };
   }
   if (url && format === "legacy-sheet-csv") {
-    return { kind: "remote-csv", format, url, path, sampleKey, canLoad: true };
+    return { kind: "remote-csv", format, url, path, schemaUrl, schemaPath, sampleKey, canLoad: true };
   }
   if (sampleKey) {
-    return { kind: "embedded-sample", format, url, path, sampleKey, canLoad: activeScoutingAttachmentHasSample(workspace, eventModel) };
+    return { kind: "embedded-sample", format, url, path, schemaUrl, schemaPath, sampleKey, canLoad: activeScoutingAttachmentHasSample(workspace, eventModel) };
   }
-  return { kind: "unsupported", format, url, path, sampleKey, canLoad: false };
+  return { kind: "unsupported", format, url, path, schemaUrl, schemaPath, sampleKey, canLoad: false };
 }
 
 function activeScoutingAttachmentHasSample(workspace, eventModel) {
@@ -338,6 +353,20 @@ function setScoutingSourceLocation(workspace, value) {
       path: !normalizedValue ? normalizeText(attachment?.location?.path) : (isRemoteUrl ? "" : normalizedValue),
     },
     autoLoad: Boolean(normalizedValue) || Boolean(attachment.autoLoad),
+    status: normalizedValue ? "stale" : attachment.status,
+  }));
+}
+
+function setScoutingSchemaSourceLocation(workspace, value) {
+  const normalizedValue = normalizeText(value);
+  const isRemoteUrl = looksLikeRemoteUrl(normalizedValue);
+  return updateActiveScoutingAttachment(workspace, (attachment) => ({
+    ...attachment,
+    location: {
+      ...(attachment.location || {}),
+      schemaUrl: isRemoteUrl ? normalizedValue : "",
+      schemaPath: !normalizedValue ? normalizeText(attachment?.location?.schemaPath) : (isRemoteUrl ? "" : normalizedValue),
+    },
     status: normalizedValue ? "stale" : attachment.status,
   }));
 }
@@ -655,6 +684,7 @@ globalThis.EventWorkspace = {
   activeScoutingAttachmentProfileVersionKey,
   activeScoutingAttachmentSampleKey,
   activeScoutingAttachmentSourceValue,
+  activeScoutingAttachmentSchemaSourceValue,
   activeScoutingAttachmentUsesSample,
   createEventWorkspace,
   describeActiveScoutingAttachmentLoad,
@@ -671,6 +701,7 @@ globalThis.EventWorkspace = {
   setActiveScoutingAttachment,
   setExternalSourcePollingEnabled,
   setScoutingSourceLocation,
+  setScoutingSchemaSourceLocation,
   setScoutingSourceUrl,
   scoutingSourcePath,
   scoutingSourceUrl,
