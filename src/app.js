@@ -329,10 +329,10 @@ const state = {
   users: readStoredJson(storageKeys.users, seedUsers),
   theme: readStoredItem(storageKeys.theme) || "light",
   activeView: "teams",
-  metric: firstMetricIdForEvent(initialEvent),
+  metric: "",
   activeAnalysisFilterId: "",
-  teamDetailMetric: firstMetricIdForEvent(initialEvent),
-  picklistCompareMetric: firstMetricIdForEvent(initialEvent),
+  teamDetailMetric: "",
+  picklistCompareMetric: "",
   selectedTeam: initialEvent.teams[0].number,
   selectedMatch: initialEvent.matches[0].number,
   menuExpanded: readStoredItem(storageKeys.menuExpanded) === "true",
@@ -1270,18 +1270,13 @@ function currentMetrics() {
   return runtimeMetricsForEventModel(currentEvent());
 }
 
-function firstMetricIdForEvent(eventModel = currentEvent()) {
-  const metrics = runtimeMetricsForEventModel(eventModel);
-  return metrics[0]?.id || "";
-}
-
 function statboticsEpaMetric(eventModel = currentEvent()) {
   return runtimeMetricsForEventModel(eventModel).find((metric) => metric.id === defaultStatboticsMetricId) || null;
 }
 
 function formatMetricValueForDisplay(metric, value) {
   const numericValue = Number(value);
-  if (!metric || value === null || value === undefined || value === "" || Number.isNaN(numericValue)) return "â€”";
+  if (!metric || value === null || value === undefined || value === "" || Number.isNaN(numericValue)) return "—";
   const digits = metric.unit === "%" ? 0 : 1;
   return `${numericValue.toFixed(digits)}${metric.unit === "%" ? "%" : ""}`;
 }
@@ -1537,7 +1532,7 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
 }
 
 function defaultCriteriaTerms(eventModel = currentEvent()) {
-  return [{ operator: "+", weight: 1, metricId: firstMetricIdForEvent(eventModel) }];
+  return [{ operator: "+", weight: 1, metricId: "" }];
 }
 
 function activeAnalysisFilter(eventModel = currentEvent()) {
@@ -3163,9 +3158,8 @@ function normalizeBoard(board, eventModel = currentEvent()) {
 }
 
 function normalizeAnalysisSelection(value, eventModel = currentEvent()) {
-  const fallbackMetricId = firstMetricIdForEvent(eventModel);
-  if (typeof value !== "string" || !value) return fallbackMetricId;
-  return runtimeMetricsForEventModel(eventModel).some((metric) => metric.id === value) ? value : fallbackMetricId;
+  if (typeof value !== "string" || !value) return "";
+  return runtimeMetricsForEventModel(eventModel).some((metric) => metric.id === value) ? value : "";
 }
 
 function normalizeAnalysisFilterSelection(value, eventModel = currentEvent()) {
@@ -3174,9 +3168,8 @@ function normalizeAnalysisFilterSelection(value, eventModel = currentEvent()) {
 }
 
 function normalizeTeamDetailMetric(value, eventModel = currentEvent()) {
-  const fallbackMetricId = firstMetricIdForEvent(eventModel);
-  if (typeof value !== "string" || !value) return fallbackMetricId;
-  return runtimeMetricsForEventModel(eventModel).some((metric) => metric.id === value) ? value : fallbackMetricId;
+  if (typeof value !== "string" || !value) return "";
+  return runtimeMetricsForEventModel(eventModel).some((metric) => metric.id === value) ? value : "";
 }
 
 function pickedTeams() {
@@ -3351,7 +3344,7 @@ function termsFromLegacyWeights(weights = {}) {
 function metricIdFromLegacyTerm(term) {
   if (typeof term?.metricId === "string" && term.metricId) return term.metricId;
   if (term?.source && term?.component) return `${term.source === "derived" ? "derived" : "source"}:${term.source}:${term.component}`.replace("derived:derived:", "derived:");
-  return firstMetricIdForEvent();
+  return "";
 }
 
 function normalizeCriteriaTerms(terms) {
@@ -3360,7 +3353,7 @@ function normalizeCriteriaTerms(terms) {
     return {
       operator: index === 0 ? "+" : term.operator === "-" ? "-" : "+",
       weight: Number.isFinite(Number(term.weight)) ? Number(term.weight) : 1,
-      metricId: metric.id,
+      metricId: metric?.id || "",
     };
   });
   return normalized.length ? normalized : defaultCriteriaTerms();
@@ -3420,8 +3413,7 @@ function quantile(values, q) {
 
 function metricById(id) {
   const metrics = currentMetrics();
-  return metrics.find((metric) => metric.id === id)
-    || metrics[0];
+  return metrics.find((metric) => metric.id === id) || null;
 }
 
 function metricTokenLabel(metric) {
@@ -4369,7 +4361,7 @@ function analysisSortEquations() {
 
 function analysisSelectionModel() {
   const metric = metricById(state.metric);
-  return { type: "metric", id: metric.id, label: metric.label, unit: metric.unit, metric };
+  return metric ? { type: "metric", id: metric.id, label: metric.label, unit: metric.unit, metric } : null;
 }
 
 function filterResultEntries(filterResult) {
@@ -4846,19 +4838,14 @@ function renderRecoveryScreen(error) {
 }
 
 function renderRankings() {
-  const rankingMetric = statboticsEpaMetric();
-  const rankingMetricLabel = "Statbotics EPA";
-  const ranked = [...currentTeams()]
+  const displayedRankedTeams = [...currentTeams()]
     .sort((a, b) => {
       const leftRankingScore = rankingScoreForTeam(a);
       const rightRankingScore = rankingScoreForTeam(b);
       const leftSortScore = Number.isFinite(leftRankingScore) ? leftRankingScore : Number.NEGATIVE_INFINITY;
       const rightSortScore = Number.isFinite(rightRankingScore) ? rightRankingScore : Number.NEGATIVE_INFINITY;
-      const leftRankingMetricValue = rankingMetric ? teamMetricValue(a, rankingMetric) : Number.NEGATIVE_INFINITY;
-      const rightRankingMetricValue = rankingMetric ? teamMetricValue(b, rankingMetric) : Number.NEGATIVE_INFINITY;
       return (a.eventRank || Infinity) - (b.eventRank || Infinity)
         || rightSortScore - leftSortScore
-        || rightRankingMetricValue - leftRankingMetricValue
         || a.number - b.number;
     })
     .map((team, index) => ({
@@ -4874,7 +4861,7 @@ function renderRankings() {
         <div>
           <h2>Current Event Rankings</h2>
         </div>
-        <span class="muted">Sorted by ranking score, then ${rankingMetricLabel}</span>
+        <span class="muted">Sorted by event rank, then ranking score</span>
       </div>
       <div class="ranking-table" role="table" aria-label="Current event rankings">
         <div class="ranking-row ranking-header" role="row">
@@ -4883,19 +4870,17 @@ function renderRankings() {
           <span>Ranking Score</span>
           <span>Record</span>
           <span>RP</span>
-          <span>${rankingMetricLabel}</span>
           <span>Flags</span>
         </div>
-        ${ranked
+        ${displayedRankedTeams
           .map(
             (team) => `
           <button class="ranking-row" data-team="${team.number}" role="row">
             <strong>${team.rank}</strong>
             <span>${team.number} ${team.name}</span>
-            <span>${team.rankingScore === null ? "â€”" : team.rankingScore.toFixed(2)}</span>
-            <span>${team.record || "â€”"}</span>
-            <span>${team.rp === null ? "â€”" : team.rp}</span>
-            <span>${formatMetricValueForDisplay(rankingMetric, rankingMetric ? teamMetricValue(team, rankingMetric) : null)}</span>
+            <span>${team.rankingScore === null ? "&mdash;" : team.rankingScore.toFixed(2)}</span>
+            <span>${team.record || "&mdash;"}</span>
+            <span>${team.rp === null ? "&mdash;" : team.rp}</span>
             <span>${renderDrivetrainBadge(team)}</span>
           </button>
         `,
@@ -4925,9 +4910,7 @@ function recordForTeam(team) {
 }
 
 function renderTeams() {
-  const summaryMetric = statboticsEpaMetric();
-  const summaryMetricLabel = "Statbotics EPA";
-  const consistencyMetric = metricById("derived:consistency");
+  const teamConsistencyMetric = metricById("derived:consistency");
   return `
     <div class="team-title-row">
       <div>
@@ -4944,7 +4927,7 @@ function renderTeams() {
           <span class="avatar">${team.number}</span>
           <span class="team-meta">
             <strong>${team.name}</strong>
-            <span class="muted">${formatMetricValueForDisplay(summaryMetric, teamMetricValue(team, summaryMetric))} ${summaryMetricLabel} / ${teamMetricValue(team, consistencyMetric)}% consistency</span>
+            <span class="muted">${teamConsistencyMetric ? `${teamMetricValue(team, teamConsistencyMetric)}% consistency` : "No comparison metric selected"}</span>
             ${renderDrivetrainBadge(team)}
           </span>
         </button>
@@ -4956,12 +4939,11 @@ function renderTeams() {
 }
 
 function renderTeamDetail(team) {
-  const availableTrendMetrics = currentMetrics().filter((metric) => metricUsesMatchDistribution(team, metric));
-  const selectedMetric = availableTrendMetrics.find((metric) => metric.id === state.teamDetailMetric) || availableTrendMetrics[0] || teamDetailMetric();
-  const scoutingConfidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
-  const epaMetric = statboticsEpaMetric();
-  const oprMetric = metricById("source:opr:total");
-  const pridgeMetric = metricById("source:pridge:total");
+  const detailTrendMetrics = currentMetrics().filter((metric) => metricUsesMatchDistribution(team, metric));
+  const detailSelectedMetric = detailTrendMetrics.find((metric) => metric.id === state.teamDetailMetric) || null;
+  const detailScoutingConfidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
+  const detailOprMetric = metricById("source:opr:total");
+  const detailPridgeMetric = metricById("source:pridge:total");
   return `
     <article class="card">
         <div class="section-heading">
@@ -4976,10 +4958,10 @@ function renderTeamDetail(team) {
         </div>
       </div>
       <div class="stat-grid">
-        <div class="stat"><span>${escapeHtml(selectedMetric.label)}</span><strong>${teamMetricValue(team, selectedMetric).toFixed(selectedMetric.unit === "%" ? 0 : 1)}${selectedMetric.unit === "%" ? "%" : ""}</strong></div>
-        <div class="stat"><span>Scouting Confidence</span><strong>${escapeHtml(confidenceLabel(scoutingConfidence.tier))}</strong></div>
-        <div class="stat"><span>Statbotics EPA</span><strong>${formatMetricValueForDisplay(epaMetric, teamMetricValue(team, epaMetric))}</strong></div>
-        <div class="stat"><span>OPR</span><strong>${teamMetricValue(team, oprMetric).toFixed(1)}</strong></div>
+        <div class="stat"><span>${escapeHtml(detailSelectedMetric?.label || "Trend Metric")}</span><strong>${detailSelectedMetric ? `${teamMetricValue(team, detailSelectedMetric).toFixed(detailSelectedMetric.unit === "%" ? 0 : 1)}${detailSelectedMetric.unit === "%" ? "%" : ""}` : "Select a metric"}</strong></div>
+        <div class="stat"><span>Scouting Confidence</span><strong>${escapeHtml(confidenceLabel(detailScoutingConfidence.tier))}</strong></div>
+        <div class="stat"><span>OPR</span><strong>${detailOprMetric ? teamMetricValue(team, detailOprMetric).toFixed(1) : "—"}</strong></div>
+        <div class="stat"><span>pRidge</span><strong>${detailPridgeMetric ? teamMetricValue(team, detailPridgeMetric).toFixed(1) : "—"}</strong></div>
       </div>
       <div class="team-detail-grid">
         <div>
@@ -4991,7 +4973,8 @@ function renderTeamDetail(team) {
             <label class="team-trend-metric">
               <span class="muted">Metric</span>
               <select id="teamDetailMetricSelect" aria-label="Team detail metric">
-                ${availableTrendMetrics.map((item) => `<option value="${item.id}" ${item.id === selectedMetric.id ? "selected" : ""}>${item.label}</option>`).join("")}
+                <option value="" ${detailSelectedMetric ? "" : "selected"}>Select a metric</option>
+                ${detailTrendMetrics.map((item) => `<option value="${item.id}" ${item.id === detailSelectedMetric?.id ? "selected" : ""}>${item.label}</option>`).join("")}
               </select>
             </label>
             <label class="team-trend-metric">
@@ -5002,14 +4985,14 @@ function renderTeamDetail(team) {
               </select>
             </label>
           </div>
-          ${renderSparkline(team, selectedMetric)}
+          ${detailSelectedMetric ? renderSparkline(team, detailSelectedMetric) : `<div class="empty-state">Choose a metric to view this team's trend.</div>`}
         </div>
         <div class="compact-flags">
           <h3>Source Snapshot</h3>
-          <p><strong>pRidge:</strong> ${teamMetricValue(team, pridgeMetric).toFixed(1)}</p>
+          <p><strong>pRidge:</strong> ${detailPridgeMetric ? teamMetricValue(team, detailPridgeMetric).toFixed(1) : "—"}</p>
           <p><strong>Rank:</strong> ${team.eventRank || "Unranked"}</p>
           <p><strong>Imported scouting matches:</strong> ${team.scouting?.importedMatches || 0}</p>
-          <p><strong>Scouting confidence:</strong> ${escapeHtml(confidenceLabel(scoutingConfidence.tier))}</p>
+          <p><strong>Scouting confidence:</strong> ${escapeHtml(confidenceLabel(detailScoutingConfidence.tier))}</p>
           ${team.flags.length ? team.flags.map((flag) => `<p><span class="flag ${flag.severity}">${flag.label}</span> <span class="flag-evidence">${flag.evidence}</span></p>`).join("") : `<p class="muted">No active flags.</p>`}
         </div>
       </div>
@@ -5159,6 +5142,27 @@ function renderAnalysis() {
   const selection = analysisSelectionModel();
   const predicateOptions = currentProfileFilterList();
   const activePredicate = activeAnalysisFilter();
+  if (!selection) {
+    return `
+      <div class="toolbar">
+        <label>
+          Metric
+          <select id="metricSelect">
+            <option value="" selected>Select a metric</option>
+            ${analysisMetricOptions().map((item) => `<option value="${item.id}">${metricTokenLabel(item)}</option>`).join("")}
+          </select>
+        </label>
+        <label>
+          Predicate
+          <select id="analysisFilterSelect">
+            <option value="" ${state.activeAnalysisFilterId ? "" : "selected"}>All Matches</option>
+            ${predicateOptions.map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <div class="empty-state" style="margin-top: 8px;">Choose a metric to plot event analysis.</div>
+    `;
+  }
   const analysisWindowOptions = { window: "recent", recentMatchCount: currentRecentMatchCount() };
   const scoreForTeam = (team) => analysisScoreForTeam(team, selection.metric, analysisWindowOptions);
   const sortableScoreForTeam = (team) => {
@@ -5560,9 +5564,7 @@ function renderMatchNavigator(match, includeBack) {
 }
 
 function renderAllianceCard(title, teamNumbers) {
-  const summaryMetric = statboticsEpaMetric();
-  const summaryMetricLabel = "Statbotics EPA";
-  const consistencyMetric = metricById("derived:consistency");
+  const allianceConsistencyMetric = metricById("derived:consistency");
   return `
     <article class="card">
       <h2>${title}</h2>
@@ -5575,7 +5577,7 @@ function renderAllianceCard(title, teamNumbers) {
                 <span class="avatar">${team.number}</span>
                 <span class="team-meta">
                   <strong>${team.name}</strong>
-                  <span class="muted">${formatMetricValueForDisplay(summaryMetric, teamMetricValue(team, summaryMetric))} ${summaryMetricLabel} / ${teamMetricValue(team, consistencyMetric)}% consistency</span>
+                  <span class="muted">${allianceConsistencyMetric ? `${teamMetricValue(team, allianceConsistencyMetric)}% consistency` : "No comparison metric selected"}</span>
                   ${renderDrivetrainBadge(team)}
                 </span>
               </button>
@@ -5822,7 +5824,8 @@ function renderPicklistBuilder() {
           <label class="team-trend-metric">
             <span class="muted">Metric</span>
             <select id="picklistCompareMetricSelect" aria-label="Picklist comparison metric">
-              ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
+              <option value="" ${comparisonMetric ? "" : "selected"}>Select a metric</option>
+              ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
             </select>
           </label>
           <label class="team-trend-metric">
@@ -5842,6 +5845,9 @@ function renderPicklistBuilder() {
 function renderPicklistCompareChart(selectedTeams, metric) {
   if (!selectedTeams.length) {
     return `<div class="empty-state picklist-compare-empty">Select up to 4 teams in the current picklist to compare their trends here.</div>`;
+  }
+  if (!metric) {
+    return `<div class="empty-state picklist-compare-empty">Choose a metric to compare selected teams.</div>`;
   }
   const series = selectedTeams.map((team) => ({
     team,
@@ -5923,7 +5929,8 @@ function renderCriteriaTerm(term, index, count) {
       <label>
         Metric
         <select class="term-metric" data-term-index="${index}">
-          ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === metric.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
+          <option value="" ${metric ? "" : "selected"}>Select a metric</option>
+          ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === metric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
         </select>
       </label>
       ${index === count - 1 && count < 5 ? `<button class="icon-button add-term-button" id="addCriteriaTerm" title="Add component" aria-label="Add component">+</button>` : `<span class="operator-spacer"></span>`}
@@ -6565,10 +6572,7 @@ function firstVisibleGridColumn() {
 function defaultTeamsForNewPicklist() {
   const firstColumn = firstVisibleGridColumn();
   if (!firstColumn) {
-    const defaultMetric = metricById(normalizeAnalysisSelection(state.metric));
-    return [...currentTeams()]
-      .sort((a, b) => teamMetricValue(b, defaultMetric) - teamMetricValue(a, defaultMetric) || a.number - b.number)
-      .map((team) => team.number);
+    return [...currentTeams()].sort((a, b) => a.number - b.number).map((team) => team.number);
   }
   return gridColumnModel(firstColumn.entry).teams.map((team) => team.number);
 }
@@ -7047,7 +7051,7 @@ function removeSortEquation(id) {
   const nextEquations = state.sortEquations.filter((equation) => equation.id !== id);
   state.sortEquations = nextEquations;
   state.activeSortEquation = nextEquations[Math.min(nextEquations.length - 1, nextEquations.findIndex((equation) => equation.id === state.activeSortEquation))]?.id || nextEquations[0].id;
-  state.metric = state.metric === `sort:${id}` ? firstMetricIdForEvent() : state.metric;
+  state.metric = state.metric === `sort:${id}` ? "" : state.metric;
   state.loadedSources = state.loadedSources.filter((entry) => entry !== `sort:${id}`);
   state.picklistColumns = state.picklistColumns.map((entry) => (entry === `sort:${id}` ? "" : entry));
   if (state.contextMenu?.id === id) state.contextMenu = null;
@@ -7668,7 +7672,7 @@ function bindViewEvents() {
     const equation = activeSortEquation();
     if (isProtectedSortEquation(equation)) return;
     if (equation.terms.length >= 5) return;
-    const terms = normalizeCriteriaTerms([...equation.terms, { operator: "+", weight: 1, metricId: firstMetricIdForEvent() }]);
+    const terms = normalizeCriteriaTerms([...equation.terms, { operator: "+", weight: 1, metricId: "" }]);
     updateSortEquation(equation.id, (current) => ({ ...current, terms }));
   });
   document.querySelectorAll(".term-weight, .term-operator, .term-metric").forEach((control) => {
@@ -7837,4 +7841,3 @@ function bindViewEvents() {
 }
 
 bootstrapApp();
-
