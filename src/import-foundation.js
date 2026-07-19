@@ -1,4 +1,5 @@
 (function () {
+const seasonFramework = globalThis.SeasonFramework || {};
 const templateProfileSpecs = [
   {
     id: "match-current-v2",
@@ -115,6 +116,10 @@ function scouterMetricDefinitions(eventModel) {
   if (Array.isArray(eventModel?.scouterMetricDefinitions) && eventModel.scouterMetricDefinitions.length) {
     return eventModel.scouterMetricDefinitions;
   }
+  if (typeof seasonFramework.scouterMetricDefinitions === "function") {
+    const seededDefinitions = seasonFramework.scouterMetricDefinitions(eventModel);
+    if (Array.isArray(seededDefinitions) && seededDefinitions.length) return seededDefinitions;
+  }
   return formulaFieldDefinitions(eventModel).filter((fieldDefinition) => {
     const fieldType = String(fieldDefinition?.type || "").trim().toLowerCase()
       || (String(fieldDefinition?.unit || "").trim().toLowerCase() === "text" ? "string" : "number");
@@ -125,6 +130,10 @@ function scouterMetricDefinitions(eventModel) {
 function formulaFieldDefinitions(eventModel) {
   if (Array.isArray(eventModel?.formulaFieldDefinitions) && eventModel.formulaFieldDefinitions.length) {
     return eventModel.formulaFieldDefinitions;
+  }
+  if (typeof seasonFramework.formulaFieldDefinitions === "function") {
+    const seededDefinitions = seasonFramework.formulaFieldDefinitions(eventModel);
+    if (Array.isArray(seededDefinitions) && seededDefinitions.length) return seededDefinitions;
   }
   const definitions = [];
   const seen = new Set();
@@ -426,9 +435,7 @@ function validateSeasonPackage(eventModel) {
   const missing = [];
   if (!eventModel?.season) missing.push("season");
   if (!eventModel?.seasonLabel) missing.push("seasonLabel");
-  if (!Array.isArray(eventModel?.metrics) || !eventModel.metrics.length) missing.push("metrics");
   if (!Array.isArray(scouterMetricDefinitions(eventModel)) || !scouterMetricDefinitions(eventModel).length) missing.push("scouterMetricDefinitions");
-  if (!Array.isArray(eventModel?.criteriaSources) || !eventModel.criteriaSources.length) missing.push("criteriaSources");
   return {
     valid: missing.length === 0,
     missing,

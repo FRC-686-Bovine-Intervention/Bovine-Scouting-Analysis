@@ -1,5 +1,6 @@
 (function () {
 const seasonFramework = globalThis.SeasonFramework || {};
+const scoutingSchemaRuntime = globalThis.ScoutingSchemaRuntime || {};
 const scoutingJsonSchema = globalThis.ScoutingJsonSchema || {};
 const buildCanonicalSchemaForEventModel =
   scoutingJsonSchema.buildCanonicalSchemaForEventModel ||
@@ -20,20 +21,30 @@ function formulaFieldDefinitions(eventModel) {
     return eventModel.formulaFieldDefinitions;
   }
   if (typeof seasonFramework.formulaFieldDefinitions === "function") {
-    return seasonFramework.formulaFieldDefinitions(eventModel);
+    const seededDefinitions = seasonFramework.formulaFieldDefinitions(eventModel);
+    if (Array.isArray(seededDefinitions) && seededDefinitions.length) return seededDefinitions;
   }
-  if (Array.isArray(eventModel?.scouterMetricDefinitions) && eventModel.scouterMetricDefinitions.length) {
-    return eventModel.scouterMetricDefinitions;
-  }
-  return (eventModel?.scoringComponents || []).map((component) => ({
+  const definitions = [];
+  const seen = new Set();
+  const append = (fieldDefinition) => {
+    const fieldId = normalizeText(fieldDefinition?.id);
+    if (!fieldId || seen.has(fieldId)) return;
+    seen.add(fieldId);
+    definitions.push(fieldDefinition);
+  };
+  (eventModel?.scoringComponents || []).forEach((component) => append({
     id: component.id,
     label: component.label,
     unit: component.unit || "pts",
   }));
+  (eventModel?.scouterMetricDefinitions || eventModel?.scouterMetrics || []).forEach(append);
+  (eventModel?.formulaFields || []).forEach(append);
+  return definitions;
 }
 
 function metricCsvHeader(fieldDefinition) {
   if (fieldDefinition?.csvKey) return fieldDefinition.csvKey;
+  if (typeof scoutingSchemaRuntime.csvHeaderForField === "function") return scoutingSchemaRuntime.csvHeaderForField(fieldDefinition);
   if (typeof seasonFramework.csvHeaderForMetric === "function") return seasonFramework.csvHeaderForMetric(fieldDefinition);
   return fieldDefinition?.unit === "pts" ? `${fieldDefinition.id}Pts` : fieldDefinition.id;
 }
@@ -61,10 +72,25 @@ const legacySheetAdapters = [
   {
     id: "legacy-2024-sheet",
     profileIds: ["match-current-v2", "match-legacy-v1"],
-    seasons: [2024],
     headerHints: ["Auto Speaker", "Tele-op Speaker", "Starting location", "Climb Attempt"],
     minimumHeaderMatches: 2,
     version: "2024-thin-v2",
+    metricBackfill(metrics = {}) {
+      const nextMetrics = { ...(metrics || {}) };
+      if (!Object.prototype.hasOwnProperty.call(nextMetrics, "auto")) {
+        nextMetrics.auto = numericMetricValue(nextMetrics, "autoSpeakerMade") + numericMetricValue(nextMetrics, "autoAmpMade");
+      }
+      if (!Object.prototype.hasOwnProperty.call(nextMetrics, "speaker")) {
+        nextMetrics.speaker = numericMetricValue(nextMetrics, "teleSpeakerMade");
+      }
+      if (!Object.prototype.hasOwnProperty.call(nextMetrics, "amp")) {
+        nextMetrics.amp = numericMetricValue(nextMetrics, "teleAmpMade");
+      }
+      if (!Object.prototype.hasOwnProperty.call(nextMetrics, "trap")) {
+        nextMetrics.trap = numericMetricValue(nextMetrics, "trap");
+      }
+      return nextMetrics;
+    },
     translateRow(rowTools) {
       const matchNumber = rowTools.leadingNumber("Match #");
       const teamNumber = rowTools.leadingNumber("Team #");
@@ -112,10 +138,37 @@ const legacySheetAdapters = [
   {
     id: "legacy-2025-sheet",
     profileIds: ["match-current-v2", "match-legacy-v1"],
-    seasons: [2025],
     headerHints: ["Auto-L4Make", "Tele-Op-L4Make", "Climbing", "Alliance Index"],
     minimumHeaderMatches: 2,
     version: "2025-thin-v2",
+    metricBackfill(metrics = {}) {
+      const nextMetrics = { ...(metrics || {}) };
+      if (!Object.prototype.hasOwnProperty.call(nextMetrics, "auto")) {
+        nextMetrics.auto =
+          (numericMetricValue(nextMetrics, "autoL4Made") * 7)
+          + (numericMetricValue(nextMetrics, "autoL3Made") * 6)
+          + (numericMetricValue(nextMetrics, "autoL2Made") * 4)
+          + (numericMetricValue(nextMetrics, "autoTroughMade") * 3)
+          + (numericMetricValue(nextMetrics, "autoProcessorMade") * 6)
+          + (numericMetricValue(nextMetrics, "autoBargeMade") * 4);
+      }
+      if (!Object.prototype.hasOwnProperty.call(nextMetrics, "coral")) {
+        nextMetrics.coral =
+          (numericMetricValue(nextMetrics, "teleL4Made") * 5)
+          + (numericMetricValue(nextMetrics, "teleL3Made") * 4)
+          + (numericMetricValue(nextMetrics, "teleL2Made") * 3)
+          + (numericMetricValue(nextMetrics, "teleTroughMade") * 2);
+      }
+      if (!Object.prototype.hasOwnProperty.call(nextMetrics, "algae")) {
+        nextMetrics.algae =
+          (numericMetricValue(nextMetrics, "teleProcessorMade") * 6)
+          + (numericMetricValue(nextMetrics, "teleBargeMade") * 4);
+      }
+      if (!Object.prototype.hasOwnProperty.call(nextMetrics, "climb")) {
+        nextMetrics.climb = reefscape2025ClimbPoints(nextMetrics.climbLevel);
+      }
+      return nextMetrics;
+    },
     translateRow(rowTools) {
       const climbLevel = rowTools.number("Climbing");
 
@@ -173,7 +226,6 @@ const legacySheetAdapters = [
   {
     id: "legacy-2026-sheet",
     profileIds: ["match-current-v2", "match-legacy-v1"],
-    seasons: [2026],
     headerHints: ["Shifts Auto Primary Role", "Shifts Transition Fuel Pct", "Overall Shooter", "Shifts Endgame Climb"],
     minimumHeaderMatches: 2,
     version: "2026-thin-v2",
@@ -565,51 +617,9 @@ function numericMetricValue(metrics, fieldId) {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
-function populateSeasonScoringComponents(eventModel, metrics = {}) {
-  const nextMetrics = { ...(metrics || {}) };
-  const season = Number(eventModel?.season) || 0;
-  if (season === 2024) {
-    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "auto")) {
-      nextMetrics.auto = numericMetricValue(nextMetrics, "autoSpeakerMade") + numericMetricValue(nextMetrics, "autoAmpMade");
-    }
-    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "speaker")) {
-      nextMetrics.speaker = numericMetricValue(nextMetrics, "teleSpeakerMade");
-    }
-    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "amp")) {
-      nextMetrics.amp = numericMetricValue(nextMetrics, "teleAmpMade");
-    }
-    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "trap")) {
-      nextMetrics.trap = numericMetricValue(nextMetrics, "trap");
-    }
-    return nextMetrics;
-  }
-  if (season === 2025) {
-    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "auto")) {
-      nextMetrics.auto =
-        (numericMetricValue(nextMetrics, "autoL4Made") * 7)
-        + (numericMetricValue(nextMetrics, "autoL3Made") * 6)
-        + (numericMetricValue(nextMetrics, "autoL2Made") * 4)
-        + (numericMetricValue(nextMetrics, "autoTroughMade") * 3)
-        + (numericMetricValue(nextMetrics, "autoProcessorMade") * 6)
-        + (numericMetricValue(nextMetrics, "autoBargeMade") * 4);
-    }
-    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "coral")) {
-      nextMetrics.coral =
-        (numericMetricValue(nextMetrics, "teleL4Made") * 5)
-        + (numericMetricValue(nextMetrics, "teleL3Made") * 4)
-        + (numericMetricValue(nextMetrics, "teleL2Made") * 3)
-        + (numericMetricValue(nextMetrics, "teleTroughMade") * 2);
-    }
-    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "algae")) {
-      nextMetrics.algae =
-        (numericMetricValue(nextMetrics, "teleProcessorMade") * 6)
-        + (numericMetricValue(nextMetrics, "teleBargeMade") * 4);
-    }
-    if (!Object.prototype.hasOwnProperty.call(nextMetrics, "climb")) {
-      nextMetrics.climb = reefscape2025ClimbPoints(nextMetrics.climbLevel);
-    }
-  }
-  return nextMetrics;
+function populateTranslatedScoringComponents(metrics = {}, metricBackfill = null) {
+  if (typeof metricBackfill !== "function") return { ...(metrics || {}) };
+  return metricBackfill(metrics || {});
 }
 
 function categoricalScore(value, mapping = {}) {
@@ -655,12 +665,6 @@ function createRowTools(row, headerIndex) {
   };
 }
 
-function adapterMatchesEvent(adapter, eventModel) {
-  const seasons = Array.isArray(adapter?.seasons) ? adapter.seasons.map((season) => Number(season)) : [];
-  if (!seasons.length) return true;
-  return seasons.includes(Number(eventModel?.season) || 0);
-}
-
 function normalizedHeaderTokenSet(headers = []) {
   return new Set(
     (headers || [])
@@ -688,9 +692,7 @@ function bestMatchingLegacySheetAdapter(adapters, headers = [], eventModel = nul
     ));
     const score = adapterHeaderMatchScore(adapter, normalizedHeaders);
     if (score < requiredMatches) return;
-    const nextSeasonMatch = adapterMatchesEvent(adapter, eventModel);
-    const bestSeasonMatch = adapterMatchesEvent(bestAdapter, eventModel);
-    if (score > bestScore || (score === bestScore && nextSeasonMatch && !bestSeasonMatch)) {
+    if (score > bestScore) {
       bestAdapter = adapter;
       bestScore = score;
     }
@@ -703,18 +705,18 @@ function translatorForEvent(eventModel, options = {}) {
   if (explicitAdapterId) {
     return legacySheetAdapters.find((adapter) => normalizeText(adapter?.id) === explicitAdapterId) || null;
   }
-  const headers = Array.isArray(options?.headers) ? options.headers : [];
+  const headers = Array.isArray(options?.headers) && options.headers.length
+    ? options.headers
+    : (parseCsvText(normalizeText(eventModel?.sheet?.sampleCsvText))[0] || []);
   const explicitProfileId = normalizeText(options?.templateProfileId);
   if (explicitProfileId) {
     const profileMatchedAdapters = legacySheetAdapters.filter((adapter) => (adapter.profileIds || []).includes(explicitProfileId));
     const headerMatchedProfileAdapter = bestMatchingLegacySheetAdapter(profileMatchedAdapters, headers, eventModel);
     if (headerMatchedProfileAdapter) return headerMatchedProfileAdapter;
-    const profileMatchedAdapter = profileMatchedAdapters.find((adapter) => adapterMatchesEvent(adapter, eventModel));
-    if (profileMatchedAdapter) return profileMatchedAdapter;
   }
   const headerMatchedAdapter = bestMatchingLegacySheetAdapter(legacySheetAdapters, headers, eventModel);
   if (headerMatchedAdapter) return headerMatchedAdapter;
-  return legacySheetAdapters.find((adapter) => adapterMatchesEvent(adapter, eventModel)) || null;
+  return null;
 }
 
 function importTranslationVersionForEvent(eventModel, options = {}) {
@@ -795,7 +797,7 @@ function buildCanonicalDataset(eventModel, records, options = {}) {
   const translationVersion = String(options.translationVersion || importTranslationVersionForEvent(eventModel, options)).trim();
   const normalizedRecords = (records || []).map((record) => ({
     ...record,
-    metrics: populateSeasonScoringComponents(eventModel, record.metrics || {}),
+    metrics: populateTranslatedScoringComponents(record.metrics || {}, options.metricBackfill),
   }));
   const presentFieldIds = new Set(
     normalizedRecords.flatMap((record) => Object.keys(record.metrics || {})).map((fieldId) => String(fieldId || "").trim()).filter(Boolean),
@@ -922,6 +924,7 @@ function translateEventSheetToCanonical(eventModel, csvText, options = {}) {
     ...options,
     translationVersion: translator.version,
     schemaFields: genericTranslation.schemaFields,
+    metricBackfill: translator.metricBackfill,
   });
 }
 

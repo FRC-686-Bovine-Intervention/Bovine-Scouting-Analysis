@@ -1,4 +1,6 @@
 (function () {
+const seasonFramework = globalThis.SeasonFramework || {};
+
 function normalizeText(value) {
   return String(value || "").trim();
 }
@@ -6,6 +8,10 @@ function normalizeText(value) {
 function baseFormulaFieldDefinitions(eventModel) {
   if (Array.isArray(eventModel?.formulaFieldDefinitions) && eventModel.formulaFieldDefinitions.length) {
     return eventModel.formulaFieldDefinitions;
+  }
+  if (typeof seasonFramework.formulaFieldDefinitions === "function") {
+    const seededDefinitions = seasonFramework.formulaFieldDefinitions(eventModel);
+    if (Array.isArray(seededDefinitions) && seededDefinitions.length) return seededDefinitions;
   }
   const definitions = [];
   const seen = new Set();

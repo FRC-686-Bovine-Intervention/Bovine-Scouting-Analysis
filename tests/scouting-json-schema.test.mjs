@@ -49,7 +49,7 @@ function buildEventModel(context) {
 }
 
 runTest("buildCanonicalSchemaForEventModel emits canonical field metadata for active event fields", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-json-schema.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
   const eventModel = buildEventModel(context);
   const schema = context.ScoutingJsonSchema.buildCanonicalSchemaForEventModel(eventModel);
   const autoFuel = schema.fields.find((field) => field.id === "autoFuelPct");
@@ -79,7 +79,7 @@ runTest("buildCanonicalSchemaForEventModel uses event-owned field definitions wi
 });
 
 runTest("validateCanonicalSchema accepts fixture-backed canonical scouting JSON", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-json-schema.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
   const eventModel = buildEventModel(context);
   const payload = JSON.parse(fs.readFileSync(path.resolve("tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.json"), "utf8"));
   const validation = context.ScoutingJsonSchema.validateCanonicalSchema(payload, eventModel, "2026chcmp");
@@ -90,7 +90,7 @@ runTest("validateCanonicalSchema accepts fixture-backed canonical scouting JSON"
 });
 
 runTest("validateCanonicalSchema rejects missing schema.fields with actionable errors", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-json-schema.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
   const eventModel = buildEventModel(context);
   const payload = JSON.parse(fs.readFileSync(path.resolve("tests/fixtures/canonical-scouting-json/invalid-missing-schema-fields.json"), "utf8"));
   const validation = context.ScoutingJsonSchema.validateCanonicalSchema(payload, eventModel, "2026chcmp");

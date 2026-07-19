@@ -37,7 +37,7 @@ function loadBrowserContext(relativePaths, extras = {}) {
 }
 
 runTest("sample-backed legacy submissions are marked for refresh when schema metadata is missing", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-import-repair.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-import-repair.js"]);
   const season = context.SeasonFramework.gameDefinitions[2025];
   const eventModel = {
     key: "2025chcmp",
@@ -93,7 +93,7 @@ runTest("stampScoutingSubmissionMetadata uses event-owned field definitions with
 });
 
 runTest("stamped submissions do not refresh when the current schema matches", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-import-repair.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-import-repair.js"]);
   const season = context.SeasonFramework.gameDefinitions[2025];
   const eventModel = {
     key: "2025chcmp",
@@ -119,7 +119,7 @@ runTest("stamped submissions do not refresh when the current schema matches", ()
 });
 
 runTest("sample-backed 2026 submissions refresh when newly added formula fields are missing", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-import-repair.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-import-repair.js"]);
   const season = context.SeasonFramework.gameDefinitions[2026];
   const eventModel = {
     key: "2026chcmp",
@@ -161,7 +161,7 @@ runTest("sample-backed 2026 submissions refresh when newly added formula fields 
 });
 
 runTest("stamped submissions can use explicit schema fields instead of season-seeded defaults", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-import-repair.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-import-repair.js"]);
   const season = context.SeasonFramework.gameDefinitions[2026];
   const eventModel = {
     key: "2026chcmp",
@@ -208,9 +208,9 @@ runTest("stamped submissions can use explicit schema fields instead of season-se
   );
 });
 
-runTest("repairLegacySubmissionRawMetrics backfills 2024 climbAttempt from climbSuccess", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-import-repair.js"]);
-  const eventModel = { key: "2024mdsev", season: 2024 };
+runTest("repairLegacySubmissionRawMetrics backfills climbAttempt from climbSuccess without season branching", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-import-repair.js"]);
+  const eventModel = { key: "legacy-demo", season: 2030 };
 
   assert.deepEqual(
     JSON.parse(
@@ -232,9 +232,9 @@ runTest("repairLegacySubmissionRawMetrics backfills 2024 climbAttempt from climb
   );
 });
 
-runTest("repairLegacySubmissionRawMetrics preserves explicit 2024 climbAttempt", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-import-repair.js"]);
-  const eventModel = { key: "2024mdsev", season: 2024 };
+runTest("repairLegacySubmissionRawMetrics preserves explicit climbAttempt", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-import-repair.js"]);
+  const eventModel = { key: "legacy-demo", season: 2030 };
 
   assert.deepEqual(
     JSON.parse(
@@ -255,13 +255,40 @@ runTest("repairLegacySubmissionRawMetrics preserves explicit 2024 climbAttempt",
   );
 });
 
+runTest("repairLegacySubmissionRawMetrics backfills climbAttempt from climbLevel without season branching", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-import-repair.js"]);
+  const eventModel = { key: "legacy-demo", season: 2030 };
+
+  assert.deepEqual(
+    JSON.parse(
+      JSON.stringify(
+        context.ScoutingImportRepair.repairLegacySubmissionRawMetrics(
+          {
+            climbLevel: 2,
+          },
+          eventModel,
+        ),
+      ),
+    ),
+    {
+      climbLevel: 2,
+      climbAttempt: 1,
+    },
+  );
+});
+
 runTest("sample-backed submissions refresh when the thin translation version changes", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/sheet-import-adapters.js", "src/scouting-import-repair.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/sheet-import-adapters.js", "src/scouting-import-repair.js"]);
   const season = context.SeasonFramework.gameDefinitions[2026];
   const eventModel = {
     key: "2026chcmp",
     season: 2026,
-    sheet: { sampleCsvText: "header\nvalue" },
+    sheet: {
+      sampleCsvText: [
+        "Match Number,Team Number,Scouter,Alliance,Shifts Auto Starting Position,Shifts Auto Primary Role,Shifts Transition Fuel Pct,Overall Shooter,Shifts Endgame Climb",
+        "3,346,Scout 1,red,1,Score,40,4,Climb",
+      ].join("\n"),
+    },
     scoringComponents: season.scoringComponents,
     scouterMetricDefinitions: context.SeasonFramework.scouterMetricDefinitions(season),
     formulaFieldDefinitions: context.SeasonFramework.formulaFieldDefinitions(season),

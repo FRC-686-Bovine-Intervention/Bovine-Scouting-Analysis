@@ -10,11 +10,12 @@ const scoutingSourceUtils = globalThis.ScoutingSourceUtils || {};
 const scoutingJsonImport = globalThis.ScoutingJsonImport || {};
 const sourceRefresh = globalThis.SourceRefresh || {};
 const seasonFramework = globalThis.SeasonFramework || {};
+const scoutingSchemaRuntime = globalThis.ScoutingSchemaRuntime || {};
 const metricEngine = globalThis.MetricEngine || {};
 const sheetImportAdapters = globalThis.SheetImportAdapters || {};
 const scoutingImportRepair = globalThis.ScoutingImportRepair || {};
 const eventWorkspaceApi = globalThis.EventWorkspace || {};
-const seededSeasonDerivedEquations = globalThis.SeasonDerivedEquations || { seasons: {} };
+const seededScoutingProfiles = globalThis.ScoutingProfileSeeds || { seasons: {} };
 const commitScoutingImport = importFoundation.commitScoutingImport;
 const buildSampleCsv = importFoundation.buildSampleCsv;
 const previewScoutingImport = importFoundation.previewScoutingImport;
@@ -87,7 +88,14 @@ const buildScoutingDiagnosticsState =
     pendingDiagnostics: null,
   }));
 const parseScoutingSchemaSignatureFields = scoutingDiagnosticsState.parseScoutingSchemaSignatureFields || (() => []);
-const seasonMetricFieldId = seasonFramework.csvHeaderForMetric || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id));
+const buildRuntimeMetrics =
+  scoutingSchemaRuntime.buildMetricCatalog
+  || seasonFramework.buildMetrics
+  || ((eventModel) => eventModel?.metrics || []);
+const seasonMetricFieldId =
+  scoutingSchemaRuntime.csvHeaderForField
+  || seasonFramework.csvHeaderForMetric
+  || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id));
 const humanizeDynamicFieldId =
   dynamicScoutingFields.humanizeFieldId ||
   ((fieldId) =>
@@ -108,6 +116,33 @@ const buildScoutingSchemaSignatureFromFields =
   || ((options = {}) => JSON.stringify({ eventKey: options?.eventKey || "", season: Number(options?.season) || 0, fields: options?.fields || [] }));
 const repairLegacySubmissionRawMetrics = scoutingImportRepair.repairLegacySubmissionRawMetrics || ((rawMetrics) => rawMetrics || {});
 const stampScoutingSubmissionMetadata = scoutingImportRepair.stampScoutingSubmissionMetadata || ((submissions) => submissions || []);
+const scoutingProfilesApi = globalThis.ScoutingProfiles || {};
+const normalizeScoutingProfileField =
+  scoutingProfilesApi.normalizeFieldDefinition
+  || ((fieldDefinition) => {
+    const id = normalizeText(fieldDefinition?.id);
+    if (!id) return null;
+    return {
+      id,
+      label: normalizeText(fieldDefinition?.label || id),
+      type: normalizeText(fieldDefinition?.type),
+      unit: normalizeText(fieldDefinition?.unit),
+      aggregate: normalizeText(fieldDefinition?.aggregate),
+      optional: fieldDefinition?.optional === true,
+    };
+  });
+const normalizeScoutingProfileMigrationRecords =
+  scoutingProfilesApi.normalizeFieldMigrationRecords
+  || (() => []);
+const materializeEventScopedProfileCatalog =
+  scoutingProfilesApi.materializeEventScopedProfileCatalog
+  || ((catalog) => catalog || {});
+const mergeSeededProfileCatalog =
+  scoutingProfilesApi.mergeSeededProfileCatalog
+  || ((profileCatalog) => profileCatalog || {});
+const buildNormalizedScoutingProfileVersionKey =
+  scoutingProfilesApi.buildProfileVersionKey
+  || ((profile = {}) => normalizeText(profile?.versionKey || profile?.versionId || profile?.id));
 const createEventWorkspace = eventWorkspaceApi.createEventWorkspace || ((eventModel) => ({ eventKey: eventModel?.key || "", season: Number(eventModel?.season || 0), identity: { key: eventModel?.key || "", name: eventModel?.name || "", seasonLabel: eventModel?.seasonLabel || "" }, sources: { tba: {}, statbotics: {}, pridge: {}, scouting: [] }, activeScoutingAttachmentId: "" }));
 const markEventWorkspaceScoutingAttachmentAttempt = eventWorkspaceApi.markActiveScoutingAttachmentAttempt || ((workspace) => workspace);
 const markEventWorkspaceScoutingAttachmentFailure = eventWorkspaceApi.markActiveScoutingAttachmentFailure || ((workspace) => workspace);
@@ -278,13 +313,10 @@ const initialEventKey = resolveEventKey(readStoredItem(storageKeys.activeEvent))
 const initialEvent = eventModelByKey(initialEventKey);
 const initialWorkspace = createEventWorkspace(initialEvent, readStoredJson(storageKeys.eventWorkspace, null, initialEventKey));
 const initialTbaAuthKey = readStoredItem(storageKeys.tbaAuthKey) || normalizeText(globalThis.__TBA_AUTH_KEY || globalThis.TBA_AUTH_KEY);
-const initialLegacySeasonDerivedEquationCatalog = normalizeSeasonDerivedEquationCatalog(
-  mergeSeededSeasonCatalog(
-    readStoredJson(storageKeys.seasonDerivedEquations, {}),
-    seededSeasonDerivedEquations,
-  ),
+const initialLegacyDerivedEquationCatalog = normalizeSeasonDerivedEquationCatalog(
+  readStoredJson(storageKeys.seasonDerivedEquations, {}),
 );
-const initialLegacySeasonFilterCatalog = normalizeSeasonFilterCatalog(
+const initialLegacyFilterCatalog = normalizeLegacyFilterCatalog(
   readStoredJson(storageKeys.seasonFilters, {}),
 );
 const state = {
@@ -327,15 +359,21 @@ const state = {
   scoutingWindow: readStoredItem(storageKeys.scoutingWindow) || "all",
   recentMatchCount: Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount) || 12)),
   recentEventKeys: [],
-  scoutingProfileCatalog: migrateLegacySeasonScopedConfigIntoProfiles(
-    normalizeSeasonProfileCatalog(
-      readStoredJson(
-        storageKeys.scoutingProfiles,
-        readStoredJson(storageKeys.seasonProfiles, {}),
+  scoutingProfileCatalog: materializeEventScopedProfileCatalog(
+    mergeSeededProfileCatalog(
+      migrateLegacyScopedConfigIntoProfiles(
+        normalizeScoutingProfileCatalog(
+          readStoredJson(
+            storageKeys.scoutingProfiles,
+            readStoredJson(storageKeys.seasonProfiles, {}),
+          ),
+        ),
+        initialLegacyDerivedEquationCatalog,
+        initialLegacyFilterCatalog,
       ),
+      normalizeScoutingProfileCatalog(seededScoutingProfiles.seasons || seededScoutingProfiles.catalog || {}),
     ),
-    initialLegacySeasonDerivedEquationCatalog,
-    initialLegacySeasonFilterCatalog,
+    globalEventCatalog,
   ),
   activeDerivedEquationId: "",
   activeDerivedPreviewMetricId: "",
@@ -1165,18 +1203,22 @@ function currentMatches() {
   return currentEvent().matches;
 }
 
-function currentMetrics() {
-  const eventModel = {
-    ...currentEvent(),
-    scouterMetricDefinitions: currentScouterMetricDefinitions(),
-    formulaFieldDefinitions: currentFormulaFieldDefinitions(),
-    derivedMetricDefinitions: currentDerivedMetricDefinitions(),
+function runtimeMetricsForEventModel(eventModel = currentEvent()) {
+  const runtimeEventModel = {
+    ...eventModel,
+    scouterMetricDefinitions: currentScouterMetricDefinitions(eventModel),
+    formulaFieldDefinitions: currentFormulaFieldDefinitions(eventModel),
+    derivedMetricDefinitions: currentDerivedMetricDefinitions(eventModel),
   };
   return [
-    ...((eventModel?.metrics || []).filter((metric) => !(metric.kind === "source" && metric.sourceId === "epa"))),
-    ...currentDynamicStatboticsMetricDefinitions(eventModel),
-    ...currentDynamicTbaMetricDefinitions(eventModel),
+    ...(buildRuntimeMetrics(runtimeEventModel) || []).filter((metric) => !(metric.kind === "source" && metric.sourceId === "epa")),
+    ...currentDynamicStatboticsMetricDefinitions(runtimeEventModel),
+    ...currentDynamicTbaMetricDefinitions(runtimeEventModel),
   ];
+}
+
+function currentMetrics() {
+  return runtimeMetricsForEventModel(currentEvent());
 }
 
 function currentDataSources() {
@@ -2550,17 +2592,9 @@ function loadPersistedScoutingSubmissions(eventKey = state.activeEventKey, optio
     });
 }
 
-function legacySeasonScopedProfiles(eventModel = currentEvent()) {
-  return state.scoutingProfileCatalog?.[String(eventModel?.season || "")] || [];
-}
-
 function eventScopedProfiles(eventModel = currentEvent()) {
   const eventKey = normalizeText(eventModel?.key);
   return eventKey ? (state.scoutingProfileCatalog?.[eventKey] || []) : [];
-}
-
-function cloneScoutingProfiles(profiles = []) {
-  return JSON.parse(JSON.stringify(Array.isArray(profiles) ? profiles : []));
 }
 
 function preferredScoutingProfileIdForEvent(eventModel = currentEvent()) {
@@ -2575,11 +2609,12 @@ function preferredScoutingProfileIdForEvent(eventModel = currentEvent()) {
 
 function defaultScoutingProfileForEvent(eventModel = currentEvent()) {
   const profileId = preferredScoutingProfileIdForEvent(eventModel);
-  const normalizedProfiles = normalizeSeasonProfileCatalog({
+  const normalizedProfiles = normalizeScoutingProfileCatalog({
     seed: [{
       id: profileId,
       label: knownImportProfileLabels[profileId] || profileId,
       fields: Array.isArray(eventModel?.formulaFieldDefinitions) ? eventModel.formulaFieldDefinitions : [],
+      fieldMigrations: [],
       equations: [],
     }],
   });
@@ -2591,17 +2626,17 @@ function ensureEventScopedScoutingProfiles(eventModel = currentEvent()) {
   if (!eventKey) return [];
   const existing = eventScopedProfiles(eventModel);
   if (existing.length) return existing;
-  const fallbackProfiles = legacySeasonScopedProfiles(eventModel);
-  if (fallbackProfiles.length) {
-    state.scoutingProfileCatalog = normalizeSeasonProfileCatalog({
-      ...state.scoutingProfileCatalog,
-      [eventKey]: cloneScoutingProfiles(fallbackProfiles),
-    });
-    return eventScopedProfiles(eventModel);
+  const materializedCatalog = normalizeScoutingProfileCatalog(
+    materializeEventScopedProfileCatalog(state.scoutingProfileCatalog, [eventModel]),
+  );
+  const materializedProfiles = materializedCatalog?.[eventKey] || [];
+  if (materializedProfiles.length) {
+    state.scoutingProfileCatalog = materializedCatalog;
+    return materializedProfiles;
   }
   const defaultProfile = defaultScoutingProfileForEvent(eventModel);
   if (!defaultProfile) return [];
-  state.scoutingProfileCatalog = normalizeSeasonProfileCatalog({
+  state.scoutingProfileCatalog = normalizeScoutingProfileCatalog({
     ...state.scoutingProfileCatalog,
     [eventKey]: [defaultProfile],
   });
@@ -2617,19 +2652,24 @@ function registerScoutingProfile(eventModel, profile) {
   const eventKey = normalizeText(resolvedEventModel?.key);
   if (!eventKey) return;
   ensureEventScopedScoutingProfiles(resolvedEventModel);
-  const normalized = normalizeSeasonProfileCatalog(state.scoutingProfileCatalog);
+  const normalized = normalizeScoutingProfileCatalog(state.scoutingProfileCatalog);
   const key = eventKey;
   const existing = normalized[key] || [];
   const profileId = String(profile?.id || "").trim();
   const existingProfile = existing.find((entry) => entry.id === profileId) || null;
-  normalized[key] = normalizeSeasonProfileCatalog({
+  normalized[key] = normalizeScoutingProfileCatalog({
     [key]: [
       {
-        ...(existingProfile || {}),
         id: profileId,
-        label: String(profile?.label || knownImportProfileLabels[profileId] || profile?.id || "").trim(),
+        label: scoutingProfileLabel(profileId, profile?.label || existingProfile?.label || profile?.id || ""),
         fields: Array.isArray(profile?.fields) ? profile.fields : (existingProfile?.fields || []),
         equations: Array.isArray(profile?.equations) ? profile.equations : (existingProfile?.equations || []),
+        fieldMigrations: Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords)
+          ? (profile.fieldMigrations || profile.fieldMigrationRecords)
+          : (existingProfile?.fieldMigrations || []),
+        ...(normalizeText(profile?.versionKey || profile?.versionId)
+          ? { versionKey: normalizeText(profile?.versionKey || profile?.versionId) }
+          : {}),
       },
       ...existing.filter((entry) => entry.id !== profileId),
     ],
@@ -2650,11 +2690,12 @@ function backfillScoutingProfilesFromSubmissions(eventModel = currentEvent()) {
       id: profileId,
       label: knownImportProfileLabels[profileId] || profileId,
       fields: parseScoutingSchemaSignatureFields(normalizeText(submission?.scoutingSchemaSignature)),
+      fieldMigrations: [],
       equations: [],
     });
   });
   if (!discovered.size) return;
-  state.scoutingProfileCatalog = normalizeSeasonProfileCatalog({
+  state.scoutingProfileCatalog = normalizeScoutingProfileCatalog({
     ...state.scoutingProfileCatalog,
     [eventKey]: [...discovered.values()],
   });
@@ -2875,15 +2916,6 @@ function normalizeSeasonDerivedEquationCatalog(catalog) {
   return normalized;
 }
 
-function mergeSeededSeasonCatalog(storedCatalog, seededCatalog) {
-  return {
-    seasons: {
-      ...((storedCatalog && storedCatalog.seasons) || {}),
-      ...((seededCatalog && seededCatalog.seasons) || {}),
-    },
-  };
-}
-
 function normalizeEquationDefinitions(definitions) {
   const seen = new Set();
   const nextDefinitions = [];
@@ -2948,42 +2980,53 @@ function filterDefinitionsFromPredicateEquations(definitions) {
   );
 }
 
-function normalizeSeasonProfileCatalog(catalog) {
+function normalizeScoutingProfileDefinition(profile) {
+  const id = normalizeText(profile?.id || profile?.profileId);
+  if (!id) return null;
+  const fields = Array.isArray(profile?.fields)
+    ? profile.fields
+        .map((fieldDefinition) => normalizeScoutingProfileField(fieldDefinition))
+        .filter(Boolean)
+    : [];
+  const fieldMigrations = normalizeScoutingProfileMigrationRecords(profile?.fieldMigrations || profile?.fieldMigrationRecords);
+  const equations = normalizeEquationDefinitions([
+    ...(Array.isArray(profile?.equations) ? profile.equations : []),
+    ...predicateEquationDefinitionsFromFilters(profile?.filters),
+  ]);
+  const versionKey = normalizeText(profile?.versionKey || profile?.versionId)
+    || buildNormalizedScoutingProfileVersionKey({
+      id,
+      fields,
+      equations,
+      fieldMigrations,
+    });
+  return {
+    id,
+    label: scoutingProfileLabel(id, profile?.label || profile?.name || id),
+    versionKey,
+    fieldMigrations,
+    fields,
+    equations,
+  };
+}
+
+function normalizeScoutingProfileCatalog(catalog) {
   const normalized = {};
-  Object.entries(catalog || {}).forEach(([seasonKey, profiles]) => {
+  Object.entries(catalog || {}).forEach(([catalogKey, profiles]) => {
     const seen = new Set();
     const nextProfiles = [];
     (profiles || []).forEach((profile) => {
-      const id = String(profile?.id || "").trim();
-      if (!id || seen.has(id)) return;
-      seen.add(id);
-      nextProfiles.push({
-        id,
-        label: String(profile?.label || knownImportProfileLabels[id] || id).trim() || id,
-        fields: Array.isArray(profile?.fields)
-          ? profile.fields
-              .map((fieldDefinition) => ({
-                id: String(fieldDefinition?.id || "").trim(),
-                label: String(fieldDefinition?.label || fieldDefinition?.id || "").trim(),
-                type: String(fieldDefinition?.type || "").trim(),
-                unit: String(fieldDefinition?.unit || "").trim(),
-                aggregate: String(fieldDefinition?.aggregate || "").trim(),
-                optional: fieldDefinition?.optional === true,
-              }))
-              .filter((fieldDefinition) => fieldDefinition.id)
-          : [],
-        equations: normalizeEquationDefinitions([
-          ...(Array.isArray(profile?.equations) ? profile.equations : []),
-          ...predicateEquationDefinitionsFromFilters(profile?.filters),
-        ]),
-      });
+      const normalizedProfile = normalizeScoutingProfileDefinition(profile);
+      if (!normalizedProfile || seen.has(normalizedProfile.id)) return;
+      seen.add(normalizedProfile.id);
+      nextProfiles.push(normalizedProfile);
     });
-    normalized[String(seasonKey)] = nextProfiles.sort((left, right) => left.label.localeCompare(right.label));
+    normalized[String(catalogKey)] = nextProfiles.sort((left, right) => left.label.localeCompare(right.label));
   });
   return normalized;
 }
 
-function normalizeSeasonFilterCatalog(catalog) {
+function normalizeLegacyFilterCatalog(catalog) {
   const normalized = { seasons: {} };
   Object.entries(catalog?.seasons || {}).forEach(([seasonKey, definitions]) => {
     normalized.seasons[String(seasonKey)] = normalizeFilterDefinitions(definitions);
@@ -2991,8 +3034,8 @@ function normalizeSeasonFilterCatalog(catalog) {
   return normalized;
 }
 
-function migrateLegacySeasonScopedConfigIntoProfiles(profileCatalog, legacyEquationCatalog, legacyFilterCatalog) {
-  const normalizedProfiles = normalizeSeasonProfileCatalog(profileCatalog);
+function migrateLegacyScopedConfigIntoProfiles(profileCatalog, legacyEquationCatalog, legacyFilterCatalog) {
+  const normalizedProfiles = normalizeScoutingProfileCatalog(profileCatalog);
   const seasonKeys = new Set([
     ...Object.keys(normalizedProfiles || {}),
     ...Object.keys(legacyEquationCatalog?.seasons || {}),
@@ -3020,7 +3063,7 @@ function migrateLegacySeasonScopedConfigIntoProfiles(profileCatalog, legacyEquat
       ),
     }));
   });
-  return normalizeSeasonProfileCatalog(migrated);
+  return normalizeScoutingProfileCatalog(migrated);
 }
 
 function knownScouterFieldIds() {
@@ -3030,7 +3073,7 @@ function knownScouterFieldIds() {
 }
 
 function reservedMetricIds() {
-  return new Set(globalEventCatalog.flatMap((eventModel) => (eventModel.metrics || []).map((metric) => metric.id)));
+  return new Set(globalEventCatalog.flatMap((eventModel) => runtimeMetricsForEventModel(eventModel).map((metric) => metric.id)));
 }
 
 function normalizeView(view) {
@@ -3063,7 +3106,7 @@ function normalizeAnalysisFilterSelection(value, eventModel = currentEvent()) {
 
 function normalizeTeamDetailMetric(value, eventModel = currentEvent()) {
   if (typeof value !== "string" || !value) return eventModel.defaultTeamDetailMetricId;
-  return eventModel.metrics.some((metric) => metric.id === value) ? value : eventModel.defaultTeamDetailMetricId;
+  return runtimeMetricsForEventModel(eventModel).some((metric) => metric.id === value) ? value : eventModel.defaultTeamDetailMetricId;
 }
 
 function pickedTeams() {
@@ -6488,15 +6531,21 @@ function updateProfileEquationFormula(id, formula) {
 }
 
 function profileDerivedEquationsSourceText() {
-  const canonicalCatalog = normalizeSeasonDerivedEquationCatalog({
-    seasons: Object.fromEntries(
+  const canonicalCatalog = {
+    seasons: normalizeScoutingProfileCatalog(
+      Object.fromEntries(
       Object.entries(state.scoutingProfileCatalog || {}).map(([seasonKey, profiles]) => [
         seasonKey,
-        profiles.find((profile) => profile.id === defaultScoutingProfileId)?.equations || profiles[0]?.equations || [],
+        [{
+          id: defaultScoutingProfileId,
+          label: knownImportProfileLabels[defaultScoutingProfileId] || defaultScoutingProfileId,
+          equations: profiles.find((profile) => profile.id === defaultScoutingProfileId)?.equations || profiles[0]?.equations || [],
+        }],
       ]),
+      ),
     ),
-  });
-  return `(function () {\nglobalThis.SeasonDerivedEquations = ${JSON.stringify(canonicalCatalog, null, 2)};\n})();\n`;
+  };
+  return `(function () {\nglobalThis.ScoutingProfileSeeds = ${JSON.stringify(canonicalCatalog, null, 2)};\n})();\n`;
 }
 
 function formulaAutocompleteCandidates(token) {

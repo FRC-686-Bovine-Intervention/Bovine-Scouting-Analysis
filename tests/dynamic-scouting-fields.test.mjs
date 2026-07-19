@@ -37,7 +37,7 @@ function loadBrowserContext(relativePaths, extras = {}) {
 }
 
 runTest("dynamic scouting fields merge imported raw metric ids into seeded field definitions", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/dynamic-scouting-fields.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/dynamic-scouting-fields.js"]);
   const season = context.SeasonFramework.gameDefinitions[2026];
   const eventModel = {
     ...season,
@@ -66,7 +66,7 @@ runTest("dynamic scouting fields merge imported raw metric ids into seeded field
 });
 
 runTest("dynamic scouting fields infer numeric imported fields and omit removed ones when they disappear", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/dynamic-scouting-fields.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/dynamic-scouting-fields.js"]);
   const season = context.SeasonFramework.gameDefinitions[2025];
   const eventModel = {
     ...season,
@@ -101,7 +101,7 @@ runTest("dynamic scouting fields infer numeric imported fields and omit removed 
 });
 
 runTest("dynamic scouting fields surface preview schema fields before submissions are committed", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/dynamic-scouting-fields.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/dynamic-scouting-fields.js"]);
   const season = context.SeasonFramework.gameDefinitions[2026];
   const eventModel = {
     ...season,

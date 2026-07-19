@@ -1,4 +1,5 @@
 (function () {
+const seasonFramework = globalThis.SeasonFramework || {};
 const canonicalFormatId = "frc-scouting-analysis/v1";
 const canonicalTemplateProfileId = "canonical-json-v1";
 const requiredEntryIdentityFields = ["matchNumber", "teamNumber", "scoutUser", "alliance", "station"];
@@ -11,6 +12,10 @@ function normalizeText(value) {
 function formulaFieldDefinitions(eventModel) {
   if (Array.isArray(eventModel?.formulaFieldDefinitions) && eventModel.formulaFieldDefinitions.length) {
     return eventModel.formulaFieldDefinitions;
+  }
+  if (typeof seasonFramework.formulaFieldDefinitions === "function") {
+    const seededDefinitions = seasonFramework.formulaFieldDefinitions(eventModel);
+    if (Array.isArray(seededDefinitions) && seededDefinitions.length) return seededDefinitions;
   }
   const definitions = [];
   const seen = new Set();

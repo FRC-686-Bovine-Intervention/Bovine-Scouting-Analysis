@@ -64,6 +64,7 @@ function rowsToObjects(rows, headerRowIndex) {
 }
 
 const browserContext = loadBrowserContext([
+  "src/legacy-scouting-schema-seeds.js",
   "src/season-framework.js",
   "src/metric-engine.js",
   "src/real-event-snapshots.js",

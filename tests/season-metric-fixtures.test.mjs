@@ -3,9 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 
-function loadBrowserScript(relativePath, exportName) {
-  const sourcePath = path.resolve(relativePath);
-  const source = fs.readFileSync(sourcePath, "utf8");
+function loadBrowserScripts(relativePaths, exportName) {
   const context = {
     globalThis: {},
     console,
@@ -18,8 +16,16 @@ function loadBrowserScript(relativePath, exportName) {
     String,
   };
   context.globalThis = context;
-  vm.runInNewContext(source, context, { filename: sourcePath });
+  relativePaths.forEach((relativePath) => {
+    const sourcePath = path.resolve(relativePath);
+    const source = fs.readFileSync(sourcePath, "utf8");
+    vm.runInNewContext(source, context, { filename: sourcePath });
+  });
   return context[exportName];
+}
+
+function loadBrowserScript(relativePath, exportName) {
+  return loadBrowserScripts([relativePath], exportName);
 }
 
 function runTest(name, fn) {
@@ -37,7 +43,7 @@ function assertClose(actual, expected, message) {
 }
 
 const metricEngine = loadBrowserScript("src/metric-engine.js", "MetricEngine");
-const seasonFramework = loadBrowserScript("src/season-framework.js", "SeasonFramework");
+const seasonFramework = loadBrowserScripts(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js"], "SeasonFramework");
 const fixtures = JSON.parse(fs.readFileSync(path.resolve("tests/season-metric-fixtures.json"), "utf8"));
 
 fixtures.forEach((fixture) => {

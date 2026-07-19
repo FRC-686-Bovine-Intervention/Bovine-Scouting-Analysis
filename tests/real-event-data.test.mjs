@@ -84,7 +84,7 @@ runTest("real event model preserves qualification alliance scores and score brea
     ],
   };
 
-  const context = loadBrowserContext(["src/season-framework.js", "src/event-model-builder.js", "src/real-event-data.js"], {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/event-model-builder.js", "src/real-event-data.js"], {
     realEventSnapshots: snapshots,
   });
   const [eventModel] = context.eventCatalog;
@@ -142,7 +142,7 @@ runTest("real event model leaves score breakdown null when snapshots only provid
     ],
   };
 
-  const context = loadBrowserContext(["src/season-framework.js", "src/event-model-builder.js", "src/real-event-data.js"], {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/event-model-builder.js", "src/real-event-data.js"], {
     realEventSnapshots: snapshots,
   });
   const [eventModel] = context.eventCatalog;
@@ -153,7 +153,7 @@ runTest("real event model leaves score breakdown null when snapshots only provid
 });
 
 runTest("real event data does not invent fallback events when no real snapshots are present", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/event-model-builder.js", "src/real-event-data.js"], {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/event-model-builder.js", "src/real-event-data.js"], {
     realEventSnapshots: { events: [] },
   });
 

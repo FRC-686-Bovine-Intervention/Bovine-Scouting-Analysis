@@ -107,7 +107,7 @@ runTest("previewScoutingImport uses event-owned field definitions without Season
 });
 
 runTest("previewScoutingImport preserves raw strings and warns on type outliers", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
@@ -169,7 +169,7 @@ runTest("previewScoutingImport preserves raw strings and warns on type outliers"
 });
 
 runTest("season sheet adapters preserve blank subjective ratings as missing values", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/sheet-import-adapters.js", "src/import-foundation.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/sheet-import-adapters.js", "src/import-foundation.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
@@ -199,7 +199,7 @@ runTest("season sheet adapters preserve blank subjective ratings as missing valu
 });
 
 runTest("season sheet adapters honor an explicit attachment profile in canonical metadata", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/sheet-import-adapters.js", "src/import-foundation.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/sheet-import-adapters.js", "src/import-foundation.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
@@ -235,7 +235,7 @@ runTest("season sheet adapters honor an explicit attachment profile in canonical
 });
 
 runTest("previewScoutingImport flags duplicate groups but keeps rows reviewable in the preview summary", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
@@ -273,7 +273,7 @@ runTest("previewScoutingImport flags duplicate groups but keeps rows reviewable 
 });
 
 runTest("previewScoutingImport still detects duplicates when helper scripts load after import-foundation", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/import-foundation.js", "src/scouting-source-utils.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/import-foundation.js", "src/scouting-source-utils.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
@@ -307,7 +307,7 @@ runTest("previewScoutingImport still detects duplicates when helper scripts load
 });
 
 runTest("previewScoutingImport can fall back to generic field mapping when no profile matches", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
@@ -341,7 +341,7 @@ runTest("previewScoutingImport can fall back to generic field mapping when no pr
 });
 
 runTest("previewScoutingImport still flags missing required identity fields during generic fallback", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,

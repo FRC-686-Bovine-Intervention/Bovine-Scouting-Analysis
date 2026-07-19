@@ -1,0 +1,51 @@
+(function () {
+const seasons = {
+  2024: {
+    label: "Crescendo",
+    scoringComponents: [
+      { id: "auto", label: "Auto", unit: "pts" },
+      { id: "speaker", label: "Speaker", unit: "pts" },
+      { id: "amp", label: "Amp", unit: "pts" },
+      { id: "trap", label: "Trap", unit: "pts" },
+    ],
+    breakdownMap: {
+      auto: ["auto_points"],
+      speaker: ["speaker_points"],
+      amp: ["amplified_notes"],
+      trap: ["endgame_trap_points"],
+    },
+  },
+  2025: {
+    label: "Reefscape",
+    scoringComponents: [
+      { id: "auto", label: "Auto", unit: "pts" },
+      { id: "coral", label: "Coral", unit: "pts" },
+      { id: "algae", label: "Algae", unit: "pts" },
+      { id: "climb", label: "Climb", unit: "pts" },
+    ],
+    breakdownMap: {
+      auto: ["auto_points"],
+      coral: ["total_coral_points"],
+      algae: ["total_algae_points"],
+      climb: ["barge_points"],
+    },
+  },
+  2026: {
+    label: "2026 Season",
+    scoringComponents: [
+      { id: "auto", label: "Auto", unit: "pts" },
+      { id: "cycle", label: "Cycle", unit: "pts" },
+      { id: "endgame", label: "Endgame", unit: "pts" },
+    ],
+    breakdownMap: {
+      auto: ["auto_points"],
+      cycle: ["teleop_points"],
+      endgame: ["endgame_points"],
+    },
+  },
+};
+
+globalThis.ProviderSeasonMetadata = {
+  seasons,
+};
+})();

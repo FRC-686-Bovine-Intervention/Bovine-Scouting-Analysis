@@ -64,6 +64,7 @@ await runTest("loadEventByCode builds an event model and ready provider states f
     statbotics: "https://statbotics.test/api",
   };
   const context = loadBrowserContext([
+    "src/legacy-scouting-schema-seeds.js",
     "src/season-framework.js",
     "src/prior-ridge.js",
     "src/event-model-builder.js",
@@ -217,6 +218,7 @@ await runTest("loadEventByCode falls back to a generic season shell for unknown 
     statbotics: "https://statbotics.test/api",
   };
   const context = loadBrowserContext([
+    "src/legacy-scouting-schema-seeds.js",
     "src/season-framework.js",
     "src/prior-ridge.js",
     "src/event-model-builder.js",
@@ -286,6 +288,7 @@ await runTest("loadEventByCode keeps the event loadable when Statbotics fails", 
     statbotics: "https://statbotics.test/api",
   };
   const context = loadBrowserContext([
+    "src/legacy-scouting-schema-seeds.js",
     "src/season-framework.js",
     "src/prior-ridge.js",
     "src/event-model-builder.js",
@@ -360,6 +363,7 @@ await runTest("loadEventByCode marks pRidge as error when no usable qualificatio
     statbotics: "https://statbotics.test/api",
   };
   const context = loadBrowserContext([
+    "src/legacy-scouting-schema-seeds.js",
     "src/season-framework.js",
     "src/prior-ridge.js",
     "src/event-model-builder.js",
@@ -428,6 +432,7 @@ await runTest("loadEventByCode marks pRidge as error when no usable qualificatio
 
 await runTest("loadEventByCode requires a TBA auth key for live lookups", async () => {
   const context = loadBrowserContext([
+    "src/legacy-scouting-schema-seeds.js",
     "src/season-framework.js",
     "src/prior-ridge.js",
     "src/event-model-builder.js",

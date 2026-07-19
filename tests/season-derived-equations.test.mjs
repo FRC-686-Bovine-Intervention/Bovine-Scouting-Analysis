@@ -32,11 +32,12 @@ function loadBrowserScript(relativePath, exportName) {
   return context[exportName];
 }
 
-const seasonDerivedEquations = loadBrowserScript("src/season-derived-equations.js", "SeasonDerivedEquations");
+const scoutingProfileSeeds = loadBrowserScript("src/scouting-profile-seeds.js", "ScoutingProfileSeeds");
 
-runTest("seeded season equations expose scoutingTotal without the legacy scouting.total helper", () => {
+runTest("seeded profile equations expose scoutingTotal without the legacy scouting.total helper", () => {
   ["2024", "2025", "2026"].forEach((seasonKey) => {
-    const scoutingTotal = seasonDerivedEquations.seasons[seasonKey].find((definition) => definition.id === "scoutingTotal");
+    const seededProfile = scoutingProfileSeeds.seasons[seasonKey].find((profile) => profile.id === "match-current-v2");
+    const scoutingTotal = seededProfile?.equations?.find((definition) => definition.id === "scoutingTotal");
     assert.ok(scoutingTotal, `Season ${seasonKey} should seed scoutingTotal`);
     assert.equal(scoutingTotal.formula.includes("scouting.total"), false);
   });

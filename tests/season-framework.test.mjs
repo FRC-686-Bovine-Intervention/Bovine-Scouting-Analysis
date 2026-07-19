@@ -13,9 +13,7 @@ function runTest(name, fn) {
   }
 }
 
-function loadBrowserScript(relativePath, exportName) {
-  const sourcePath = path.resolve(relativePath);
-  const source = fs.readFileSync(sourcePath, "utf8");
+function loadBrowserScripts(relativePaths, exportName) {
   const context = {
     globalThis: {},
     console,
@@ -28,11 +26,20 @@ function loadBrowserScript(relativePath, exportName) {
     String,
   };
   context.globalThis = context;
-  vm.runInNewContext(source, context, { filename: sourcePath });
+  relativePaths.forEach((relativePath) => {
+    const sourcePath = path.resolve(relativePath);
+    const source = fs.readFileSync(sourcePath, "utf8");
+    vm.runInNewContext(source, context, { filename: sourcePath });
+  });
   return context[exportName];
 }
 
-const seasonFramework = loadBrowserScript("src/season-framework.js", "SeasonFramework");
+function loadLegacyScoutingSchemaSeeds() {
+  return loadBrowserScripts(["src/legacy-scouting-schema-seeds.js"], "LegacyScoutingSchemaSeeds");
+}
+
+const seasonFramework = loadBrowserScripts(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js"], "SeasonFramework");
+const legacyScoutingSchemaSeeds = loadLegacyScoutingSchemaSeeds();
 
 runTest("season metrics expose pRidge as a total-only source", () => {
   const season = seasonFramework.gameDefinitions[2026];
@@ -75,4 +82,16 @@ runTest("formula field definitions include scoring components for derived equati
     seasonFramework.formulaFieldDefinitions(season2026).some((fieldDefinition) => fieldDefinition.id === "cycle"),
     true,
   );
+});
+
+runTest("gameDefinitions exposes provider metadata without owning scouting schema fields", () => {
+  const season2026 = seasonFramework.gameDefinitions[2026];
+
+  assert.equal(season2026.season, 2026);
+  assert.equal("scouterMetrics" in season2026, false);
+  assert.equal("formulaFields" in season2026, false);
+  assert.equal("derivedMetrics" in season2026, false);
+  assert.equal("scoringMatrixPresets" in season2026, false);
+  assert.ok(Array.isArray(legacyScoutingSchemaSeeds["2026"].scouterMetrics));
+  assert.ok(Array.isArray(legacyScoutingSchemaSeeds["2026"].derivedMetrics));
 });

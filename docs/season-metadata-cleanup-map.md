@@ -16,24 +16,32 @@ The target state is:
 Implemented on July 18, 2026:
 
 - runtime scouting field resolution now prefers committed/imported schema fields and saved profile fields over season-seeded scouting fields
-- app runtime metric and derived-definition resolution now reads the active event model plus active scouting profile instead of calling back into `SeasonFramework` for current-state scouting metrics
+- app runtime metric and derived-definition resolution now rebuilds scouting metric catalogs from the active event model plus active scouting profile instead of trusting season-seeded runtime metric lists
+- runtime metric catalog construction now lives in a generic scouting-schema helper instead of depending on `SeasonFramework` ownership
+- live and snapshot event construction now keeps provider-facing season metadata, but only carries scouting field definitions and scouting-derived metrics when payloads or snapshots explicitly provide them
+- live and snapshot event construction now prefers a narrow provider-season metadata module for `seasonLabel`, `scoringComponents`, and `breakdownMap` instead of reading those directly from `SeasonFramework`
+- team scaffolding no longer pre-seeds empty scouter component maps from `gameDefinitions`; empty scouting structures now follow explicit event/profile schema only
+- live and snapshot event construction no longer carries `criteriaSources`; import and runtime paths now work from event identity, provider metrics, and explicit scouting schema instead
 - scoring-matrix preset resolution now reads `eventModel.scoringMatrixPresets` instead of looking back into `SeasonFramework` from the app layer
 - canonical schema, CSV import, JSON import, and schema-signature helpers now prefer event-owned field definitions before any season fallback
+- CSV and canonical JSON import validation no longer requires season-built metric catalogs or criteria-source bundles when the schema fields themselves are present
 - sample-backed scouting refresh checks now compare against explicit schema fields and translation versions instead of only season defaults
 - derived equations now own reusable predicates at runtime, with legacy filters migrated into predicate-style equations under saved scouting profiles
 - analysis match filtering now resolves through predicate equations instead of a dedicated filter catalog
-- legacy translator selection now prefers adapter/profile identity and distinctive header matching, with season only as a fallback hint
+- legacy translator selection now prefers adapter/profile identity and distinctive header matching, with generic canonicalization instead of a season guess when evidence is weak
 - runtime profile storage now writes `scoutingProfiles`, with legacy `seasonProfiles` read only as a migration fallback
+- legacy season-scoped profile/equation/filter compatibility is now projected onto `eventKey`-scoped profile entries before runtime use, so active profile selection no longer reads season keys directly
 - scouting profiles are now cloned and saved per `eventKey` on write, so historical events can preserve their own profile snapshots
+- saved scouting profiles now normalize explicit `versionKey` values plus `fieldMigrations` records for rename/add/remove compatibility tracking
 - scouting attachments now persist explicit `profileId`, `profileLabel`, and `profileVersionKey` alongside schema and translation fingerprints
+- exported `gameDefinitions` now exposes provider-facing season metadata only; the remaining legacy scouting seed bundle lives behind helper lookups instead of on the exported season objects
 - the exported `seasonDefinitions` alias has been removed in favor of `gameDefinitions`
 - the old `seasonSheetTranslators` structure is already gone; legacy import support now lives in adapter/profile matching code
 - legacy sheet loading now runs through canonical translation plus schema-carrying JSON import in the primary app path, so imported scouting fields survive without season-seeded CSV definitions
 
 Still pending:
 
-- fully deleting seeded game scaffolding after migration compatibility is no longer needed
-- shrinking the remaining hard-coded `gameDefinitions` bundle so it no longer owns scouting schema
+- fully deleting the remaining seeded game/provider scaffolding after migration compatibility is no longer needed
 
 ## Resolved Recommendations
 
@@ -80,41 +88,39 @@ Compatibility during migration is acceptable, but the target state should not ke
 
 ## Current Coupling Inventory
 
-### 1. `SeasonFramework` is still an authoritative schema bundle
+### 1. Compatibility still reads a legacy scouting seed module
 
-[src/season-framework.js](D:/FIRST/Scouting/Scouting-Analysis/src/season-framework.js:26) currently hard-codes `gameDefinitions` for `2024`, `2025`, and `2026`.
+[src/legacy-scouting-schema-seeds.js](D:/FIRST/Scouting/Scouting-Analysis/src/legacy-scouting-schema-seeds.js:1) now holds the compatibility scouting seed bundle for `2024`, `2025`, and `2026`, while [src/season-framework.js](D:/FIRST/Scouting/Scouting-Analysis/src/season-framework.js:1) only looks it up through helper functions.
 
-Each season definition currently mixes several concerns:
+The exported season objects no longer own scouting schema directly. The remaining bundled legacy seed source still mixes several concerns:
 
-- external scoring component layout
 - raw scouting field definitions
 - formula-only scouting fields
 - derived metric definitions
 - scoring presets
 
-This is the main place where season metadata still acts like product logic instead of identity.
+This is now the main compatibility bundle that still acts like product logic instead of purely profile/schema data.
 
-### 2. Event models are pre-seeded from season code
+### 2. Event models still carry provider-season metadata, but through a narrower seam
 
 [src/event-model-builder.js](D:/FIRST/Scouting/Scouting-Analysis/src/event-model-builder.js:286) and [src/real-event-data.js](D:/FIRST/Scouting/Scouting-Analysis/src/real-event-data.js:19) still inject provider-facing season structure into every event model:
 
 - `seasonLabel`
 - `breakdownMap`
 - `scoringComponents`
-- `derivedMetricDefinitions`
 - `metrics`
-- `criteriaSources`
 
-The scouter and formula field lists are no longer seeded by default on live/snapshot event models unless the payload already carries them, but derived metrics and metric catalogs are still season-seeded compatibility scaffolding.
+The scouter, formula, and scouting-derived metric lists are no longer seeded by default on live/snapshot event models unless the payload already carries them, and `criteriaSources` is no longer part of runtime event construction. This layer now prefers [src/provider-season-metadata.js](D:/FIRST/Scouting/Scouting-Analysis/src/provider-season-metadata.js:1) for the narrow provider-facing season context instead of reaching straight into `SeasonFramework`, but it still pre-seeds provider season structure and a generic runtime metric catalog.
 
-### 3. Runtime scouting fields now resolve from event/profile state, but event construction still carries season compatibility
+### 3. Runtime scouting fields and profile selection now resolve from event/profile state
 
 [src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js:1111) now resolves current scouting fields from committed/imported schema plus saved event-scoped profiles, and current metrics/derived definitions from the active event model plus profile equations.
 
 That means the remaining coupling is narrower than before:
 
 - the app runtime no longer asks `SeasonFramework` what the active scouting fields or derived definitions are
-- but live/snapshot event models can still arrive carrying season-seeded derived metrics and metric catalogs
+- active scouting-profile lookup no longer reads season-keyed profile entries directly; legacy season-scoped catalogs are projected into event-key profiles as migration scaffolding
+- live/snapshot event models can still arrive carrying provider-seeded scoring components and a generic runtime metric catalog
 
 So the next removal target is event construction and seeded compatibility data, not the main UI field resolver.
 
@@ -129,12 +135,12 @@ These modules now prefer event-owned field definitions first, but still keep nar
 
 Remaining effects today:
 
-- imported or built event models still often arrive pre-seeded from `gameDefinitions`
+- imported or built event models still often arrive with season-backed metric catalogs and helper expectations
 - fallback schema/header behavior can still inherit that seeded bundle when the event model lacks explicit field definitions
 
-### 5. Legacy sheet translation still branches by season
+### 5. Legacy sheet translation still carries hard-coded legacy-format mapping
 
-[src/sheet-import-adapters.js](D:/FIRST/Scouting/Scouting-Analysis/src/sheet-import-adapters.js:35) still contains legacy adapter logic for `2024`, `2025`, and `2026`, although selection now prefers adapter/profile identity and distinctive header matching before falling back to season.
+[src/sheet-import-adapters.js](D:/FIRST/Scouting/Scouting-Analysis/src/sheet-import-adapters.js:35) still contains hard-coded legacy adapter logic for older sheet formats, although selection now prefers adapter/profile identity and distinctive header matching before falling back to generic canonicalization.
 
 This is useful as migration scaffolding, but it is exactly the kind of season-specific structure the app should retire.
 
@@ -152,13 +158,13 @@ The primary app import path is already better than the remaining adapter code su
 
 not year-specific translation branches in core code.
 
-### 6. Seeded equation compatibility is still sourced from legacy season files
+### 6. Seeded equation compatibility is still sourced from a legacy profile-seed bundle
 
-The app still loads seeded season catalogs from:
+The app now loads seeded compatibility profiles from:
 
-- [src/season-derived-equations.js](D:/FIRST/Scouting/Scouting-Analysis/src/season-derived-equations.js:2)
+- [src/scouting-profile-seeds.js](D:/FIRST/Scouting/Scouting-Analysis/src/scouting-profile-seeds.js:1)
 
-Legacy season filter storage may still be read for one-time migration, but the runtime `SeasonFilters` module no longer participates in app behavior.
+Legacy season-derived-equation and season-filter storage may still be read for one-time migration, but the runtime `SeasonFilters` module no longer participates in app behavior. The app now projects those migrated season-scoped definitions onto event-key profiles before runtime use, so the remaining issue is the compatibility seed source itself rather than an active season selector in the UI runtime.
 
 This is now migration scaffolding more than runtime ownership, but it still exists and should eventually disappear.
 
@@ -213,8 +219,8 @@ These should continue to exist, but under profile/schema ownership instead of se
 
 Move from:
 
-- `gameDefinitions[*].scouterMetrics`
-- `gameDefinitions[*].formulaFields`
+- `LegacyScoutingSchemaSeeds[*].scouterMetrics`
+- `LegacyScoutingSchemaSeeds[*].formulaFields`
 - `seasonFramework.formulaFieldDefinitions(...)`
 
 Move to:
@@ -239,7 +245,7 @@ Move to:
 
 Move from:
 
-- `SeasonDerivedEquations.seasons[season]`
+- `ScoutingProfileSeeds.seasons[season][*].equations`
 Move to:
 
 - profile-scoped derived equation catalogs
@@ -266,7 +272,7 @@ Move to:
 
 Move from:
 
-- year-specific adapter branches and season fallback matching
+- adapter-specific mapping branches and any remaining season fallback matching
 
 Move to:
 
@@ -278,9 +284,9 @@ Move to:
 
 These are the primary cleanup targets.
 
-### Remove `gameDefinitions` as the owner of scouting schema
+### Remove the remaining legacy scouting seed bundle as the owner of scouting schema
 
-The `gameDefinitions` object in [src/season-framework.js](D:/FIRST/Scouting/Scouting-Analysis/src/season-framework.js:26) should stop owning:
+The remaining legacy scouting seed bundle in [src/legacy-scouting-schema-seeds.js](D:/FIRST/Scouting/Scouting-Analysis/src/legacy-scouting-schema-seeds.js:1) should stop owning:
 
 - scouting raw fields
 - formula-only scouting fields
@@ -289,9 +295,9 @@ The `gameDefinitions` object in [src/season-framework.js](D:/FIRST/Scouting/Scou
 
 If some external scoring metadata still needs a home, it should be split into a separate provider-facing module with a narrower responsibility.
 
-### Remove year-specific legacy adapter branches
+### Remove legacy adapter branches once profile coverage is good enough
 
-The remaining year-specific adapter branches in [src/sheet-import-adapters.js](D:/FIRST/Scouting/Scouting-Analysis/src/sheet-import-adapters.js:35) should eventually be reduced to profile-driven import compatibility plus thin fallback mapping.
+The remaining hard-coded legacy adapter branches in [src/sheet-import-adapters.js](D:/FIRST/Scouting/Scouting-Analysis/src/sheet-import-adapters.js:35) should eventually be reduced to profile-driven import compatibility plus thin fallback mapping.
 
 ### Remove season as the selector for equations and predicates
 
@@ -358,11 +364,11 @@ They should instead resolve from:
 {
   profileId,
   profileName,
-  versionId,
+  versionKey,
   basedOnProfileId,
   fields: [],
-  aliases: {},
-  derivedEquations: [],
+  fieldMigrations: [],
+  equations: [],
   matchingHints: {},
   importAdapters: [],
   createdAt,
@@ -462,17 +468,18 @@ After the previous phases are stable:
 
 ### B. Profile model cutover
 
-- [ ] Define a versioned scouting profile structure in code and docs.
+- [x] Define a versioned scouting profile structure in code and docs.
 - [x] Persist matched profile id and version id on scouting attachments.
 - [x] Preserve historical event-to-profile associations when the current profile changes.
-- [ ] Add rename, add, and remove field migration records to profiles.
+- [x] Add rename, add, and remove field migration records to profiles.
+  Progress: records now normalize and persist on profile objects; admin authoring and rename-assist UX can build on this shape separately.
 
 ### C. Legacy import cutover
 
 - [x] Replace `seasonSheetTranslators` with a registry of import adapters or saved profile matchers.
-- [ ] Allow legacy CSV and sheet formats to be imported by profile selection rather than by event year.
-  Progress: adapter selection now prefers profile id and header matching before season fallback.
-- [ ] Keep generic column canonicalization as the fallback path when no exact profile matches.
+- [x] Allow legacy CSV and sheet formats to be imported by profile selection rather than by event year.
+  Progress: adapter selection and scoring-component backfill now rely on explicit profile choice or header matching, with generic canonicalization instead of an event-year fallback guess.
+- [x] Keep generic column canonicalization as the fallback path when no exact profile matches.
 
 ### D. Equation and predicate cutover
 
@@ -480,13 +487,16 @@ After the previous phases are stable:
 - [x] Convert existing season filters into boolean derived equations or predicate-marked equations.
 - [x] Update analysis-filter selection to reference boolean equations instead of a separate filter catalog.
 - [x] Keep dependency diagnostics working for converted predicate equations.
+  Note: the old runtime filter concept is considered migrated; remaining `filters` mentions are compatibility language, not a separate source-of-truth artifact.
 
 ### E. Scaffold removal
 
-- [ ] Remove scouting-schema ownership from `gameDefinitions`.
+- [~] Remove scouting-schema ownership from `gameDefinitions`.
+  Progress: exported `gameDefinitions` now exposes provider metadata only; the remaining ownership is isolated in `LegacyScoutingSchemaSeeds`.
 - [x] Remove `seasonSheetTranslators`.
 - [x] Remove `SeasonFilters`.
-- [x] Remove season-owned equation and profile storage naming after migration compatibility is no longer needed.
+- [~] Remove season-owned equation and profile storage naming after migration compatibility is no longer needed.
+  Progress: active runtime storage now writes `scoutingProfiles`; legacy `seasonProfiles`, `seasonDerivedEquations`, and `seasonFilters` keys are still read or cleared only for migration compatibility.
 
 ## Acceptance Checks
 

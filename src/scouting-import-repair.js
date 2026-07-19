@@ -86,14 +86,12 @@ function repairLegacySubmissionRawMetrics(rawMetrics, eventModel) {
   if (!rawMetrics || typeof rawMetrics !== "object") return {};
   const repaired = { ...rawMetrics };
   if (
-    Number(eventModel?.season) === 2024 &&
     !Object.prototype.hasOwnProperty.call(repaired, "climbAttempt") &&
     Object.prototype.hasOwnProperty.call(repaired, "climbSuccess")
   ) {
     repaired.climbAttempt = Number(repaired.climbSuccess) > 0 ? 1 : 0;
   }
   if (
-    Number(eventModel?.season) === 2025 &&
     !Object.prototype.hasOwnProperty.call(repaired, "climbAttempt") &&
     Object.prototype.hasOwnProperty.call(repaired, "climbLevel")
   ) {

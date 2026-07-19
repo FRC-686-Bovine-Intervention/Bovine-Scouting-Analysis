@@ -1,4 +1,5 @@
 (function () {
+const seasonFramework = globalThis.SeasonFramework || {};
 const scoutingJsonSchema = globalThis.ScoutingJsonSchema || {};
 const requiredIdentityFields = scoutingJsonSchema.requiredEntryIdentityFields || ["matchNumber", "teamNumber", "scoutUser", "alliance", "station"];
 const canonicalFormatId = scoutingJsonSchema.canonicalFormatId || "frc-scouting-analysis/v1";
@@ -58,6 +59,10 @@ function formulaFieldDefinitions(eventModel) {
   if (Array.isArray(eventModel?.formulaFieldDefinitions) && eventModel.formulaFieldDefinitions.length) {
     return eventModel.formulaFieldDefinitions;
   }
+  if (typeof seasonFramework.formulaFieldDefinitions === "function") {
+    const seededDefinitions = seasonFramework.formulaFieldDefinitions(eventModel);
+    if (Array.isArray(seededDefinitions) && seededDefinitions.length) return seededDefinitions;
+  }
   const definitions = [];
   const seen = new Set();
   const append = (fieldDefinition) => {
@@ -80,7 +85,6 @@ function validateSeasonPackage(eventModel) {
   const missing = [];
   if (!eventModel?.season) missing.push("season");
   if (!eventModel?.seasonLabel) missing.push("seasonLabel");
-  if (!Array.isArray(eventModel?.metrics) || !eventModel.metrics.length) missing.push("metrics");
   if (!Array.isArray(formulaFieldDefinitions(eventModel)) || !formulaFieldDefinitions(eventModel).length) missing.push("formulaFieldDefinitions");
   return {
     valid: missing.length === 0,

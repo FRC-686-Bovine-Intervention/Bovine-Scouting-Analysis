@@ -37,7 +37,7 @@ function loadBrowserContext(relativePaths, extras = {}) {
 }
 
 runTest("translateEventSheetToCanonical emits canonical dataset metadata and entries for 2026 sheets", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
@@ -71,7 +71,7 @@ runTest("translateEventSheetToCanonical emits canonical dataset metadata and ent
 });
 
 runTest("translateEventSheetToCanonical preserves extra legacy sheet columns as canonical raw metrics", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
@@ -100,7 +100,7 @@ runTest("translateEventSheetToCanonical preserves extra legacy sheet columns as 
 });
 
 runTest("translateEventSheetToCanonical can match a legacy adapter by headers even when season differs", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,
@@ -123,8 +123,33 @@ runTest("translateEventSheetToCanonical can match a legacy adapter by headers ev
   assert.equal(dataset.entries[0].provenance.mode, "legacy-sheet-translation");
 });
 
+runTest("legacy scoring-component backfill follows the matched adapter instead of event season", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
+  const season2025 = context.SeasonFramework.gameDefinitions["2025"];
+  const eventModel = {
+    ...season2025,
+    season: 2027,
+    key: "2027reefdemo",
+    seasonLabel: "2027 Reef Demo",
+    sheet: { recommendedProfileId: "match-current-v2" },
+  };
+  const rawSheetCsv = [
+    "MatchNumber,Team Number,ScouterName,Alliiance,Alliance Index,Auto-L4Make,Auto-L3Make,Auto-L2Make,Auto-TroughMake,Auto-ScoredProcessorMake,Auto-ScoredBargeMake,Tele-Op-L4Make,Tele-Op-L3Make,Tele-Op-L2Make,Tele-Op-TroughMake,Tele-Op-ScoredProcessorMake,Tele-Op-ScoredBargeMake,Climbing,Notes",
+    "9,686,Scout A,red,1,1,0,1,1,1,0,2,1,0,3,1,1,3,Strong finish",
+  ].join("\n");
+
+  const dataset = context.SheetImportAdapters.translateEventSheetToCanonical(eventModel, rawSheetCsv);
+
+  assert.equal(dataset.meta.translationVersion, "2025-thin-v2");
+  assert.equal(dataset.entries.length, 1);
+  assert.equal(dataset.entries[0].rawMetrics.auto, 20);
+  assert.equal(dataset.entries[0].rawMetrics.coral, 20);
+  assert.equal(dataset.entries[0].rawMetrics.algae, 10);
+  assert.equal(dataset.entries[0].rawMetrics.climb, 8);
+});
+
 runTest("translateEventSheetToCanonical falls back to generic canonical sheet conversion for unmapped headers", () => {
-  const context = loadBrowserContext(["src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];
   const eventModel = {
     ...season2026,

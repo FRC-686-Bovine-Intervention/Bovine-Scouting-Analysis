@@ -1,12 +1,13 @@
 (function () {
 const eventModelBuilder = globalThis.EventModelBuilder || {};
 const seasonFramework = globalThis.SeasonFramework || {};
-const gameDefinitions = seasonFramework.gameDefinitions || {};
-const buildMetrics = seasonFramework.buildMetrics || ((season) => season?.metrics || []);
-const scouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((season) => season?.scouterMetrics || []);
-const formulaFieldDefinitions = seasonFramework.formulaFieldDefinitions || scouterMetricDefinitions;
-const derivedMetricDefinitions = seasonFramework.derivedMetricDefinitions || ((season) => season?.derivedMetrics || []);
-const buildCriteriaSources = seasonFramework.buildCriteriaSources || ((season) => season?.criteriaSources || []);
+const providerSeasonMetadata = globalThis.ProviderSeasonMetadata || {};
+const scoutingSchemaRuntime = globalThis.ScoutingSchemaRuntime || {};
+const seasonMetadataByYear = providerSeasonMetadata.seasons || seasonFramework.gameDefinitions || {};
+const buildMetricCatalog =
+  scoutingSchemaRuntime.buildMetricCatalog
+  || seasonFramework.buildMetrics
+  || ((eventModel) => eventModel?.metrics || []);
 
 function parseJson(text, fallback) {
   try {
@@ -18,13 +19,17 @@ function parseJson(text, fallback) {
 
 function minimalEventModelFromSnapshot(snapshot) {
   const season = Number(snapshot?.season || snapshot?.year || 0);
-  const seasonDefinition = gameDefinitions[season] || {};
+  const seasonDefinition = seasonMetadataByYear[season] || {};
+  const explicitScouterMetricDefinitions = Array.isArray(snapshot?.scouterMetricDefinitions) ? snapshot.scouterMetricDefinitions : [];
+  const explicitFormulaFieldDefinitions = Array.isArray(snapshot?.formulaFieldDefinitions) ? snapshot.formulaFieldDefinitions : [];
+  const explicitDerivedMetricDefinitions = Array.isArray(snapshot?.derivedMetricDefinitions) ? snapshot.derivedMetricDefinitions : [];
   const scoutingSchemaSeed = {
-    ...seasonDefinition,
-    scouterMetrics: Array.isArray(snapshot?.scouterMetricDefinitions) ? snapshot.scouterMetricDefinitions : [],
-    formulaFieldDefinitions: Array.isArray(snapshot?.formulaFieldDefinitions) ? snapshot.formulaFieldDefinitions : [],
-    derivedMetricDefinitions: Array.isArray(snapshot?.derivedMetricDefinitions) ? snapshot.derivedMetricDefinitions : derivedMetricDefinitions(seasonDefinition),
-    scoringMatrixPresets: Array.isArray(snapshot?.scoringMatrixPresets) ? snapshot.scoringMatrixPresets : (seasonDefinition.scoringMatrixPresets || []),
+    scoringComponents: seasonDefinition.scoringComponents || [],
+    breakdownMap: seasonDefinition.breakdownMap || {},
+    scouterMetricDefinitions: explicitScouterMetricDefinitions,
+    formulaFieldDefinitions: explicitFormulaFieldDefinitions,
+    derivedMetricDefinitions: explicitDerivedMetricDefinitions,
+    scoringMatrixPresets: Array.isArray(snapshot?.scoringMatrixPresets) ? snapshot.scoringMatrixPresets : [],
   };
   const tbaEvent = parseJson(snapshot?.tbaEventText, {});
   const tbaTeams = parseJson(snapshot?.tbaTeamsText, []);
@@ -46,11 +51,10 @@ function minimalEventModelFromSnapshot(snapshot) {
     seasonLabel: seasonDefinition.label || String(season || ""),
     scoringComponents: seasonDefinition.scoringComponents || [],
     scoringMatrixPresets: scoutingSchemaSeed.scoringMatrixPresets || [],
-    scouterMetricDefinitions: scouterMetricDefinitions(scoutingSchemaSeed),
-    formulaFieldDefinitions: formulaFieldDefinitions(scoutingSchemaSeed),
-    derivedMetricDefinitions: derivedMetricDefinitions(scoutingSchemaSeed),
-    metrics: buildMetrics(scoutingSchemaSeed),
-    criteriaSources: buildCriteriaSources(scoutingSchemaSeed),
+    scouterMetricDefinitions: explicitScouterMetricDefinitions,
+    formulaFieldDefinitions: explicitFormulaFieldDefinitions,
+    derivedMetricDefinitions: explicitDerivedMetricDefinitions,
+    metrics: buildMetricCatalog(scoutingSchemaSeed),
     teams,
     teamNumbers: teams.map((team) => team.number),
     sheet: snapshot?.sheet ? { ...snapshot.sheet, recommendedProfileId: snapshot.importProfileId || "" } : null,
