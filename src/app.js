@@ -1276,7 +1276,7 @@ function statboticsEpaMetric(eventModel = currentEvent()) {
 
 function formatMetricValueForDisplay(metric, value) {
   const numericValue = Number(value);
-  if (!metric || value === null || value === undefined || value === "" || Number.isNaN(numericValue)) return "—";
+  if (!metric || value === null || value === undefined || value === "" || Number.isNaN(numericValue)) return "-";
   const digits = metric.unit === "%" ? 0 : 1;
   return `${numericValue.toFixed(digits)}${metric.unit === "%" ? "%" : ""}`;
 }
@@ -4702,7 +4702,7 @@ function icon(name) {
     quality: '<path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5"/><path d="M12 17h.01"/>',
     picklists: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
     sortEquation:
-      '<text x="12" y="17" text-anchor="middle" font-size="18" font-weight="700" fill="currentColor" stroke="none">Î£</text>',
+      '<text x="12" y="17" text-anchor="middle" font-size="18" font-weight="700" fill="currentColor" stroke="none">&#931;</text>',
     alliance: '<path d="M4 5h7v6H4z"/><path d="M13 5h7v6h-7z"/><path d="M4 13h7v6H4z"/><path d="M13 13h7v6h-7z"/>',
     admin: '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2 3.4-.1-.1a1.7 1.7 0 0 0-2-.3 1.7 1.7 0 0 0-1 1.5V22h-4v-.5a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-2 .3l-.1.1-2-3.4.1-.1A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14H2v-4h1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 2-3.4.1.1a1.7 1.7 0 0 0 2 .3 1.7 1.7 0 0 0 1-1.5V2h4v.5a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 2-.3l.1-.1 2 3.4-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1H22v4h-1a1.7 1.7 0 0 0-1.6 1Z"/>',
   };
@@ -4910,7 +4910,6 @@ function recordForTeam(team) {
 }
 
 function renderTeams() {
-  const teamConsistencyMetric = metricById("derived:consistency");
   return `
     <div class="team-title-row">
       <div>
@@ -4927,7 +4926,6 @@ function renderTeams() {
           <span class="avatar">${team.number}</span>
           <span class="team-meta">
             <strong>${team.name}</strong>
-            <span class="muted">${teamConsistencyMetric ? `${teamMetricValue(team, teamConsistencyMetric)}% consistency` : "No comparison metric selected"}</span>
             ${renderDrivetrainBadge(team)}
           </span>
         </button>
@@ -4960,8 +4958,8 @@ function renderTeamDetail(team) {
       <div class="stat-grid">
         <div class="stat"><span>${escapeHtml(detailSelectedMetric?.label || "Trend Metric")}</span><strong>${detailSelectedMetric ? `${teamMetricValue(team, detailSelectedMetric).toFixed(detailSelectedMetric.unit === "%" ? 0 : 1)}${detailSelectedMetric.unit === "%" ? "%" : ""}` : "Select a metric"}</strong></div>
         <div class="stat"><span>Scouting Confidence</span><strong>${escapeHtml(confidenceLabel(detailScoutingConfidence.tier))}</strong></div>
-        <div class="stat"><span>OPR</span><strong>${detailOprMetric ? teamMetricValue(team, detailOprMetric).toFixed(1) : "—"}</strong></div>
-        <div class="stat"><span>pRidge</span><strong>${detailPridgeMetric ? teamMetricValue(team, detailPridgeMetric).toFixed(1) : "—"}</strong></div>
+        <div class="stat"><span>OPR</span><strong>${detailOprMetric ? teamMetricValue(team, detailOprMetric).toFixed(1) : "-"}</strong></div>
+        <div class="stat"><span>pRidge</span><strong>${detailPridgeMetric ? teamMetricValue(team, detailPridgeMetric).toFixed(1) : "-"}</strong></div>
       </div>
       <div class="team-detail-grid">
         <div>
@@ -4989,7 +4987,7 @@ function renderTeamDetail(team) {
         </div>
         <div class="compact-flags">
           <h3>Source Snapshot</h3>
-          <p><strong>pRidge:</strong> ${detailPridgeMetric ? teamMetricValue(team, detailPridgeMetric).toFixed(1) : "—"}</p>
+          <p><strong>pRidge:</strong> ${detailPridgeMetric ? teamMetricValue(team, detailPridgeMetric).toFixed(1) : "-"}</p>
           <p><strong>Rank:</strong> ${team.eventRank || "Unranked"}</p>
           <p><strong>Imported scouting matches:</strong> ${team.scouting?.importedMatches || 0}</p>
           <p><strong>Scouting confidence:</strong> ${escapeHtml(confidenceLabel(detailScoutingConfidence.tier))}</p>
@@ -5564,7 +5562,6 @@ function renderMatchNavigator(match, includeBack) {
 }
 
 function renderAllianceCard(title, teamNumbers) {
-  const allianceConsistencyMetric = metricById("derived:consistency");
   return `
     <article class="card">
       <h2>${title}</h2>
@@ -5577,7 +5574,6 @@ function renderAllianceCard(title, teamNumbers) {
                 <span class="avatar">${team.number}</span>
                 <span class="team-meta">
                   <strong>${team.name}</strong>
-                  <span class="muted">${allianceConsistencyMetric ? `${teamMetricValue(team, allianceConsistencyMetric)}% consistency` : "No comparison metric selected"}</span>
                   ${renderDrivetrainBadge(team)}
                 </span>
               </button>

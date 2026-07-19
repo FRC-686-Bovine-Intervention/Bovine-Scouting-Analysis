@@ -194,8 +194,10 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.eventModel.teams[0].sources.epa.components["record.qual.rank"], 4);
   assert.equal(Array.isArray(result.eventModel.teams[0].sources.epa.trend), true);
   assert.equal(result.eventModel.teams[0].sources.epa.trend.length, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].derived || {})), {});
   assert.equal(Array.isArray(result.eventModel.teams[0].sources.opr.trend), true);
   assert.equal(result.eventModel.teams[0].sources.opr.trend.length, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.seedSortEquations || [])), []);
   assert.equal(result.eventModel.seedPicklists[1].name, "Backup / Live Sources");
   assert.equal(Array.isArray(result.eventModel.scoringMatrixPresets), true);
   assert.equal(result.eventModel.scoringMatrixPresets.length, 0);

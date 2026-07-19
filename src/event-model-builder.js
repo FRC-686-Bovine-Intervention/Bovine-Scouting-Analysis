@@ -181,7 +181,6 @@ function emptySourceComponents(season, fallback = null) {
 
 function buildTeam(teamInfo, teamEvent, scoutingSchema, rankingEntry, oprValue, tbaComponents) {
   const epa = Number(teamEvent?.epa?.total_points || 0);
-  const breakdown = teamEvent?.epa?.breakdown || {};
   const statboticsComponents = Object.fromEntries(
     flattenStatboticsScalarEntries(teamEvent || {}).filter(([fieldId]) => fieldId !== "team_name" && fieldId !== "event_name"),
   );
@@ -192,9 +191,6 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, rankingEntry, oprValue, 
   const normalizedRankingRecord = normalizeQualRecord(rankingEntry?.record);
   const rankingSortOrders = Array.isArray(rankingEntry?.sort_orders) ? rankingEntry.sort_orders : [];
   const rankingScore = rankingSortOrders.length ? Number(rankingSortOrders[0] || 0) : Number(qualRecord.rps_per_match || 0);
-  const stats = teamEvent?.epa?.stats || {};
-  const consistency = Math.max(25, Math.min(99, Math.round(100 - Math.abs((Number(stats.max || epa) - Number(stats.mean || epa)) / Math.max(1, Number(stats.mean || epa))) * 65)));
-  const defenseImpact = round(Math.max(0, Number(qualRecord.rps_per_match || 0) * 2.2 - Number(teamEvent?.epa?.breakdown?.auto_points || 0) * 0.08));
   return {
     number: Number(teamInfo.team_number),
     name: teamInfo.nickname || teamEvent?.team_name || `Team ${teamInfo.team_number}`,
@@ -219,10 +215,7 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, rankingEntry, oprValue, 
       opr: { total: round(opr), components: emptySourceComponents(scoutingSchema, null), trend: [] },
       pridge: { total: null, components: emptySourceComponents(scoutingSchema), trend: [] },
     },
-    derived: {
-      defenseImpact,
-      consistency,
-    },
+    derived: {},
   };
 }
 
@@ -310,16 +303,7 @@ function buildEventModelFromPayloads(payload) {
     teamNumbers: teamsWithPridge.map((team) => team.number),
     defaultMetricId: "",
     defaultTeamDetailMetricId: "",
-    seedSortEquations: [
-      {
-        id: "sort-defense-backup",
-        name: "Defense / Backup Formula",
-        terms: [
-          { operator: "+", weight: 0.65, metricId: "derived:defenseImpact" },
-          { operator: "+", weight: 0.25, metricId: "derived:consistency" },
-        ],
-      },
-    ],
+    seedSortEquations: [],
     seedPicklists: buildSeedPicklists(teamsWithPridge),
     dataSources: [
       {
