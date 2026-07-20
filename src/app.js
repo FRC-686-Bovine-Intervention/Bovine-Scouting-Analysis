@@ -1,24 +1,178 @@
 const globalEventCatalog = globalThis.eventCatalog || [];
+const externalEventLoader = globalThis.ExternalEventLoader || {};
 const importFoundation = globalThis.ImportFoundation || {};
+const externalSourceSnapshots = globalThis.ExternalSourceSnapshots || {};
+const dynamicScoutingFields = globalThis.DynamicScoutingFields || {};
+const localFileAccess = globalThis.LocalFileAccess || {};
+const realEventDataApi = globalThis.RealEventData || {};
+const scoutingDependencyDiagnostics = globalThis.ScoutingDependencyDiagnostics || {};
+const scoutingDiagnosticsState = globalThis.ScoutingDiagnosticsState || {};
+const scoutingSourceUtils = globalThis.ScoutingSourceUtils || {};
+const scoutingJsonImport = globalThis.ScoutingJsonImport || {};
+const sourceRefresh = globalThis.SourceRefresh || {};
 const seasonFramework = globalThis.SeasonFramework || {};
+const scoutingSchemaRuntime = globalThis.ScoutingSchemaRuntime || {};
 const metricEngine = globalThis.MetricEngine || {};
 const sheetImportAdapters = globalThis.SheetImportAdapters || {};
 const scoutingImportRepair = globalThis.ScoutingImportRepair || {};
-const seededSeasonDerivedEquations = globalThis.SeasonDerivedEquations || { seasons: {} };
-const seededSeasonFilters = globalThis.SeasonFilters || { seasons: {} };
+const eventWorkspaceApi = globalThis.EventWorkspace || {};
 const commitScoutingImport = importFoundation.commitScoutingImport;
 const buildSampleCsv = importFoundation.buildSampleCsv;
 const previewScoutingImport = importFoundation.previewScoutingImport;
-const seasonBuildMetrics = seasonFramework.buildMetrics || ((eventModel) => eventModel?.metrics || []);
-const seasonScouterMetricDefinitions = seasonFramework.scouterMetricDefinitions || ((eventModel) => eventModel?.scoringComponents || []);
-const seasonFormulaFieldDefinitions = seasonFramework.formulaFieldDefinitions || seasonScouterMetricDefinitions;
-const seasonDerivedMetricDefinitions = seasonFramework.derivedMetricDefinitions || (() => []);
-const seasonMetricFieldId = seasonFramework.csvHeaderForMetric || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id));
+const buildExternalSourceSnapshot = externalSourceSnapshots.buildExternalSourceSnapshot || ((sourceId, eventModel) => ({ eventKey: eventModel?.key, sourceId }));
+const buildExternalSnapshotFingerprint = externalSourceSnapshots.buildSnapshotFingerprint || ((value) => JSON.stringify(value || null));
+const seedWorkspaceExternalSourceFingerprints = externalSourceSnapshots.seedExternalSourceFingerprints || ((workspace) => workspace);
+const localAttachmentFilesSupported = localFileAccess.supportsPersistentLocalFiles || (() => false);
+const pickLocalAttachmentFile = localFileAccess.pickAttachmentFile || (async () => {
+  throw new Error("Persistent local scouting files are unavailable in this browser.");
+});
+const readLocalAttachmentText = localFileAccess.readAttachmentText || (async () => {
+  throw new Error("Persistent local scouting files are unavailable in this browser.");
+});
+const clearLocalAttachmentFile = localFileAccess.removeAttachment || (async () => false);
+const readPersistedScoutingSubmissions = localFileAccess.readScoutingSubmissions || (async () => null);
+const writePersistedScoutingSubmissions = localFileAccess.writeScoutingSubmissions || (async () => false);
+const clearPersistedScoutingSubmissions = localFileAccess.clearScoutingSubmissions || (async () => false);
+const clearAllPersistedScoutingSubmissions = localFileAccess.clearAllScoutingSubmissions || (async () => false);
+const normalizeScoutingSourceUrl = scoutingSourceUtils.normalizeSourceUrl || ((value) => String(value || "").trim());
+const describeGoogleSheetInfo = scoutingSourceUtils.googleSheetInfo || (() => null);
+const matchesEventSheetSourceUrl = scoutingSourceUtils.sourceUrlMatchesEventSheet || (() => false);
+const shouldFallbackToCachedEventSheetSample = scoutingSourceUtils.shouldFallbackToEventSheetSample || (() => false);
+const sharedDuplicateSubmissionKey =
+  scoutingSourceUtils.duplicateSubmissionKey ||
+  ((submission) => `${submission?.eventKey || ""}:${submission?.matchNumber || ""}:${submission?.teamNumber || ""}`);
+const previewScoutingJsonImport = scoutingJsonImport.previewScoutingJsonImport;
+const defaultRefreshPolicyForSource = sourceRefresh.defaultPolicyForSource || (() => ({ baseIntervalMs: 60 * 1000, staleAfterMs: 5 * 60 * 1000, maxBackoffMs: 20 * 60 * 1000 }));
+const freshnessForSource = sourceRefresh.freshnessForSource || ((source) => source?.freshness || "unknown");
+const sourceStatusBadgeClassName = sourceRefresh.sourceStatusBadgeClassName || ((status) => {
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  return `status-${normalizedStatus === "ready" || normalizedStatus === "error" ? normalizedStatus : "stale"}`;
+});
+const visibleStatusForSource = sourceRefresh.visibleStatusForSource || ((source, policy, now) => {
+  const status = String(source?.status || "").trim().toLowerCase();
+  if (status === "error") return "error";
+  const freshness = freshnessForSource(source, policy, now);
+  if (status === "ready" && freshness !== "stale") return "ready";
+  return "stale";
+});
+const shouldPollRefreshSource = sourceRefresh.shouldPollSource || (() => false);
+const buildDynamicScoutingFieldDefinitions =
+  dynamicScoutingFields.buildDynamicScoutingFieldDefinitions ||
+  ((options = {}) => {
+    const eventModel = options.eventModel || {};
+    const definitions = [];
+    const seen = new Set();
+    const append = (fieldDefinition) => {
+      const fieldId = String(fieldDefinition?.id || "").trim();
+      if (!fieldId || seen.has(fieldId)) return;
+      seen.add(fieldId);
+      definitions.push(fieldDefinition);
+    };
+    (eventModel?.scoringComponents || []).forEach((component) => append({
+      id: component.id,
+      label: component.label,
+      unit: component.unit || "pts",
+    }));
+    (eventModel?.scouterMetricDefinitions || eventModel?.scouterMetrics || []).forEach(append);
+    (eventModel?.formulaFieldDefinitions || eventModel?.formulaFields || []).forEach(append);
+    return definitions;
+  });
+const buildScoutingDependencyDiagnostics =
+  scoutingDependencyDiagnostics.buildScoutingDependencyDiagnostics ||
+  (() => ({ schemaDiff: { added: [], removed: [], typeChanged: [] }, diagnostics: { roots: [], equations: [], filters: [], sortEquations: [] } }));
+const buildScoutingDiagnosticsState =
+  scoutingDiagnosticsState.buildScoutingDiagnosticsState ||
+  ((options = {}) => ({
+    committedFields: [],
+    currentDiagnostics: buildScoutingDependencyDiagnostics(options),
+    pendingDiagnostics: null,
+  }));
+const parseScoutingSchemaSignatureFields = scoutingDiagnosticsState.parseScoutingSchemaSignatureFields || (() => []);
+const buildRuntimeMetrics =
+  scoutingSchemaRuntime.buildMetricCatalog
+  || seasonFramework.buildMetrics
+  || ((eventModel) => eventModel?.metrics || []);
+const seasonMetricFieldId =
+  scoutingSchemaRuntime.csvHeaderForField
+  || seasonFramework.csvHeaderForMetric
+  || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id));
+const humanizeDynamicFieldId =
+  dynamicScoutingFields.humanizeFieldId ||
+  ((fieldId) =>
+    String(fieldId || "")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[_\-\.]+/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+      .join(" "));
 const sharedAdaptEventSheetCsv = sheetImportAdapters.adaptEventSheetCsv || ((eventModel, csvText) => csvText);
+const sharedTranslateEventSheetToCanonical = sheetImportAdapters.translateEventSheetToCanonical || null;
+const buildCanonicalSheetJsonText = sheetImportAdapters.buildCanonicalJsonText || ((dataset) => JSON.stringify(dataset || {}));
 const shouldRefreshSampleBackedScoutingSubmissions =
   scoutingImportRepair.shouldRefreshSampleBackedScoutingSubmissions || (() => false);
+const buildScoutingSchemaSignatureFromFields =
+  scoutingImportRepair.buildScoutingSchemaSignatureFromFields
+  || ((options = {}) => JSON.stringify({ eventKey: options?.eventKey || "", season: Number(options?.season) || 0, fields: options?.fields || [] }));
 const repairLegacySubmissionRawMetrics = scoutingImportRepair.repairLegacySubmissionRawMetrics || ((rawMetrics) => rawMetrics || {});
 const stampScoutingSubmissionMetadata = scoutingImportRepair.stampScoutingSubmissionMetadata || ((submissions) => submissions || []);
+const scoutingProfilesApi = globalThis.ScoutingProfiles || {};
+const normalizeScoutingProfileField =
+  scoutingProfilesApi.normalizeFieldDefinition
+  || ((fieldDefinition) => {
+    const id = normalizeText(fieldDefinition?.id);
+    if (!id) return null;
+    return {
+      id,
+      label: normalizeText(fieldDefinition?.label || id),
+      type: normalizeText(fieldDefinition?.type),
+      unit: normalizeText(fieldDefinition?.unit),
+      aggregate: normalizeText(fieldDefinition?.aggregate),
+      optional: fieldDefinition?.optional === true,
+    };
+  });
+const normalizeScoutingProfileMigrationRecords =
+  scoutingProfilesApi.normalizeFieldMigrationRecords
+  || (() => []);
+const materializeEventScopedProfileCatalog =
+  scoutingProfilesApi.materializeEventScopedProfileCatalog
+  || ((catalog) => catalog || {});
+const buildNormalizedScoutingProfileVersionKey =
+  scoutingProfilesApi.buildProfileVersionKey
+  || ((profile = {}) => normalizeText(profile?.versionKey || profile?.versionId || profile?.id));
+const createEventWorkspace = eventWorkspaceApi.createEventWorkspace || ((eventModel) => ({ eventKey: eventModel?.key || "", season: Number(eventModel?.season || 0), identity: { key: eventModel?.key || "", name: eventModel?.name || "", seasonLabel: eventModel?.seasonLabel || "" }, sources: { tba: {}, statbotics: {}, pridge: {}, scouting: [] }, activeScoutingAttachmentId: "" }));
+const markEventWorkspaceScoutingAttachmentAttempt = eventWorkspaceApi.markActiveScoutingAttachmentAttempt || ((workspace) => workspace);
+const markEventWorkspaceScoutingAttachmentFailure = eventWorkspaceApi.markActiveScoutingAttachmentFailure || ((workspace) => workspace);
+const markEventWorkspaceScoutingAttachmentSuccess = eventWorkspaceApi.markActiveScoutingAttachmentSuccess || ((workspace) => workspace);
+const markEventWorkspaceExternalSourceAttempt = eventWorkspaceApi.markExternalSourceAttempt || ((workspace) => workspace);
+const markEventWorkspaceExternalSourceFailure = eventWorkspaceApi.markExternalSourceFailure || ((workspace) => workspace);
+const markEventWorkspaceExternalSourceSuccess = eventWorkspaceApi.markExternalSourceSuccess || ((workspace) => workspace);
+const rebuildSampleBackedEventWorkspaceState = eventWorkspaceApi.rebuildSampleBackedScoutingState || (() => null);
+const describeEventWorkspaceScoutingAttachmentLoad = eventWorkspaceApi.describeActiveScoutingAttachmentLoad || (() => ({ kind: "none", format: "", url: "", path: "", sampleKey: "", canLoad: false }));
+const resolveEventWorkspaceScoutingSourceUrl =
+  eventWorkspaceApi.resolveScoutingImportSourceUrl || ((_workspace, eventModel, storedUrl = "") => normalizeScoutingSourceUrl(storedUrl || eventModel?.sheet?.url || ""));
+const eventWorkspaceUsesSample = eventWorkspaceApi.activeScoutingAttachmentUsesSample || (() => false);
+const activeEventWorkspaceScoutingAttachment = eventWorkspaceApi.activeScoutingAttachment || (() => null);
+const eventWorkspaceProfileId = eventWorkspaceApi.activeScoutingAttachmentProfileId || (() => "");
+const activeEventWorkspaceScoutingAttachmentSchemaSourceValue = eventWorkspaceApi.activeScoutingAttachmentSchemaSourceValue || (() => "");
+const activeEventWorkspaceScoutingAttachmentFormat = eventWorkspaceApi.activeScoutingAttachmentFormat || (() => "legacy-sheet-url");
+const removeEventWorkspaceScoutingAttachment = eventWorkspaceApi.removeScoutingAttachment || ((workspace) => workspace);
+const setEventWorkspaceExternalSourcePollingEnabled = eventWorkspaceApi.setExternalSourcePollingEnabled || ((workspace) => workspace);
+const setEventWorkspaceScoutingAttachmentPollingEnabled = eventWorkspaceApi.setActiveScoutingAttachmentPollingEnabled || ((workspace) => workspace);
+const setActiveEventWorkspaceScoutingAttachment = eventWorkspaceApi.setActiveScoutingAttachment || ((workspace) => workspace);
+const setEventWorkspaceScoutingSourceLocation = eventWorkspaceApi.setScoutingSourceLocation || ((workspace) => workspace);
+const setEventWorkspaceScoutingSchemaSourceLocation = eventWorkspaceApi.setScoutingSchemaSourceLocation || ((workspace) => workspace);
+const setEventWorkspaceScoutingSourceUrl = eventWorkspaceApi.setScoutingSourceUrl || ((workspace) => workspace);
+const shouldAutoLoadEventWorkspaceScoutingAttachment = eventWorkspaceApi.shouldAutoLoadScoutingAttachment || (() => false);
+const upsertEventWorkspaceScoutingAttachment = eventWorkspaceApi.upsertScoutingAttachment || ((workspace) => workspace);
+const activeEventWorkspaceScoutingAttachmentSourceValue =
+  eventWorkspaceApi.activeScoutingAttachmentSourceValue || ((_workspace, eventModel) => normalizeScoutingSourceUrl(eventModel?.sheet?.url || ""));
+const loadExternalEventByCode =
+  externalEventLoader.loadEventByCode ||
+  (async () => {
+    throw new Error("External event loading is unavailable.");
+  });
+const normalizeExternalEventCode = externalEventLoader.normalizeEventCode || ((value) => String(value || "").trim().toLowerCase());
 const buildTeamScoutingOverlay = metricEngine.buildTeamScoutingOverlay;
 const engineMetricTrendValues = metricEngine.metricTrendValues;
 const engineTeamMetricValue = metricEngine.teamMetricValue;
@@ -50,13 +204,20 @@ const storageKeys = {
   picklistColumns: "frc-scouting-picklist-columns",
   picklistCompareTeams: "frc-scouting-picklist-compare-teams",
   scoutingSubmissions: "frc-scouting-submissions",
+  scoutingReviewOverrides: "frc-scouting-review-overrides",
   activityLog: "frc-scouting-activity-log",
   importSourceUrl: "frc-scouting-import-source-url",
   scoutingWindow: "frc-scouting-window",
   recentMatchCount: "frc-scouting-recent-match-count",
+  tbaAuthKey: "frc-scouting-tba-auth-key",
+  statboticsBaseUrl: "frc-scouting-statbotics-base-url",
+  recentEvents: "frc-scouting-recent-events",
+  scoutingProfiles: "frc-scouting-scouting-profiles",
   seasonProfiles: "frc-scouting-season-profiles",
   seasonDerivedEquations: "frc-scouting-season-derived-equations",
   seasonFilters: "frc-scouting-season-filters",
+  eventWorkspace: "frc-scouting-event-workspace",
+  dynamicEvents: "frc-scouting-dynamic-events",
 };
 
 const globalStorageKeys = new Set([
@@ -65,9 +226,14 @@ const globalStorageKeys = new Set([
   storageKeys.theme,
   storageKeys.activeEvent,
   storageKeys.menuExpanded,
+  storageKeys.tbaAuthKey,
+  storageKeys.statboticsBaseUrl,
+  storageKeys.recentEvents,
+  storageKeys.scoutingProfiles,
   storageKeys.seasonProfiles,
   storageKeys.seasonDerivedEquations,
   storageKeys.seasonFilters,
+  storageKeys.dynamicEvents,
 ]);
 const seedUsers = ["Avery", "Jordan", "Morgan"];
 const adminUsers = ["Avery"];
@@ -76,6 +242,7 @@ const importProfileOptions = [
   { id: "match-current-v2", label: "Current Match Template" },
   { id: "match-legacy-v1", label: "Legacy Match Template" },
 ];
+const defaultTbaAuthKey = "eEFUlYooyVPeyGj1T07Z3AVTQoDHPM4MssTRD9XLDCapqhGepo1UQCj0OlL7AtqK";
 
 const navItems = [
   { view: "teams", label: "Teams", icon: "teams" },
@@ -84,6 +251,7 @@ const navItems = [
   { view: "matchup", label: "Matchup", icon: "matchup" },
   { view: "quality", label: "Data Quality", icon: "quality" },
   { view: "analysis", label: "Analysis", icon: "analysis" },
+  { view: "derivedBuilder", label: "Derived Equation Builder", icon: "derivedBuilder" },
   { view: "derivedBuilder", label: "Derived Equation Builder", icon: "derivedBuilder" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
   { view: "alliance", label: "Alliance Selection", icon: "alliance" },
@@ -96,32 +264,83 @@ const picklistColumnCount = 4;
 const picklistCompareLimit = 4;
 const protectedEpaSortId = "sort-epa";
 const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
+const maskedTbaAuthKeyValue = "............";
+const defaultStatboticsBaseUrl = "https://api-statbotics.iterativerefinement.com/v3";
+
+function readBootstrapStoredJson(key, fallback) {
+  try {
+    if (!globalThis.localStorage) return fallback;
+    const raw = globalThis.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function mergePersistedDynamicEventsIntoCatalog() {
+  const persistedEvents = readBootstrapStoredJson(storageKeys.dynamicEvents, []);
+  if (!Array.isArray(persistedEvents) || !persistedEvents.length) return;
+  const catalogKeys = new Set(globalEventCatalog.map((eventModel) => eventModel?.key));
+  persistedEvents.forEach((eventModel) => {
+    const eventKey = String(eventModel?.key || "").trim();
+    if (!eventKey || catalogKeys.has(eventKey)) return;
+    globalEventCatalog.push(eventModel);
+    catalogKeys.add(eventKey);
+  });
+}
+
+mergePersistedDynamicEventsIntoCatalog();
 
 const defaultAllianceBoard = Array(24).fill(null);
+const defaultStatboticsMetricId = "source:statbotics:epa.total_points";
 const protectedEpaSortEquation = {
   id: protectedEpaSortId,
-  name: "EPA",
-  metricId: "source:epa:total",
+  name: "Statbotics",
+  metricId: defaultStatboticsMetricId,
   locked: true,
 };
 
 const knownImportProfileLabels = {
+  "canonical-json-v1": "Canonical JSON",
   "match-current-v2": "Current Match Template",
   "match-legacy-v1": "Legacy Match Template",
 };
 
+function scoutingProfileLabel(profileId, fallbackLabel = "") {
+  const normalizedProfileId = normalizeText(profileId);
+  if (!normalizedProfileId) return normalizeText(fallbackLabel);
+  return knownImportProfileLabels[normalizedProfileId] || normalizeText(fallbackLabel) || normalizedProfileId;
+}
+
+const defaultScoutingProfileId = "match-current-v2";
+
 const initialEventKey = resolveEventKey(readStoredItem(storageKeys.activeEvent));
 const initialEvent = eventModelByKey(initialEventKey);
+const initialWorkspace = createEventWorkspace(initialEvent, readStoredJson(storageKeys.eventWorkspace, null, initialEventKey));
+const initialTbaAuthKey =
+  readStoredItem(storageKeys.tbaAuthKey)
+  || normalizeText(globalThis.__TBA_AUTH_KEY || globalThis.TBA_AUTH_KEY)
+  || defaultTbaAuthKey;
+const initialStatboticsBaseUrl =
+  readStoredItem(storageKeys.statboticsBaseUrl)
+  || normalizeText(globalThis.__STATBOTICS_BASE_URL || globalThis.STATBOTICS_BASE_URL)
+  || defaultStatboticsBaseUrl;
+const initialLegacyDerivedEquationCatalog = normalizeSeasonDerivedEquationCatalog(
+  readStoredJson(storageKeys.seasonDerivedEquations, {}),
+);
+const initialLegacyFilterCatalog = normalizeLegacyFilterCatalog(
+  readStoredJson(storageKeys.seasonFilters, {}),
+);
 const state = {
   activeEventKey: initialEventKey,
   user: readStoredItem(storageKeys.user) || "",
   users: readStoredJson(storageKeys.users, seedUsers),
   theme: readStoredItem(storageKeys.theme) || "light",
   activeView: "teams",
-  metric: initialEvent.defaultMetricId,
+  metric: "",
   activeAnalysisFilterId: "",
-  teamDetailMetric: initialEvent.defaultTeamDetailMetricId,
-  picklistCompareMetric: initialEvent.defaultTeamDetailMetricId,
+  teamDetailMetric: "",
+  picklistCompareMetric: "",
   selectedTeam: initialEvent.teams[0].number,
   selectedMatch: initialEvent.matches[0].number,
   menuExpanded: readStoredItem(storageKeys.menuExpanded) === "true",
@@ -137,48 +356,102 @@ const state = {
   picklistSelectedTeam: null,
   picklistCompareTeams: normalizePicklistCompareTeams([], initialEvent),
   builderFocus: { sortBuilder: "list", picklistBuilder: "list", derivedBuilder: "equations" },
+  builderFocus: { sortBuilder: "list", picklistBuilder: "list", derivedBuilder: "equations" },
   scoutingSubmissions: [],
+  scoutingReviewOverrides: [],
   activityLog: [],
   importCsvText: "",
+  importSchemaJsonText: "",
   importSelectedProfileId: "",
-  importSourceUrl: initialEvent.sheet?.url || "",
+  importDraftSource: "",
+  importSourceUrl: activeEventWorkspaceScoutingAttachmentSourceValue(initialWorkspace, initialEvent),
+  tbaAuthKey: initialTbaAuthKey,
+  tbaAuthKeyDraft: initialTbaAuthKey ? maskedTbaAuthKeyValue : "",
+  tbaAuthKeyMasked: Boolean(initialTbaAuthKey),
+  tbaAuthKeyDirty: false,
+  statboticsBaseUrl: initialStatboticsBaseUrl,
+  statboticsBaseUrlDraft: initialStatboticsBaseUrl,
+  statboticsBaseUrlDirty: false,
   importResult: null,
   scoutingWindow: readStoredItem(storageKeys.scoutingWindow) || "all",
   recentMatchCount: Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount) || 12)),
-  seasonDerivedEquationCatalog: normalizeSeasonDerivedEquationCatalog(
-    mergeSeededSeasonCatalog(
-      readStoredJson(storageKeys.seasonDerivedEquations, {}),
-      seededSeasonDerivedEquations,
+  recentEventKeys: [],
+  scoutingProfileCatalog: materializeEventScopedProfileCatalog(
+    migrateLegacyScopedConfigIntoProfiles(
+      normalizeScoutingProfileCatalog(
+        readStoredJson(
+          storageKeys.scoutingProfiles,
+          readStoredJson(storageKeys.seasonProfiles, {}),
+        ),
+      ),
+      initialLegacyDerivedEquationCatalog,
+      initialLegacyFilterCatalog,
     ),
+    globalEventCatalog,
   ),
-  seasonFilterCatalog: normalizeSeasonFilterCatalog(
-    mergeSeededSeasonCatalog(
-      readStoredJson(storageKeys.seasonFilters, {}),
-      seededSeasonFilters,
-    ),
-  ),
-  seasonProfileCatalog: normalizeSeasonProfileCatalog(readStoredJson(storageKeys.seasonProfiles, {})),
   activeDerivedEquationId: "",
-  activeSeasonFilterId: "",
   activeDerivedPreviewMetricId: "",
+  eventWorkspace: null,
+  eventLookupPending: false,
+  eventLookupResult: null,
   builderGridScroll: {
     derivedBuilder: { shellLeft: 0, columnTops: {} },
-    filterBuilder: { shellLeft: 0, columnTops: {} },
   },
   viewHistory: [],
+  adminEventCodeDraft: initialEventKey,
+  adminRecentEventsOpen: false,
 };
+state.recentEventKeys = normalizeRecentEventKeys(readStoredJson(storageKeys.recentEvents, [initialEventKey]), initialEventKey);
 globalThis.__scoutingAppState = state;
 globalThis.__scoutingActiveEventKey = state.activeEventKey;
+globalThis.__TBA_AUTH_KEY = state.tbaAuthKey;
+globalThis.__STATBOTICS_BASE_URL = state.statboticsBaseUrl;
+let pendingScoutingAutoloadToken = "";
+let attemptedScoutingAutoloadToken = "";
+const pendingExternalRefreshSourceIds = new Set();
+let sourceRefreshIntervalId = null;
+let scoutingSubmissionRevision = 0;
+let scoutingSubmissionLoadSequence = 0;
+const scoutingPerf = globalThis.__scoutingPerf || { events: [] };
+globalThis.__scoutingPerf = scoutingPerf;
 
 const app = document.querySelector("#app");
 installGlobalRecoveryGuards();
-bootstrapApp();
+
+function perfNow() {
+  if (globalThis.performance && typeof globalThis.performance.now === "function") return globalThis.performance.now();
+  return Date.now();
+}
+
+function recordScoutingPerf(label, startedAt, details = {}) {
+  const event = {
+    label,
+    durationMs: Math.round((perfNow() - startedAt) * 100) / 100,
+    timestamp: new Date().toISOString(),
+    ...details,
+  };
+  scoutingPerf.events.push(event);
+  if (scoutingPerf.events.length > 100) scoutingPerf.events.splice(0, scoutingPerf.events.length - 100);
+  return event;
+}
 
 function bootstrapApp() {
+  const startedAt = perfNow();
   try {
+    const hydrateStartedAt = perfNow();
     hydrateEventState(state.activeEventKey);
+    recordScoutingPerf("bootstrap.hydrateEventState", hydrateStartedAt, { eventKey: state.activeEventKey });
     document.documentElement.dataset.theme = state.theme;
+    const renderStartedAt = perfNow();
     renderSafely();
+    recordScoutingPerf("bootstrap.renderSafely", renderStartedAt, { eventKey: state.activeEventKey, activeView: state.activeView });
+    const autoloadStartedAt = perfNow();
+    maybeAutoloadScoutingAttachment();
+    recordScoutingPerf("bootstrap.maybeAutoloadScoutingAttachment", autoloadStartedAt, { eventKey: state.activeEventKey });
+    const refreshStartedAt = perfNow();
+    ensureSourceRefreshLoop();
+    recordScoutingPerf("bootstrap.ensureSourceRefreshLoop", refreshStartedAt, { eventKey: state.activeEventKey });
+    recordScoutingPerf("bootstrap.total", startedAt, { eventKey: state.activeEventKey, activeView: state.activeView });
   } catch (error) {
     console.error("App bootstrap failed before first render", error);
     state.activeView = "teams";
@@ -194,7 +467,15 @@ function bootstrapApp() {
 }
 
 function eventModelByKey(key) {
-  return globalEventCatalog.find((eventModel) => eventModel.key === key) || globalEventCatalog[0];
+  const eventIndex = globalEventCatalog.findIndex((eventModel) => eventModel.key === key);
+  const resolvedIndex = eventIndex >= 0 ? eventIndex : 0;
+  const eventModel = globalEventCatalog[resolvedIndex];
+  const hydrateEventModel = realEventDataApi.hydrateEventModel || ((value) => value);
+  const hydratedEventModel = hydrateEventModel(eventModel);
+  if (hydratedEventModel && hydratedEventModel !== eventModel) {
+    globalEventCatalog[resolvedIndex] = hydratedEventModel;
+  }
+  return globalEventCatalog[resolvedIndex];
 }
 
 function resolveEventKey(value) {
@@ -205,59 +486,1124 @@ function currentEvent() {
   return eventModelByKey(state?.activeEventKey || initialEventKey);
 }
 
+function normalizeText(value) {
+  return String(value ?? "").trim();
+}
+
+function normalizeRecentEventKeys(values, fallback = state?.activeEventKey || initialEventKey) {
+  const seen = new Set();
+  const normalized = [];
+  (Array.isArray(values) ? values : []).forEach((value) => {
+    const eventKey = normalizeText(value);
+    if (!eventKey || seen.has(eventKey)) return;
+    if (!globalEventCatalog.some((eventModel) => eventModel?.key === eventKey)) return;
+    seen.add(eventKey);
+    normalized.push(eventKey);
+  });
+  const fallbackKey = normalizeText(fallback);
+  if (fallbackKey && !seen.has(fallbackKey) && globalEventCatalog.some((eventModel) => eventModel?.key === fallbackKey)) {
+    normalized.unshift(fallbackKey);
+  }
+  return normalized.slice(0, 10);
+}
+
+function recordRecentEvent(eventKey) {
+  state.recentEventKeys = normalizeRecentEventKeys([eventKey, ...(state.recentEventKeys || [])], eventKey);
+}
+
+function resetTbaAuthKeyDraft() {
+  state.tbaAuthKeyDraft = state.tbaAuthKey ? maskedTbaAuthKeyValue : "";
+  state.tbaAuthKeyMasked = Boolean(state.tbaAuthKey);
+  state.tbaAuthKeyDirty = false;
+}
+
+function visibleTbaAuthKeyValue() {
+  return state.tbaAuthKeyMasked && !state.tbaAuthKeyDirty ? maskedTbaAuthKeyValue : state.tbaAuthKeyDraft;
+}
+
+function currentScoutingMismatchMessage(result = state.importResult) {
+  if (!result) return "";
+  const mismatchError = [...(result.errors || []), ...(result.warnings || [])].find((issue) => /event key .* does not match active event/i.test(String(issue || "")));
+  if (mismatchError) return mismatchError;
+  if (result.canSwitchContext && result.suggestedEventKey && result.suggestedEventKey !== state.activeEventKey) {
+    return `Scouting data targets ${result.suggestedEventKey}, but the active event is ${state.activeEventKey}.`;
+  }
+  return "";
+}
+
+function detectedScoutingSourceLabel(workspace = currentEventWorkspace(), eventModel = currentEvent()) {
+  const attachment = activeEventWorkspaceScoutingAttachment(workspace);
+  if (!attachment) return "No scouting source configured";
+  const load = describeEventWorkspaceScoutingAttachmentLoad(workspace, eventModel);
+  const labels = {
+    "embedded-sample": "Sample CSV attachment",
+    "google-sheet-url": "Google Sheet URL",
+    "remote-csv": "Remote CSV",
+    "local-csv": "Local CSV file",
+    "remote-json": "Remote JSON",
+    "local-json": "Local JSON file",
+    unsupported: "Unsupported source",
+    none: "No scouting source configured",
+  };
+  return labels[load.kind] || "Manual scouting source";
+}
+
+function currentEventWorkspace() {
+  return state?.eventWorkspace || createEventWorkspace(currentEvent());
+}
+
+function mergeProviderSourceState(currentSource = {}, nextSource = {}) {
+  return {
+    ...currentSource,
+    ...nextSource,
+    provenance: {
+      ...(currentSource.provenance || {}),
+      ...(nextSource.provenance || {}),
+    },
+  };
+}
+
+function currentDynamicEvents() {
+  return globalEventCatalog.filter((eventModel) => eventModel?.catalogSource === "dynamic-external");
+}
+
+function persistDynamicEvents() {
+  localStorage.setItem(eventStorageKey(storageKeys.dynamicEvents), JSON.stringify(currentDynamicEvents()));
+}
+
+function registerEventModel(eventModel) {
+  const eventKey = normalizeText(eventModel?.key);
+  if (!eventKey) return null;
+  const existingIndex = globalEventCatalog.findIndex((candidate) => candidate?.key === eventKey);
+  if (existingIndex >= 0) {
+    globalEventCatalog.splice(existingIndex, 1, eventModel);
+  } else {
+    globalEventCatalog.push(eventModel);
+  }
+  persistDynamicEvents();
+  return eventModelByKey(eventKey);
+}
+
+function applyLoadedExternalSourceState(loadResult, options = {}) {
+  const eventModel = loadResult?.eventModel || currentEvent();
+  const eventKey = normalizeText(eventModel?.key) || state.activeEventKey;
+  const storedWorkspace = readStoredJson(storageKeys.eventWorkspace, null, eventKey);
+  const seededWorkspace = createEventWorkspace(eventModel, storedWorkspace);
+  const nextSources = { ...(seededWorkspace.sources || {}) };
+  Object.entries(loadResult?.sourceStates || {}).forEach(([sourceId, sourceState]) => {
+    nextSources[sourceId] = mergeProviderSourceState(nextSources[sourceId], sourceState);
+  });
+  state.eventWorkspace = {
+    ...seededWorkspace,
+    sources: nextSources,
+  };
+  state.importSourceUrl = currentScoutingSourceInputValue(
+    state.eventWorkspace,
+    eventModel,
+    readStoredItem(storageKeys.importSourceUrl, eventKey),
+  );
+  if (Array.isArray(loadResult?.warnings) && loadResult.warnings.length) {
+    loadResult.warnings.forEach((warning) => pushActivity(warning));
+  }
+  saveState();
+  if (options.render !== false) render();
+}
+
+function currentScoutingAttachment() {
+  return activeEventWorkspaceScoutingAttachment(currentEventWorkspace());
+}
+
+function currentScoutingSourceInputValue(workspace = currentEventWorkspace(), eventModel = currentEvent(), storedValue = state.importSourceUrl) {
+  const normalizedStored = normalizeText(storedValue);
+  if (normalizedStored) return normalizedStored;
+  return activeEventWorkspaceScoutingAttachmentSourceValue(workspace, eventModel);
+}
+
+function currentScoutingSchemaSourceInputValue(workspace = currentEventWorkspace()) {
+  return activeEventWorkspaceScoutingAttachmentSchemaSourceValue(workspace);
+}
+
+function currentScoutingSourceUrl() {
+  return normalizeScoutingSourceUrl(resolveEventWorkspaceScoutingSourceUrl(currentEventWorkspace(), currentEvent(), state.importSourceUrl));
+}
+
+function setCurrentScoutingSourceUrl(url, options = {}) {
+  const normalizedUrl = normalizeScoutingSourceUrl(url);
+  state.importSourceUrl = normalizedUrl;
+  if (options.applyToAttachment !== false) {
+    state.eventWorkspace = setEventWorkspaceScoutingSourceLocation(currentEventWorkspace(), normalizedUrl);
+  }
+  if (options.save) saveState();
+}
+
+function setCurrentScoutingSchemaSourceUrl(url, options = {}) {
+  const normalizedUrl = normalizeScoutingSourceUrl(url);
+  if (options.applyToAttachment !== false) {
+    state.eventWorkspace = setEventWorkspaceScoutingSchemaSourceLocation(currentEventWorkspace(), normalizedUrl);
+  }
+  if (options.save) saveState();
+}
+
+function inferredScoutingAttachmentFormat(currentFormat, source) {
+  const normalizedSource = normalizeScoutingSourceUrl(source).split(/[?#]/)[0];
+  const normalizedFormat = normalizeText(currentFormat).toLowerCase();
+  if (/\.json$/i.test(normalizedSource)) return "scouting-json";
+  if (/\.(csv|tsv|txt)$/i.test(normalizedSource)) return "legacy-sheet-csv";
+  if (/\/spreadsheets\/d\/[a-zA-Z0-9-_]+/.test(normalizedSource)) return "legacy-sheet-url";
+  return normalizedFormat || "scouting-json";
+}
+
+function inferredScoutingTranslatorId(currentTranslatorId, format) {
+  const normalizedTranslatorId = normalizeText(currentTranslatorId);
+  const normalizedFormat = normalizeText(format);
+  const defaultLegacyTranslatorIds = new Set(["", "match-current-v2", "match-legacy-v1"]);
+  if (normalizedFormat === "scouting-json") {
+    if (defaultLegacyTranslatorIds.has(normalizedTranslatorId) || normalizedTranslatorId === "canonical-json-v1") {
+      return "canonical-json-v1";
+    }
+    return normalizedTranslatorId;
+  }
+  if (!normalizedTranslatorId || normalizedTranslatorId === "canonical-json-v1") {
+    return "match-current-v2";
+  }
+  return normalizedTranslatorId;
+}
+
+function setTbaAuthKey(value, options = {}) {
+  state.tbaAuthKey = normalizeText(value);
+  globalThis.__TBA_AUTH_KEY = state.tbaAuthKey;
+  if (options.save) {
+    if (state.tbaAuthKey) {
+      localStorage.setItem(storageKeys.tbaAuthKey, state.tbaAuthKey);
+    } else {
+      localStorage.removeItem(storageKeys.tbaAuthKey);
+    }
+  }
+}
+
+function normalizeStatboticsBaseUrl(value) {
+  return normalizeText(value) || defaultStatboticsBaseUrl;
+}
+
+function setStatboticsBaseUrl(value, options = {}) {
+  state.statboticsBaseUrl = normalizeStatboticsBaseUrl(value);
+  globalThis.__STATBOTICS_BASE_URL = state.statboticsBaseUrl;
+  if (options.save) {
+    if (state.statboticsBaseUrl === defaultStatboticsBaseUrl) {
+      localStorage.removeItem(storageKeys.statboticsBaseUrl);
+    } else {
+      localStorage.setItem(storageKeys.statboticsBaseUrl, state.statboticsBaseUrl);
+    }
+  }
+}
+
+function buildScoutingSourceFingerprint(text) {
+  const input = String(text || "");
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv1a:${(hash >>> 0).toString(16)}:${input.length}`;
+}
+
+function currentScoutingAttachmentFingerprint() {
+  return normalizeText(currentScoutingAttachment()?.sourceFingerprint);
+}
+
+function currentExternalSourceFingerprint(sourceId) {
+  return normalizeText(currentEventWorkspace()?.sources?.[sourceId]?.sourceFingerprint);
+}
+
+function buildCombinedScoutingSourceFingerprint(primaryText, schemaText = "") {
+  return buildScoutingSourceFingerprint(JSON.stringify({
+    primaryText: String(primaryText || ""),
+    schemaText: String(schemaText || ""),
+  }));
+}
+
+function shouldSkipUnchangedAttachedSource(text, options = {}) {
+  if (!options.skipUnchanged) return false;
+  if (state.importDraftSource !== "attached" && options.importDraftSource !== "attached") return false;
+  return currentScoutingAttachmentFingerprint() === buildCombinedScoutingSourceFingerprint(text, options.schemaJsonText || "");
+}
+
+function markCurrentScoutingAttachmentAttempt(update = {}) {
+  state.eventWorkspace = markEventWorkspaceScoutingAttachmentAttempt(currentEventWorkspace(), update);
+}
+
+function markCurrentScoutingAttachmentFailure(message, update = {}) {
+  state.eventWorkspace = markEventWorkspaceScoutingAttachmentFailure(currentEventWorkspace(), {
+    ...update,
+    error: message,
+  });
+}
+
+function buildScoutingProfileVersionKey({ profileId = "", schemaSignature = "", translationVersion = "" } = {}) {
+  const resolvedProfileId = normalizeText(profileId);
+  const resolvedSchemaSignature = normalizeText(schemaSignature);
+  const resolvedTranslationVersion = normalizeText(translationVersion);
+  return [resolvedProfileId, resolvedSchemaSignature, resolvedTranslationVersion].filter(Boolean).join("|");
+}
+
+function markCurrentScoutingAttachmentSuccess(preview, csvText, update = {}) {
+  const schemaSignature = Array.isArray(preview?.summary?.schemaFields) && preview.summary.schemaFields.length
+    ? buildScoutingSchemaSignatureFromFields({
+        eventKey: state.activeEventKey,
+        season: currentEvent()?.season,
+        fields: preview.summary.schemaFields,
+      })
+    : (preview?.summary?.metadata?.schemaId || preview?.summary?.metadata?.schemaVersion || preview?.summary?.profileId || "");
+  const profileId = preview?.summary?.profileId || preview?.summary?.metadata?.templateProfileId || currentScoutingAttachment()?.profileId || currentScoutingAttachment()?.translatorId || "";
+  const profileLabel = preview?.summary?.profileLabel || preview?.summary?.metadata?.profileLabel || "";
+  const translationVersion = preview?.summary?.metadata?.translationVersion || "";
+  const explicitProfileVersionKey = normalizeText(preview?.summary?.profileDefinition?.versionKey);
+  state.eventWorkspace = markEventWorkspaceScoutingAttachmentSuccess(currentEventWorkspace(), {
+    ...update,
+    profileId,
+    profileLabel,
+    profileVersionKey: explicitProfileVersionKey || buildScoutingProfileVersionKey({ profileId, schemaSignature, translationVersion }),
+    schemaSignature,
+    translatorVersion: translationVersion,
+    sourceFingerprint: buildCombinedScoutingSourceFingerprint(csvText, update.schemaJsonText || ""),
+  });
+}
+
+function markExternalSourceAttempt(sourceId, update = {}) {
+  state.eventWorkspace = markEventWorkspaceExternalSourceAttempt(currentEventWorkspace(), sourceId, update);
+}
+
+function markExternalSourceSuccess(sourceId, update = {}) {
+  state.eventWorkspace = markEventWorkspaceExternalSourceSuccess(currentEventWorkspace(), sourceId, update);
+}
+
+function markExternalSourceFailure(sourceId, message, update = {}) {
+  state.eventWorkspace = markEventWorkspaceExternalSourceFailure(currentEventWorkspace(), sourceId, {
+    ...update,
+    error: message,
+  });
+}
+
+function maybeAutoloadScoutingAttachment() {
+  const eventModel = currentEvent();
+  const attachmentId = currentScoutingAttachment()?.attachmentId || "";
+  const autoloadToken = `${eventModel.key}:${attachmentId}`;
+  if (!shouldAutoLoadEventWorkspaceScoutingAttachment(currentEventWorkspace(), eventModel, state.scoutingSubmissions)) return;
+  if (attemptedScoutingAutoloadToken === autoloadToken) return;
+  if (pendingScoutingAutoloadToken === autoloadToken) return;
+  pendingScoutingAutoloadToken = autoloadToken;
+  attemptedScoutingAutoloadToken = autoloadToken;
+  Promise.resolve(loadScoutingData({ autoCommit: true, scoutingImportSource: "attached-autoload" }))
+    .catch((error) => {
+      console.error("Automatic scouting attachment load failed", eventModel.key, error);
+    })
+    .finally(() => {
+      if (pendingScoutingAutoloadToken === autoloadToken) pendingScoutingAutoloadToken = "";
+    });
+}
+
+function maybePollActiveScoutingAttachment() {
+  const eventModel = currentEvent();
+  const attachment = currentScoutingAttachment();
+  if (!attachment?.attachmentId || attachment.pollingEnabled === false) return;
+  if (pendingScoutingAutoloadToken === `${eventModel.key}:${attachment.attachmentId}`) return;
+  const policy = defaultRefreshPolicyForSource({ kind: "scouting", sourceId: attachment.attachmentId });
+  if (!shouldPollRefreshSource(attachment, policy, Date.now())) return;
+  const pollToken = `${eventModel.key}:${attachment.attachmentId}`;
+  pendingScoutingAutoloadToken = pollToken;
+  Promise.resolve(loadScoutingData({ autoCommit: true, scoutingImportSource: "poll-refresh", skipUnchanged: true, importDraftSource: "attached" }))
+    .catch((error) => {
+      console.error("Polling scouting attachment failed", eventModel.key, error);
+    })
+    .finally(() => {
+      if (pendingScoutingAutoloadToken === pollToken) pendingScoutingAutoloadToken = "";
+    });
+}
+
+function maybePollExternalSources() {
+  if (currentEvent()?.catalogSource === "dynamic-external") return;
+  const workspace = currentEventWorkspace();
+  ["tba", "statbotics", "pridge"].forEach((sourceId) => {
+    const source = workspace.sources?.[sourceId];
+    if (!source || source.pollingEnabled === false || pendingExternalRefreshSourceIds.has(sourceId)) return;
+    const policy = defaultRefreshPolicyForSource({ kind: "external", sourceId });
+    if (!shouldPollRefreshSource(source, policy, Date.now())) return;
+    pendingExternalRefreshSourceIds.add(sourceId);
+    Promise.resolve(refreshDataSource(sourceId, { trigger: "poll" }))
+      .catch((error) => {
+        console.error("Polling external source failed", sourceId, error);
+        markExternalSourceFailure(sourceId, error?.message || `Unable to refresh ${sourceId}.`);
+        saveState();
+        render();
+      })
+      .finally(() => {
+        pendingExternalRefreshSourceIds.delete(sourceId);
+      });
+  });
+}
+
+function ensureSourceRefreshLoop() {
+  if (sourceRefreshIntervalId !== null) return;
+  sourceRefreshIntervalId = globalThis.setInterval(() => {
+    maybePollActiveScoutingAttachment();
+    maybePollExternalSources();
+  }, 30000);
+}
+
+async function refreshDataSource(sourceId, options = {}) {
+  if (sourceId === "scouting") {
+    saveCurrentScoutingAttachmentDraftFromDom({ render: false });
+    await loadScoutingData({ autoCommit: true, scoutingImportSource: "manual-refresh", skipUnchanged: true, importDraftSource: "attached" });
+    return;
+  }
+  if (currentEvent()?.catalogSource === "dynamic-external") {
+    await loadArbitraryEventCode(currentEvent().key, {
+      activeView: state.activeView,
+    });
+    return;
+  }
+  const event = currentEvent();
+  const label = { tba: "The Blue Alliance", statbotics: "Statbotics", pridge: "pRidge" }[sourceId] || sourceId;
+  const trigger = options.trigger || "manual";
+  const snapshot = buildExternalSourceSnapshot(sourceId, event);
+  const nextFingerprint = buildExternalSnapshotFingerprint(snapshot);
+  const didChange = nextFingerprint !== currentExternalSourceFingerprint(sourceId);
+  markExternalSourceAttempt(sourceId);
+  markExternalSourceSuccess(sourceId, {
+    sourceFingerprint: nextFingerprint,
+    provenance: {
+      mode: "local-snapshot",
+      notes: didChange
+        ? "Snapshot updated from the local event model."
+        : "No local snapshot changes.",
+    },
+  });
+  if (didChange) {
+    pushActivity(`Updated ${label} from the local snapshot for ${event.name}.`);
+  } else if (trigger === "manual") {
+    pushActivity(`Checked ${label} for ${event.name}. No changes detected.`);
+  }
+  saveState();
+  render();
+}
+
+async function refreshAllDataSources() {
+  for (const sourceId of ["scouting", "tba", "statbotics", "pridge"]) {
+    await refreshDataSource(sourceId);
+  }
+}
+
+function setDataSourcePollingEnabled(sourceId, pollingEnabled) {
+  if (sourceId === "scouting") {
+    state.eventWorkspace = setEventWorkspaceScoutingAttachmentPollingEnabled(currentEventWorkspace(), pollingEnabled);
+  } else {
+    state.eventWorkspace = setEventWorkspaceExternalSourcePollingEnabled(currentEventWorkspace(), sourceId, pollingEnabled);
+  }
+  saveState();
+  render();
+}
+
+function allDataSourcePollingEnabled() {
+  return currentDataSources().every((source) => source.pollingEnabled !== false);
+}
+
+function setAllDataSourcePollingEnabled(pollingEnabled) {
+  let workspace = currentEventWorkspace();
+  workspace = setEventWorkspaceScoutingAttachmentPollingEnabled(workspace, pollingEnabled);
+  ["tba", "statbotics", "pridge"].forEach((sourceId) => {
+    workspace = setEventWorkspaceExternalSourcePollingEnabled(workspace, sourceId, pollingEnabled);
+  });
+  state.eventWorkspace = workspace;
+  saveState();
+  render();
+}
+
+function setCurrentScoutingAttachment(attachmentId) {
+  state.eventWorkspace = setActiveEventWorkspaceScoutingAttachment(currentEventWorkspace(), attachmentId);
+  state.importSourceUrl = activeEventWorkspaceScoutingAttachmentSourceValue(state.eventWorkspace, currentEvent());
+  state.importDraftSource = "";
+  state.importResult = null;
+  saveState();
+  render();
+}
+
+function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
+  const activeAttachment = currentScoutingAttachment();
+  if (!activeAttachment) return;
+  const normalizedSource = normalizeScoutingSourceUrl(draft.source);
+  const normalizedSchemaSource = normalizeScoutingSourceUrl(draft.schemaSource);
+  const normalizedFormat = inferredScoutingAttachmentFormat(
+    normalizeText(draft.format) || activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+    normalizedSource,
+  );
+  const requestedProfileId = normalizeText(draft.profileId);
+  const resolvedProfileId =
+    normalizedFormat === "scouting-json"
+      ? "canonical-json-v1"
+      : requestedProfileId || normalizeText(activeAttachment.profileId) || normalizeText(activeAttachment.translatorId) || defaultScoutingProfileId;
+  const isRemoteSource = /^(https?|file):\/\//i.test(normalizedSource);
+  const isRemoteSchemaSource = /^(https?|file):\/\//i.test(normalizedSchemaSource);
+  state.eventWorkspace = upsertEventWorkspaceScoutingAttachment(
+    currentEventWorkspace(),
+    {
+      ...activeAttachment,
+      label: normalizeText(draft.label) || activeAttachment.label,
+      format: normalizedFormat,
+      locationKind: normalizedSource ? (isRemoteSource ? "url" : "path") : activeAttachment.locationKind,
+        location: {
+          ...(activeAttachment.location || {}),
+          url: isRemoteSource ? normalizedSource : "",
+          path: normalizedSource && !isRemoteSource ? normalizedSource : "",
+          schemaUrl: normalizedFormat === "scouting-json" && isRemoteSchemaSource ? normalizedSchemaSource : "",
+          schemaPath: normalizedFormat === "scouting-json" && normalizedSchemaSource && !isRemoteSchemaSource ? normalizedSchemaSource : "",
+        },
+        translatorId: inferredScoutingTranslatorId(
+          normalizeText(draft.translatorId) || (normalizedFormat === "scouting-json" ? "canonical-json-v1" : resolvedProfileId) || activeAttachment.translatorId,
+        normalizedFormat,
+      ),
+      profileId: resolvedProfileId,
+      profileLabel: scoutingProfileLabel(resolvedProfileId, normalizeText(draft.profileLabel) || activeAttachment.profileLabel),
+      autoLoad: Boolean(draft.autoLoad),
+    },
+    currentEvent(),
+  );
+  state.importSourceUrl = normalizedSource || activeEventWorkspaceScoutingAttachmentSourceValue(state.eventWorkspace, currentEvent());
+  state.importDraftSource = "";
+  state.importResult = null;
+  saveState();
+  if (options.render !== false) render();
+}
+
+function addScoutingAttachmentDraft() {
+  const event = currentEvent();
+  const defaultLabel = `${event.name} Attachment ${currentEventWorkspace().sources?.scouting?.length || 1}`;
+  state.eventWorkspace = upsertEventWorkspaceScoutingAttachment(
+    currentEventWorkspace(),
+    {
+      attachmentId: createId("scouting"),
+      eventKey: event.key,
+      label: defaultLabel,
+      format: "scouting-json",
+      locationKind: "url",
+      location: { url: "" },
+      translatorId: "canonical-json-v1",
+      status: "manual",
+      freshness: "unknown",
+      autoLoad: false,
+    },
+    event,
+  );
+  state.importSourceUrl = currentScoutingSourceInputValue();
+  state.importDraftSource = "";
+  state.importResult = null;
+  saveState();
+  render();
+}
+
+async function chooseLocalScoutingAttachmentFile() {
+  const attachment = currentScoutingAttachment();
+  if (!attachment?.attachmentId) return;
+  const draft = {
+    label: attachment.label,
+    format: activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+    translatorId: attachment.translatorId,
+    source: state.importSourceUrl,
+    schemaSource: currentScoutingSchemaSourceInputValue(),
+    autoLoad: true,
+  };
+  const selectedFormat = inferredScoutingAttachmentFormat(
+    normalizeText(draft.format) || activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+    normalizeText(draft.source) || attachment.location?.path,
+  );
+  if (!localAttachmentFilesSupported()) {
+    setImportError("Local scouting file selection is unavailable in this browser. Paste a URL/path instead, or use a browser that supports the File System Access API.");
+    return;
+  }
+  try {
+    const selected = await pickLocalAttachmentFile({
+      attachmentId: attachment.attachmentId,
+      format: selectedFormat,
+      path: normalizeText(draft.source) || attachment.location?.path,
+    });
+    const selectedSource = normalizeText(selected.path);
+    const selectedSourceFormat = inferredScoutingAttachmentFormat(
+      activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+      selectedSource,
+    );
+    saveCurrentScoutingAttachmentDraft(
+      {
+        ...draft,
+        label: normalizeText(draft.label) || attachment.label,
+        format: selectedSourceFormat,
+        translatorId: inferredScoutingTranslatorId(normalizeText(draft.translatorId) || attachment.translatorId, selectedSourceFormat),
+        source: selectedSource,
+        autoLoad: true,
+      },
+      { render: false },
+    );
+    pushActivity(`Bound local scouting file ${selected.path} to ${attachment.label || attachment.attachmentId}.`);
+    await loadScoutingData({
+      autoCommit: true,
+      scoutingImportSource: "manual-browse",
+      importDraftSource: "attached",
+    });
+  } catch (error) {
+    markCurrentScoutingAttachmentFailure(error?.message || "Unable to bind a local scouting file.");
+    setImportError(`Unable to bind a local scouting file. ${error?.message || "Try again or use a remote source instead."}`);
+  }
+}
+
+async function chooseLocalScoutingSchemaFile() {
+  const attachment = currentScoutingAttachment();
+  if (!attachment?.attachmentId) return;
+  const currentSchemaSource = currentScoutingSchemaSourceInputValue();
+  if (!localAttachmentFilesSupported()) {
+    setImportError("Local scouting file selection is unavailable in this browser. Paste a URL/path instead, or use a browser that supports the File System Access API.");
+    return;
+  }
+  try {
+    const selected = await pickLocalAttachmentFile({
+      attachmentId: `${attachment.attachmentId}:schema`,
+      format: "scouting-json",
+      path: currentSchemaSource || attachment.location?.schemaPath,
+    });
+    saveCurrentScoutingAttachmentDraft(
+      {
+        label: attachment.label,
+        format: activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+        translatorId: attachment.translatorId,
+        profileId: attachment.profileId,
+        profileLabel: attachment.profileLabel,
+        source: currentScoutingSourceInputValue(),
+        schemaSource: normalizeText(selected.path),
+        autoLoad: true,
+      },
+      { render: false },
+    );
+    pushActivity(`Bound local scouting schema file ${selected.path} to ${attachment.label || attachment.attachmentId}.`);
+    await loadScoutingData({
+      autoCommit: true,
+      scoutingImportSource: "manual-schema-browse",
+      importDraftSource: "attached",
+    });
+  } catch (error) {
+    markCurrentScoutingAttachmentFailure(error?.message || "Unable to bind a local scouting schema file.");
+    setImportError(`Unable to bind a local scouting schema file. ${error?.message || "Try again or use a remote source instead."}`);
+  }
+}
+
+async function deleteScoutingAttachment(attachmentId) {
+  await clearLocalAttachmentFile(attachmentId).catch(() => {});
+  await clearLocalAttachmentFile(`${attachmentId}:schema`).catch(() => {});
+  state.eventWorkspace = removeEventWorkspaceScoutingAttachment(currentEventWorkspace(), attachmentId);
+  state.importSourceUrl = currentScoutingSourceInputValue();
+  state.importDraftSource = "";
+  state.importResult = null;
+  saveState();
+  render();
+}
+
+async function applyRecentAdminEventSelection(value) {
+  const nextEventKey = normalizeText(value);
+  if (!nextEventKey) return false;
+  state.adminRecentEventsOpen = false;
+  return switchActiveEvent(nextEventKey, { activeView: "admin" });
+}
+
+function readCurrentScoutingAttachmentDraftFromDom() {
+  const source = document.querySelector("#importSourceUrl")?.value;
+  const schemaSource = document.querySelector("#importSchemaSourceUrl")?.value;
+  const inferredFormat = inferredScoutingAttachmentFormat(document.querySelector("#scoutingAttachmentFormatSelect")?.value, source);
+  const selectedProfileId = normalizeText(document.querySelector("#scoutingAttachmentProfileId")?.value);
+  return {
+    label: document.querySelector("#scoutingAttachmentLabel")?.value,
+    format: inferredFormat,
+    translatorId: inferredScoutingTranslatorId(document.querySelector("#scoutingAttachmentTranslatorId")?.value, inferredFormat),
+    profileId: inferredFormat === "scouting-json" ? "canonical-json-v1" : selectedProfileId,
+    profileLabel: scoutingProfileLabel(inferredFormat === "scouting-json" ? "canonical-json-v1" : selectedProfileId, ""),
+    source,
+    schemaSource,
+    autoLoad: document.querySelector("#scoutingAttachmentAutoLoad")?.checked,
+  };
+}
+
+function syncScoutingAttachmentInferenceFromDom() {
+  const sourceInput = document.querySelector("#importSourceUrl");
+  const formatSelect = document.querySelector("#scoutingAttachmentFormatSelect");
+  const translatorInput = document.querySelector("#scoutingAttachmentTranslatorId");
+  if (!sourceInput || !formatSelect || !translatorInput) return;
+  const inferredFormat = inferredScoutingAttachmentFormat(formatSelect.value, sourceInput.value);
+  formatSelect.value = inferredFormat;
+  if (!normalizeText(translatorInput.value)) {
+    translatorInput.value = inferredScoutingTranslatorId("", inferredFormat);
+  }
+}
+
+function saveCurrentScoutingAttachmentDraftFromDom(options = {}) {
+  saveCurrentScoutingAttachmentDraft(readCurrentScoutingAttachmentDraftFromDom(), options);
+}
+
+function availableScoutingImportProfiles(eventModel = currentEvent()) {
+  const attachment = currentScoutingAttachment();
+  const format = activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), eventModel);
+  if (format === "scouting-json") {
+    return [{ id: "canonical-json-v1", label: knownImportProfileLabels["canonical-json-v1"] }];
+  }
+  const choices = new Map();
+  const append = (profileId, label = "") => {
+    const normalizedProfileId = normalizeText(profileId);
+    if (!normalizedProfileId || choices.has(normalizedProfileId)) return;
+    choices.set(normalizedProfileId, {
+      id: normalizedProfileId,
+      label: scoutingProfileLabel(normalizedProfileId, label),
+    });
+  };
+  append(attachment?.profileId, attachment?.profileLabel);
+  append(attachment?.translatorId, attachment?.profileLabel);
+  scoutingProfilesForEvent(eventModel).forEach((profile) => append(profile?.id, profile?.label));
+  append(defaultScoutingProfileId, knownImportProfileLabels[defaultScoutingProfileId]);
+  append("match-legacy-v1", knownImportProfileLabels["match-legacy-v1"]);
+  return [...choices.values()];
+}
+
+function selectedScoutingImportProfileId(eventModel = currentEvent()) {
+  const attachment = currentScoutingAttachment();
+  const format = activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), eventModel);
+  if (format === "scouting-json") return "canonical-json-v1";
+  return normalizeText(attachment?.profileId) || normalizeText(attachment?.translatorId) || preferredScoutingProfileIdForEvent(eventModel) || defaultScoutingProfileId;
+}
+
+async function applyScoutingProfileSelectionChange(profileId) {
+  const attachment = currentScoutingAttachment();
+  if (!attachment) return false;
+  const nextProfileId = normalizeText(profileId) || selectedScoutingImportProfileId();
+  const draft = {
+    label: attachment.label,
+    format: activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+    translatorId: nextProfileId,
+    profileId: nextProfileId,
+    profileLabel: scoutingProfileLabel(nextProfileId, attachment.profileLabel),
+    source: currentScoutingSourceInputValue(),
+    schemaSource: currentScoutingSchemaSourceInputValue(),
+    autoLoad: attachment.autoLoad,
+  };
+  saveCurrentScoutingAttachmentDraft(draft, { render: false });
+  const attachmentLoad = describeEventWorkspaceScoutingAttachmentLoad(currentEventWorkspace(), currentEvent());
+  if (!attachmentLoad.canLoad) {
+    saveState();
+    render();
+    return false;
+  }
+  await loadScoutingData({
+    autoCommit: true,
+    scoutingImportSource: "manual-profile-change",
+    importDraftSource: "attached",
+  });
+  return true;
+}
+
+async function applyAdminEventCodeDraft(value, options = {}) {
+  const normalizedEventCode = normalizeExternalEventCode(value);
+  if (!normalizedEventCode) {
+    state.adminEventCodeDraft = "";
+    state.eventLookupResult = { kind: "error", message: "Enter a valid event code." };
+    if (options.render !== false) render();
+    return false;
+  }
+  if (normalizedEventCode === state.activeEventKey) {
+    state.adminEventCodeDraft = normalizedEventCode;
+    if (options.render !== false) render();
+    return true;
+  }
+  state.adminEventCodeDraft = normalizedEventCode;
+  if (globalEventCatalog.some((eventModel) => eventModel?.key === normalizedEventCode)) {
+    return switchActiveEvent(normalizedEventCode, { activeView: "admin" });
+  }
+  return loadArbitraryEventCode(normalizedEventCode, { activeView: "admin" });
+}
+
+async function applyScoutingSourceInputChange(options = {}) {
+  const attachment = currentScoutingAttachment();
+  if (!attachment?.attachmentId) return false;
+  const nextSource = normalizeScoutingSourceUrl(options.source ?? state.importSourceUrl);
+  const previousSource = normalizeScoutingSourceUrl(activeEventWorkspaceScoutingAttachmentSourceValue(currentEventWorkspace(), currentEvent()));
+  const format = inferredScoutingAttachmentFormat(activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()), nextSource);
+  const translatorId = inferredScoutingTranslatorId(currentScoutingAttachment()?.translatorId, format);
+  if (!options.forceReload && nextSource === previousSource) {
+    state.importSourceUrl = nextSource;
+    return false;
+  }
+  const nextSourceIsLocal = Boolean(nextSource) && !/^(https?|file):\/\//i.test(nextSource);
+  if (nextSourceIsLocal && nextSource !== normalizeText(attachment.location?.path)) {
+    await clearLocalAttachmentFile(attachment.attachmentId).catch(() => {});
+  }
+  saveCurrentScoutingAttachmentDraft(
+    {
+      label: attachment.label,
+      format,
+      translatorId,
+      source: nextSource,
+      schemaSource: currentScoutingSchemaSourceInputValue(),
+      autoLoad: Boolean(nextSource),
+    },
+    { render: false },
+  );
+  if (!nextSource) {
+    state.importResult = null;
+    saveState();
+    render();
+    return false;
+  }
+  await loadScoutingData({
+    autoCommit: true,
+    scoutingImportSource: options.scoutingImportSource || "manual-source-change",
+    importDraftSource: "attached",
+  });
+  return true;
+}
+
+async function applyScoutingSchemaSourceInputChange(options = {}) {
+  const attachment = currentScoutingAttachment();
+  if (!attachment?.attachmentId) return false;
+  const input = document.querySelector("#importSchemaSourceUrl");
+  const nextSchemaSource = normalizeScoutingSourceUrl(options.source ?? input?.value);
+  const previousSchemaSource = normalizeScoutingSourceUrl(currentScoutingSchemaSourceInputValue());
+  if (!options.forceReload && nextSchemaSource === previousSchemaSource) {
+    return false;
+  }
+  const nextSchemaSourceIsLocal = Boolean(nextSchemaSource) && !/^(https?|file):\/\//i.test(nextSchemaSource);
+  if (nextSchemaSourceIsLocal && nextSchemaSource !== normalizeText(attachment.location?.schemaPath)) {
+    await clearLocalAttachmentFile(`${attachment.attachmentId}:schema`).catch(() => {});
+  }
+  saveCurrentScoutingAttachmentDraft(
+    {
+      label: attachment.label,
+      format: activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+      translatorId: attachment.translatorId,
+      profileId: attachment.profileId,
+      profileLabel: attachment.profileLabel,
+      source: currentScoutingSourceInputValue(),
+      schemaSource: nextSchemaSource,
+      autoLoad: Boolean(currentScoutingSourceInputValue()) || Boolean(attachment.autoLoad),
+    },
+    { render: false },
+  );
+  await loadScoutingData({
+    autoCommit: true,
+    scoutingImportSource: options.scoutingImportSource || "manual-schema-source-change",
+    importDraftSource: "attached",
+  });
+  return true;
+}
+
+function beginEditingTbaAuthKey() {
+  if (!state.tbaAuthKeyMasked || state.tbaAuthKeyDirty) return;
+  state.tbaAuthKeyDraft = "";
+  state.tbaAuthKeyMasked = false;
+  const input = document.querySelector("#adminTbaAuthKeyInput");
+  if (input) input.value = "";
+}
+
+function updateTbaAuthKeyDraft(value) {
+  state.tbaAuthKeyDraft = normalizeText(value);
+  state.tbaAuthKeyDirty = true;
+  state.tbaAuthKeyMasked = false;
+}
+
+function restoreTbaAuthKeyDraftIfNeeded() {
+  if (state.tbaAuthKeyDirty) return;
+  resetTbaAuthKeyDraft();
+  const input = document.querySelector("#adminTbaAuthKeyInput");
+  if (input) input.value = visibleTbaAuthKeyValue();
+}
+
+function saveTbaAuthKeyDraft() {
+  if (!state.tbaAuthKeyDirty) return false;
+  setTbaAuthKey(state.tbaAuthKeyDraft, { save: true });
+  resetTbaAuthKeyDraft();
+  state.eventLookupResult = { kind: "success", message: state.tbaAuthKey ? "Saved the TBA auth key locally." : "Removed the saved TBA auth key." };
+  saveState();
+  render();
+  return true;
+}
+
+function updateStatboticsBaseUrlDraft(value) {
+  state.statboticsBaseUrlDraft = normalizeText(value);
+  state.statboticsBaseUrlDirty = true;
+}
+
+function restoreStatboticsBaseUrlDraftIfNeeded() {
+  if (state.statboticsBaseUrlDirty) return;
+  state.statboticsBaseUrlDraft = state.statboticsBaseUrl;
+  const input = document.querySelector("#adminStatboticsBaseUrlInput");
+  if (input) input.value = state.statboticsBaseUrlDraft;
+}
+
+function saveStatboticsBaseUrlDraft() {
+  if (!state.statboticsBaseUrlDirty) return false;
+  setStatboticsBaseUrl(state.statboticsBaseUrlDraft, { save: true });
+  state.statboticsBaseUrlDraft = state.statboticsBaseUrl;
+  state.statboticsBaseUrlDirty = false;
+  state.eventLookupResult = {
+    kind: "success",
+    message: state.statboticsBaseUrl === defaultStatboticsBaseUrl
+      ? `Using the default Statbotics base URL (${defaultStatboticsBaseUrl}).`
+      : `Saved Statbotics base URL ${state.statboticsBaseUrl}.`,
+  };
+  saveState();
+  render();
+  return true;
+}
+
 function currentScoutingSubmissions() {
+  const rawSubmissions = currentRawScoutingSubmissions();
+  const reviewOverrides = Array.isArray(state.scoutingReviewOverrides) ? state.scoutingReviewOverrides : [];
+  if (
+    currentScoutingSubmissionsCache.rawSubmissions === rawSubmissions
+    && currentScoutingSubmissionsCache.reviewOverrides === reviewOverrides
+    && currentScoutingSubmissionsCache.eventKey === state.activeEventKey
+  ) {
+    return currentScoutingSubmissionsCache.value;
+  }
+  const overrideMap = activeScoutingReviewOverrideMap();
+  const value = rawSubmissions.map((submission) => applyScoutingReviewOverride(submission, overrideMap));
+  currentScoutingSubmissionsCache.rawSubmissions = rawSubmissions;
+  currentScoutingSubmissionsCache.reviewOverrides = reviewOverrides;
+  currentScoutingSubmissionsCache.eventKey = state.activeEventKey;
+  currentScoutingSubmissionsCache.value = value;
+  return value;
+}
+
+function currentRawScoutingSubmissions() {
   const allSubmissions = Array.isArray(state.scoutingSubmissions) ? state.scoutingSubmissions : [];
-  const eventScopedSubmissionCache = globalThis.__eventScopedSubmissionCache || (globalThis.__eventScopedSubmissionCache = new WeakMap());
-  if (!eventScopedSubmissionCache.has(allSubmissions)) {
-    eventScopedSubmissionCache.set(allSubmissions, new Map());
+  if (
+    currentRawScoutingSubmissionsCache.allSubmissions === allSubmissions
+    && currentRawScoutingSubmissionsCache.eventKey === state.activeEventKey
+  ) {
+    return currentRawScoutingSubmissionsCache.value;
   }
-  const cache = eventScopedSubmissionCache.get(allSubmissions);
-  const eventKey = state.activeEventKey;
-  if (!cache.has(eventKey)) {
-    cache.set(eventKey, allSubmissions.filter((submission) => submission.eventKey === eventKey));
-  }
-  return cache.get(eventKey);
+  const value = allSubmissions.filter((submission) => submission.eventKey === state.activeEventKey);
+  currentRawScoutingSubmissionsCache.allSubmissions = allSubmissions;
+  currentRawScoutingSubmissionsCache.eventKey = state.activeEventKey;
+  currentRawScoutingSubmissionsCache.value = value;
+  return value;
+}
+
+const currentRawScoutingSubmissionsCache = {
+  allSubmissions: null,
+  eventKey: "",
+  value: null,
+};
+
+const currentScoutingSubmissionsCache = {
+  rawSubmissions: null,
+  reviewOverrides: null,
+  eventKey: "",
+  value: null,
+};
+
+const currentTeamsCache = {
+  eventModel: null,
+  eventKey: "",
+  recentMatchCount: 0,
+  profileVersionKey: "",
+  schemaSignature: "",
+  submissionRef: null,
+  reviewOverrideRef: null,
+  value: null,
+};
+const overlaidTeamCache = new Map();
+
+function currentOverlayCacheContext(eventModel = currentEvent()) {
+  return {
+    eventModel,
+    eventKey: normalizeText(eventModel?.key),
+    recentMatchCount: currentRecentMatchCount(),
+    profileVersionKey: normalizeText(currentImportedProfileDefinition(eventModel)?.versionKey),
+    schemaSignature: currentTeamsSchemaSignature(eventModel),
+    submissionRef: state.scoutingSubmissions,
+    reviewOverrideRef: state.scoutingReviewOverrides,
+  };
+}
+
+function currentTeamsSchemaSignature(eventModel = currentEvent()) {
+  const committedSignature = normalizeText(
+    state.scoutingSubmissions.find((submission) => submission?.eventKey === normalizeText(eventModel?.key))?.scoutingSchemaSignature,
+  );
+  if (committedSignature) return committedSignature;
+  return normalizeText(currentScoutingAttachment()?.schemaSignature);
 }
 
 function currentTeams() {
-  return currentEvent().teams.map((team) => overlayTeamWithScouting(team));
+  const cacheContext = currentOverlayCacheContext();
+  const { eventModel, eventKey: nextEventKey, recentMatchCount: nextRecentMatchCount, profileVersionKey: nextProfileVersionKey, schemaSignature: nextSchemaSignature } = cacheContext;
+  if (
+    currentTeamsCache.value
+    && currentTeamsCache.eventModel === eventModel
+    && currentTeamsCache.eventKey === nextEventKey
+    && currentTeamsCache.recentMatchCount === nextRecentMatchCount
+    && currentTeamsCache.profileVersionKey === nextProfileVersionKey
+    && currentTeamsCache.schemaSignature === nextSchemaSignature
+    && currentTeamsCache.submissionRef === cacheContext.submissionRef
+    && currentTeamsCache.reviewOverrideRef === cacheContext.reviewOverrideRef
+  ) {
+    return currentTeamsCache.value;
+  }
+  const value = eventModel.teams.map((team) => overlayTeamWithScouting(team));
+  currentTeamsCache.eventModel = eventModel;
+  currentTeamsCache.eventKey = nextEventKey;
+  currentTeamsCache.recentMatchCount = nextRecentMatchCount;
+  currentTeamsCache.profileVersionKey = nextProfileVersionKey;
+  currentTeamsCache.schemaSignature = nextSchemaSignature;
+  currentTeamsCache.submissionRef = cacheContext.submissionRef;
+  currentTeamsCache.reviewOverrideRef = cacheContext.reviewOverrideRef;
+  currentTeamsCache.value = value;
+  return value;
 }
 
 function currentMatches() {
   return currentEvent().matches;
 }
 
+function runtimeMetricsForEventModel(eventModel = currentEvent()) {
+  const runtimeEventModel = {
+    ...eventModel,
+    scouterMetricDefinitions: currentScouterMetricDefinitions(eventModel),
+    formulaFieldDefinitions: currentFormulaFieldDefinitions(eventModel),
+    derivedMetricDefinitions: currentDerivedMetricDefinitions(eventModel),
+  };
+  return [
+    ...(buildRuntimeMetrics(runtimeEventModel) || []).filter((metric) => !(metric.kind === "source" && metric.sourceId === "statbotics")),
+    ...currentDynamicStatboticsMetricDefinitions(runtimeEventModel),
+    ...currentDynamicTbaMetricDefinitions(runtimeEventModel),
+  ];
+}
+
 function currentMetrics() {
-  return seasonBuildMetrics({
-    ...currentEvent(),
-    derivedMetricDefinitions: currentDerivedMetricDefinitions(),
-  });
+  return runtimeMetricsForEventModel(currentEvent());
+}
+
+function statboticsEpaMetric(eventModel = currentEvent()) {
+  return runtimeMetricsForEventModel(eventModel).find((metric) => metric.id === defaultStatboticsMetricId) || null;
+}
+
+function formatMetricValueForDisplay(metric, value) {
+  const numericValue = Number(value);
+  if (!metric || value === null || value === undefined || value === "" || Number.isNaN(numericValue)) return "-";
+  const digits = metric.unit === "%" ? 0 : 1;
+  return `${numericValue.toFixed(digits)}${metric.unit === "%" ? "%" : ""}`;
 }
 
 function currentDataSources() {
-  return currentEvent().dataSources;
+  const event = currentEvent();
+  const workspace = currentEventWorkspace();
+  const now = Date.now();
+  const externalSources = [
+    { sourceId: "tba", label: "The Blue Alliance" },
+    { sourceId: "statbotics", label: "Statbotics" },
+    { sourceId: "pridge", label: "pRidge" },
+  ].map((definition) => {
+    const sourceState = workspace.sources?.[definition.sourceId] || {};
+    const policy = defaultRefreshPolicyForSource({ kind: "external", sourceId: definition.sourceId });
+    const dataSourceNote = (event.dataSources || []).find((source) => String(source.name || "").includes(definition.label)) || {};
+    return {
+      sourceId: definition.sourceId,
+      name: definition.label,
+      status: visibleStatusForSource(
+        { ...sourceState, status: sourceState.status || dataSourceNote.status || "ready" },
+        policy,
+        now,
+      ),
+      freshness: freshnessForSource(sourceState, policy, now),
+      notes: sourceState.error || sourceState.provenance?.notes || dataSourceNote.notes || "",
+      kind: "external",
+      detectedLabel: "",
+      nextPollAt: sourceState.nextPollAt ? formatTimeOnly(sourceState.nextPollAt) : "Pending",
+      pollingEnabled: sourceState.pollingEnabled !== false,
+    };
+  });
+  const activeAttachment = currentScoutingAttachment();
+  const scoutingPolicy = defaultRefreshPolicyForSource({ kind: "scouting", sourceId: activeAttachment?.attachmentId });
+  const scoutingStats = [
+    { label: "Rows", value: state.scoutingSubmissions.length },
+    { label: "Matches", value: importedMatchCount() },
+    { label: "Teams", value: importedTeamCount() },
+  ].filter((stat) => stat.value > 0);
+  return [
+    {
+      sourceId: "scouting",
+      name: activeAttachment?.label || "Scouting Data",
+      status: visibleStatusForSource(activeAttachment || {}, scoutingPolicy, now),
+      freshness: freshnessForSource(activeAttachment || {}, scoutingPolicy, now),
+      notes: activeAttachment?.error || `${detectedScoutingSourceLabel(workspace, event)} | ${currentScoutingSourceUrl() || "No scouting source configured."}`,
+      stats: scoutingStats,
+      kind: "scouting",
+      detectedLabel: detectedScoutingSourceLabel(workspace, event),
+      nextPollAt: activeAttachment?.nextPollAt ? formatTimeOnly(activeAttachment.nextPollAt) : "Pending",
+      pollingEnabled: activeAttachment?.pollingEnabled !== false,
+    },
+    ...externalSources,
+  ];
 }
 
 function currentScouterMetricDefinitions(eventModel = currentEvent()) {
-  return seasonScouterMetricDefinitions(eventModel);
+  const scoringComponentIds = new Set((eventModel?.scoringComponents || []).map((component) => component.id));
+  return currentFormulaFieldDefinitions(eventModel).filter((fieldDefinition) => {
+    if (scoringComponentIds.has(fieldDefinition.id)) return false;
+    const fieldType = normalizeText(fieldDefinition?.type).toLowerCase() || (normalizeText(fieldDefinition?.unit).toLowerCase() === "text" ? "string" : "number");
+    return fieldType !== "string";
+  });
+}
+
+function currentImportedProfileDefinition(eventModel = currentEvent()) {
+  const profileId = currentProfileMetricScopeKey(eventModel);
+  const profiles = scoutingProfilesForEvent(eventModel);
+  return (
+    profiles.find((profile) => profile.id === profileId)
+    || profiles.find((profile) => profile.id === defaultScoutingProfileId)
+    || profiles[0]
+    || null
+  );
+}
+
+function committedScoutingSchemaFields(eventModel = currentEvent()) {
+  const committedSignature = normalizeText(
+    state.scoutingSubmissions.find((submission) => submission?.eventKey === state.activeEventKey)?.scoutingSchemaSignature,
+  );
+  const committedFields = parseScoutingSchemaSignatureFields(committedSignature);
+  if (committedFields.length) return committedFields;
+  const attachmentFields = parseScoutingSchemaSignatureFields(normalizeText(currentScoutingAttachment()?.schemaSignature));
+  if (attachmentFields.length) return attachmentFields;
+  return Array.isArray(currentImportedProfileDefinition(eventModel)?.fields)
+    ? currentImportedProfileDefinition(eventModel).fields
+    : [];
 }
 
 function currentFormulaFieldDefinitions(eventModel = currentEvent()) {
-  return seasonFormulaFieldDefinitions(eventModel);
+  const committedFields = committedScoutingSchemaFields(eventModel);
+  return buildDynamicScoutingFieldDefinitions({
+    eventModel: {
+      ...eventModel,
+      formulaFieldDefinitions: committedFields,
+    },
+    submissions: currentScoutingSubmissions(),
+    schemaFields: committedFields,
+  });
 }
 
 function currentAtomicScouterMetricDefinitions(eventModel = currentEvent()) {
-  const seasonDefinition = currentSeasonDefinition(eventModel);
-  if (Array.isArray(seasonDefinition?.scouterMetrics) && seasonDefinition.scouterMetrics.length) {
-    return seasonDefinition.scouterMetrics;
-  }
-  const scoringComponentIds = new Set((eventModel?.scoringComponents || []).map((component) => component.id));
-  return currentScouterMetricDefinitions(eventModel).filter((metricDefinition) => !scoringComponentIds.has(metricDefinition.id));
+  return currentScouterMetricDefinitions(eventModel);
 }
 
 function currentAvailableScoutingFieldDefinitions(eventModel = currentEvent()) {
   const scoringComponentIds = new Set((eventModel?.scoringComponents || []).map((component) => component.id));
   return currentFormulaFieldDefinitions(eventModel).filter((fieldDefinition) => !scoringComponentIds.has(fieldDefinition.id));
+}
+
+function currentImportSchemaFields() {
+  return Array.isArray(state.importResult?.summary?.schemaFields)
+    ? state.importResult.summary.schemaFields
+    : [];
 }
 
 function importedProfileScopeKey(eventModel = currentEvent()) {
@@ -275,22 +1621,47 @@ function importedProfileScopeKey(eventModel = currentEvent()) {
 }
 
 function currentProfileMetricScopeKey(eventModel = currentEvent()) {
-  return importedProfileScopeKey(eventModel) || eventModel.sheet?.recommendedProfileId || "match-current-v2";
+  return importedProfileScopeKey(eventModel) || preferredScoutingProfileIdForEvent(eventModel);
 }
 
-function currentSeasonDerivedEquationDefinitions(eventModel = currentEvent()) {
-  return (state.seasonDerivedEquationCatalog?.seasons?.[String(eventModel.season)] || []).map((definition) => ({
+function isPredicateEquationDefinition(definition) {
+  return normalizeText(definition?.usage).toLowerCase() === "predicate";
+}
+
+function currentProfileDerivedEquationDefinitions(eventModel = currentEvent()) {
+  return currentProfileEquationList(eventModel)
+    .filter((definition) => !isPredicateEquationDefinition(definition))
+    .map((definition) => ({
     id: definition.id,
     label: definition.name,
     unit: definition.unit || "pts",
     expression: definition.formula,
     formula: "expression",
-    source: "season_equation",
+    source: "profile_equation",
   }));
 }
 
 function currentDerivedMetricDefinitions(eventModel = currentEvent()) {
-  return [...seasonDerivedMetricDefinitions(eventModel), ...currentSeasonDerivedEquationDefinitions(eventModel)];
+  return [
+    ...(Array.isArray(eventModel?.derivedMetricDefinitions) ? eventModel.derivedMetricDefinitions : []),
+    ...currentProfileDerivedEquationDefinitions(eventModel),
+  ];
+}
+
+function currentScoutingDiagnosticsState() {
+  const committedSignature = normalizeText(state.scoutingSubmissions.find((submission) => submission?.eventKey === state.activeEventKey)?.scoutingSchemaSignature);
+  const currentFieldDefinitions = currentAvailableScoutingFieldDefinitions();
+  const previewFieldDefinitions = Array.isArray(state.importResult?.summary?.schemaFields)
+    ? state.importResult.summary.schemaFields
+    : [];
+  return buildScoutingDiagnosticsState({
+    committedSchemaSignature: committedSignature,
+    currentFieldDefinitions,
+    previewFieldDefinitions,
+    equations: currentProfileEquationList(),
+    filters: [],
+    sortEquations: state.sortEquations.filter((equation) => !isProtectedSortEquation(equation)),
+  });
 }
 
 function currentRankableMetrics(eventModel = currentEvent()) {
@@ -306,29 +1677,23 @@ function currentRankableMetrics(eventModel = currentEvent()) {
   });
 }
 
-const tbaClimbStatusPoints = {
-  None: 0,
-  Parked: 2,
-  ShallowCage: 6,
-  DeepCage: 12,
-};
-
-function currentSeasonEquationList(eventModel = currentEvent()) {
-  return [...(state.seasonDerivedEquationCatalog?.seasons?.[String(eventModel.season)] || [])]
+function currentProfileEquationList(eventModel = currentEvent()) {
+  return [...(currentImportedProfileDefinition(eventModel)?.equations || [])]
     .sort((left, right) => Number(left.sourceOrder || 0) - Number(right.sourceOrder || 0) || left.name.localeCompare(right.name));
 }
 
-function currentSeasonFilterList(eventModel = currentEvent()) {
-  return [...(state.seasonFilterCatalog?.seasons?.[String(eventModel.season)] || [])]
+function currentProfileFilterList(eventModel = currentEvent()) {
+  return currentProfileEquationList(eventModel)
+    .filter((definition) => isPredicateEquationDefinition(definition))
     .sort((left, right) => Number(left.sourceOrder || 0) - Number(right.sourceOrder || 0) || left.name.localeCompare(right.name));
 }
 
 function equationDefinitionById(id, eventModel = currentEvent()) {
-  return currentSeasonEquationList(eventModel).find((definition) => definition.id === id) || null;
+  return currentProfileEquationList(eventModel).find((definition) => definition.id === id) || null;
 }
 
-function seasonFilterDefinitionById(id, eventModel = currentEvent()) {
-  return currentSeasonFilterList(eventModel).find((definition) => definition.id === id) || null;
+function profileFilterDefinitionById(id, eventModel = currentEvent()) {
+  return currentProfileFilterList(eventModel).find((definition) => definition.id === id) || null;
 }
 
 function sanitizeFormulaReferenceToken(value) {
@@ -342,9 +1707,9 @@ function sanitizeFormulaReferenceToken(value) {
   return `_${normalized}`;
 }
 
-function seasonFilterReferenceEntries(eventModel = currentEvent()) {
+function profileFilterReferenceEntries(eventModel = currentEvent()) {
   const counts = new Map();
-  return currentSeasonFilterList(eventModel).map((definition) => {
+  return currentProfileFilterList(eventModel).map((definition) => {
     const baseToken = sanitizeFormulaReferenceToken(definition.id || definition.name);
     const nextCount = (counts.get(baseToken) || 0) + 1;
     counts.set(baseToken, nextCount);
@@ -355,15 +1720,15 @@ function seasonFilterReferenceEntries(eventModel = currentEvent()) {
   });
 }
 
-function seasonFilterDefinitionByReference(reference, eventModel = currentEvent()) {
+function profileFilterDefinitionByReference(reference, eventModel = currentEvent()) {
   const normalizedReference = String(reference || "").toLowerCase();
-  return seasonFilterReferenceEntries(eventModel).find((entry) => entry.token.toLowerCase() === normalizedReference)?.definition || null;
+  return profileFilterReferenceEntries(eventModel).find((entry) => entry.token.toLowerCase() === normalizedReference)?.definition || null;
 }
 
 function ensureActiveDerivedEquation(eventModel = currentEvent()) {
-  const definitions = currentSeasonEquationList(eventModel);
+  const definitions = currentProfileEquationList(eventModel);
   if (definitions.some((definition) => definition.id === state.activeDerivedEquationId)) return state.activeDerivedEquationId;
-  state.activeDerivedEquationId = definitions[0]?.id || "";
+  state.activeDerivedEquationId = definitions.find((definition) => !isPredicateEquationDefinition(definition))?.id || definitions[0]?.id || "";
   return state.activeDerivedEquationId;
 }
 
@@ -371,48 +1736,51 @@ function activeDerivedEquation(eventModel = currentEvent()) {
   return equationDefinitionById(ensureActiveDerivedEquation(eventModel), eventModel);
 }
 
-function currentDerivedAvailableMetrics(eventModel = currentEvent(), activeEquation = activeDerivedEquation(eventModel)) {
+function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
   return [
-    { id: "scouting.total" },
     ...currentAvailableScoutingFieldDefinitions(eventModel).map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
-    { id: "tba.climbScore" },
-    { id: "tba.allianceKey" },
-    { id: "tba.autoAllianceFuel" },
-    { id: "tba.transitionAllianceFuel" },
-    { id: "tba.shift1AllianceFuel" },
-    { id: "tba.shift2AllianceFuel" },
-    { id: "tba.shift3AllianceFuel" },
-    { id: "tba.shift4AllianceFuel" },
-    { id: "tba.endgameAllianceFuel" },
-    { id: "tba.autoClimbStatus" },
-    { id: "tba.teleopClimbStatus" },
-    { id: "tba.wonAuto" },
-    ...eventModel.scoringComponents.map((component) => ({ id: `statbotics.${component.id}` })),
-    { id: "statbotics.total" },
-    ...eventModel.scoringComponents.map((component) => ({ id: `opr.${component.id}` })),
-    { id: "opr.total" },
-    ...eventModel.scoringComponents.map((component) => ({ id: `pridge.${component.id}` })),
-    { id: "pridge.total" },
-    ...currentSeasonEquationList(eventModel).filter((definition) => definition.id !== activeEquation?.id).map((definition) => ({ id: definition.id })),
+    ...currentAvailableTbaFormulaIdentifiers(eventModel).map((id) => ({ id })),
+    ...currentAvailableStatboticsFormulaIdentifiers(eventModel).map((id) => ({ id })),
   ];
 }
 
-function ensureActiveSeasonFilter(eventModel = currentEvent()) {
-  const definitions = currentSeasonFilterList(eventModel);
-  if (definitions.some((definition) => definition.id === state.activeSeasonFilterId)) return state.activeSeasonFilterId;
-  state.activeSeasonFilterId = definitions[0]?.id || "";
-  return state.activeSeasonFilterId;
-}
-
-function activeSeasonFilter(eventModel = currentEvent()) {
-  return seasonFilterDefinitionById(ensureActiveSeasonFilter(eventModel), eventModel);
+function defaultCriteriaTerms(eventModel = currentEvent()) {
+  return [{ operator: "+", weight: 1, metricId: "" }];
 }
 
 function activeAnalysisFilter(eventModel = currentEvent()) {
-  return seasonFilterDefinitionById(state.activeAnalysisFilterId, eventModel);
+  return profileFilterDefinitionById(state.activeAnalysisFilterId, eventModel);
 }
 
 const tbaMatchMetricsCache = new WeakMap();
+const tbaMetricDefinitionCache = new WeakMap();
+const statboticsMetricDefinitionCache = new WeakMap();
+
+function scalarTbaValue(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "number" || typeof value === "string") return value;
+  return null;
+}
+
+function providerPathSegment(value) {
+  return String(value || "").trim();
+}
+
+function flattenTbaScalarEntries(value, prefix = "") {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry, index) => flattenTbaScalarEntries(entry, prefix ? `${prefix}.${index}` : String(index)));
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value).flatMap(([key, entryValue]) => {
+      const segment = providerPathSegment(key);
+      if (!segment) return [];
+      return flattenTbaScalarEntries(entryValue, prefix ? `${prefix}.${segment}` : segment);
+    });
+  }
+  const scalar = scalarTbaValue(value);
+  return prefix && scalar !== null ? [[prefix, scalar]] : [];
+}
 
 function tbaMatchMetricsByTeam(teamNumber, eventModel = currentEvent()) {
   if (!tbaMatchMetricsCache.has(eventModel)) {
@@ -427,37 +1795,171 @@ function tbaMatchMetricsByTeam(teamNumber, eventModel = currentEvent()) {
         .filter((match) => match.red.includes(normalizedTeamNumber) || match.blue.includes(normalizedTeamNumber))
         .map((match) => {
           const allianceKey = match.red.includes(normalizedTeamNumber) ? "red" : "blue";
-          const teams = allianceKey === "red" ? match.red : match.blue;
-          const index = teams.indexOf(normalizedTeamNumber);
           const breakdown = match.scoreBreakdown?.[allianceKey] || null;
-          const opponentAllianceKey = allianceKey === "red" ? "blue" : "red";
-          const opponentBreakdown = match.scoreBreakdown?.[opponentAllianceKey] || null;
-          const hubScore = breakdown?.hubScore || null;
-          const opponentHubScore = opponentBreakdown?.hubScore || null;
-          const climbStatus = breakdown ? breakdown[`endGameTowerRobot${index + 1}`] || breakdown[`endGameRobot${index + 1}`] || "" : "";
-          const autoClimbStatus = breakdown ? breakdown[`autoTowerRobot${index + 1}`] || breakdown[`autoRobot${index + 1}`] || "" : "";
+          const flattenedBreakdown = Object.fromEntries(flattenTbaScalarEntries(breakdown || {}));
           return {
             matchNumber: match.number,
             allianceKey,
-            allianceTeams: teams,
+            allianceTeams: allianceKey === "red" ? match.red : match.blue,
             allTeams: [...match.red, ...match.blue],
-            autoAllianceFuel: Number(hubScore?.autoPoints ?? breakdown?.auto_fuel ?? Number.NaN),
-            transitionAllianceFuel: Number(hubScore?.transitionPoints ?? breakdown?.transition_fuel ?? Number.NaN),
-            shift1AllianceFuel: Number(hubScore?.shift1Points ?? breakdown?.first_shift_fuel ?? Number.NaN),
-            shift2AllianceFuel: Number(hubScore?.shift2Points ?? breakdown?.second_shift_fuel ?? Number.NaN),
-            shift3AllianceFuel: Number(hubScore?.shift3Points ?? breakdown?.third_shift_fuel ?? Number.NaN),
-            shift4AllianceFuel: Number(hubScore?.shift4Points ?? breakdown?.fourth_shift_fuel ?? Number.NaN),
-            endgameAllianceFuel: Number(hubScore?.endgamePoints ?? breakdown?.endgame_fuel ?? Number.NaN),
-            autoClimbStatus,
-            teleopClimbStatus: climbStatus,
-            climbScore: Number(tbaClimbStatusPoints[climbStatus] ?? Number.NaN),
-            wonAuto: Number(hubScore?.autoPoints ?? breakdown?.auto_fuel ?? Number.NaN) > Number(opponentHubScore?.autoPoints ?? opponentBreakdown?.auto_fuel ?? Number.NaN) ? 1 : 0,
+            ...flattenedBreakdown,
           };
         })
         .sort((left, right) => left.matchNumber - right.matchNumber),
     );
   }
   return cache.get(normalizedTeamNumber);
+}
+
+function collectTbaMetricDefinitions(eventModel = currentEvent()) {
+  if (tbaMetricDefinitionCache.has(eventModel)) return tbaMetricDefinitionCache.get(eventModel);
+
+  const eventDefinitions = new Map();
+  const matchDefinitions = new Map();
+  const internalMatchFields = new Set(["matchNumber", "allianceKey", "allianceTeams", "allTeams"]);
+  const addDefinition = (bucket, fieldId, value, granularity) => {
+    const sampleValue = scalarTbaValue(value);
+    if (!fieldId || sampleValue === null) return;
+    if (!bucket.has(fieldId)) bucket.set(fieldId, []);
+    bucket.get(fieldId).push(sampleValue);
+  };
+
+  (eventModel.teams || []).forEach((team) => {
+    Object.entries(team?.sources?.tba?.components || {}).forEach(([fieldId, value]) => {
+      addDefinition(eventDefinitions, fieldId, value, "event");
+    });
+    tbaMatchMetricsByTeam(team.number, eventModel).forEach((matchMetrics) => {
+      Object.entries(matchMetrics || {}).forEach(([fieldId, value]) => {
+        if (internalMatchFields.has(fieldId)) return;
+        addDefinition(matchDefinitions, fieldId, value, "match");
+      });
+    });
+  });
+
+  const buildDefinition = (fieldId, samples, granularity) => {
+    const nonEmptySamples = (samples || []).filter((value) => value !== "");
+    const allNumeric = nonEmptySamples.length > 0 && nonEmptySamples.every((value) => Number.isFinite(Number(value)));
+    const type = allNumeric ? "number" : "string";
+    const normalizedFieldId = String(fieldId || "");
+    const lowerFieldId = normalizedFieldId.toLowerCase();
+    const unit = type !== "number"
+      ? "text"
+      : /pct|percent|percentage|accuracy/.test(lowerFieldId)
+        ? "%"
+        : /score|point|opr|dpr|ccwm|rps/.test(lowerFieldId)
+          ? "pts"
+          : "count";
+    return {
+      id: `tba.${normalizedFieldId}`,
+      fieldId: normalizedFieldId,
+      label: `TBA ${humanizeDynamicFieldId(normalizedFieldId)}`,
+      shortLabel: humanizeDynamicFieldId(normalizedFieldId),
+      granularity,
+      type,
+      unit,
+    };
+  };
+
+  const formulaDefinitions = [
+    ...[...eventDefinitions.entries()].map(([fieldId, samples]) => buildDefinition(fieldId, samples, "event")),
+    ...[...matchDefinitions.entries()].map(([fieldId, samples]) => buildDefinition(fieldId, samples, "match")),
+  ]
+    .sort((left, right) => left.id.localeCompare(right.id));
+
+  const metricDefinitions = formulaDefinitions
+    .filter((definition) => definition.type === "number")
+    .filter((definition) => definition.fieldId !== "opr.total")
+    .map((definition) => ({
+      id: `source:tba:${definition.fieldId}`,
+      kind: "source",
+      sourceId: "tba",
+      componentId: definition.fieldId,
+      label: definition.label,
+      shortLabel: definition.shortLabel,
+      unit: definition.unit,
+      granularity: definition.granularity,
+    }));
+
+  const result = { formulaDefinitions, metricDefinitions };
+  tbaMetricDefinitionCache.set(eventModel, result);
+  return result;
+}
+
+function currentAvailableTbaFormulaIdentifiers(eventModel = currentEvent()) {
+  return collectTbaMetricDefinitions(eventModel).formulaDefinitions.map((definition) => definition.id);
+}
+
+function currentDynamicTbaMetricDefinitions(eventModel = currentEvent()) {
+  return collectTbaMetricDefinitions(eventModel).metricDefinitions;
+}
+
+function collectStatboticsMetricDefinitions(eventModel = currentEvent()) {
+  if (statboticsMetricDefinitionCache.has(eventModel)) return statboticsMetricDefinitionCache.get(eventModel);
+
+  const eventDefinitions = new Map();
+  const addDefinition = (fieldId, value) => {
+    const sampleValue = scalarTbaValue(value);
+    if (!fieldId || sampleValue === null) return;
+    if (!eventDefinitions.has(fieldId)) eventDefinitions.set(fieldId, []);
+    eventDefinitions.get(fieldId).push(sampleValue);
+  };
+
+  (eventModel.teams || []).forEach((team) => {
+    Object.entries(team?.sources?.statbotics?.components || {}).forEach(([fieldId, value]) => {
+      addDefinition(fieldId, value);
+    });
+  });
+
+  const formulaDefinitions = [...eventDefinitions.entries()]
+    .map(([fieldId, samples]) => {
+      const nonEmptySamples = (samples || []).filter((value) => value !== "");
+      const allNumeric = nonEmptySamples.length > 0 && nonEmptySamples.every((value) => Number.isFinite(Number(value)));
+      const type = allNumeric ? "number" : "string";
+      const normalizedFieldId = String(fieldId || "");
+      const lowerFieldId = normalizedFieldId.toLowerCase();
+      const unit = type !== "number"
+        ? "text"
+        : /pct|percent|percentage|accuracy|winrate|rate/.test(lowerFieldId)
+          ? "%"
+          : /point|score|epa|opr|dpr|ccwm|rps|mean|max|start|preelim|unitless|norm/.test(lowerFieldId)
+            ? "pts"
+            : "count";
+      return {
+        id: `statbotics.${normalizedFieldId}`,
+        fieldId: normalizedFieldId,
+        label: `Statbotics ${humanizeDynamicFieldId(normalizedFieldId)}`,
+        shortLabel: humanizeDynamicFieldId(normalizedFieldId),
+        granularity: "event",
+        type,
+        unit,
+      };
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
+
+  const metricDefinitions = formulaDefinitions
+    .filter((definition) => definition.type === "number")
+    .map((definition) => ({
+      id: `source:statbotics:${definition.fieldId}`,
+      kind: "source",
+      sourceId: "statbotics",
+      componentId: definition.fieldId,
+      label: definition.label,
+      shortLabel: definition.shortLabel,
+      unit: definition.unit,
+      granularity: definition.granularity,
+    }));
+
+  const result = { formulaDefinitions, metricDefinitions };
+  statboticsMetricDefinitionCache.set(eventModel, result);
+  return result;
+}
+
+function currentAvailableStatboticsFormulaIdentifiers(eventModel = currentEvent()) {
+  return collectStatboticsMetricDefinitions(eventModel).formulaDefinitions.map((definition) => definition.id);
+}
+
+function currentDynamicStatboticsMetricDefinitions(eventModel = currentEvent()) {
+  return collectStatboticsMetricDefinitions(eventModel).metricDefinitions;
 }
 
 function preferredFormulaSubmission(submissions, scouterMetricIds = []) {
@@ -590,12 +2092,30 @@ function formulaScalarValue(value, granularity = "event") {
   };
 }
 
+function readFormulaPathValue(source, path) {
+  const normalizedPath = normalizeText(path);
+  if (!normalizedPath || !source || typeof source !== "object") return undefined;
+  if (Object.prototype.hasOwnProperty.call(source, normalizedPath)) return source[normalizedPath];
+  const segments = normalizedPath.split(".").filter(Boolean);
+  let current = source;
+  for (const segment of segments) {
+    if (!current || typeof current !== "object" || !Object.prototype.hasOwnProperty.call(current, segment)) return undefined;
+    current = current[segment];
+  }
+  return current;
+}
+
+function isPresentFormulaValue(value) {
+  if (value === undefined || value === null) return false;
+  return !(typeof value === "number" && Number.isNaN(value));
+}
+
 function formulaResultForEventAggregate(value) {
   if (metricEngine.isErrorResult(value)) return { valid: false, reason: value.error || "Invalid event aggregate input." };
   if (metricEngine.isSeriesResult(value)) {
     return {
       valid: false,
-      reason: "event* requires a per-team event value such as statbotics.total or average(scouting.autoSpeakerMade), not a raw match-level series.",
+      reason: "event* requires a per-team event value such as statbotics.epa.total_points or average(scouting.autoSpeakerMade), not a raw match-level series.",
     };
   }
   if (!metricEngine.isScalarResult(value)) {
@@ -608,7 +2128,6 @@ function rawScoutingMetricValue(matchRow, fieldId) {
   if (fieldId === "hasEntry") {
     return matchRow.scouting?.selectedSubmission ? 1 : 0;
   }
-  if (fieldId === "total") return matchRow.scouting?.total ?? Number.NaN;
   if (Object.prototype.hasOwnProperty.call(matchRow.scouting?.components || {}, fieldId)) {
     return matchRow.scouting.components[fieldId];
   }
@@ -828,25 +2347,40 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
   }
   if (identifier.startsWith("tba.")) {
     const fieldId = identifier.slice("tba.".length);
-    return formulaSeriesFromRows(formulaContext.matchRows, (row) => row.tba?.[fieldId] ?? Number.NaN);
+    const candidateFieldIds = [fieldId];
+    for (const candidateFieldId of candidateFieldIds) {
+      const overlayValue = readFormulaPathValue(formulaContext.overlayTeam.sources?.tba?.components || {}, candidateFieldId);
+      if (isPresentFormulaValue(overlayValue)) return formulaScalarValue(overlayValue);
+    }
+    return formulaSeriesFromRows(formulaContext.matchRows, (row) => {
+      for (const candidateFieldId of candidateFieldIds) {
+        const matchValue = readFormulaPathValue(row.tba || {}, candidateFieldId);
+        if (isPresentFormulaValue(matchValue)) return matchValue;
+      }
+      return Number.NaN;
+    });
   }
   if (identifier.startsWith("statbotics.")) {
     const componentId = identifier.slice("statbotics.".length);
-    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.epa?.total || Number.NaN);
-    return formulaScalarValue(formulaContext.overlayTeam.sources?.epa?.components?.[componentId] || Number.NaN);
+    const candidateFieldIds = [componentId];
+    for (const candidateFieldId of candidateFieldIds) {
+      const overlayValue = readFormulaPathValue(formulaContext.overlayTeam.sources?.epa?.components || {}, candidateFieldId);
+      if (isPresentFormulaValue(overlayValue)) return formulaScalarValue(overlayValue);
+    }
+    return formulaScalarValue(Number.NaN);
   }
   if (identifier.startsWith("pridge.")) {
     const componentId = identifier.slice("pridge.".length);
-    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.total || Number.NaN);
-    return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.components?.[componentId] || Number.NaN);
+    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.total ?? Number.NaN);
+    return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.components?.[componentId] ?? Number.NaN);
   }
   if (identifier.startsWith("opr.")) {
     const componentId = identifier.slice("opr.".length);
-    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.total || Number.NaN);
-    return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.components?.[componentId] || Number.NaN);
+    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.total ?? Number.NaN);
+    return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.components?.[componentId] ?? Number.NaN);
   }
   if (identifier.startsWith("filter.")) {
-    const referencedFilter = seasonFilterDefinitionByReference(identifier, formulaContext.eventModel);
+    const referencedFilter = profileFilterDefinitionByReference(identifier, formulaContext.eventModel);
     if (!referencedFilter) return null;
     return evaluateSeasonFilterDefinitionForTeam(formulaContext.baseTeam, referencedFilter, {
       eventModel: formulaContext.eventModel,
@@ -937,8 +2471,16 @@ function evaluateEquationForTeam(team, equationId, options = {}) {
   return evaluation;
 }
 
-function equationStatusForTeam(team, equationId, eventModel = currentEvent()) {
-  const evaluation = evaluateEquationForTeam(team, equationId, { eventModel });
+function equationStatusForTeam(team, equationId, options = {}) {
+  const eventModel = options.eventModel || currentEvent();
+  const evaluation = evaluateEquationForTeam(team, equationId, {
+    eventModel,
+    formulaContext: options.formulaContext,
+    evaluationCache: options.evaluationCache,
+    filterEvaluationCache: options.filterEvaluationCache,
+    groupEvaluationCache: options.groupEvaluationCache,
+    eventEvaluationCache: options.eventEvaluationCache,
+  });
   if (isErrorFormulaResult(evaluation.result)) return { label: "Invalid", severity: "danger", detail: evaluation.result.error };
   if (evaluation.result.granularity !== "event") return { label: "Match Only", severity: "warn", detail: "Equation stays at match granularity until averaged." };
   return null;
@@ -989,6 +2531,10 @@ function normalizeStoredFormula(value, fallback = "0") {
   const trimmed = String(value || "").trim();
   const normalized = trimmed.replace(/^=\s*/, "").trim();
   return normalized || fallback;
+}
+
+function migrateLegacyFormulaIdentifiers(value) {
+  return String(value || "").replace(/\bscouting\.total\b/g, "scoutingTotal");
 }
 
 function formulaAstPrecedence(ast) {
@@ -1077,7 +2623,7 @@ function serializeFormulaAst(ast, parentPrecedence = -1) {
 }
 
 function canonicalizeStoredFormula(value, fallback = "0") {
-  const normalized = normalizeStoredFormula(value, fallback);
+  const normalized = migrateLegacyFormulaIdentifiers(normalizeStoredFormula(value, fallback));
   const parsed = metricEngine.parseFormulaExpression(normalized);
   if (parsed?.error || !parsed?.ast) return normalized || fallback;
   const serialized = serializeFormulaAst(parsed.ast).trim();
@@ -1109,6 +2655,14 @@ function builderGridScrollState(view = state.activeView) {
   return state.builderGridScroll[view];
 }
 
+function builderListScrollState(view = state.activeView) {
+  if (!state.builderListScroll?.[view]) {
+    if (!state.builderListScroll) state.builderListScroll = {};
+    state.builderListScroll[view] = {};
+  }
+  return state.builderListScroll[view];
+}
+
 function captureBuilderGridScroll(view = state.activeView) {
   const scrollState = builderGridScrollState(view);
   const shell = document.querySelector("[data-builder-grid-shell]");
@@ -1133,11 +2687,45 @@ function restoreBuilderGridScroll(view = state.activeView) {
   });
 }
 
+function captureBuilderListScroll(view = state.activeView) {
+  const scrollState = builderListScrollState(view);
+  document.querySelectorAll("[data-builder-list-scroll]").forEach((list) => {
+    const key = list.dataset.builderListScroll;
+    if (!key) return;
+    scrollState[key] = list.scrollTop;
+  });
+}
+
+function restoreBuilderListScroll(view = state.activeView) {
+  const scrollState = builderListScrollState(view);
+  requestAnimationFrame(() => {
+    document.querySelectorAll("[data-builder-list-scroll]").forEach((list) => {
+      const key = list.dataset.builderListScroll;
+      if (!key) return;
+      list.scrollTop = Number(scrollState[key] || 0);
+    });
+    requestAnimationFrame(() => {
+      if (view !== "derivedBuilder") return;
+      if (state.builderFocus.derivedBuilder === "metrics" && state.activeDerivedPreviewMetricId) {
+        const activeMetric = [...document.querySelectorAll("[data-derived-preview-metric]")]
+          .find((item) => item.dataset.derivedPreviewMetric === state.activeDerivedPreviewMetricId);
+        activeMetric?.scrollIntoView({ block: "nearest" });
+        return;
+      }
+      const activeEquationId = ensureActiveDerivedEquation();
+      const activeEquation = [...document.querySelectorAll('[data-entity-kind="derivedEquation"]')]
+        .find((item) => item.dataset.entityId === activeEquationId);
+      activeEquation?.scrollIntoView({ block: "nearest" });
+    });
+  });
+}
+
 function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.users), JSON.stringify(state.users));
   localStorage.setItem(eventStorageKey(storageKeys.user), state.user);
   localStorage.setItem(eventStorageKey(storageKeys.theme), state.theme);
   localStorage.setItem(eventStorageKey(storageKeys.activeEvent), state.activeEventKey);
+  localStorage.setItem(eventStorageKey(storageKeys.recentEvents), JSON.stringify(normalizeRecentEventKeys(state.recentEventKeys, state.activeEventKey)));
   localStorage.setItem(eventStorageKey(storageKeys.activeView), state.activeView);
   localStorage.setItem(eventStorageKey(storageKeys.metric), state.metric);
   localStorage.setItem(eventStorageKey(storageKeys.analysisFilter), state.activeAnalysisFilterId);
@@ -1154,14 +2742,16 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.picklistColumns), JSON.stringify(state.picklistColumns));
   localStorage.setItem(eventStorageKey(storageKeys.allianceBoard), JSON.stringify(state.allianceBoard));
   localStorage.setItem(eventStorageKey(storageKeys.picklistCompareTeams), JSON.stringify(state.picklistCompareTeams));
-  localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions), JSON.stringify(state.scoutingSubmissions));
+  localStorage.setItem(eventStorageKey(storageKeys.scoutingReviewOverrides), JSON.stringify(state.scoutingReviewOverrides));
   localStorage.setItem(eventStorageKey(storageKeys.activityLog), JSON.stringify(state.activityLog));
   localStorage.setItem(eventStorageKey(storageKeys.importSourceUrl), state.importSourceUrl);
   localStorage.setItem(eventStorageKey(storageKeys.scoutingWindow), state.scoutingWindow);
   localStorage.setItem(eventStorageKey(storageKeys.recentMatchCount), String(state.recentMatchCount));
-  localStorage.setItem(eventStorageKey(storageKeys.seasonProfiles), JSON.stringify(state.seasonProfileCatalog));
-  localStorage.setItem(eventStorageKey(storageKeys.seasonDerivedEquations), JSON.stringify(state.seasonDerivedEquationCatalog));
-  localStorage.setItem(eventStorageKey(storageKeys.seasonFilters), JSON.stringify(state.seasonFilterCatalog));
+  localStorage.setItem(eventStorageKey(storageKeys.scoutingProfiles), JSON.stringify(state.scoutingProfileCatalog));
+  localStorage.removeItem(eventStorageKey(storageKeys.seasonProfiles));
+  localStorage.removeItem(eventStorageKey(storageKeys.seasonDerivedEquations));
+  localStorage.removeItem(eventStorageKey(storageKeys.seasonFilters));
+  localStorage.setItem(eventStorageKey(storageKeys.eventWorkspace), JSON.stringify(state.eventWorkspace));
 }
 
 function clearAppStorage() {
@@ -1171,6 +2761,24 @@ function clearAppStorage() {
     if (key && key.startsWith("frc-scouting-")) keysToRemove.push(key);
   }
   keysToRemove.forEach((key) => localStorage.removeItem(key));
+  Promise.resolve(clearAllPersistedScoutingSubmissions()).catch((error) => {
+    console.error("Unable to clear persisted scouting submissions.", error);
+  });
+}
+
+function clearCurrentEventScoutingData() {
+  const eventKey = state.activeEventKey;
+  setScoutingSubmissions([], currentEvent());
+  state.scoutingReviewOverrides = [];
+  state.importResult = null;
+  localStorage.removeItem(eventStorageKey(storageKeys.scoutingSubmissions, eventKey));
+  localStorage.removeItem(eventStorageKey(storageKeys.scoutingReviewOverrides, eventKey));
+  Promise.resolve(clearPersistedScoutingSubmissions(eventKey)).catch((error) => {
+    console.error("Unable to clear persisted scouting submissions for event.", eventKey, error);
+  });
+  pushActivity(`Cleared saved scouting data for ${eventKey}.`);
+  saveState();
+  render();
 }
 
 function readStoredScoutingSubmissions(eventKey, eventModel = currentEvent()) {
@@ -1182,7 +2790,9 @@ function readStoredScoutingSubmissions(eventKey, eventModel = currentEvent()) {
 
   const matchingLegacy = legacy.filter((submission) => submission?.eventKey === eventModel.key);
   if (matchingLegacy.length) {
-    localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions, eventKey), JSON.stringify(matchingLegacy));
+    try {
+      localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions, eventKey), JSON.stringify(matchingLegacy));
+    } catch {}
     return matchingLegacy;
   }
 
@@ -1193,33 +2803,167 @@ function readStoredScoutingSubmissions(eventKey, eventModel = currentEvent()) {
     ...submission,
     eventKey: eventModel.key,
   }));
-  localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions, eventKey), JSON.stringify(migrated));
+  try {
+    localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions, eventKey), JSON.stringify(migrated));
+  } catch {}
   return migrated;
 }
 
-function registerSeasonScoutingProfile(seasonKey, profile) {
-  const normalized = normalizeSeasonProfileCatalog(state.seasonProfileCatalog);
-  const key = String(seasonKey);
+function setScoutingSubmissions(values, eventModel = currentEvent()) {
+  state.scoutingSubmissions = normalizeScoutingSubmissions(values, eventModel);
+  scoutingSubmissionRevision += 1;
+}
+
+function persistScoutingSubmissions(eventKey = state.activeEventKey, submissions = state.scoutingSubmissions) {
+  const resolvedEventKey = resolveEventKey(eventKey);
+  const snapshot = JSON.parse(JSON.stringify(Array.isArray(submissions) ? submissions : []));
+  const writeOperation = snapshot.length
+    ? Promise.resolve(writePersistedScoutingSubmissions(resolvedEventKey, snapshot))
+    : Promise.resolve(clearPersistedScoutingSubmissions(resolvedEventKey));
+  writeOperation
+    .then((saved) => {
+      if (!saved) {
+        try {
+          localStorage.setItem(eventStorageKey(storageKeys.scoutingSubmissions, resolvedEventKey), JSON.stringify(snapshot));
+        } catch (error) {
+          console.error("Unable to fall back to localStorage for scouting submissions.", resolvedEventKey, error);
+        }
+        return;
+      }
+      localStorage.removeItem(eventStorageKey(storageKeys.scoutingSubmissions, resolvedEventKey));
+    })
+    .catch((error) => {
+      console.error("Unable to persist scouting submissions.", resolvedEventKey, error);
+    });
+}
+
+function loadPersistedScoutingSubmissions(eventKey = state.activeEventKey, options = {}) {
+  const resolvedEventKey = resolveEventKey(eventKey);
+  const loadSequence = ++scoutingSubmissionLoadSequence;
+  const expectedRevision = scoutingSubmissionRevision;
+  const startedAt = perfNow();
+  return Promise.resolve(readPersistedScoutingSubmissions(resolvedEventKey))
+    .then((persisted) => {
+      const readFinishedAt = perfNow();
+      if (!Array.isArray(persisted)) return false;
+      if (loadSequence !== scoutingSubmissionLoadSequence) return false;
+      if (state.activeEventKey !== resolvedEventKey) return false;
+      if (scoutingSubmissionRevision !== expectedRevision) return false;
+      setScoutingSubmissions(persisted, currentEvent());
+      backfillScoutingProfilesFromSubmissions(currentEvent());
+      let renderDurationMs = 0;
+      if (options.render !== false) {
+        const renderStartedAt = perfNow();
+        renderSafely();
+        renderDurationMs = Math.round((perfNow() - renderStartedAt) * 100) / 100;
+      }
+      recordScoutingPerf("persistedSubmissions.restore", startedAt, {
+        eventKey: resolvedEventKey,
+        rows: persisted.length,
+        readDurationMs: Math.round((readFinishedAt - startedAt) * 100) / 100,
+        renderDurationMs,
+      });
+      return true;
+    })
+    .catch((error) => {
+      console.error("Unable to restore scouting submissions.", resolvedEventKey, error);
+      recordScoutingPerf("persistedSubmissions.restore.error", startedAt, {
+        eventKey: resolvedEventKey,
+        error: error?.message || String(error || ""),
+      });
+      return false;
+    });
+}
+
+function eventScopedProfiles(eventModel = currentEvent()) {
+  const eventKey = normalizeText(eventModel?.key);
+  return eventKey ? (state.scoutingProfileCatalog?.[eventKey] || []) : [];
+}
+
+function preferredScoutingProfileIdForEvent(eventModel = currentEvent()) {
+  const eventKey = normalizeText(eventModel?.key);
+  const activeEventKey = normalizeText(state?.activeEventKey);
+  if (eventKey && activeEventKey && eventKey === activeEventKey) {
+    const workspaceProfileId = eventWorkspaceProfileId(currentEventWorkspace());
+    if (workspaceProfileId) return workspaceProfileId;
+  }
+  return normalizeText(eventModel?.sheet?.recommendedProfileId) || defaultScoutingProfileId;
+}
+
+function defaultScoutingProfileForEvent(eventModel = currentEvent()) {
+  const profileId = preferredScoutingProfileIdForEvent(eventModel);
+  const normalizedProfiles = normalizeScoutingProfileCatalog({
+    seed: [{
+      id: profileId,
+      label: knownImportProfileLabels[profileId] || profileId,
+      fields: Array.isArray(eventModel?.formulaFieldDefinitions) ? eventModel.formulaFieldDefinitions : [],
+      fieldMigrations: [],
+      equations: [],
+    }],
+  });
+  return normalizedProfiles.seed?.[0] || null;
+}
+
+function ensureEventScopedScoutingProfiles(eventModel = currentEvent()) {
+  const eventKey = normalizeText(eventModel?.key);
+  if (!eventKey) return [];
+  const existing = eventScopedProfiles(eventModel);
+  if (existing.length) return existing;
+  const materializedCatalog = normalizeScoutingProfileCatalog(
+    materializeEventScopedProfileCatalog(state.scoutingProfileCatalog, [eventModel]),
+  );
+  const materializedProfiles = materializedCatalog?.[eventKey] || [];
+  if (materializedProfiles.length) {
+    state.scoutingProfileCatalog = materializedCatalog;
+    return materializedProfiles;
+  }
+  const defaultProfile = defaultScoutingProfileForEvent(eventModel);
+  if (!defaultProfile) return [];
+  state.scoutingProfileCatalog = normalizeScoutingProfileCatalog({
+    ...state.scoutingProfileCatalog,
+    [eventKey]: [defaultProfile],
+  });
+  return eventScopedProfiles(eventModel);
+}
+
+function scoutingProfilesForEvent(eventModel = currentEvent()) {
+  return ensureEventScopedScoutingProfiles(eventModel);
+}
+
+function registerScoutingProfile(eventModel, profile) {
+  const resolvedEventModel = eventModel || currentEvent();
+  const eventKey = normalizeText(resolvedEventModel?.key);
+  if (!eventKey) return;
+  ensureEventScopedScoutingProfiles(resolvedEventModel);
+  const normalized = normalizeScoutingProfileCatalog(state.scoutingProfileCatalog);
+  const key = eventKey;
   const existing = normalized[key] || [];
-  normalized[key] = normalizeSeasonProfileCatalog({
+  const profileId = String(profile?.id || "").trim();
+  const existingProfile = existing.find((entry) => entry.id === profileId) || null;
+  normalized[key] = normalizeScoutingProfileCatalog({
     [key]: [
-      ...existing,
       {
-        id: String(profile?.id || "").trim(),
-        label: String(profile?.label || knownImportProfileLabels[String(profile?.id || "").trim()] || profile?.id || "").trim(),
+        id: profileId,
+        label: scoutingProfileLabel(profileId, profile?.label || existingProfile?.label || profile?.id || ""),
+        fields: Array.isArray(profile?.fields) ? profile.fields : (existingProfile?.fields || []),
+        equations: Array.isArray(profile?.equations) ? profile.equations : (existingProfile?.equations || []),
+        fieldMigrations: Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords)
+          ? (profile.fieldMigrations || profile.fieldMigrationRecords)
+          : (existingProfile?.fieldMigrations || []),
+        ...(normalizeText(profile?.versionKey || profile?.versionId)
+          ? { versionKey: normalizeText(profile?.versionKey || profile?.versionId) }
+          : {}),
       },
+      ...existing.filter((entry) => entry.id !== profileId),
     ],
   })[key] || [];
-  state.seasonProfileCatalog = normalized;
+  state.scoutingProfileCatalog = normalized;
 }
 
-function seasonScoutingProfiles(seasonKey = String(currentEvent().season)) {
-  return state.seasonProfileCatalog?.[String(seasonKey)] || [];
-}
-
-function backfillSeasonProfilesFromSubmissions(eventModel = currentEvent()) {
-  const seasonKey = String(eventModel.season);
-  const profiles = seasonScoutingProfiles(seasonKey);
+function backfillScoutingProfilesFromSubmissions(eventModel = currentEvent()) {
+  const eventKey = normalizeText(eventModel?.key);
+  if (!eventKey) return;
+  const profiles = ensureEventScopedScoutingProfiles(eventModel);
   if (profiles.length) return;
   const discovered = new Map();
   state.scoutingSubmissions.forEach((submission) => {
@@ -1228,45 +2972,31 @@ function backfillSeasonProfilesFromSubmissions(eventModel = currentEvent()) {
     discovered.set(profileId, {
       id: profileId,
       label: knownImportProfileLabels[profileId] || profileId,
+      fields: parseScoutingSchemaSignatureFields(normalizeText(submission?.scoutingSchemaSignature)),
+      fieldMigrations: [],
+      equations: [],
     });
   });
   if (!discovered.size) return;
-  state.seasonProfileCatalog = normalizeSeasonProfileCatalog({
-    ...state.seasonProfileCatalog,
-    [seasonKey]: [...discovered.values()],
+  state.scoutingProfileCatalog = normalizeScoutingProfileCatalog({
+    ...state.scoutingProfileCatalog,
+    [eventKey]: [...discovered.values()],
   });
-}
-
-function rebuildSampleBackedScoutingSubmissions(eventModel = currentEvent()) {
-  const sampleCsvText = eventModel.sheet?.sampleCsvText;
-  if (!sampleCsvText) return null;
-  const preview = previewScoutingImport({
-    csvText: sharedAdaptEventSheetCsv(eventModel, sampleCsvText),
-    eventModel,
-    activeEventKey: eventModel.key,
-    existingSubmissions: [],
-    templateProfileId: eventModel.sheet?.recommendedProfileId || "",
-  });
-  if (!preview?.ok || !preview.summary) return null;
-  const committed = commitScoutingImport({
-    preview,
-    existingSubmissions: [],
-    existingActivity: state.activityLog,
-    replaceExisting: true,
-  });
-  return {
-    submissions: stampScoutingSubmissionMetadata(committed.submissions, eventModel, {
-      scoutingImportSource: "event-sheet-sample",
-    }),
-    activity: normalizeActivityLog(committed.activity),
-  };
 }
 
 function hydrateEventState(eventKey) {
+  const startedAt = perfNow();
   const resolvedEventKey = resolveEventKey(eventKey);
   state.activeEventKey = resolvedEventKey;
+  state.adminEventCodeDraft = resolvedEventKey;
+  state.adminRecentEventsOpen = false;
   globalThis.__scoutingActiveEventKey = state.activeEventKey;
   const eventModel = currentEvent();
+  ensureEventScopedScoutingProfiles(eventModel);
+  state.eventWorkspace = createEventWorkspace(eventModel, readStoredJson(storageKeys.eventWorkspace, null, resolvedEventKey));
+  const seededWorkspace = seedWorkspaceExternalSourceFingerprints(state.eventWorkspace, eventModel);
+  const repairedWorkspaceFingerprints = seededWorkspace !== state.eventWorkspace;
+  state.eventWorkspace = seededWorkspace;
   state.activeView = normalizeView(readStoredItem(storageKeys.activeView, resolvedEventKey));
   state.metric = normalizeAnalysisSelection(readStoredItem(storageKeys.metric, resolvedEventKey), eventModel);
   state.activeAnalysisFilterId = normalizeAnalysisFilterSelection(readStoredItem(storageKeys.analysisFilter, resolvedEventKey), eventModel);
@@ -1283,23 +3013,37 @@ function hydrateEventState(eventKey) {
   state.picklistColumns = normalizePicklistColumns(readStoredJson(storageKeys.picklistColumns, Array(picklistColumnCount).fill(""), resolvedEventKey));
   state.allianceBoard = normalizeBoard(readStoredJson(storageKeys.allianceBoard, defaultAllianceBoard, resolvedEventKey), eventModel);
   state.picklistCompareTeams = normalizePicklistCompareTeams(readStoredJson(storageKeys.picklistCompareTeams, [], resolvedEventKey), eventModel);
-  state.scoutingSubmissions = normalizeScoutingSubmissions(readStoredScoutingSubmissions(resolvedEventKey, eventModel), eventModel);
-  backfillSeasonProfilesFromSubmissions(eventModel);
+  setScoutingSubmissions(readStoredScoutingSubmissions(resolvedEventKey, eventModel), eventModel);
+  state.scoutingReviewOverrides = normalizeScoutingReviewOverrides(readStoredJson(storageKeys.scoutingReviewOverrides, [], resolvedEventKey), eventModel);
+  backfillScoutingProfilesFromSubmissions(eventModel);
   state.activityLog = normalizeActivityLog(readStoredJson(storageKeys.activityLog, [], resolvedEventKey));
-  state.importSourceUrl = readStoredItem(storageKeys.importSourceUrl, resolvedEventKey) || eventModel.sheet?.url || "";
+  state.importSourceUrl = currentScoutingSourceInputValue(
+    state.eventWorkspace,
+    eventModel,
+    readStoredItem(storageKeys.importSourceUrl, resolvedEventKey),
+  );
   let repairedScoutingSubmissions = false;
-  if (state.scoutingSubmissions.length && shouldRefreshSampleBackedScoutingSubmissions(state.scoutingSubmissions, eventModel)) {
-    const refreshed = rebuildSampleBackedScoutingSubmissions(eventModel);
-    if (refreshed) {
-      state.scoutingSubmissions = normalizeScoutingSubmissions(refreshed.submissions, eventModel);
-      state.activityLog = refreshed.activity;
-      repairedScoutingSubmissions = true;
-    }
+  const refreshedWorkspaceState = rebuildSampleBackedEventWorkspaceState({
+    workspace: state.eventWorkspace,
+    eventModel,
+    submissions: state.scoutingSubmissions,
+    activity: state.activityLog,
+    shouldRefreshSampleBackedSubmissions: shouldRefreshSampleBackedScoutingSubmissions,
+    adaptEventSheetCsv: sharedAdaptEventSheetCsv,
+    translateEventSheetToCanonical: sharedTranslateEventSheetToCanonical,
+    previewScoutingImport,
+    previewScoutingJsonImport,
+    commitScoutingImport,
+    stampScoutingSubmissionMetadata,
+  });
+  if (refreshedWorkspaceState) {
+    setScoutingSubmissions(refreshedWorkspaceState.submissions, eventModel);
+    state.activityLog = normalizeActivityLog(refreshedWorkspaceState.activity);
+    repairedScoutingSubmissions = true;
   }
   state.scoutingWindow = readStoredItem(storageKeys.scoutingWindow, resolvedEventKey) || "all";
   state.recentMatchCount = Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount, resolvedEventKey) || state.recentMatchCount || 12));
   ensureActiveDerivedEquation(eventModel);
-  ensureActiveSeasonFilter(eventModel);
   if (!state.loadedSources.length && state.picklists.length) state.loadedSources = [`picklist:${state.picklists[0].id}`];
   state.selectedTeam = teamByNumber(state.selectedTeam)?.number || eventModel.teams[0].number;
   state.selectedMatch = currentMatches().some((match) => match.number === state.selectedMatch) ? state.selectedMatch : eventModel.matches[0].number;
@@ -1308,7 +3052,18 @@ function hydrateEventState(eventKey) {
   state.picklistSelectedTeam = null;
   state.activeDerivedPreviewMetricId = "";
   state.importResult = null;
-  if (repairedScoutingSubmissions) saveState();
+  state.eventLookupPending = false;
+  state.eventLookupResult = null;
+  state.recentEventKeys = normalizeRecentEventKeys(state.recentEventKeys, resolvedEventKey);
+  if (repairedScoutingSubmissions || repairedWorkspaceFingerprints) saveState();
+  if (repairedScoutingSubmissions) persistScoutingSubmissions(resolvedEventKey, state.scoutingSubmissions);
+  loadPersistedScoutingSubmissions(resolvedEventKey, { render: true });
+  recordScoutingPerf("hydrateEventState.total", startedAt, {
+    eventKey: resolvedEventKey,
+    rows: state.scoutingSubmissions.length,
+    repairedScoutingSubmissions,
+    repairedWorkspaceFingerprints,
+  });
 }
 
 function resetTransientEventState() {
@@ -1322,6 +3077,7 @@ function resetTransientEventState() {
 
 function switchActiveEvent(eventKey, options = {}) {
   if (!eventKey) return false;
+  const startedAt = perfNow();
   const resolvedEventKey = resolveEventKey(eventKey);
   const previousEventKey = state.activeEventKey;
   const previousImportCsvText = state.importCsvText;
@@ -1330,11 +3086,14 @@ function switchActiveEvent(eventKey, options = {}) {
   const previousViewHistory = Array.isArray(state.viewHistory) ? [...state.viewHistory] : [];
   try {
     hydrateEventState(resolvedEventKey);
+    recordRecentEvent(resolvedEventKey);
     resetTransientEventState();
     if (options.activeView) state.activeView = normalizeView(options.activeView);
     if (!options.preserveImportDraft) {
       state.importCsvText = "";
+      state.importSchemaJsonText = "";
       state.importSelectedProfileId = "";
+      state.importDraftSource = "";
     }
     saveState();
     if (options.rerunImportPreview) {
@@ -1343,6 +3102,12 @@ function switchActiveEvent(eventKey, options = {}) {
       return true;
     }
     renderSafely();
+    maybeAutoloadScoutingAttachment();
+    recordScoutingPerf("switchActiveEvent.total", startedAt, {
+      fromEventKey: previousEventKey,
+      toEventKey: resolvedEventKey,
+      activeView: state.activeView,
+    });
     return true;
   } catch (error) {
     console.error("Failed to switch active event", resolvedEventKey, error);
@@ -1362,9 +3127,52 @@ function switchActiveEvent(eventKey, options = {}) {
   }
 }
 
+async function loadArbitraryEventCode(eventCode, options = {}) {
+  const normalizedEventCode = normalizeExternalEventCode(eventCode);
+  if (!normalizedEventCode) {
+    state.eventLookupResult = { kind: "error", message: "Enter a valid event code." };
+    render();
+    return false;
+  }
+  state.eventLookupPending = true;
+  state.eventLookupResult = { kind: "info", message: `Loading ${normalizedEventCode} from external providers...` };
+  render();
+  try {
+    const loadResult = await loadExternalEventByCode(normalizedEventCode, {
+      tbaAuthKey: state.tbaAuthKey,
+      statboticsBaseUrl: state.statboticsBaseUrl,
+    });
+    const registeredEvent = registerEventModel(loadResult.eventModel);
+    switchActiveEvent(registeredEvent.key, {
+      activeView: options.activeView || "admin",
+      preserveImportDraft: true,
+    });
+    applyLoadedExternalSourceState(loadResult, { render: false });
+    state.eventLookupResult = {
+      kind: loadResult.warnings?.length ? "warn" : "success",
+      message: loadResult.warnings?.length
+        ? `${registeredEvent.key} loaded with warnings. ${loadResult.warnings.join(" ")}`
+        : `${registeredEvent.key} loaded from external providers.`,
+    };
+    saveState();
+    render();
+    return true;
+  } catch (error) {
+    state.eventLookupResult = {
+      kind: "error",
+      message: error?.message || "Unable to load that event code right now.",
+    };
+    render();
+    return false;
+  } finally {
+    state.eventLookupPending = false;
+    render();
+  }
+}
+
 function createDerivedMetricDraft(eventModel = currentEvent()) {
   return {
-    scopeType: "season",
+    scopeType: "profile",
     presetId: "blank",
     id: "",
     idManuallyEdited: false,
@@ -1388,77 +3196,159 @@ function createDerivedMetricDraft(eventModel = currentEvent()) {
 function normalizeSeasonDerivedEquationCatalog(catalog) {
   const normalized = { seasons: {} };
   Object.entries(catalog?.seasons || {}).forEach(([seasonKey, definitions]) => {
-    const seen = new Set();
-    const nextDefinitions = [];
-    (definitions || []).forEach((definition, index) => {
-      const id = String(definition?.id || "").trim();
-      const name = String(definition?.name || "").trim();
-      const formula = String(definition?.formula || "");
-      if (!id || !name || seen.has(id)) return;
-      seen.add(id);
-      nextDefinitions.push({
-        id,
-        name,
-        formula: canonicalizeStoredFormula(formula, "0"),
-        unit: String(definition?.unit || "pts").trim() || "pts",
-        description: String(definition?.description || "").trim(),
-        sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
-      });
-    });
-    normalized.seasons[String(seasonKey)] = nextDefinitions;
+    normalized.seasons[String(seasonKey)] = normalizeEquationDefinitions(definitions);
   });
   return normalized;
 }
 
-function mergeSeededSeasonCatalog(storedCatalog, seededCatalog) {
+function normalizeEquationDefinitions(definitions) {
+  const seen = new Set();
+  const nextDefinitions = [];
+  (definitions || []).forEach((definition, index) => {
+    const id = String(definition?.id || "").trim();
+    const name = String(definition?.name || "").trim();
+    const formula = String(definition?.formula || "");
+    const usage = normalizeText(definition?.usage).toLowerCase() === "predicate" ? "predicate" : "metric";
+    if (!id || !name || seen.has(id)) return;
+    seen.add(id);
+    nextDefinitions.push({
+      id,
+      name,
+      formula: canonicalizeStoredFormula(formula, "0"),
+      unit: String(definition?.unit || (usage === "predicate" ? "bool" : "pts")).trim() || (usage === "predicate" ? "bool" : "pts"),
+      description: String(definition?.description || "").trim(),
+      sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
+      usage,
+    });
+  });
+  return nextDefinitions;
+}
+
+function normalizeFilterDefinitions(definitions) {
+  const seen = new Set();
+  const nextDefinitions = [];
+  (definitions || []).forEach((definition, index) => {
+    const id = String(definition?.id || "").trim();
+    const name = String(definition?.name || "").trim();
+    if (!id || !name || seen.has(id)) return;
+    seen.add(id);
+    nextDefinitions.push({
+      id,
+      name,
+      formula: canonicalizeStoredFormula(String(definition?.formula || "").trim() || "0 > 1", "0 > 1"),
+      description: String(definition?.description || "").trim(),
+      sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
+    });
+  });
+  return nextDefinitions;
+}
+
+function predicateEquationDefinitionsFromFilters(definitions) {
+  return normalizeFilterDefinitions(definitions).map((definition) => ({
+    ...definition,
+    unit: "bool",
+    usage: "predicate",
+  }));
+}
+
+function filterDefinitionsFromPredicateEquations(definitions) {
+  return normalizeFilterDefinitions(
+    (definitions || [])
+      .filter((definition) => isPredicateEquationDefinition(definition))
+      .map((definition) => ({
+        id: definition.id,
+        name: definition.name,
+        formula: definition.formula,
+        description: definition.description,
+        sourceOrder: definition.sourceOrder,
+      })),
+  );
+}
+
+function normalizeScoutingProfileDefinition(profile) {
+  const id = normalizeText(profile?.id || profile?.profileId);
+  if (!id) return null;
+  const fields = Array.isArray(profile?.fields)
+    ? profile.fields
+        .map((fieldDefinition) => normalizeScoutingProfileField(fieldDefinition))
+        .filter(Boolean)
+    : [];
+  const fieldMigrations = normalizeScoutingProfileMigrationRecords(profile?.fieldMigrations || profile?.fieldMigrationRecords);
+  const equations = normalizeEquationDefinitions([
+    ...(Array.isArray(profile?.equations) ? profile.equations : []),
+    ...predicateEquationDefinitionsFromFilters(profile?.filters),
+  ]);
+  const versionKey = normalizeText(profile?.versionKey || profile?.versionId)
+    || buildNormalizedScoutingProfileVersionKey({
+      id,
+      fields,
+      equations,
+      fieldMigrations,
+    });
   return {
-    seasons: {
-      ...((storedCatalog && storedCatalog.seasons) || {}),
-      ...((seededCatalog && seededCatalog.seasons) || {}),
-    },
+    id,
+    label: scoutingProfileLabel(id, profile?.label || profile?.name || id),
+    versionKey,
+    fieldMigrations,
+    fields,
+    equations,
   };
 }
 
-function normalizeSeasonProfileCatalog(catalog) {
+function normalizeScoutingProfileCatalog(catalog) {
   const normalized = {};
-  Object.entries(catalog || {}).forEach(([seasonKey, profiles]) => {
+  Object.entries(catalog || {}).forEach(([catalogKey, profiles]) => {
     const seen = new Set();
     const nextProfiles = [];
     (profiles || []).forEach((profile) => {
-      const id = String(profile?.id || "").trim();
-      if (!id || seen.has(id)) return;
-      seen.add(id);
-      nextProfiles.push({
-        id,
-        label: String(profile?.label || knownImportProfileLabels[id] || id).trim() || id,
-      });
+      const normalizedProfile = normalizeScoutingProfileDefinition(profile);
+      if (!normalizedProfile || seen.has(normalizedProfile.id)) return;
+      seen.add(normalizedProfile.id);
+      nextProfiles.push(normalizedProfile);
     });
-    normalized[String(seasonKey)] = nextProfiles.sort((left, right) => left.label.localeCompare(right.label));
+    normalized[String(catalogKey)] = nextProfiles.sort((left, right) => left.label.localeCompare(right.label));
   });
   return normalized;
 }
 
-function normalizeSeasonFilterCatalog(catalog) {
+function normalizeLegacyFilterCatalog(catalog) {
   const normalized = { seasons: {} };
   Object.entries(catalog?.seasons || {}).forEach(([seasonKey, definitions]) => {
-    const seen = new Set();
-    const nextDefinitions = [];
-    (definitions || []).forEach((definition, index) => {
-      const id = String(definition?.id || "").trim();
-      const name = String(definition?.name || "").trim();
-      if (!id || !name || seen.has(id)) return;
-      seen.add(id);
-      nextDefinitions.push({
-        id,
-        name,
-        formula: canonicalizeStoredFormula(String(definition?.formula || "").trim() || "0 > 1", "0 > 1"),
-        description: String(definition?.description || "").trim(),
-        sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
-      });
-    });
-    normalized.seasons[String(seasonKey)] = nextDefinitions;
+    normalized.seasons[String(seasonKey)] = normalizeFilterDefinitions(definitions);
   });
   return normalized;
+}
+
+function migrateLegacyScopedConfigIntoProfiles(profileCatalog, legacyEquationCatalog, legacyFilterCatalog) {
+  const normalizedProfiles = normalizeScoutingProfileCatalog(profileCatalog);
+  const seasonKeys = new Set([
+    ...Object.keys(normalizedProfiles || {}),
+    ...Object.keys(legacyEquationCatalog?.seasons || {}),
+    ...Object.keys(legacyFilterCatalog?.seasons || {}),
+  ]);
+  const migrated = {};
+  seasonKeys.forEach((seasonKey) => {
+    const existingProfiles = normalizedProfiles?.[seasonKey] || [];
+    const baseProfiles = existingProfiles.length
+      ? existingProfiles
+      : [{
+        id: defaultScoutingProfileId,
+        label: knownImportProfileLabels[defaultScoutingProfileId] || defaultScoutingProfileId,
+        fields: [],
+        equations: [],
+      }];
+    const legacyEquations = normalizeEquationDefinitions(legacyEquationCatalog?.seasons?.[seasonKey] || []);
+    const legacyPredicateEquations = predicateEquationDefinitionsFromFilters(legacyFilterCatalog?.seasons?.[seasonKey] || []);
+    migrated[seasonKey] = baseProfiles.map((profile) => ({
+      ...profile,
+      equations: normalizeEquationDefinitions(
+        profile.equations?.length
+          ? [...profile.equations, ...legacyPredicateEquations]
+          : [...legacyEquations, ...legacyPredicateEquations],
+      ),
+    }));
+  });
+  return normalizeScoutingProfileCatalog(migrated);
 }
 
 function knownScouterFieldIds() {
@@ -1468,7 +3358,7 @@ function knownScouterFieldIds() {
 }
 
 function reservedMetricIds() {
-  return new Set(globalEventCatalog.flatMap((eventModel) => (eventModel.metrics || []).map((metric) => metric.id)));
+  return new Set(globalEventCatalog.flatMap((eventModel) => runtimeMetricsForEventModel(eventModel).map((metric) => metric.id)));
 }
 
 function normalizeView(view) {
@@ -1490,18 +3380,18 @@ function normalizeBoard(board, eventModel = currentEvent()) {
 }
 
 function normalizeAnalysisSelection(value, eventModel = currentEvent()) {
-  if (typeof value !== "string" || !value) return eventModel.defaultMetricId;
-  return currentMetrics().some((metric) => metric.id === value) ? value : eventModel.defaultMetricId;
+  if (typeof value !== "string" || !value) return "";
+  return runtimeMetricsForEventModel(eventModel).some((metric) => metric.id === value) ? value : "";
 }
 
 function normalizeAnalysisFilterSelection(value, eventModel = currentEvent()) {
   if (typeof value !== "string" || !value) return "";
-  return currentSeasonFilterList(eventModel).some((definition) => definition.id === value) ? value : "";
+  return currentProfileFilterList(eventModel).some((definition) => definition.id === value) ? value : "";
 }
 
 function normalizeTeamDetailMetric(value, eventModel = currentEvent()) {
-  if (typeof value !== "string" || !value) return eventModel.defaultTeamDetailMetricId;
-  return eventModel.metrics.some((metric) => metric.id === value) ? value : eventModel.defaultTeamDetailMetricId;
+  if (typeof value !== "string" || !value) return "";
+  return runtimeMetricsForEventModel(eventModel).some((metric) => metric.id === value) ? value : "";
 }
 
 function pickedTeams() {
@@ -1612,7 +3502,7 @@ function normalizeSourceEntry(entry) {
     return currentRankableMetrics().some((metric) => metric.id === metricId) ? `metric:${metricId}` : "";
   }
   if (entry.startsWith("sort:")) {
-    return entry === "sort:sort-epa" ? "metric:source:epa:total" : "";
+    return "";
   }
   if (entry.startsWith("picklist:")) {
     const id = resolvePicklistId(entry.slice(9));
@@ -1650,43 +3540,46 @@ function updateSortEquation(id, updater) {
   render();
 }
 
+function normalizeLegacyMetricId(id) {
+  const normalizedId = String(id || "");
+  if (normalizedId === "opr" || normalizedId === "source:opr:total") return "source:tba:opr.total";
+  if (normalizedId.startsWith("source:epa:")) return `source:statbotics:${normalizedId.slice("source:epa:".length)}`;
+  return normalizedId;
+}
+
 function termsFromLegacyWeights(weights = {}) {
-  const mappings = {
-    scouterTotal: { metricId: "source:epa:total" },
-    "source:scouter:total": { metricId: "source:epa:total" },
-    epa: { metricId: "source:epa:total" },
-    "source:epa:total": { metricId: "source:epa:total" },
-    opr: { metricId: "source:opr:total" },
-    "source:opr:total": { metricId: "source:opr:total" },
-    pridge: { metricId: "source:pridge:total" },
-    "source:pridge:total": { metricId: "source:pridge:total" },
-    defenseImpact: { metricId: "derived:defenseImpact" },
-    "derived:defenseImpact": { metricId: "derived:defenseImpact" },
-    consistency: { metricId: "derived:consistency" },
-    "derived:consistency": { metricId: "derived:consistency" },
-  };
   const terms = Object.entries(weights)
     .filter(([, weight]) => Number(weight) !== 0)
-    .map(([id, weight]) => ({ operator: "+", weight: Number(weight), ...(mappings[id] || mappings.epa) }));
-  return terms.length ? terms : defaultCriteriaTerms;
+    .map(([id, weight]) => {
+      const metricId = {
+        pridge: "source:pridge:total",
+        "source:pridge:total": "source:pridge:total",
+      }[id] || normalizeLegacyMetricId(id);
+      return metricId ? { operator: "+", weight: Number(weight), metricId } : null;
+    })
+    .filter(Boolean);
+  return terms.length ? terms : defaultCriteriaTerms();
 }
 
 function metricIdFromLegacyTerm(term) {
-  if (typeof term?.metricId === "string" && term.metricId) return term.metricId;
-  if (term?.source && term?.component) return `${term.source === "derived" ? "derived" : "source"}:${term.source}:${term.component}`.replace("derived:derived:", "derived:");
-  return currentEvent().defaultMetricId;
+  if (typeof term?.metricId === "string" && term.metricId) return normalizeLegacyMetricId(term.metricId);
+  if (term?.source && term?.component) {
+    const metricId = `${term.source === "derived" ? "derived" : "source"}:${term.source}:${term.component}`.replace("derived:derived:", "derived:");
+    return normalizeLegacyMetricId(metricId);
+  }
+  return "";
 }
 
 function normalizeCriteriaTerms(terms) {
-  const normalized = (Array.isArray(terms) && terms.length ? terms : defaultCriteriaTerms).slice(0, 5).map((term, index) => {
+  const normalized = (Array.isArray(terms) && terms.length ? terms : defaultCriteriaTerms()).slice(0, 5).map((term, index) => {
     const metric = metricById(metricIdFromLegacyTerm(term));
     return {
       operator: index === 0 ? "+" : term.operator === "-" ? "-" : "+",
       weight: Number.isFinite(Number(term.weight)) ? Number(term.weight) : 1,
-      metricId: metric.id,
+      metricId: metric?.id || "",
     };
   });
-  return normalized.length ? normalized : defaultCriteriaTerms;
+  return normalized.length ? normalized : defaultCriteriaTerms();
 }
 
 function componentValue(team, term) {
@@ -1743,17 +3636,30 @@ function quantile(values, q) {
 
 function metricById(id) {
   const metrics = currentMetrics();
-  return metrics.find((metric) => metric.id === id) || metrics.find((metric) => metric.id === currentEvent().defaultMetricId) || metrics[0];
+  const normalizedId = normalizeLegacyMetricId(id);
+  return metrics.find((metric) => metric.id === normalizedId) || null;
+}
+
+function metricTokenLabel(metric) {
+  if (!metric) return "";
+  if (metric.kind === "source" && metric.sourceId === "tba") return `tba.${metric.componentId}`;
+  if (metric.kind === "source" && metric.sourceId === "statbotics") return `statbotics.${metric.componentId}`;
+  if (metric.kind === "source" && metric.sourceId === "pridge" && metric.componentId === "total") return "pridge.total";
+  return metric.label || metric.id || "";
 }
 
 function canonicalizeRawMetrics(rawMetrics, eventModel = currentEvent()) {
   if (!rawMetrics || typeof rawMetrics !== "object") return {};
   const repairedRawMetrics = repairLegacySubmissionRawMetrics(rawMetrics, eventModel);
   const aliases = new Map();
-  const numericFieldIds = new Set(currentScouterMetricDefinitions(eventModel).map((metricDefinition) => metricDefinition.id));
+  const fieldTypeById = new Map();
   currentFormulaFieldDefinitions(eventModel).forEach((metricDefinition) => {
     const normalizedId = normalizeImportToken(metricDefinition.id);
     const normalizedLabel = normalizeImportToken(metricDefinition.label || metricDefinition.id);
+    fieldTypeById.set(
+      metricDefinition.id,
+      normalizeText(metricDefinition.type).toLowerCase() || (normalizeText(metricDefinition.unit).toLowerCase() === "text" ? "string" : "number"),
+    );
     [
       metricDefinition.id,
       normalizedId,
@@ -1770,9 +3676,9 @@ function canonicalizeRawMetrics(rawMetrics, eventModel = currentEvent()) {
   });
 
   return Object.entries(repairedRawMetrics).reduce((next, [key, value]) => {
-    const componentId = aliases.get(normalizeImportToken(key));
+    const componentId = aliases.get(normalizeImportToken(key)) || normalizeDynamicMetricFieldId(key);
     if (!componentId) return next;
-    if (numericFieldIds.has(componentId)) {
+    if ((fieldTypeById.get(componentId) || "") === "number") {
       const numeric = Number(value);
       next[componentId] = Number.isFinite(numeric) ? numeric : null;
       return next;
@@ -1786,6 +3692,26 @@ function canonicalizeRawMetrics(rawMetrics, eventModel = currentEvent()) {
   }, {});
 }
 
+function normalizeDynamicMetricFieldId(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) return trimmed;
+  const tokens = trimmed
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/%/g, " pct ")
+    .replace(/#/g, " number ")
+    .replace(/&/g, " and ")
+    .split(/[^A-Za-z0-9]+/)
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean);
+  if (!tokens.length) return "";
+  const identifier = tokens
+    .map((token, index) => (index === 0 ? token : `${token.charAt(0).toUpperCase()}${token.slice(1)}`))
+    .join("");
+  if (/^[a-z]/.test(identifier)) return identifier;
+  return `field${identifier.charAt(0).toUpperCase()}${identifier.slice(1)}`;
+}
+
 function normalizeScoutingSubmissions(values, eventModel = currentEvent()) {
   if (!Array.isArray(values)) return [];
   return values
@@ -1797,6 +3723,21 @@ function normalizeScoutingSubmissions(values, eventModel = currentEvent()) {
       confidenceReasons: Array.isArray(submission.confidenceReasons) ? submission.confidenceReasons : [],
       validity: submission.validity || "valid",
       confidenceTier: submission.confidenceTier || "high",
+    }));
+}
+
+function normalizeScoutingReviewOverrides(values, eventModel = currentEvent()) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .filter((override) => override && normalizeText(override.submissionId))
+    .map((override) => ({
+      ...override,
+      id: normalizeText(override.id) || createId("reviewOverride"),
+      submissionId: normalizeText(override.submissionId),
+      eventKey: normalizeText(override.eventKey) || eventModel.key,
+      action: normalizeText(override.action),
+      timestamp: normalizeText(override.timestamp) || new Date(0).toISOString(),
+      clearedAt: normalizeText(override.clearedAt),
     }));
 }
 
@@ -1825,6 +3766,25 @@ function formatTimestamp(value) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function formatTimeOnly(value) {
+  if (!value) return "Pending";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatBadgeLabel(value) {
+  return String(value || "")
+    .trim()
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(" ");
 }
 
 function formatMetricValue(value) {
@@ -1859,7 +3819,7 @@ function uniqueValues(values) {
 }
 
 function duplicateSubmissionKey(submission) {
-  return `${submission.eventKey}:${submission.matchNumber}:${submission.teamNumber}`;
+  return sharedDuplicateSubmissionKey(submission);
 }
 
 function recalculateSubmissionReview(submission) {
@@ -1876,7 +3836,79 @@ function recalculateSubmissionReview(submission) {
   return { ...submission, confidenceReasons: [], validity: "valid", confidenceTier: "high" };
 }
 
+function activeScoutingReviewOverrideMap() {
+  const map = new Map();
+  (state.scoutingReviewOverrides || [])
+    .filter((override) => override?.eventKey === state.activeEventKey && !override?.clearedAt)
+    .forEach((override) => {
+      map.set(override.submissionId, override);
+    });
+  return map;
+}
+
+function applyScoutingReviewOverride(submission, overrideMap = activeScoutingReviewOverrideMap()) {
+  const override = overrideMap.get(submission.id);
+  if (!override) return submission;
+  if (override.action === "exclude") {
+    return {
+      ...submission,
+      validity: "excluded",
+      confidenceTier: "low",
+      reviewOverride: override,
+    };
+  }
+  if (override.action === "keep") {
+    return recalculateSubmissionReview({
+      ...submission,
+      confidenceReasons: (submission.confidenceReasons || []).filter((reason) => reason !== "duplicate_submission"),
+      reviewOverride: override,
+    });
+  }
+  return submission;
+}
+
+function setSubmissionReviewOverride(submissionId, action, activityMessage) {
+  const timestamp = new Date().toISOString();
+  state.scoutingReviewOverrides = normalizeScoutingReviewOverrides(
+    [
+      ...(state.scoutingReviewOverrides || []).map((override) => (
+        override.submissionId === submissionId && override.eventKey === state.activeEventKey && !override.clearedAt
+          ? { ...override, clearedAt: timestamp }
+          : override
+      )),
+      {
+        id: createId("reviewOverride"),
+        submissionId,
+        eventKey: state.activeEventKey,
+        action,
+        timestamp,
+        clearedAt: "",
+      },
+    ],
+    currentEvent(),
+  );
+  if (activityMessage) pushActivity(activityMessage);
+  saveState();
+  render();
+}
+
+function clearSubmissionReviewOverride(submissionId, activityMessage) {
+  const timestamp = new Date().toISOString();
+  state.scoutingReviewOverrides = normalizeScoutingReviewOverrides(
+    (state.scoutingReviewOverrides || []).map((override) => (
+      override.submissionId === submissionId && override.eventKey === state.activeEventKey && !override.clearedAt
+        ? { ...override, clearedAt: timestamp }
+        : override
+    )),
+    currentEvent(),
+  );
+  if (activityMessage) pushActivity(activityMessage);
+  saveState();
+  render();
+}
+
 function submissionNeedsReview(submission) {
+  if (submission.reviewOverride && !submission.reviewOverride.clearedAt) return true;
   const reasons = submission.confidenceReasons || [];
   if (submission.validity === "flagged") return true;
   if (submission.validity === "excluded") return reasons.some((reason) => reason !== "duplicate_submission");
@@ -1894,9 +3926,10 @@ function duplicateGroups() {
     .map(([key, submissions]) => {
       const active = submissions.filter((submission) => submission.validity !== "excluded");
       const hasDuplicateReason = active.some((submission) => (submission.confidenceReasons || []).includes("duplicate_submission"));
-      return { key, submissions, active, hasDuplicateReason };
+      const hasActiveOverride = submissions.some((submission) => submission.reviewOverride && !submission.reviewOverride.clearedAt);
+      return { key, submissions, active, hasDuplicateReason, hasActiveOverride };
     })
-    .filter((group) => group.active.length > 1 && group.hasDuplicateReason)
+    .filter((group) => (group.active.length > 1 && group.hasDuplicateReason) || group.hasActiveOverride)
     .sort((left, right) => {
       const leftSubmission = left.submissions[0];
       const rightSubmission = right.submissions[0];
@@ -1925,69 +3958,56 @@ function pushActivity(message) {
   ]);
 }
 
-function updateSubmissionReview(submissionId, updater, activityMessage) {
-  state.scoutingSubmissions = normalizeScoutingSubmissions(
-    state.scoutingSubmissions.map((submission) => {
-      if (submission.id !== submissionId) return submission;
-      return recalculateSubmissionReview(updater(submission));
-    }),
-    currentEvent(),
-  );
-  if (activityMessage) pushActivity(activityMessage);
-  saveState();
-  render();
-}
-
 function keepSubmission(submissionId) {
-  const submission = state.scoutingSubmissions.find((item) => item.id === submissionId);
+  const submission = currentScoutingSubmissions().find((item) => item.id === submissionId);
   if (!submission) return;
-  updateSubmissionReview(
+  setSubmissionReviewOverride(
     submissionId,
-    (current) => ({
-      ...current,
-      validity: "valid",
-      confidenceReasons: (current.confidenceReasons || []).filter((reason) => reason !== "duplicate_submission"),
-    }),
+    "keep",
     `Admin kept scouting row for Team ${submission.teamNumber} in Q${submission.matchNumber}.`,
   );
 }
 
 function excludeSubmission(submissionId) {
-  const submission = state.scoutingSubmissions.find((item) => item.id === submissionId);
+  const submission = currentScoutingSubmissions().find((item) => item.id === submissionId);
   if (!submission) return;
-  updateSubmissionReview(
+  setSubmissionReviewOverride(
     submissionId,
-    (current) => ({ ...current, validity: "excluded" }),
+    "exclude",
     `Admin excluded scouting row for Team ${submission.teamNumber} in Q${submission.matchNumber}.`,
   );
 }
 
 function resetSubmissionReview(submissionId) {
-  const submission = state.scoutingSubmissions.find((item) => item.id === submissionId);
+  const submission = currentScoutingSubmissions().find((item) => item.id === submissionId);
   if (!submission) return;
-  updateSubmissionReview(
-    submissionId,
-    (current) => ({
-      ...current,
-      validity: "flagged",
-      confidenceReasons: uniqueValues([...(current.confidenceReasons || []).filter((reason) => reason !== "schema_gap"), "duplicate_submission"]),
-    }),
-    `Admin reset duplicate review for Team ${submission.teamNumber} in Q${submission.matchNumber}.`,
-  );
+  clearSubmissionReviewOverride(submissionId, `Admin reset duplicate review for Team ${submission.teamNumber} in Q${submission.matchNumber}.`);
 }
 
 function clearDuplicateGroup(groupKey) {
   const group = duplicateGroups().find((entry) => entry.key === groupKey);
   if (!group) return;
-  state.scoutingSubmissions = normalizeScoutingSubmissions(
-    state.scoutingSubmissions.map((submission) => {
-      if (duplicateSubmissionKey(submission) !== groupKey || submission.validity === "excluded") return submission;
-      return recalculateSubmissionReview({
-        ...submission,
-        validity: "valid",
-        confidenceReasons: (submission.confidenceReasons || []).filter((reason) => reason !== "duplicate_submission"),
-      });
-    }),
+  const timestamp = new Date().toISOString();
+  const activeSubmissionIds = new Set(group.submissions.filter((submission) => submission.validity !== "excluded").map((submission) => submission.id));
+  const nextOverrides = [
+    ...(state.scoutingReviewOverrides || []).map((override) => (
+      activeSubmissionIds.has(override.submissionId) && override.eventKey === state.activeEventKey && !override.clearedAt
+        ? { ...override, clearedAt: timestamp }
+        : override
+    )),
+    ...group.submissions
+      .filter((submission) => submission.validity !== "excluded")
+      .map((submission) => ({
+        id: createId("reviewOverride"),
+        submissionId: submission.id,
+        eventKey: state.activeEventKey,
+        action: "keep",
+        timestamp,
+        clearedAt: "",
+      })),
+  ];
+  state.scoutingReviewOverrides = normalizeScoutingReviewOverrides(
+    nextOverrides,
     currentEvent(),
   );
   const sample = group.submissions[0];
@@ -2087,6 +4107,20 @@ function applyEquationBackedScoutingRollups(baseTeam, overlaidTeam, eventModel =
 
 function overlayTeamWithScouting(baseTeam) {
   if (!buildTeamScoutingOverlay) return baseTeam;
+  const cacheContext = currentOverlayCacheContext();
+  const cacheEntry = overlaidTeamCache.get(baseTeam.number);
+  if (
+    cacheEntry
+    && cacheEntry.eventModel === cacheContext.eventModel
+    && cacheEntry.eventKey === cacheContext.eventKey
+    && cacheEntry.recentMatchCount === cacheContext.recentMatchCount
+    && cacheEntry.profileVersionKey === cacheContext.profileVersionKey
+    && cacheEntry.schemaSignature === cacheContext.schemaSignature
+    && cacheEntry.submissionRef === cacheContext.submissionRef
+    && cacheEntry.reviewOverrideRef === cacheContext.reviewOverrideRef
+  ) {
+    return cacheEntry.value;
+  }
   const overlaidTeam = buildTeamScoutingOverlay(baseTeam, {
     submissions: currentScoutingSubmissions(),
     scoringComponents: currentEvent().scoringComponents,
@@ -2094,7 +4128,12 @@ function overlayTeamWithScouting(baseTeam) {
     derivedMetricDefinitions: currentDerivedMetricDefinitions(),
     recentMatchCount: state.recentMatchCount,
   });
-  return applyEquationBackedScoutingRollups(baseTeam, overlaidTeam, currentEvent());
+  const value = applyEquationBackedScoutingRollups(baseTeam, overlaidTeam, currentEvent());
+  overlaidTeamCache.set(baseTeam.number, {
+    ...cacheContext,
+    value,
+  });
+  return value;
 }
 
 function currentScoutingWindow() {
@@ -2106,10 +4145,11 @@ function currentRecentMatchCount() {
 }
 
 function currentScoutingImportShouldReplace() {
+  if (state.importDraftSource === "attached") return true;
   const event = currentEvent();
-  const sourceUrl = normalizeSourceUrl(state.importSourceUrl || event.sheet?.url || "");
-  if (sourceUrlMatchesEventSheet(sourceUrl, event)) return true;
-  return Boolean(event.sheet?.sampleCsvText && !sourceUrl);
+  const sourceUrl = currentScoutingSourceUrl();
+  if (matchesEventSheetSourceUrl(sourceUrl, event)) return true;
+  return Boolean(eventWorkspaceUsesSample(currentEventWorkspace()) && !sourceUrl);
 }
 
 function scoutingWindowLabel() {
@@ -2124,19 +4164,15 @@ function derivedMetricFieldOptions() {
   }));
 }
 
-function currentSeasonDefinition(eventModel = currentEvent()) {
-  return seasonFramework.seasonDefinitions?.[eventModel.season] || null;
-}
-
 function currentScoringMatrixPresets(eventModel = currentEvent()) {
-  return Array.isArray(currentSeasonDefinition(eventModel)?.scoringMatrixPresets) ? currentSeasonDefinition(eventModel).scoringMatrixPresets : [];
+  return Array.isArray(eventModel?.scoringMatrixPresets) ? eventModel.scoringMatrixPresets : [];
 }
 
 function derivedMetricScopeSummary() {
   return {
     seasonKey: String(currentEvent().season),
     profileKey: currentProfileMetricScopeKey(),
-    seasonDefinitions: derivedMetricConfigScopeDefinitions("season", String(currentEvent().season)),
+    gameDefinitions: derivedMetricConfigScopeDefinitions("season", String(currentEvent().season)),
     profileDefinitions: derivedMetricConfigScopeDefinitions("profile", currentProfileMetricScopeKey()),
   };
 }
@@ -2207,6 +4243,102 @@ function renderConfidenceBadge(confidence) {
   return `<span class="flag ${confidenceSeverity(confidence.tier)} confidence-flag" title="${escapeAttribute(title)}">Confidence: ${confidenceLabel(confidence.tier)}</span>`;
 }
 
+function renderSchemaDiffSummary(schemaDiff) {
+  if (!schemaDiff) return `<p class="muted">No schema diagnostics available.</p>`;
+  const added = schemaDiff.added || [];
+  const removed = schemaDiff.removed || [];
+  const typeChanged = schemaDiff.typeChanged || [];
+  if (!added.length && !removed.length && !typeChanged.length) {
+    return `<p class="muted">No schema drift detected.</p>`;
+  }
+  return `
+    <div class="issue-list">
+      ${added.map((fieldDefinition) => `<div class="issue-row good"><strong>Added</strong><span>${escapeHtml(fieldDefinition.label || fieldDefinition.id)} (${escapeHtml(fieldDefinition.id)})</span></div>`).join("")}
+      ${removed.map((fieldDefinition) => `<div class="issue-row warn"><strong>Removed</strong><span>${escapeHtml(fieldDefinition.label || fieldDefinition.id)} (${escapeHtml(fieldDefinition.id)})</span></div>`).join("")}
+      ${typeChanged.map((fieldDefinition) => `<div class="issue-row danger"><strong>Type Changed</strong><span>${escapeHtml(fieldDefinition.id)}: ${escapeHtml(fieldDefinition.previousType)} -> ${escapeHtml(fieldDefinition.currentType)}</span></div>`).join("")}
+    </div>
+  `;
+}
+
+function renderDependencyDiagnosticsList(entries, emptyLabel) {
+  if (!entries?.length) return `<p class="muted">${escapeHtml(emptyLabel)}</p>`;
+  return `
+    <div class="issue-list">
+      ${entries.map((entry) => `
+        <div class="issue-row danger">
+          <strong>${escapeHtml(entry.label || entry.id)}</strong>
+          <span>${escapeHtml(uniqueValues((entry.failures || []).map((failure) => failure.message || failure.reason || failure.id)).join(" | "))}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function pushUniqueLabel(list, value) {
+  const label = normalizeText(value);
+  if (!label || list.includes(label)) return;
+  list.push(label);
+}
+
+function collectDependencyImpactGroups(diagnostics) {
+  const groups = new Map();
+  const categories = [
+    { key: "equations", impactKey: "equations", label: "derived equations" },
+    { key: "filters", impactKey: "filters", label: "filters" },
+    { key: "sortEquations", impactKey: "sortEquations", label: "sort equations" },
+  ];
+
+  categories.forEach(({ key, impactKey, label }) => {
+    (diagnostics?.[key] || []).forEach((entry) => {
+      const seenFailures = new Set();
+      (entry.failures || []).forEach((failure) => {
+        const groupKey = normalizeText(failure?.nodeId) || `${entry.nodeId}:${impactKey}`;
+        if (!groupKey || seenFailures.has(groupKey)) return;
+        seenFailures.add(groupKey);
+        if (!groups.has(groupKey)) {
+          groups.set(groupKey, {
+            key: groupKey,
+            message: normalizeText(failure?.message) || `${entry.label || entry.id} is blocked.`,
+            impacts: {
+              equations: [],
+              filters: [],
+              sortEquations: [],
+            },
+          });
+        }
+        pushUniqueLabel(groups.get(groupKey).impacts[impactKey], entry.label || entry.id);
+      });
+    });
+  });
+
+  return [...groups.values()].map((group) => ({
+    ...group,
+    summary: categories
+      .map(({ impactKey, label }) => {
+        const impacted = group.impacts[impactKey];
+        if (!impacted.length) return "";
+        return `${label}: ${impacted.join(", ")}`;
+      })
+      .filter(Boolean)
+      .join(" | "),
+  }));
+}
+
+function renderDependencyImpactSummary(diagnostics) {
+  const groups = collectDependencyImpactGroups(diagnostics);
+  if (!groups.length) return `<p class="muted">No derived equations, filters, or sort equations are currently blocked by scouting schema drift.</p>`;
+  return `
+    <div class="issue-list">
+      ${groups.map((group) => `
+        <div class="issue-row danger">
+          <strong>${escapeHtml(group.message)}</strong>
+          <span>${escapeHtml(group.summary)}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function runImportPreview() {
   state.importResult = previewScoutingImport({
     csvText: state.importCsvText,
@@ -2218,30 +4350,44 @@ function runImportPreview() {
   render();
 }
 
-function commitImportPreview() {
+function commitImportPreview(options = {}) {
   if (!state.importResult?.ok || !state.importResult.summary) return;
+  const preview = state.importResult;
+  const importedCsvText = state.importCsvText;
+  const importedSchemaJsonText = state.importSchemaJsonText;
   const replaceExisting = currentScoutingImportShouldReplace();
   const committed = commitScoutingImport({
-    preview: state.importResult,
+    preview,
     existingSubmissions: state.scoutingSubmissions,
     existingActivity: state.activityLog,
     replaceExisting,
   });
-  state.scoutingSubmissions = normalizeScoutingSubmissions(
+  setScoutingSubmissions(
     stampScoutingSubmissionMetadata(committed.submissions, currentEvent(), {
-      scoutingImportSource: replaceExisting ? "event-sheet-source" : "manual",
+      scoutingImportSource: options.scoutingImportSource || (replaceExisting ? "event-sheet-source" : "manual"),
+      schemaFields: preview.summary.schemaFields,
     }),
     currentEvent(),
   );
   state.activityLog = normalizeActivityLog(committed.activity);
-  registerSeasonScoutingProfile(currentEvent().season, {
-    id: state.importResult.summary.profileId,
-    label: state.importResult.summary.profileLabel,
+  registerScoutingProfile(currentEvent(), {
+    id: preview.summary.profileId,
+    label: preview.summary.profileLabel,
+    fields: preview.summary.schemaFields,
+    equations: preview.summary.profileDefinition?.equations,
+    fieldMigrations: preview.summary.profileDefinition?.fieldMigrations,
+    versionKey: preview.summary.profileDefinition?.versionKey,
   });
+  if (state.importDraftSource === "attached") {
+    markCurrentScoutingAttachmentSuccess(preview, importedCsvText, { schemaJsonText: importedSchemaJsonText });
+  }
   state.importResult = null;
   state.importCsvText = "";
+  state.importSchemaJsonText = "";
   state.importSelectedProfileId = "";
+  state.importDraftSource = "";
   saveState();
+  persistScoutingSubmissions(state.activeEventKey, state.scoutingSubmissions);
   render();
 }
 
@@ -2254,33 +4400,6 @@ function switchImportContext(eventKey) {
   });
 }
 
-function normalizeSourceUrl(value) {
-  return String(value || "").trim();
-}
-
-function googleSheetInfo(url) {
-  const match = String(url || "").match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  if (!match) return null;
-  const id = match[1];
-  let gid = "0";
-  const gidMatch = String(url).match(/[?#&]gid=([0-9]+)/);
-  if (gidMatch) gid = gidMatch[1];
-  return {
-    id,
-    gid,
-    csvUrl: `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`,
-  };
-}
-
-function sourceUrlMatchesEventSheet(url, event = currentEvent()) {
-  const normalized = normalizeSourceUrl(url);
-  if (!normalized) return false;
-  const eventInfo = googleSheetInfo(event.sheet?.url || event.sheet?.csvUrl || "");
-  const inputInfo = googleSheetInfo(normalized);
-  if (event.sheet?.url === normalized || event.sheet?.csvUrl === normalized) return true;
-  return Boolean(eventInfo && inputInfo && eventInfo.id === inputInfo.id);
-}
-
 function setImportError(message) {
   state.importResult = {
     ok: false,
@@ -2291,50 +4410,201 @@ function setImportError(message) {
   render();
 }
 
-function loadPreparedScoutingCsv(csvText, profileId = "") {
+function loadPreparedScoutingCsv(csvText, profileId = "", options = {}) {
+  if (shouldSkipUnchangedAttachedSource(csvText, options)) {
+    markCurrentScoutingAttachmentSuccess(
+      {
+        summary: {
+          metadata: {
+            schemaId: currentScoutingAttachment()?.schemaSignature || "",
+          },
+        },
+      },
+      csvText,
+      { freshness: "fresh" },
+    );
+    state.importResult = null;
+    saveState();
+    render();
+    return;
+  }
   state.importCsvText = csvText;
+  state.importSchemaJsonText = "";
   state.importSelectedProfileId = profileId;
+  state.importDraftSource = options.importDraftSource || "";
   state.importResult = null;
   saveState();
   runImportPreview();
+  if (options.autoCommit && state.importResult?.ok) {
+    commitImportPreview({
+      scoutingImportSource: options.scoutingImportSource,
+    });
+  }
 }
 
-function loadEventSheetSample() {
+function loadPreparedScoutingJson(jsonText, options = {}) {
+  if (shouldSkipUnchangedAttachedSource(jsonText, options)) {
+    markCurrentScoutingAttachmentSuccess(
+      {
+        summary: {
+          metadata: {
+            schemaId: currentScoutingAttachment()?.schemaSignature || "",
+          },
+        },
+      },
+      jsonText,
+      { freshness: "fresh", schemaJsonText: options.schemaJsonText || "" },
+    );
+    state.importResult = null;
+    saveState();
+    render();
+    return;
+  }
+  state.importCsvText = jsonText;
+  state.importSchemaJsonText = options.schemaJsonText || "";
+  state.importSelectedProfileId = "canonical-json-v1";
+  state.importDraftSource = options.importDraftSource || "";
+  state.importResult = previewScoutingJsonImport({
+    jsonText,
+    schemaJsonText: options.schemaJsonText || "",
+    eventModel: currentEvent(),
+    activeEventKey: state.activeEventKey,
+    existingSubmissions: state.scoutingSubmissions,
+    profileId: options.profileId,
+    profileLabel: options.profileLabel,
+    translationVersion: options.translationVersion,
+  });
+  saveState();
+  render();
+  if (options.autoCommit && state.importResult?.ok) {
+    commitImportPreview({
+      scoutingImportSource: options.scoutingImportSource,
+    });
+  }
+}
+
+function loadPreparedScoutingSheet(csvText, profileId = "", options = {}) {
+  if (typeof sharedTranslateEventSheetToCanonical === "function") {
+    const translated = sharedTranslateEventSheetToCanonical(currentEvent(), csvText, {
+      templateProfileId: profileId,
+      profileDefinition: currentImportedProfileDefinition(currentEvent()),
+    });
+    loadPreparedScoutingJson(buildCanonicalSheetJsonText(translated), {
+      ...options,
+      profileId: translated.templateProfileId || profileId,
+      profileLabel: translated.profileLabel,
+      translationVersion: translated.translatorVersion,
+    });
+    return;
+  }
+  loadPreparedScoutingCsv(sharedAdaptEventSheetCsv(currentEvent(), csvText, { templateProfileId: profileId }), profileId, options);
+}
+
+async function readAttachedScoutingSchemaText(attachment, attachmentLoad, sourceUrl) {
+  const localSchemaPath = normalizeText(attachmentLoad?.schemaPath);
+  const remoteSchemaUrl = normalizeText(attachmentLoad?.schemaUrl);
+  if (localSchemaPath) {
+    return readLocalAttachmentText(`${attachment?.attachmentId}:schema`);
+  }
+  if (remoteSchemaUrl) {
+    const response = await fetch(remoteSchemaUrl);
+    if (!response.ok) throw new Error(`Schema HTTP ${response.status}`);
+    return response.text();
+  }
+  return "";
+}
+
+function loadEventSheetSample(options = {}) {
   const event = currentEvent();
-  const sampleCsvText = event.sheet?.sampleCsvText;
+  const sampleCsvText = event.sheet?.sampleCsvText || "";
   if (!sampleCsvText) return;
-  loadPreparedScoutingCsv(sharedAdaptEventSheetCsv(event, sampleCsvText), "");
+  const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
+  loadPreparedScoutingSheet(sampleCsvText, profileId, {
+    ...options,
+    importDraftSource: "attached",
+  });
 }
 
-async function loadScoutingData() {
+async function loadScoutingData(options = {}) {
   const event = currentEvent();
-  const sourceUrl = normalizeSourceUrl(state.importSourceUrl || event.sheet?.url || "");
-  if (event.sheet?.sampleCsvText && !sourceUrl) {
-    loadEventSheetSample();
+  const attachmentLoad = describeEventWorkspaceScoutingAttachmentLoad(currentEventWorkspace(), event);
+  const attachment = currentScoutingAttachment();
+  const sourceUrl = currentScoutingSourceUrl();
+  if (attachmentLoad.kind === "embedded-sample" && !sourceUrl) {
+    markCurrentScoutingAttachmentAttempt();
+    loadEventSheetSample(options);
     return;
   }
 
-  if (!sourceUrl) {
+  if (!attachmentLoad.canLoad) {
+    markCurrentScoutingAttachmentFailure("Missing scouting source URL.");
     setImportError("Enter a scouting spreadsheet URL before loading scouting data.");
     return;
   }
 
-  const sheetInfo = googleSheetInfo(sourceUrl);
-  if (!sheetInfo) {
-    setImportError("That scouting source is not a recognized Google Sheets URL.");
+  if (attachmentLoad.kind === "remote-json" || attachmentLoad.kind === "local-json") {
+    try {
+      markCurrentScoutingAttachmentAttempt();
+      const jsonText =
+        attachmentLoad.kind === "local-json"
+          ? await readLocalAttachmentText(attachment?.attachmentId)
+          : await (async () => {
+            const response = await fetch(sourceUrl);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.text();
+          })();
+      const schemaJsonText = await readAttachedScoutingSchemaText(attachment, attachmentLoad, sourceUrl);
+      loadPreparedScoutingJson(jsonText, {
+        ...options,
+        schemaJsonText,
+        importDraftSource: "attached",
+      });
+    } catch (error) {
+      markCurrentScoutingAttachmentFailure(error?.message || "Unable to load canonical scouting JSON.");
+      setImportError(`Unable to load scouting JSON right now. ${error?.message || "Check the attachment source and try again."}${attachmentLoad.kind === "local-json" ? " Use Browse to re-select the local file if needed." : ""}`);
+    }
+    return;
+  }
+
+  if (attachmentLoad.kind === "local-csv") {
+    try {
+      markCurrentScoutingAttachmentAttempt();
+      const csvText = await readLocalAttachmentText(currentScoutingAttachment()?.attachmentId);
+      const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
+      loadPreparedScoutingSheet(csvText, profileId, {
+        ...options,
+        importDraftSource: "attached",
+      });
+    } catch (error) {
+      markCurrentScoutingAttachmentFailure(error?.message || "Unable to load local scouting data.");
+      setImportError(`Unable to load the saved local scouting file. ${error?.message || "Re-select the file and try again."} Use Browse to authorize a local file for this event.`);
+    }
     return;
   }
 
   try {
-    const response = await fetch(sheetInfo.csvUrl);
+    markCurrentScoutingAttachmentAttempt();
+    const requestUrl =
+      attachmentLoad.kind === "google-sheet-url"
+        ? describeGoogleSheetInfo(sourceUrl)?.csvUrl
+        : sourceUrl;
+    if (!requestUrl) {
+      throw new Error("Unsupported scouting source URL.");
+    }
+    const response = await fetch(requestUrl);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const csvText = await response.text();
-    loadPreparedScoutingCsv(sharedAdaptEventSheetCsv(event, csvText), "");
+    const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
+    loadPreparedScoutingSheet(csvText, profileId, {
+      ...options,
+      importDraftSource: "attached",
+    });
   } catch (error) {
-    if (event.sheet?.sampleCsvText && sourceUrlMatchesEventSheet(sourceUrl, event)) {
-      loadEventSheetSample();
+    if (attachmentLoad.kind === "embedded-sample" || shouldFallbackToCachedEventSheetSample(sourceUrl, event)) {
+      loadEventSheetSample(options);
       return;
     }
+    markCurrentScoutingAttachmentFailure(error?.message || "Unable to load scouting data.");
     setImportError(`Unable to load scouting data from that sheet right now. ${error?.message || "Try the event's cached sheet or paste CSV manually."}`);
   }
 }
@@ -2345,8 +4615,8 @@ function normalizeImportToken(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "");
 }
-function adaptEventSheetCsv(eventModel, csvText) {
-  return sharedAdaptEventSheetCsv(eventModel, csvText);
+function adaptEventSheetCsv(eventModel, csvText, options = {}) {
+  return sharedAdaptEventSheetCsv(eventModel, csvText, options);
 }
 
 function teamDetailMetric() {
@@ -2363,7 +4633,7 @@ function analysisSortEquations() {
 
 function analysisSelectionModel() {
   const metric = metricById(state.metric);
-  return { type: "metric", id: metric.id, label: metric.label, unit: metric.unit, metric };
+  return metric ? { type: "metric", id: metric.id, label: metric.label, unit: metric.unit, metric } : null;
 }
 
 function filterResultEntries(filterResult) {
@@ -2380,65 +4650,22 @@ function evaluateSeasonFilterDefinitionForTeam(team, definition, options = {}) {
   if (!definition || !formulaContext) {
     return { definition, result: { kind: "error", error: `Unknown filter "${definition?.id || ""}".` }, formulaContext };
   }
-  const evaluationCache = options.evaluationCache || new Map();
-  const evaluationStack = Array.isArray(options.evaluationStack) ? [...options.evaluationStack] : [];
-  const equationEvaluationCache = options.equationEvaluationCache || new Map();
-  const equationEvaluationStack = Array.isArray(options.equationEvaluationStack) ? [...options.equationEvaluationStack] : [];
-  const groupEvaluationCache = options.groupEvaluationCache || new Map();
-  const eventEvaluationCache = options.eventEvaluationCache || new Map();
-  const recentEntryCount = currentRecentMatchCount();
-  const cacheKey = `${formulaContext?.baseTeam?.number || team}:${definition.id}:${eventModel.key}:${recentEntryCount}`;
-  if (evaluationCache.has(cacheKey)) return evaluationCache.get(cacheKey);
-  if (evaluationStack.includes(definition.id)) {
-    const circular = { definition, result: { kind: "error", error: `Circular filter reference: ${[...evaluationStack, definition.id].join(" -> ")}.` }, formulaContext };
-    evaluationCache.set(cacheKey, circular);
-    return circular;
-  }
-  const result = evaluateFormulaExpression(definition.formula, {
-    recentEntryCount,
-    resolveIdentifier: (identifier) =>
-      resolveFormulaIdentifier(
-        identifier,
-        formulaContext,
-        equationEvaluationCache,
-        equationEvaluationStack,
-        evaluationCache,
-        [...evaluationStack, definition.id],
-        groupEvaluationCache,
-        eventEvaluationCache,
-      ) || { kind: "error", error: `Unknown identifier "${identifier}".` },
-    evaluateGroupFunction: ({ name, seriesAst, scopeId, filterAst, parentOptions }) =>
-      evaluateGroupFormulaForContext(
-        { name, seriesAst, scopeId, filterAst, parentOptions },
-        formulaContext,
-        equationEvaluationCache,
-        equationEvaluationStack,
-        evaluationCache,
-        [...evaluationStack, definition.id],
-        groupEvaluationCache,
-      ),
-    evaluateEventFunction: ({ name, valueAst, filterAst, parentOptions }) =>
-      evaluateEventFormulaForContext(
-        { name, valueAst, filterAst, parentOptions },
-        formulaContext,
-        equationEvaluationCache,
-        equationEvaluationStack,
-        evaluationCache,
-        [...evaluationStack, definition.id],
-        groupEvaluationCache,
-        eventEvaluationCache,
-      ),
-    groupEvaluationCache,
-    eventEvaluationCache,
+  const evaluation = evaluateEquationForTeam(team, definition.id, {
+    eventModel,
+    formulaContext,
+    evaluationCache: options.equationEvaluationCache || options.evaluationCache,
+    evaluationStack: options.equationEvaluationStack || options.evaluationStack,
+    filterEvaluationCache: options.evaluationCache,
+    filterEvaluationStack: options.evaluationStack,
+    groupEvaluationCache: options.groupEvaluationCache,
+    eventEvaluationCache: options.eventEvaluationCache,
   });
-  const evaluation = { definition, result, formulaContext };
-  evaluationCache.set(cacheKey, evaluation);
-  return evaluation;
+  return { definition, result: evaluation.result, formulaContext: evaluation.formulaContext || formulaContext };
 }
 
 function evaluateSeasonFilterForTeam(team, filterId, options = {}) {
   const eventModel = options.eventModel || currentEvent();
-  const definition = seasonFilterDefinitionById(filterId, eventModel);
+  const definition = profileFilterDefinitionById(filterId, eventModel);
   if (!definition) {
     return { definition, result: { kind: "error", error: `Unknown filter "${filterId}".` }, formulaContext: null };
   }
@@ -2457,6 +4684,18 @@ function filterStatusForTeam(team, filterId, eventModel = currentEvent()) {
     return { label: "Non-Boolean", severity: "warn", detail: "Filters must resolve to true/false style values such as `metric > 0`." };
   }
   return null;
+}
+
+function applyAnalysisPredicateToEntries(team, entries, eventModel = currentEvent()) {
+  const definition = activeAnalysisFilter(eventModel);
+  const normalizedEntries = Array.isArray(entries) ? entries : [];
+  if (!definition || !normalizedEntries.length) return normalizedEntries;
+  const evaluation = evaluateSeasonFilterForTeam(team, definition.id, { eventModel });
+  if (isErrorFormulaResult(evaluation.result) || !isSeriesFormulaResult(evaluation.result) || !seriesResultLooksBoolean(evaluation.result)) {
+    return [];
+  }
+  const includeByMatch = new Map(filterResultEntries(evaluation.result).map((entry) => [Number(entry.key), truthy(entry.value)]));
+  return normalizedEntries.filter((entry) => truthy(includeByMatch.get(Number(entry.key))));
 }
 
 function compareSlotIndexForTeam(teamNumber) {
@@ -2488,14 +4727,32 @@ function metricFromTerm(term) {
   return metricById(metricIdFromLegacyTerm(term));
 }
 
-function teamMetricValue(team, metric) {
+function derivedMetricEvaluation(team, metric, options = {}) {
+  if (!(metric?.kind === "derived" && metric.definition?.expression)) return null;
+  return evaluateEquationForTeam(team, metric.componentId, {
+    eventModel: options.eventModel,
+    formulaContext: options.formulaContext,
+    evaluationCache: options.evaluationCache,
+    filterEvaluationCache: options.filterEvaluationCache,
+    groupEvaluationCache: options.groupEvaluationCache,
+    eventEvaluationCache: options.eventEvaluationCache,
+  });
+}
+
+function teamMetricValue(team, metric, options = {}) {
   if (metric?.kind === "derived" && metric.definition?.expression) {
-    const evaluation = evaluateEquationForTeam(team, metric.componentId);
+    const evaluation = derivedMetricEvaluation(team, metric, options);
     return evaluation.result.granularity === "event" ? Number(evaluation.result.value) : Number.NaN;
   }
   if (engineTeamMetricValue) return engineTeamMetricValue(team, metric, { window: currentScoutingWindow() });
   if (!team || !metric) return 0;
   if (metric.kind === "derived") return Number(team.derived?.[metric.componentId] || 0);
+  if (metric.kind === "source" && metric.sourceId === "tba" && metric.granularity === "match") {
+    const values = tbaMatchMetricsByTeam(team.number)
+      .map((row) => Number(row?.[metric.componentId]))
+      .filter((value) => Number.isFinite(value));
+    return values.length ? average(values) : Number.NaN;
+  }
   if (metric.componentId === "total") return Number(team.sources?.[metric.sourceId]?.total || 0);
   return Number(team.sources?.[metric.sourceId]?.components?.[metric.componentId] || 0);
 }
@@ -2729,7 +4986,7 @@ function icon(name) {
     quality: '<path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5"/><path d="M12 17h.01"/>',
     picklists: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
     sortEquation:
-      '<text x="12" y="17" text-anchor="middle" font-size="18" font-weight="700" fill="currentColor" stroke="none">Σ</text>',
+      '<text x="12" y="17" text-anchor="middle" font-size="18" font-weight="700" fill="currentColor" stroke="none">&#931;</text>',
     alliance: '<path d="M4 5h7v6H4z"/><path d="M13 5h7v6h-7z"/><path d="M4 13h7v6H4z"/><path d="M13 13h7v6h-7z"/>',
     admin: '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2 3.4-.1-.1a1.7 1.7 0 0 0-2-.3 1.7 1.7 0 0 0-1 1.5V22h-4v-.5a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-2 .3l-.1.1-2-3.4.1-.1A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3 14H2v-4h1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 2-3.4.1.1a1.7 1.7 0 0 0 2 .3 1.7 1.7 0 0 0 1-1.5V2h4v.5a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 2-.3l.1-.1 2 3.4-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1H22v4h-1a1.7 1.7 0 0 0-1.6 1Z"/>',
   };
@@ -2787,6 +5044,7 @@ function bindShellEvents() {
   });
   bindViewEvents();
   restoreBuilderGridScroll();
+  restoreBuilderListScroll();
 }
 
 function installGlobalRecoveryGuards() {
@@ -2864,17 +5122,30 @@ function renderRecoveryScreen(error) {
 }
 
 function renderRankings() {
-  const epaMetric = metricById("source:epa:total");
-  const ranked = [...currentTeams()]
-    .sort((a, b) => (a.eventRank || Infinity) - (b.eventRank || Infinity) || teamMetricValue(b, epaMetric) - teamMetricValue(a, epaMetric) || a.number - b.number)
-    .map((team, index) => ({ ...team, rank: team.eventRank || index + 1, rp: rankingPoints(team), record: recordForTeam(team) }));
+  const displayedRankedTeams = [...currentTeams()]
+    .sort((a, b) => {
+      const leftRankingScore = rankingScoreForTeam(a);
+      const rightRankingScore = rankingScoreForTeam(b);
+      const leftSortScore = Number.isFinite(leftRankingScore) ? leftRankingScore : Number.NEGATIVE_INFINITY;
+      const rightSortScore = Number.isFinite(rightRankingScore) ? rightRankingScore : Number.NEGATIVE_INFINITY;
+      return (a.eventRank || Infinity) - (b.eventRank || Infinity)
+        || rightSortScore - leftSortScore
+        || a.number - b.number;
+    })
+    .map((team, index) => ({
+      ...team,
+      rank: team.eventRank || index + 1,
+      rankingScore: rankingScoreForTeam(team),
+      rp: rankingPoints(team),
+      record: recordForTeam(team),
+    }));
   return `
     <article class="card">
       <div class="section-heading">
         <div>
           <h2>Current Event Rankings</h2>
         </div>
-        <span class="muted">Sorted by ranking score, then EPA</span>
+        <span class="muted">Sorted by event rank, then ranking score</span>
       </div>
       <div class="ranking-table" role="table" aria-label="Current event rankings">
         <div class="ranking-row ranking-header" role="row">
@@ -2883,19 +5154,17 @@ function renderRankings() {
           <span>Ranking Score</span>
           <span>Record</span>
           <span>RP</span>
-          <span>EPA</span>
           <span>Flags</span>
         </div>
-        ${ranked
+        ${displayedRankedTeams
           .map(
             (team) => `
           <button class="ranking-row" data-team="${team.number}" role="row">
             <strong>${team.rank}</strong>
             <span>${team.number} ${team.name}</span>
-            <span>${teamMetricValue(team, epaMetric).toFixed(2)}</span>
-            <span>${team.record}</span>
-            <span>${team.rp}</span>
-            <span>${teamMetricValue(team, epaMetric).toFixed(1)}</span>
+            <span>${team.rankingScore === null ? "&mdash;" : team.rankingScore.toFixed(2)}</span>
+            <span>${team.record || "&mdash;"}</span>
+            <span>${team.rp === null ? "&mdash;" : team.rp}</span>
             <span>${renderDrivetrainBadge(team)}</span>
           </button>
         `,
@@ -2906,8 +5175,14 @@ function renderRankings() {
   `;
 }
 
+function rankingScoreForTeam(team) {
+  const rankingScore = Number(team.record?.qual?.rps);
+  return Number.isFinite(rankingScore) ? rankingScore : null;
+}
+
 function rankingPoints(team) {
-  return team.record?.qual?.rps ?? Math.max(8, Math.round(teamMetricValue(team, metricById("source:epa:total")) / 4));
+  const rankingPointsValue = Number(team.record?.qual?.rps);
+  return Number.isFinite(rankingPointsValue) ? rankingPointsValue : null;
 }
 
 function recordForTeam(team) {
@@ -2915,14 +5190,10 @@ function recordForTeam(team) {
     const qual = team.record.qual;
     return `${qual.wins}-${qual.losses}-${qual.ties}`;
   }
-  const wins = Math.max(1, Math.min(8, Math.round(teamMetricValue(team, metricById("source:epa:total")) / 9)));
-  const losses = Math.max(0, 8 - wins);
-  return `${wins}-${losses}-0`;
+  return "";
 }
 
 function renderTeams() {
-  const epaMetric = metricById("source:epa:total");
-  const consistencyMetric = metricById("derived:consistency");
   return `
     <div class="team-title-row">
       <div>
@@ -2939,7 +5210,6 @@ function renderTeams() {
           <span class="avatar">${team.number}</span>
           <span class="team-meta">
             <strong>${team.name}</strong>
-            <span class="muted">${teamMetricValue(team, epaMetric).toFixed(1)} EPA / ${teamMetricValue(team, consistencyMetric)}% consistency</span>
             ${renderDrivetrainBadge(team)}
           </span>
         </button>
@@ -2951,11 +5221,11 @@ function renderTeams() {
 }
 
 function renderTeamDetail(team) {
-  const selectedMetric = teamDetailMetric();
-  const scoutingConfidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
-  const epaMetric = metricById("source:epa:total");
-  const oprMetric = metricById("source:opr:total");
-  const pridgeMetric = metricById("source:pridge:total");
+  const detailTrendMetrics = currentMetrics().filter((metric) => metricUsesMatchDistribution(team, metric));
+  const detailSelectedMetric = detailTrendMetrics.find((metric) => metric.id === state.teamDetailMetric) || null;
+  const detailScoutingConfidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
+  const detailOprMetric = metricById("source:tba:opr.total");
+  const detailPridgeMetric = metricById("source:pridge:total");
   return `
     <article class="card">
         <div class="section-heading">
@@ -2970,10 +5240,10 @@ function renderTeamDetail(team) {
         </div>
       </div>
       <div class="stat-grid">
-        <div class="stat"><span>${escapeHtml(selectedMetric.label)}</span><strong>${teamMetricValue(team, selectedMetric).toFixed(selectedMetric.unit === "%" ? 0 : 1)}${selectedMetric.unit === "%" ? "%" : ""}</strong></div>
-        <div class="stat"><span>Scouting Confidence</span><strong>${escapeHtml(confidenceLabel(scoutingConfidence.tier))}</strong></div>
-        <div class="stat"><span>EPA</span><strong>${teamMetricValue(team, epaMetric).toFixed(1)}</strong></div>
-        <div class="stat"><span>OPR</span><strong>${teamMetricValue(team, oprMetric).toFixed(1)}</strong></div>
+        <div class="stat"><span>${escapeHtml(detailSelectedMetric?.label || "Trend Metric")}</span><strong>${detailSelectedMetric ? `${teamMetricValue(team, detailSelectedMetric).toFixed(detailSelectedMetric.unit === "%" ? 0 : 1)}${detailSelectedMetric.unit === "%" ? "%" : ""}` : "Select a metric"}</strong></div>
+        <div class="stat"><span>Scouting Confidence</span><strong>${escapeHtml(confidenceLabel(detailScoutingConfidence.tier))}</strong></div>
+        <div class="stat"><span>OPR</span><strong>${detailOprMetric ? teamMetricValue(team, detailOprMetric).toFixed(1) : "-"}</strong></div>
+        <div class="stat"><span>pRidge</span><strong>${detailPridgeMetric ? teamMetricValue(team, detailPridgeMetric).toFixed(1) : "-"}</strong></div>
       </div>
       <div class="team-detail-grid">
         <div>
@@ -2985,7 +5255,8 @@ function renderTeamDetail(team) {
             <label class="team-trend-metric">
               <span class="muted">Metric</span>
               <select id="teamDetailMetricSelect" aria-label="Team detail metric">
-                ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === selectedMetric.id ? "selected" : ""}>${item.label}</option>`).join("")}
+                <option value="" ${detailSelectedMetric ? "" : "selected"}>Select a metric</option>
+                ${detailTrendMetrics.map((item) => `<option value="${item.id}" ${item.id === detailSelectedMetric?.id ? "selected" : ""}>${item.label}</option>`).join("")}
               </select>
             </label>
             <label class="team-trend-metric">
@@ -2996,14 +5267,14 @@ function renderTeamDetail(team) {
               </select>
             </label>
           </div>
-          ${renderSparkline(team, selectedMetric)}
+          ${detailSelectedMetric ? renderSparkline(team, detailSelectedMetric) : `<div class="empty-state">Choose a metric to view this team's trend.</div>`}
         </div>
         <div class="compact-flags">
           <h3>Source Snapshot</h3>
-          <p><strong>pRidge:</strong> ${teamMetricValue(team, pridgeMetric).toFixed(1)}</p>
+          <p><strong>pRidge:</strong> ${detailPridgeMetric ? teamMetricValue(team, detailPridgeMetric).toFixed(1) : "-"}</p>
           <p><strong>Rank:</strong> ${team.eventRank || "Unranked"}</p>
           <p><strong>Imported scouting matches:</strong> ${team.scouting?.importedMatches || 0}</p>
-          <p><strong>Scouting confidence:</strong> ${escapeHtml(confidenceLabel(scoutingConfidence.tier))}</p>
+          <p><strong>Scouting confidence:</strong> ${escapeHtml(confidenceLabel(detailScoutingConfidence.tier))}</p>
           ${team.flags.length ? team.flags.map((flag) => `<p><span class="flag ${flag.severity}">${flag.label}</span> <span class="flag-evidence">${flag.evidence}</span></p>`).join("") : `<p class="muted">No active flags.</p>`}
         </div>
       </div>
@@ -3011,13 +5282,18 @@ function renderTeamDetail(team) {
   `;
 }
 
-function metricTrendValues(team, metric) {
+function metricTrendValues(team, metric, options = {}) {
   if (metric?.kind === "derived" && metric.definition?.expression) {
-    const evaluation = evaluateEquationForTeam(team, metric.componentId);
+    const evaluation = derivedMetricEvaluation(team, metric, options);
     return isSeriesFormulaResult(evaluation.result) ? evaluation.result.entries.map((entry) => Number(entry.value)) : [];
   }
   if (engineMetricTrendValues) return engineMetricTrendValues(team, metric, { window: currentScoutingWindow() });
   if (metric.kind === "source") {
+    if (metric.sourceId === "tba" && metric.granularity === "match") {
+      return tbaMatchMetricsByTeam(team.number)
+        .map((row) => Number(row?.[metric.componentId]))
+        .filter((value) => Number.isFinite(value));
+    }
     if (metric.sourceId === "scouter" && metric.componentId === "total") {
       return Array.isArray(team.sources?.scouter?.trend) ? team.sources.scouter.trend : [];
     }
@@ -3034,16 +5310,16 @@ function metricTrendValues(team, metric) {
     return team.derivedTrend[metric.componentId];
   }
   const baseline = average(team.matches) || 1;
-  return team.matches.map((value) => (value / baseline) * teamMetricValue(team, metric));
+  return team.matches.map((value) => (value / baseline) * teamMetricValue(team, metric, options));
 }
 
-function metricUsesMatchDistribution(team, metric) {
+function metricUsesMatchDistribution(team, metric, options = {}) {
   if (!team || !metric) return false;
   if (metric?.kind === "derived" && metric.definition?.expression) {
-    const evaluation = evaluateEquationForTeam(team, metric.componentId);
+    const evaluation = derivedMetricEvaluation(team, metric, options);
     return isSeriesFormulaResult(evaluation.result);
   }
-  return metric.kind === "source" && metric.sourceId === "scouter";
+  return metric.kind === "source" && (metric.sourceId === "scouter" || (metric.sourceId === "tba" && metric.granularity === "match"));
 }
 
 function applyCurrentScoutingWindowToEntries(entries) {
@@ -3058,12 +5334,23 @@ function applyRecentMatchCountToEntries(entries, recentMatchCount = currentRecen
 }
 
 function analysisSeriesEntriesForMetric(team, metric, options = {}) {
-  if (!team || !metric || !metricUsesMatchDistribution(team, metric)) return [];
+  if (!team || !metric || !metricUsesMatchDistribution(team, metric, options)) return [];
   const useRecentWindow = options.window === "recent";
   if (metric?.kind === "derived" && metric.definition?.expression) {
-    const evaluation = evaluateEquationForTeam(team, metric.componentId);
+    const evaluation = derivedMetricEvaluation(team, metric, options);
     const normalizedEntries = filterResultEntries(evaluation.result).filter((entry) => Number.isFinite(Number(entry.value)));
-    return useRecentWindow ? applyRecentMatchCountToEntries(normalizedEntries, options.recentMatchCount) : normalizedEntries;
+    const filteredEntries = applyAnalysisPredicateToEntries(team, normalizedEntries, currentEvent());
+    return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
+  }
+  if (metric.kind === "source" && metric.sourceId === "tba" && metric.granularity === "match") {
+    const entries = tbaMatchMetricsByTeam(team.number, currentEvent())
+      .map((row) => ({
+        key: row.matchNumber,
+        value: Number(row?.[metric.componentId]),
+      }))
+      .filter((entry) => Number.isFinite(entry.value));
+    const filteredEntries = applyAnalysisPredicateToEntries(team, entries, currentEvent());
+    return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
   }
   const aggregatedMatches = aggregateSubmissionMatches(
     currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === Number(team.number)),
@@ -3078,19 +5365,85 @@ function analysisSeriesEntriesForMetric(team, metric, options = {}) {
     value: metric.componentId === "total" ? match.total : Number(match.components?.[metric.componentId]),
   }));
   const normalizedEntries = entries.filter((entry) => Number.isFinite(Number(entry.value)));
-  return useRecentWindow ? applyRecentMatchCountToEntries(normalizedEntries, options.recentMatchCount) : normalizedEntries;
+  const filteredEntries = applyAnalysisPredicateToEntries(team, normalizedEntries, currentEvent());
+  return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
 }
 
 function filteredSeriesEntriesForMetric(team, metric, options = {}) {
   return analysisSeriesEntriesForMetric(team, metric, options);
 }
 
-function analysisScoreForTeam(team, metric, options = {}) {
-  if (!metricUsesMatchDistribution(team, metric)) return teamMetricValue(team, metric);
+function analysisStatsForTeam(team, metric, options = {}) {
+  if (!metricUsesMatchDistribution(team, metric, options)) {
+    const center = teamMetricValue(team, metric, options);
+    const safeCenter = Number.isFinite(center) ? center : 0;
+    return {
+      score: center,
+      distribution: {
+        min: safeCenter,
+        q1: safeCenter,
+        median: safeCenter,
+        q3: safeCenter,
+        max: safeCenter,
+        mean: safeCenter,
+        kind: Number.isFinite(center) ? "value" : "empty",
+      },
+    };
+  }
+
   const values = filteredSeriesEntriesForMetric(team, metric, options)
     .map((entry) => Number(entry.value))
     .filter((value) => Number.isFinite(value));
-  return values.length ? average(values) : Number.NaN;
+
+  if (values.length > 1) {
+    const mean = average(values);
+    return {
+      score: mean,
+      distribution: {
+        min: Math.min(...values),
+        q1: quantile(values, 0.25),
+        median: quantile(values, 0.5),
+        q3: quantile(values, 0.75),
+        max: Math.max(...values),
+        mean,
+        kind: "distribution",
+      },
+    };
+  }
+
+  if (state.activeAnalysisFilterId && values.length === 0) {
+    return {
+      score: Number.NaN,
+      distribution: {
+        min: 0,
+        q1: 0,
+        median: 0,
+        q3: 0,
+        max: 0,
+        mean: 0,
+        kind: "empty",
+      },
+    };
+  }
+
+  const center = values.length === 1 ? values[0] : Number.NaN;
+  const safeCenter = Number.isFinite(center) ? center : 0;
+  return {
+    score: center,
+    distribution: {
+      min: safeCenter,
+      q1: safeCenter,
+      median: safeCenter,
+      q3: safeCenter,
+      max: safeCenter,
+      mean: safeCenter,
+      kind: Number.isFinite(center) ? "value" : "empty",
+    },
+  };
+}
+
+function analysisScoreForTeam(team, metric, options = {}) {
+  return analysisStatsForTeam(team, metric, options).score;
 }
 
 function truthy(value) {
@@ -3134,15 +5487,49 @@ function renderSparkline(team, metric) {
 
 function renderAnalysis() {
   const selection = analysisSelectionModel();
+  const predicateOptions = currentProfileFilterList();
+  const activePredicate = activeAnalysisFilter();
+  if (!selection) {
+    return `
+      <div class="toolbar">
+        <label>
+          Metric
+          <select id="metricSelect">
+            <option value="" selected>Select a metric</option>
+            ${analysisMetricOptions().map((item) => `<option value="${item.id}">${metricTokenLabel(item)}</option>`).join("")}
+          </select>
+        </label>
+        <label>
+          Predicate
+          <select id="analysisFilterSelect">
+            <option value="" ${state.activeAnalysisFilterId ? "" : "selected"}>All Matches</option>
+            ${predicateOptions.map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <div class="empty-state" style="margin-top: 8px;">Choose a metric to plot event analysis.</div>
+    `;
+  }
   const analysisWindowOptions = { window: "recent", recentMatchCount: currentRecentMatchCount() };
-  const scoreForTeam = (team) => analysisScoreForTeam(team, selection.metric, analysisWindowOptions);
-  const sortableScoreForTeam = (team) => {
-    const value = scoreForTeam(team);
-    return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
+  const derivedAnalysisOptions = {
+    eventModel: currentEvent(),
+    evaluationCache: new Map(),
+    filterEvaluationCache: new Map(),
+    groupEvaluationCache: new Map(),
+    eventEvaluationCache: new Map(),
   };
-  const ranked = [...currentTeams()].sort((a, b) => sortableScoreForTeam(b) - sortableScoreForTeam(a) || a.number - b.number);
-  const allScores = ranked.map((team) => scoreForTeam(team));
-  const distributions = ranked.map((team) => distributionForMetric(team, selection.metric.id, analysisWindowOptions));
+  const ranked = currentTeams()
+    .map((team) => ({
+      team,
+      stats: analysisStatsForTeam(team, selection.metric, { ...analysisWindowOptions, ...derivedAnalysisOptions }),
+    }))
+    .sort((left, right) => {
+      const leftScore = Number.isFinite(left.stats.score) ? left.stats.score : Number.NEGATIVE_INFINITY;
+      const rightScore = Number.isFinite(right.stats.score) ? right.stats.score : Number.NEGATIVE_INFINITY;
+      return rightScore - leftScore || left.team.number - right.team.number;
+    });
+  const allScores = ranked.map((entry) => entry.stats.score);
+  const distributions = ranked.map((entry) => entry.stats.distribution);
   const finiteScores = allScores.filter((value) => Number.isFinite(value));
   const finiteDistributions = distributions.filter(
     (item) => Number.isFinite(item.min) && Number.isFinite(item.max) && Number.isFinite(item.mean) && Number.isFinite(item.median) && Number.isFinite(item.q1) && Number.isFinite(item.q3),
@@ -3156,14 +5543,22 @@ function renderAnalysis() {
       <label>
         Metric
         <select id="metricSelect">
-          ${analysisMetricOptions().map((item) => `<option value="${item.id}" ${item.id === state.metric ? "selected" : ""}>${item.label}</option>`).join("")}
+          ${analysisMetricOptions().map((item) => `<option value="${item.id}" ${item.id === state.metric ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
+        </select>
+      </label>
+      <label>
+        Predicate
+        <select id="analysisFilterSelect">
+          <option value="" ${state.activeAnalysisFilterId ? "" : "selected"}>All Matches</option>
+          ${predicateOptions.map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
         </select>
       </label>
       <div class="stat"><span>Event Average</span><strong>${eventAverage.toFixed(1)} ${selection.unit}</strong></div>
+      ${activePredicate ? `<div class="stat"><span>Predicate</span><strong>${escapeHtml(activePredicate.name)}</strong></div>` : ""}
       ${renderBoxPlotLegend()}
     </div>
     <div class="analysis-chart" style="margin-top: 8px;">
-      ${ranked.map((team, index) => renderChartRow(team, selection, distributions[index], globalMin, globalMax, eventAverage, scoreForTeam(team))).join("")}
+      ${ranked.map((entry, index) => renderChartRow(entry.team, selection, distributions[index], globalMin, globalMax, eventAverage, entry.stats.score)).join("")}
     </div>
     <div class="analysis-axis-row" aria-hidden="true">
       <span></span>
@@ -3179,79 +5574,138 @@ function renderAnalysis() {
 }
 
 function renderDerivedBuilder() {
+  const eventModel = currentEvent();
   const activeEquation = activeDerivedEquation();
+  const activeEquationId = ensureActiveDerivedEquation(eventModel);
   const activePreviewMetricId = String(state.activeDerivedPreviewMetricId || "");
   const equationListSelected = !activePreviewMetricId;
   const formulaTitle = activePreviewMetricId || activeEquation?.name || "New Equation";
   const formulaInputValue = activePreviewMetricId || activeEquation?.formula || "";
-  const teams = currentEvent().teams.slice().sort((left, right) => left.number - right.number);
+  const teams = eventModel.teams.slice().sort((left, right) => left.number - right.number);
+  const equationDefinitions = currentProfileEquationList(eventModel);
+  const teamFormulaContexts = new Map(
+    teams.map((team) => [team.number, buildTeamFormulaContext(team, eventModel)]),
+  );
   const previewTeam = teams[0] || null;
-  const previewStatus = !activePreviewMetricId && activeEquation && previewTeam ? equationStatusForTeam(previewTeam, activeEquation.id) : null;
-  const previewEvaluation = !activePreviewMetricId && activeEquation && previewTeam ? evaluateEquationForTeam(previewTeam, activeEquation.id) : null;
+  const previewFormulaContext = previewTeam ? teamFormulaContexts.get(previewTeam.number) || null : null;
+  const sidebarEvaluationCache = new Map();
+  const sidebarFilterCache = new Map();
+  const sidebarGroupCache = new Map();
+  const sidebarEventCache = new Map();
+  const previewStatus = !activePreviewMetricId && activeEquation && previewTeam ? equationStatusForTeam(previewTeam, activeEquation.id, {
+    eventModel,
+    formulaContext: previewFormulaContext,
+    evaluationCache: sidebarEvaluationCache,
+    filterEvaluationCache: sidebarFilterCache,
+    groupEvaluationCache: sidebarGroupCache,
+    eventEvaluationCache: sidebarEventCache,
+  }) : null;
+  const previewEvaluation = !activePreviewMetricId && activeEquation && previewTeam ? evaluateEquationForTeam(previewTeam, activeEquation.id, {
+    eventModel,
+    formulaContext: previewFormulaContext,
+    evaluationCache: sidebarEvaluationCache,
+    filterEvaluationCache: sidebarFilterCache,
+    groupEvaluationCache: sidebarGroupCache,
+    eventEvaluationCache: sidebarEventCache,
+  }) : null;
   const identifiers = previewEvaluation?.result?.identifiers || [];
-  const availableMetrics = currentDerivedAvailableMetrics(currentEvent(), activeEquation);
-  const gridRows = teams.flatMap((team) => {
-    const context = buildTeamFormulaContext(team);
-    return (context?.matchRows || []).map((row, index, rows) => ({
+  const availableMetrics = currentDerivedAvailableMetrics(eventModel, activeEquation);
+  const teamGridModels = teams.map((team) => {
+    const formulaContext = teamFormulaContexts.get(team.number) || null;
+    const matchRows = formulaContext?.matchRows || [];
+    return {
       teamNumber: team.number,
+      formulaContext,
+      matchRows,
+    };
+  });
+  const gridRows = teamGridModels.flatMap((teamModel) =>
+    teamModel.matchRows.map((row, index, rows) => ({
+      teamNumber: teamModel.teamNumber,
       matchNumber: row.matchNumber,
       teamStart: index === 0,
       teamEnd: index === rows.length - 1,
       rowIndex: index,
       rowCount: rows.length,
-      formulaContext: context,
-    }));
-  });
+    })),
+  );
   const gridEquationCache = new Map();
   const gridFilterCache = new Map();
+  const gridGroupCache = new Map();
+  const gridEventCache = new Map();
   const resultEvaluationCache = new Map();
-  const identifierResultCache = new Map();
-  const identifierSeriesMapCache = new Map();
-  const equationSeriesMapCache = new Map();
-  const teamEquationResultCache = new Map();
-  const resolveGridCellValue = (identifier, rowModel) => {
-    const cacheKey = `${rowModel.teamNumber}:${identifier}`;
-    if (!identifierResultCache.has(cacheKey)) {
-      identifierResultCache.set(
-        cacheKey,
-        resolveFormulaIdentifier(identifier, rowModel.formulaContext, gridEquationCache, [], gridFilterCache, []) || { kind: "error", error: `Unknown identifier "${identifier}".` },
+  const buildGridDisplayModel = (result, { showScalarErrorOnFirstRowOnly = false } = {}) => {
+    if (isErrorFormulaResult(result)) {
+      return {
+        kind: "error",
+        valueForRow: (rowIndex) => ({
+          text: !showScalarErrorOnFirstRowOnly || rowIndex === 0 ? "Invalid" : "",
+          className: "danger",
+        }),
+      };
+    }
+    if (isSeriesFormulaResult(result)) {
+      const entryMap = new Map((result.entries || []).map((entry) => [entry.key, entry.value]));
+      return {
+        kind: "series",
+        valueForRow: (_rowIndex, matchNumber) => {
+          const entryValue = entryMap.get(matchNumber);
+          return {
+            text: entryValue !== undefined && !Number.isNaN(entryValue) ? formatMetricValue(entryValue) : "",
+            className: "",
+          };
+        },
+      };
+    }
+    const scalarText = !Number.isNaN(result?.value) ? formatMetricValue(result.value) : "";
+    return {
+      kind: "scalar",
+      valueForRow: (rowIndex) => ({
+        text: rowIndex === 0 ? scalarText : "",
+        className: rowIndex === 0 ? "" : "muted",
+      }),
+    };
+  };
+  const identifierDisplayModelsByTeam = new Map();
+  const resultDisplayModelsByTeam = new Map();
+  teamGridModels.forEach((teamModel) => {
+    if (!teamModel.formulaContext) return;
+    const identifierDisplayModels = new Map();
+    identifiers.forEach((identifier) => {
+      const result = resolveFormulaIdentifier(
+        identifier,
+        teamModel.formulaContext,
+        gridEquationCache,
+        [],
+        gridFilterCache,
+        [],
+        gridGroupCache,
+        gridEventCache,
+      ) || { kind: "error", error: `Unknown identifier "${identifier}".` };
+      identifierDisplayModels.set(identifier, buildGridDisplayModel(result));
+    });
+    identifierDisplayModelsByTeam.set(teamModel.teamNumber, identifierDisplayModels);
+    if (activePreviewMetricId) {
+      resultDisplayModelsByTeam.set(
+        teamModel.teamNumber,
+        identifierDisplayModels.get(activePreviewMetricId) || buildGridDisplayModel({ kind: "error", error: `Unknown identifier "${activePreviewMetricId}".` }),
       );
+      return;
     }
-    const result = identifierResultCache.get(cacheKey);
-    if (isErrorFormulaResult(result)) return { text: "Invalid", className: "danger" };
-    if (isSeriesFormulaResult(result)) {
-      if (!identifierSeriesMapCache.has(cacheKey)) {
-        identifierSeriesMapCache.set(cacheKey, new Map((result.entries || []).map((entry) => [entry.key, entry.value])));
-      }
-      const entryValue = identifierSeriesMapCache.get(cacheKey).get(rowModel.matchNumber);
-      return { text: entryValue !== undefined ? formatMetricValue(entryValue) : "", className: "" };
+    if (!activeEquation) {
+      resultDisplayModelsByTeam.set(teamModel.teamNumber, buildGridDisplayModel(formulaScalarValue(Number.NaN)));
+      return;
     }
-    return { text: rowModel.rowIndex === 0 ? formatMetricValue(result.value) : "", className: rowModel.rowIndex === 0 ? "" : "muted" };
-  };
-  const resolveResultCellValue = (rowModel) => {
-    if (activePreviewMetricId) return resolveGridCellValue(activePreviewMetricId, rowModel);
-    if (!activeEquation) return { text: "", className: "" };
-    const teamKey = `${rowModel.teamNumber}:${activeEquation.id}`;
-    if (!teamEquationResultCache.has(teamKey)) {
-      const evaluation = evaluateEquationForTeam(rowModel.formulaContext.baseTeam, activeEquation.id, {
-        formulaContext: rowModel.formulaContext,
-        eventModel: currentEvent(),
-        evaluationCache: resultEvaluationCache,
-        filterEvaluationCache: gridFilterCache,
-      });
-      teamEquationResultCache.set(teamKey, evaluation.result);
-    }
-    const result = teamEquationResultCache.get(teamKey);
-    if (isErrorFormulaResult(result)) return { text: rowModel.rowIndex === 0 ? "Invalid" : "", className: "danger" };
-    if (isSeriesFormulaResult(result)) {
-      if (!equationSeriesMapCache.has(teamKey)) {
-        equationSeriesMapCache.set(teamKey, new Map((result.entries || []).map((entry) => [entry.key, entry.value])));
-      }
-      const matchValue = equationSeriesMapCache.get(teamKey).get(rowModel.matchNumber);
-      return { text: matchValue !== undefined && !Number.isNaN(matchValue) ? formatMetricValue(matchValue) : "", className: "" };
-    }
-    return { text: rowModel.rowIndex === 0 && !Number.isNaN(result.value) ? formatMetricValue(result.value) : "", className: rowModel.rowIndex === 0 ? "" : "muted" };
-  };
+    const evaluation = evaluateEquationForTeam(teamModel.formulaContext.baseTeam, activeEquation.id, {
+      formulaContext: teamModel.formulaContext,
+      eventModel,
+      evaluationCache: resultEvaluationCache,
+      filterEvaluationCache: gridFilterCache,
+      groupEvaluationCache: gridGroupCache,
+      eventEvaluationCache: gridEventCache,
+    });
+    resultDisplayModelsByTeam.set(teamModel.teamNumber, buildGridDisplayModel(evaluation.result, { showScalarErrorOnFirstRowOnly: true }));
+  });
   const resultColumnLabel = activePreviewMetricId || activeEquation?.name || "Result";
   return `
     <div class="grid">
@@ -3266,14 +5720,14 @@ function renderDerivedBuilder() {
                 <h3>Derived Equations</h3>
                 <button type="button" id="addDerivedEquationButton">New</button>
               </div>
-              <div class="builder-list">
-                ${currentSeasonEquationList()
+              <div class="builder-list" data-builder-list-scroll="derived:equations">
+                ${equationDefinitions
                   .map((definition, index) => {
-                    const status = previewTeam ? equationStatusForTeam(previewTeam, definition.id) : null;
+                    const status = definition.id === activeEquation?.id ? previewStatus : null;
                     const rename = state.inlineRename?.kind === "derivedEquation" && state.inlineRename?.id === definition.id;
                     return `
                       <div
-                        class="builder-list-item ${equationListSelected && definition.id === ensureActiveDerivedEquation() ? "active" : ""}"
+                        class="builder-list-item ${equationListSelected && definition.id === activeEquationId ? "active" : ""}"
                         data-entity-row="derivedEquation:${definition.id}"
                         data-entity-kind="derivedEquation"
                         data-entity-id="${definition.id}"
@@ -3294,7 +5748,7 @@ function renderDerivedBuilder() {
               <div class="derived-pane-header">
                 <h3>Available Metrics</h3>
               </div>
-              <div class="builder-list metric-catalog">
+              <div class="builder-list metric-catalog" data-builder-list-scroll="derived:metrics">
                 ${availableMetrics.map((item) => `<div class="builder-list-item ${item.id === activePreviewMetricId ? "active" : ""}" data-derived-preview-metric="${escapeAttribute(item.id)}">${escapeHtml(item.id)}</div>`).join("")}
               </div>
             </section>
@@ -3305,7 +5759,7 @@ function renderDerivedBuilder() {
                 <textarea
                   id="derivedEquationFormulaInput"
                   class="admin-input derived-formula-input"
-                  placeholder="average(tba.climbScore)"
+                  placeholder="average(opr.total)"
                   autocomplete="off"
                   rows="2"
                   spellcheck="false"
@@ -3341,7 +5795,7 @@ function renderDerivedBuilder() {
                         <header>${escapeHtml(identifier)}</header>
                         <div class="derived-grid-column-body" data-derived-scroll="${escapeAttribute(identifier)}" data-builder-grid-column-scroll="${escapeAttribute(`derived:${identifier}`)}">
                           ${gridRows.map((row) => {
-                            const value = resolveGridCellValue(identifier, row);
+                            const value = identifierDisplayModelsByTeam.get(row.teamNumber)?.get(identifier)?.valueForRow(row.rowIndex, row.matchNumber) || { text: "", className: "" };
                             return `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""} ${value.className}">${escapeHtml(value.text)}</div>`;
                           }).join("")}
                         </div>
@@ -3353,7 +5807,7 @@ function renderDerivedBuilder() {
                   <header>${escapeHtml(resultColumnLabel)}</header>
                   <div class="derived-grid-column-body" data-derived-scroll="result" data-builder-grid-column-scroll="derived:result">
                     ${gridRows.map((row) => {
-                      const value = resolveResultCellValue(row);
+                      const value = resultDisplayModelsByTeam.get(row.teamNumber)?.valueForRow(row.rowIndex, row.matchNumber) || { text: "", className: "" };
                       return `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""} ${value.className}">${escapeHtml(value.text)}</div>`;
                     }).join("")}
                   </div>
@@ -3382,42 +5836,7 @@ function renderBoxPlotLegend() {
 
 function distributionForMetric(team, metricId, options = {}) {
   const metric = metricById(metricId);
-  const values = metricUsesMatchDistribution(team, metric)
-    ? filteredSeriesEntriesForMetric(team, metric, options).map((entry) => Number(entry.value)).filter((value) => Number.isFinite(Number(value)))
-    : [];
-  if (values.length > 1) {
-    return {
-      min: Math.min(...values),
-      q1: quantile(values, 0.25),
-      median: quantile(values, 0.5),
-      q3: quantile(values, 0.75),
-      max: Math.max(...values),
-      mean: average(values),
-      kind: "distribution",
-    };
-  }
-  if (metricUsesMatchDistribution(team, metric) && state.activeAnalysisFilterId && values.length === 0) {
-    return {
-      min: 0,
-      q1: 0,
-      median: 0,
-      q3: 0,
-      max: 0,
-      mean: 0,
-      kind: "empty",
-    };
-  }
-  const center = teamMetricValue(team, metric);
-  const safeCenter = Number.isFinite(center) ? center : 0;
-  return {
-    min: safeCenter,
-    q1: safeCenter,
-    median: safeCenter,
-    q3: safeCenter,
-    max: safeCenter,
-    mean: safeCenter,
-    kind: Number.isFinite(center) ? "value" : "empty",
-  };
+  return analysisStatsForTeam(team, metric, options).distribution;
 }
 
 function distributionForEquationScore(score, minScore, maxScore) {
@@ -3527,8 +5946,6 @@ function renderMatchNavigator(match, includeBack) {
 }
 
 function renderAllianceCard(title, teamNumbers) {
-  const epaMetric = metricById("source:epa:total");
-  const consistencyMetric = metricById("derived:consistency");
   return `
     <article class="card">
       <h2>${title}</h2>
@@ -3541,7 +5958,6 @@ function renderAllianceCard(title, teamNumbers) {
                 <span class="avatar">${team.number}</span>
                 <span class="team-meta">
                   <strong>${team.name}</strong>
-                  <span class="muted">${teamMetricValue(team, epaMetric).toFixed(1)} EPA / ${teamMetricValue(team, consistencyMetric)}% consistency</span>
                   ${renderDrivetrainBadge(team)}
                 </span>
               </button>
@@ -3788,7 +6204,8 @@ function renderPicklistBuilder() {
           <label class="team-trend-metric">
             <span class="muted">Metric</span>
             <select id="picklistCompareMetricSelect" aria-label="Picklist comparison metric">
-              ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric.id ? "selected" : ""}>${item.label}</option>`).join("")}
+              <option value="" ${comparisonMetric ? "" : "selected"}>Select a metric</option>
+              ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
             </select>
           </label>
           <label class="team-trend-metric">
@@ -3808,6 +6225,9 @@ function renderPicklistBuilder() {
 function renderPicklistCompareChart(selectedTeams, metric) {
   if (!selectedTeams.length) {
     return `<div class="empty-state picklist-compare-empty">Select up to 4 teams in the current picklist to compare their trends here.</div>`;
+  }
+  if (!metric) {
+    return `<div class="empty-state picklist-compare-empty">Choose a metric to compare selected teams.</div>`;
   }
   const series = selectedTeams.map((team) => ({
     team,
@@ -3889,7 +6309,8 @@ function renderCriteriaTerm(term, index, count) {
       <label>
         Metric
         <select class="term-metric" data-term-index="${index}">
-          ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === metric.id ? "selected" : ""}>${item.label}</option>`).join("")}
+          <option value="" ${metric ? "" : "selected"}>Select a metric</option>
+          ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === metric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
         </select>
       </label>
       ${index === count - 1 && count < 5 ? `<button class="icon-button add-term-button" id="addCriteriaTerm" title="Add component" aria-label="Add component">+</button>` : `<span class="operator-spacer"></span>`}
@@ -3982,7 +6403,7 @@ function gridColumnModel(entry) {
   }
   const [type, id] = entry.split(":");
   if (type === "sort") {
-    return entry === "sort:sort-epa" ? gridColumnModel("metric:source:epa:total") : { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
+    return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
   }
   if (type === "picklist") {
     const picklist = state.picklists.find((item) => item.id === id);
@@ -4009,7 +6430,7 @@ function renderPicklistGridColumn(entry, index) {
         <select data-picklist-column="${index}">
           <option value="" ${entry ? "" : "selected"}>---</option>
           <optgroup label="Metrics">
-            ${currentRankableMetrics().map((item) => `<option value="metric:${item.id}" ${entry === `metric:${item.id}` ? "selected" : ""}>${item.label}</option>`).join("")}
+            ${currentRankableMetrics().map((item) => `<option value="metric:${item.id}" ${entry === `metric:${item.id}` ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
           </optgroup>
           <optgroup label="Picklists">
             ${state.picklists.map((item) => `<option value="picklist:${item.id}" ${entry === `picklist:${item.id}` ? "selected" : ""}>${item.name}</option>`).join("")}
@@ -4061,10 +6482,8 @@ function renderContextMenu() {
   const collection = state.contextMenu.entityKind === "sortEquation"
     ? state.sortEquations
     : state.contextMenu.entityKind === "derivedEquation"
-      ? currentSeasonEquationList()
-      : state.contextMenu.entityKind === "seasonFilter"
-        ? currentSeasonFilterList()
-        : state.picklists;
+      ? currentProfileEquationList()
+      : state.picklists;
   const item = collection.find((entry) => entry.id === state.contextMenu.id);
   const locked = state.contextMenu.entityKind === "sortEquation" && isProtectedSortEquation(item);
   const canDelete = !locked && isAdmin() && collection.length > 1;
@@ -4232,197 +6651,232 @@ function renderBoardContextMenu() {
 
 function renderAdmin() {
   const event = currentEvent();
+  const workspace = currentEventWorkspace();
+  const activeAttachment = currentScoutingAttachment();
+  const importProfiles = availableScoutingImportProfiles(event);
+  const selectedImportProfileId = selectedScoutingImportProfileId(event);
   const result = state.importResult;
-  const summary = result?.summary;
   const issues = [...(result?.errors || []), ...(result?.warnings || [])];
   const reviewGroups = flaggedSubmissionGroups();
+  const recentEventKeys = normalizeRecentEventKeys(state.recentEventKeys, event.key)
+    .slice()
+    .sort((left, right) => String(left || "").localeCompare(String(right || ""), undefined, { numeric: true, sensitivity: "base" }));
+  const mismatchMessage = currentScoutingMismatchMessage(result);
+  const sourceStatusIssues = issues.filter((issue) => issue !== mismatchMessage);
+  const allPollingEnabled = allDataSourcePollingEnabled();
   return `
     <div class="grid">
       <div class="grid cols-2">
         <article class="card">
           <div class="section-heading">
             <div>
-              <h2>Event Workspace</h2>
-              <p class="muted">Choose the active event here. The rest of the app switches immediately.</p>
+              <h2>Event Imports</h2>
             </div>
           </div>
           <div class="admin-form-grid">
             <label>
-              Active event
-              <select id="adminEventSelect" aria-label="Admin event selection">
-                ${globalEventCatalog.map((item) => `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.season} ${item.name}</option>`).join("")}
-              </select>
-            </label>
-            <div class="issue-list">
-              <div class="issue-row">
-                <strong>Scouting sheet</strong>
-                <span class="muted">${event.sheet?.tab || "Unknown tab"} | ${event.sheet?.access === "public_csv" ? "Public CSV sample cached" : "Sign-in required for direct export"} | Window: ${scoutingWindowLabel()}</span>
+              Event Code
+              <div class="admin-actions admin-field-row">
+                <input
+                  id="adminEventCodeInput"
+                  class="admin-input"
+                  type="text"
+                  value="${escapeAttribute(state.adminEventCodeDraft || event.key)}"
+                  placeholder="2026miket"
+                  aria-label="Event code"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  ${state.eventLookupPending ? "disabled" : ""}
+                />
+                <button type="button" id="openRecentAdminEventsButton">Open Recent</button>
               </div>
+            </label>
+            ${
+              state.adminRecentEventsOpen
+                ? `<label>
+              Recent Events
+              <select id="recentAdminEventSelect" aria-label="Recent event selection" size="${Math.min(10, Math.max(2, recentEventKeys.length))}">
+                ${recentEventKeys.map((eventKey) => {
+                  const item = eventModelByKey(eventKey);
+                  return `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.key} | ${item.season} ${escapeHtml(item.name)}</option>`;
+                }).join("")}
+              </select>
+            </label>`
+                : ""
+            }
+              <label>
+                Scouting Data
+                <div class="admin-actions admin-field-row">
+                  <input
+                    id="importSourceUrl"
+                  class="admin-input"
+                  type="text"
+                  value="${escapeAttribute(currentScoutingSourceInputValue(workspace, event, state.importSourceUrl))}"
+                  placeholder="https://docs.google.com/spreadsheets/d/... or a bound local file name"
+                  aria-label="Scouting data source"
+                  spellcheck="false"
+                  />
+                  <button type="button" id="chooseLocalScoutingFileButton" ${localAttachmentFilesSupported() ? "" : "disabled"}>Browse</button>
+                </div>
+              </label>
+              ${
+                activeEventWorkspaceScoutingAttachmentFormat(workspace, event) === "scouting-json"
+                  ? `<label>
+                Schema JSON
+                <div class="admin-actions admin-field-row">
+                  <input
+                    id="importSchemaSourceUrl"
+                    class="admin-input"
+                    type="text"
+                    value="${escapeAttribute(currentScoutingSchemaSourceInputValue(workspace))}"
+                    placeholder="Optional separate schema JSON URL/path"
+                    aria-label="Scouting schema source"
+                    spellcheck="false"
+                  />
+                  <button type="button" id="chooseLocalScoutingSchemaFileButton" ${localAttachmentFilesSupported() ? "" : "disabled"}>Browse</button>
+                </div>
+                <span class="muted">Optional. Leave blank for combined canonical JSON or entries JSON that already embeds schema.</span>
+              </label>`
+                  : ""
+              }
+              <label>
+                Scouting Profile
+                <select id="scoutingAttachmentProfileId" aria-label="Scouting profile">
+                ${importProfiles.map((profile) => `<option value="${escapeAttribute(profile.id)}" ${profile.id === selectedImportProfileId ? "selected" : ""}>${escapeHtml(profile.label)}</option>`).join("")}
+              </select>
+              <span class="muted">
+                ${activeAttachment?.profileVersionKey
+                  ? `Attachment profile version: ${escapeHtml(activeAttachment.profileVersionKey)}`
+                  : "Choose the profile that best matches this scouting source. Switching profiles reloads the current source."}
+              </span>
+            </label>
+            ${
+              mismatchMessage
+                ? `<div class="issue-list">
+              <div class="issue-row danger">${escapeHtml(mismatchMessage)}</div>
+            </div>`
+                : ""
+            }
+            <label>
+              TBA Auth Key
+              <div class="admin-actions admin-field-row">
+                <input
+                  id="adminTbaAuthKeyInput"
+                  class="admin-input"
+                  type="password"
+                  value="${escapeAttribute(visibleTbaAuthKeyValue())}"
+                  placeholder="Paste The Blue Alliance auth key"
+                  aria-label="TBA auth key"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                />
+                <button type="button" id="saveTbaAuthKeyButton" ${state.tbaAuthKeyDirty ? "" : "disabled"}>Save</button>
+              </div>
+            </label>
+            <label>
+              Statbotics Base URL
+              <div class="admin-actions admin-field-row">
+                <input
+                  id="adminStatboticsBaseUrlInput"
+                  class="admin-input"
+                  type="text"
+                  value="${escapeAttribute(state.statboticsBaseUrlDraft)}"
+                  placeholder="${escapeAttribute(defaultStatboticsBaseUrl)}"
+                  aria-label="Statbotics base URL"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                />
+                <button type="button" id="saveStatboticsBaseUrlButton" ${state.statboticsBaseUrlDirty ? "" : "disabled"}>Save</button>
+              </div>
+              <span class="muted">Using a temporary default mirror right now. The original official Statbotics API is <code>https://api.statbotics.io/v3</code>.</span>
+            </label>
+            <div class="admin-actions">
+              <button type="button" id="clearCurrentEventScoutingDataButton">Clear Saved Scouting Data</button>
             </div>
           </div>
         </article>
         <article class="card">
           <div class="section-heading">
             <div>
-              <h2>How To Use</h2>
-              <p class="muted">This is the shortest path for changing events and loading scouting data.</p>
+              <h2>Source Status</h2>
+            </div>
+            <div class="admin-actions">
+              <button type="button" id="refreshAllSourcesButton">Refresh Sources</button>
+              <button type="button" id="toggleAllSourcePollingButton">${allPollingEnabled ? "Pause Polling" : "Resume Polling"}</button>
             </div>
           </div>
-          <div class="howto-list">
-            <div class="howto-row"><strong>1.</strong><span>Pick the event in Event Workspace.</span></div>
-            <div class="howto-row"><strong>2.</strong><span>Paste or confirm the scouting sheet URL.</span></div>
-            <div class="howto-row"><strong>3.</strong><span>Click <strong>Load Scouting Data</strong>.</span></div>
-            <div class="howto-row"><strong>4.</strong><span>Confirm the preview says <strong>Preview Ready</strong>.</span></div>
-            <div class="howto-row"><strong>5.</strong><span>Click <strong>Commit Import</strong>.</span></div>
-            <div class="howto-row"><strong>6.</strong><span>Open Teams or Analysis to use the imported scouting data.</span></div>
+          <div class="data-source-list">
+            ${state.eventLookupResult ? `<div class="issue-row ${state.eventLookupResult.kind === "error" ? "danger" : state.eventLookupResult.kind === "warn" ? "warn" : ""}">${escapeHtml(state.eventLookupResult.message)}</div>` : ""}
+            ${sourceStatusIssues.map((issue, index) => `<div class="issue-row ${index < (result?.errors || []).length ? "danger" : "warn"}">${escapeHtml(issue)}</div>`).join("")}
+            ${currentDataSources()
+              .map(
+                (source) => `
+              <div class="data-source-row">
+                <div>
+                  <strong>${source.name}</strong>
+                  <span class="muted">${source.notes}</span>
+                  ${source.detectedLabel ? `<span class="muted">Detected type: ${escapeHtml(source.detectedLabel)}</span>` : ""}
+                  ${
+                    Array.isArray(source.stats) && source.stats.length
+                      ? `<span class="muted">${source.stats.map((stat) => `${escapeHtml(stat.label)}: ${escapeHtml(String(stat.value))}`).join(" | ")}</span>`
+                      : ""
+                  }
+                </div>
+                <div class="source-status-stack">
+                  <div class="source-badge-row">
+                    <span class="source-status ${escapeAttribute(sourceStatusBadgeClassName(source.status))}">${escapeHtml(formatBadgeLabel(source.status))}</span>
+                  </div>
+                  <span class="muted">Next poll: ${source.nextPollAt}</span>
+                </div>
+              </div>
+            `,
+              )
+              .join("")}
           </div>
         </article>
-      </div>
-      <div class="stat-grid">
-        <div class="stat"><span>Imported Rows</span><strong>${state.scoutingSubmissions.length}</strong></div>
-        <div class="stat"><span>Imported Matches</span><strong>${importedMatchCount()}</strong></div>
-        <div class="stat"><span>Teams Covered</span><strong>${importedTeamCount()}</strong></div>
-        <div class="stat"><span>Activity Entries</span><strong>${state.activityLog.length}</strong></div>
       </div>
       <div class="grid cols-2">
         <article class="card">
-          <div class="section-heading">
-            <div>
-              <h2>Scouting Import</h2>
-              <p class="muted">Paste the scouting Google Sheet URL, load it, then commit the preview into this event.</p>
-            </div>
-          </div>
-          <div class="admin-form-grid">
-            <label>
-              Scouting sheet URL
-              <input id="importSourceUrl" class="admin-input" type="url" value="${escapeAttribute(state.importSourceUrl || event.sheet?.url || "")}" placeholder="https://docs.google.com/spreadsheets/d/..." />
-            </label>
-            <div class="admin-actions">
-              <button type="button" id="loadScoutingDataButton" class="primary">Load Scouting Data</button>
-            </div>
-            <label>
-              CSV payload
-              <textarea id="importCsvInput" class="admin-textarea" spellcheck="false" placeholder="Paste CSV with metadata block here.">${escapeHtml(state.importCsvText)}</textarea>
-            </label>
-            <div class="admin-actions">
-              <button type="button" id="dryRunImportButton" class="primary">Dry Run Import</button>
-              <button type="button" id="commitImportButton" ${summary ? "" : "disabled"}>Commit Import</button>
-              <button type="button" id="clearImportButton">Clear</button>
-            </div>
-          </div>
+          <h2>Schema Diagnostics</h2>
+          ${(() => {
+            const diagnosticsState = currentScoutingDiagnosticsState();
+            const activeDiagnostics = diagnosticsState.pendingDiagnostics || diagnosticsState.currentDiagnostics;
+            const modeLabel = diagnosticsState.pendingDiagnostics ? "Pending import diagnostics" : "Current event diagnostics";
+            return `
+              <p class="muted">${modeLabel}. Added, removed, and type-changed scouting fields are summarized here, followed by grouped downstream impacts on formulas and sorting.</p>
+              ${renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
+              <h3>Downstream Impact</h3>
+              ${renderDependencyImpactSummary(activeDiagnostics?.diagnostics)}
+            `;
+          })()}
         </article>
         <article class="card">
-          <h2>Import Preview</h2>
-          ${
-            !result
-              ? `<p class="muted">Run a dry-run to validate metadata, detect a template profile, flag duplicates, and preview confidence impacts before anything is committed.</p>`
-              : `
-            <div class="preview-shell">
-              <div class="flag-list">
-                <span class="flag ${result.ok ? "good" : "danger"}">${result.ok ? "Preview Ready" : "Preview Blocked"}</span>
-                ${summary ? `<span class="flag">${summary.profileLabel}</span>` : ""}
-                ${summary ? `<span class="flag">Schema ${summary.schemaVersion}</span>` : ""}
-              </div>
-              ${
-                summary
-                  ? `
-                <div class="preview-stat-grid">
-                  <div class="stat"><span>Rows</span><strong>${summary.rowCount}</strong></div>
-                  <div class="stat"><span>Flagged</span><strong>${summary.flaggedRows}</strong></div>
-                  <div class="stat"><span>Excluded</span><strong>${summary.excludedRows}</strong></div>
-                  <div class="stat"><span>Duplicates</span><strong>${summary.duplicateGroups}</strong></div>
-                </div>
-                <p class="muted">Target: ${summary.metadata.eventKey} | Confidence impacted teams: ${summary.confidenceImpactTeams}</p>
-              `
-                  : ""
-              }
-              ${
-                issues.length
-                  ? `
-                <div class="issue-list">
-                  ${issues
-                    .map((issue, index) => `<div class="issue-row ${index < (result.errors || []).length ? "danger" : "warn"}">${escapeHtml(issue)}</div>`)
-                    .join("")}
-                </div>
-              `
-                  : `<p class="muted">No validation issues found.</p>`
-              }
-              ${
-                result.canSwitchContext && result.suggestedEventKey
-                  ? `<button type="button" id="switchImportContextButton">Switch to ${result.suggestedEventKey} and re-run</button>`
-                  : ""
-              }
-              ${
-                summary?.submissions?.length
-                  ? `
-                <div class="issue-list">
-                  ${summary.submissions
-                    .slice(0, 6)
-                    .map((submission) => {
-                      const reasons = submission.confidenceReasons.map(confidenceReasonLabel).join(", ");
-                      return `<div class="issue-row">
-                        <strong>Q${submission.matchNumber} / Team ${submission.teamNumber}</strong>
-                        <span class="muted">${submission.validity} | ${submission.confidenceTier}${reasons ? ` | ${escapeHtml(reasons)}` : ""}</span>
-                      </div>`;
-                    })
-                    .join("")}
-                </div>
-              `
-                  : ""
-              }
+          <div class="section-heading">
+            <div>
+              <h2>Activity Log</h2>
+              <p class="muted">System-generated event activity stays scoped to the active event and lets admins clear issues manually later.</p>
             </div>
-          `
-          }
+          </div>
+          <div class="activity-log">
+            ${
+              state.activityLog.length
+                ? state.activityLog
+                    .map(
+                      (entry) => `
+                  <div class="activity-row">
+                    <strong>${formatTimestamp(entry.timestamp)}</strong>
+                    <span>${escapeHtml(entry.message)}</span>
+                  </div>
+                `,
+                    )
+                    .join("")
+                : `<div class="empty-state">No activity has been recorded for ${event.name} yet.</div>`
+            }
+          </div>
         </article>
       </div>
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Data Sources</h2>
-            <p class="muted">These source statuses follow the selected event and update with the current event context.</p>
-          </div>
-        </div>
-        <div class="data-source-list">
-          ${currentDataSources()
-            .map(
-              (source) => `
-            <div class="data-source-row">
-              <div>
-                <strong>${source.name}</strong>
-                <span class="muted">${source.notes}</span>
-              </div>
-              <span class="source-status">${source.status}</span>
-              <span class="muted">${source.updated}</span>
-            </div>
-          `,
-            )
-            .join("")}
-        </div>
-      </article>
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Activity Log</h2>
-            <p class="muted">System-generated event activity stays scoped to the active event and lets admins clear issues manually later.</p>
-          </div>
-        </div>
-        <div class="activity-log">
-          ${
-            state.activityLog.length
-              ? state.activityLog
-                  .map(
-                    (entry) => `
-                <div class="activity-row">
-                  <strong>${formatTimestamp(entry.timestamp)}</strong>
-                  <span>${escapeHtml(entry.message)}</span>
-                </div>
-              `,
-                  )
-                  .join("")
-              : `<div class="empty-state">No activity has been recorded for ${event.name} yet.</div>`
-          }
-        </div>
-      </article>
       <article class="card">
         <div class="section-heading">
           <div>
@@ -4518,29 +6972,25 @@ function firstVisibleGridColumn() {
 function defaultTeamsForNewPicklist() {
   const firstColumn = firstVisibleGridColumn();
   if (!firstColumn) {
-    const defaultMetric = metricById(currentEvent().defaultMetricId);
-    return [...currentTeams()]
-      .sort((a, b) => teamMetricValue(b, defaultMetric) - teamMetricValue(a, defaultMetric) || a.number - b.number)
-      .map((team) => team.number);
+    return [...currentTeams()].sort((a, b) => a.number - b.number).map((team) => team.number);
   }
   return gridColumnModel(firstColumn.entry).teams.map((team) => team.number);
 }
 
-function updateSeasonEquationList(nextDefinitions, eventModel = currentEvent()) {
-  const seasonKey = String(eventModel.season);
-  state.seasonDerivedEquationCatalog = normalizeSeasonDerivedEquationCatalog({
-    ...state.seasonDerivedEquationCatalog,
-    seasons: {
-      ...(state.seasonDerivedEquationCatalog?.seasons || {}),
-      [seasonKey]: nextDefinitions,
-    },
+function updateProfileEquationList(nextDefinitions, eventModel = currentEvent()) {
+  const profileId = currentProfileMetricScopeKey(eventModel);
+  registerScoutingProfile(eventModel, {
+    ...(currentImportedProfileDefinition(eventModel) || {}),
+    id: profileId,
+    label: currentImportedProfileDefinition(eventModel)?.label || knownImportProfileLabels[profileId] || profileId,
+    equations: normalizeEquationDefinitions(nextDefinitions),
   });
   ensureActiveDerivedEquation(eventModel);
   saveState();
 }
 
-function addSeasonEquation() {
-  const existing = currentSeasonEquationList();
+function addProfileEquation() {
+  const existing = currentProfileEquationList();
   const name = uniqueEntityName("New Equation", existing, "New Equation");
   const definition = {
     id: createId("derived"),
@@ -4550,138 +7000,50 @@ function addSeasonEquation() {
     description: "",
     sourceOrder: existing.length,
   };
-  updateSeasonEquationList([...existing, definition]);
+  updateProfileEquationList([...existing, definition]);
   state.activeDerivedEquationId = definition.id;
   state.inlineRename = { kind: "derivedEquation", id: definition.id, value: definition.name };
   saveState();
   render();
 }
 
-function removeSeasonEquation(id) {
-  const existing = currentSeasonEquationList();
+function removeProfileEquation(id) {
+  const existing = currentProfileEquationList();
   const definition = existing.find((item) => item.id === id);
   if (!definition || existing.length <= 1) return;
-  updateSeasonEquationList(existing.filter((item) => item.id !== id));
+  updateProfileEquationList(existing.filter((item) => item.id !== id));
   if (state.contextMenu?.id === id) state.contextMenu = null;
   if (state.inlineRename?.id === id) state.inlineRename = null;
   saveState();
   render();
 }
 
-function renameSeasonEquation(id, requestedName) {
-  const definition = currentSeasonEquationList().find((item) => item.id === id);
+function renameProfileEquation(id, requestedName) {
+  const definition = currentProfileEquationList().find((item) => item.id === id);
   if (!definition) return;
   const trimmed = requestedName.trim();
   if (!trimmed || trimmed === definition.name) return;
-  const name = uniqueEntityName(trimmed, currentSeasonEquationList().filter((item) => item.id !== id), trimmed);
-  updateSeasonEquationList(currentSeasonEquationList().map((item) => (item.id === id ? { ...item, name } : item)));
+  const name = uniqueEntityName(trimmed, currentProfileEquationList().filter((item) => item.id !== id), trimmed);
+  updateProfileEquationList(currentProfileEquationList().map((item) => (item.id === id ? { ...item, name } : item)));
   saveState();
   render();
 }
 
-function updateSeasonEquationFormula(id, formula) {
-  updateSeasonEquationList(currentSeasonEquationList().map((item) => (
+function updateProfileEquationFormula(id, formula) {
+  updateProfileEquationList(currentProfileEquationList().map((item) => (
     item.id === id ? { ...item, formula: normalizeStoredFormula(formula, "0") } : item
   )));
-}
-
-function seasonDerivedEquationsSourceText() {
-  const canonicalCatalog = normalizeSeasonDerivedEquationCatalog(state.seasonDerivedEquationCatalog);
-  return `(function () {\nglobalThis.SeasonDerivedEquations = ${JSON.stringify(canonicalCatalog, null, 2)};\n})();\n`;
-}
-
-function updateSeasonFilterList(definitions, eventModel = currentEvent()) {
-  const seasonKey = String(eventModel.season);
-  const nextDefinitions = (definitions || []).map((definition, index) => ({
-    id: String(definition?.id || "").trim() || createId("filter"),
-    name: String(definition?.name || "").trim() || `Filter ${index + 1}`,
-    formula: String(definition?.formula || "").trim() || "0 > 1",
-    description: String(definition?.description || "").trim(),
-    sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
-  }));
-  state.seasonFilterCatalog = normalizeSeasonFilterCatalog({
-    seasons: {
-      ...(state.seasonFilterCatalog?.seasons || {}),
-      [seasonKey]: nextDefinitions,
-    },
-  });
-  ensureActiveSeasonFilter(eventModel);
-  state.activeAnalysisFilterId = normalizeAnalysisFilterSelection(state.activeAnalysisFilterId, eventModel);
-  saveState();
-}
-
-function addSeasonFilter() {
-  const existing = currentSeasonFilterList();
-  const name = uniqueEntityName("New Filter", existing, "New Filter");
-  const definition = {
-    id: createId("filter"),
-    name,
-    formula: "scouting.total > 0",
-    description: "",
-    sourceOrder: existing.length,
-  };
-  updateSeasonFilterList([...existing, definition]);
-  state.activeSeasonFilterId = definition.id;
-  state.inlineRename = { kind: "seasonFilter", id: definition.id, value: definition.name };
-  saveState();
-  render();
-}
-
-function removeSeasonFilter(id) {
-  const existing = currentSeasonFilterList();
-  const definition = existing.find((item) => item.id === id);
-  if (!definition || existing.length <= 1) return;
-  updateSeasonFilterList(existing.filter((item) => item.id !== id));
-  if (state.activeAnalysisFilterId === id) state.activeAnalysisFilterId = "";
-  if (state.contextMenu?.id === id) state.contextMenu = null;
-  if (state.inlineRename?.id === id) state.inlineRename = null;
-  saveState();
-  render();
-}
-
-function renameSeasonFilter(id, requestedName) {
-  const definition = currentSeasonFilterList().find((item) => item.id === id);
-  if (!definition) return;
-  const trimmed = requestedName.trim();
-  if (!trimmed || trimmed === definition.name) return;
-  const name = uniqueEntityName(trimmed, currentSeasonFilterList().filter((item) => item.id !== id), trimmed);
-  updateSeasonFilterList(currentSeasonFilterList().map((item) => (item.id === id ? { ...item, name } : item)));
-  saveState();
-  render();
-}
-
-function updateSeasonFilterFormula(id, formula) {
-  updateSeasonFilterList(currentSeasonFilterList().map((item) => (
-    item.id === id ? { ...item, formula: normalizeStoredFormula(formula, "0 > 1") } : item
-  )));
-}
-
-function seasonFiltersSourceText() {
-  return `(function () {\nglobalThis.SeasonFilters = ${JSON.stringify(state.seasonFilterCatalog, null, 2)};\n})();\n`;
 }
 
 function formulaAutocompleteCandidates(token) {
   const normalizedToken = String(token || "").toLowerCase();
   return [
-    "scouting.total",
     ...currentAvailableScoutingFieldDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
-    "tba.climbScore",
-    "tba.allianceKey",
-    "tba.autoAllianceFuel",
-    "tba.transitionAllianceFuel",
-    "tba.shift1AllianceFuel",
-    "tba.shift2AllianceFuel",
-    "tba.shift3AllianceFuel",
-    "tba.shift4AllianceFuel",
-    "tba.endgameAllianceFuel",
-    "tba.autoClimbStatus",
-    "tba.teleopClimbStatus",
-    "tba.wonAuto",
-    ...currentEvent().scoringComponents.flatMap((component) => [`statbotics.${component.id}`, `opr.${component.id}`, `pridge.${component.id}`]),
-    "statbotics.total",
+    ...currentAvailableTbaFormulaIdentifiers(),
+    ...currentAvailableStatboticsFormulaIdentifiers(),
     "opr.total",
     "pridge.total",
-    ...currentSeasonEquationList().map((definition) => definition.id),
+    ...currentProfileEquationList().map((definition) => definition.id),
     "allianceMatch",
     "match",
     "if",
@@ -4706,10 +7068,9 @@ function formulaAutocompleteCandidates(token) {
 function filterAutocompleteCandidates(token) {
   const normalizedToken = String(token || "").toLowerCase();
   return [
-    "scouting.total",
     ...currentAvailableScoutingFieldDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
-    "tba.climbScore",
-    "tba.wonAuto",
+    ...currentAvailableTbaFormulaIdentifiers(),
+    ...currentAvailableStatboticsFormulaIdentifiers(),
     "contains",
     "startsWith",
     "and",
@@ -4777,7 +7138,7 @@ function builtInFunctionGroups() {
       label: "Event Scoped",
       expandedByDefault: true,
       entries: sortEntries([
-        { name: "eventAverage(value, filter?)", description: "Average a per-team event value such as statbotics.total or average(scouting.autoSpeakerMade) across teams at the event." },
+        { name: "eventAverage(value, filter?)", description: "Average a per-team event value such as statbotics.epa.total_points or average(scouting.autoSpeakerMade) across teams at the event." },
         { name: "eventCount(value, filter?)", description: "Count teams whose per-team event value is present and nonzero. Do not pass raw match-level series like scouting.autoSpeakerMade." },
         { name: "eventSum(value, filter?)", description: "Sum a per-team event value such as pridge.total or average(scouting.autoSpeakerMade) across teams at the event." },
       ]),
@@ -4935,7 +7296,7 @@ function renderFormulaHelpStandaloneDocument() {
   <body>
     <article class="formula-help-page">
       <h1>Formula Functions</h1>
-      <p>Built-in helpers for derived equations. Keep this tab open as a reference while editing formulas.</p>
+      <p>Formula helpers and references. Keep this tab open as a reference while editing formulas.</p>
       <div class="formula-help-list">
         ${renderFormulaHelpStandaloneEntries()}
       </div>
@@ -4990,7 +7351,7 @@ function replaceFormulaToken(input, token, replacement) {
   const nextCursor = cursor - token.length + replacement.length;
   input.setSelectionRange(nextCursor, nextCursor);
   const definition = activeDerivedEquation();
-  if (definition) updateSeasonEquationFormula(definition.id, nextValue);
+  if (definition) updateProfileEquationFormula(definition.id, nextValue);
   saveState();
   requestAnimationFrame(() => {
     input.focus();
@@ -5072,71 +7433,6 @@ function filterAutocompleteState(input) {
   };
 }
 
-function renderFilterAutocomplete(input, requestedIndex = 0) {
-  const popup = document.querySelector("#seasonFilterAutocomplete");
-  if (!popup || !input) return { token: "", candidates: [], selectedIndex: -1 };
-  const autocomplete = filterAutocompleteState(input);
-  if (!autocomplete.token || !autocomplete.candidates.length) {
-    popup.hidden = true;
-    popup.innerHTML = "";
-    popup.dataset.selectedIndex = "-1";
-    return { ...autocomplete, selectedIndex: -1 };
-  }
-  const selectedIndex = Math.max(0, Math.min(autocomplete.candidates.length - 1, requestedIndex));
-  popup.hidden = false;
-  popup.dataset.selectedIndex = String(selectedIndex);
-  popup.innerHTML = autocomplete.candidates
-    .slice(0, 100)
-    .map(
-      (candidate, index) => `
-        <button
-          type="button"
-          class="formula-autocomplete-item ${index === selectedIndex ? "active" : ""}"
-          data-filter-formula-suggestion="${escapeAttribute(candidate)}"
-        >
-          ${escapeHtml(candidate)}
-        </button>
-      `,
-    )
-    .join("");
-  return { ...autocomplete, selectedIndex };
-}
-
-function hideFilterAutocomplete() {
-  const popup = document.querySelector("#seasonFilterAutocomplete");
-  if (!popup) return;
-  popup.hidden = true;
-  popup.innerHTML = "";
-  popup.dataset.selectedIndex = "-1";
-}
-
-function selectedFilterAutocompleteCandidate() {
-  const popup = document.querySelector("#seasonFilterAutocomplete");
-  if (!popup || popup.hidden) return "";
-  const selectedIndex = Number(popup.dataset.selectedIndex || "-1");
-  const button = popup.querySelectorAll("[data-filter-formula-suggestion]")[selectedIndex];
-  return button?.dataset.filterFormulaSuggestion || "";
-}
-
-function replaceFilterToken(input, token, replacement) {
-  const cursor = input.selectionStart ?? input.value.length;
-  const nextValue = `${input.value.slice(0, cursor - token.length)}${replacement}${input.value.slice(cursor)}`;
-  input.value = nextValue;
-  const nextCursor = cursor - token.length + replacement.length;
-  input.setSelectionRange(nextCursor, nextCursor);
-  const definition = activeSeasonFilter();
-  if (definition) updateSeasonFilterFormula(definition.id, nextValue);
-  saveState();
-  requestAnimationFrame(() => {
-    input.focus();
-    input.setSelectionRange(nextCursor, nextCursor);
-  });
-}
-
-function updateFilterSuggestionList(input) {
-  renderFilterAutocomplete(input);
-}
-
 function removePicklist(id) {
   if (state.picklists.length <= 1) return;
   const nextPicklists = state.picklists.filter((picklist) => picklist.id !== id);
@@ -5155,7 +7451,7 @@ function removeSortEquation(id) {
   const nextEquations = state.sortEquations.filter((equation) => equation.id !== id);
   state.sortEquations = nextEquations;
   state.activeSortEquation = nextEquations[Math.min(nextEquations.length - 1, nextEquations.findIndex((equation) => equation.id === state.activeSortEquation))]?.id || nextEquations[0].id;
-  state.metric = state.metric === `sort:${id}` ? "epa" : state.metric;
+  state.metric = state.metric === `sort:${id}` ? "" : state.metric;
   state.loadedSources = state.loadedSources.filter((entry) => entry !== `sort:${id}`);
   state.picklistColumns = state.picklistColumns.map((entry) => (entry === `sort:${id}` ? "" : entry));
   if (state.contextMenu?.id === id) state.contextMenu = null;
@@ -5188,12 +7484,12 @@ function renameSortEquation(id, requestedName) {
 function duplicateSortEquation(id) {
   const equation = state.sortEquations.find((item) => item.id === id);
   if (!equation) return;
-  const baseName = isProtectedSortEquation(equation) ? "EPA Copy" : `${equation.name} Copy`;
+  const baseName = isProtectedSortEquation(equation) ? "Statbotics Copy" : `${equation.name} Copy`;
   const name = uniqueEntityName(baseName, state.sortEquations, baseName);
   const duplicate = {
     id: createId("sort"),
     name,
-    terms: normalizeCriteriaTerms(equation.metricId ? defaultCriteriaTerms : equation.terms),
+    terms: normalizeCriteriaTerms(equation.metricId ? defaultCriteriaTerms() : equation.terms),
     locked: false,
   };
   state.sortEquations = [...state.sortEquations, duplicate];
@@ -5207,10 +7503,8 @@ function startInlineRename(kind, id) {
   const collection = kind === "sortEquation"
     ? state.sortEquations
     : kind === "derivedEquation"
-      ? currentSeasonEquationList()
-      : kind === "seasonFilter"
-        ? currentSeasonFilterList()
-        : state.picklists;
+      ? currentProfileEquationList()
+      : state.picklists;
   const item = collection.find((entry) => entry.id === id);
   if (!item || (kind === "sortEquation" && isProtectedSortEquation(item))) return;
   state.inlineRename = { kind, id, value: item.name };
@@ -5222,8 +7516,7 @@ function commitInlineRename() {
   const { kind, id, value } = state.inlineRename;
   state.inlineRename = null;
   if (kind === "sortEquation") renameSortEquation(id, value);
-  else if (kind === "derivedEquation") renameSeasonEquation(id, value);
-  else if (kind === "seasonFilter") renameSeasonFilter(id, value);
+  else if (kind === "derivedEquation") renameProfileEquation(id, value);
   else renamePicklist(id, value);
 }
 
@@ -5278,16 +7571,18 @@ function handleBuilderKeyboard(event) {
         const index = activeMetricId ? availableMetrics.findIndex((item) => item.id === activeMetricId) : -1;
         const next = availableMetrics[Math.max(0, Math.min(availableMetrics.length - 1, index + direction))];
         if (!next) return;
+        captureBuilderListScroll();
         state.activeDerivedPreviewMetricId = next.id;
         saveState();
         render();
         return;
       }
-      const equations = currentSeasonEquationList();
+      const equations = currentProfileEquationList();
       const activeEquationId = ensureActiveDerivedEquation();
       const index = equations.findIndex((item) => item.id === activeEquationId);
       const next = equations[Math.max(0, Math.min(equations.length - 1, index + direction))];
       if (!next) return;
+      captureBuilderListScroll();
       state.activeDerivedEquationId = next.id;
       state.activeDerivedPreviewMetricId = "";
       state.builderFocus.derivedBuilder = "equations";
@@ -5332,6 +7627,11 @@ function bindViewEvents() {
     saveState();
     render();
   });
+  document.querySelector("#analysisFilterSelect")?.addEventListener("change", (event) => {
+    state.activeAnalysisFilterId = normalizeAnalysisFilterSelection(event.target.value);
+    saveState();
+    render();
+  });
   document.querySelector("#teamDetailMetricSelect")?.addEventListener("change", (event) => {
     state.teamDetailMetric = normalizeTeamDetailMetric(event.target.value);
     saveState();
@@ -5358,15 +7658,73 @@ function bindViewEvents() {
     saveState();
     render();
   });
-  document.querySelector("#adminEventSelect")?.addEventListener("change", (event) => {
-    const nextEventKey = event.target.value;
-    if (!nextEventKey) return;
-    switchActiveEvent(nextEventKey, { activeView: "admin" });
+  document.querySelector("#openRecentAdminEventsButton")?.addEventListener("click", () => {
+    state.adminRecentEventsOpen = !state.adminRecentEventsOpen;
+    render();
   });
-  document.querySelector("#switchAdminEventButton")?.addEventListener("click", () => {
-    const nextEventKey = document.querySelector("#adminEventSelect")?.value;
-    if (!nextEventKey) return;
-    switchActiveEvent(nextEventKey, { activeView: "admin" });
+  document.querySelector("#recentAdminEventSelect")?.addEventListener("input", async (event) => {
+    await applyRecentAdminEventSelection(event.target.value);
+  });
+  document.querySelector("#recentAdminEventSelect")?.addEventListener("change", async (event) => {
+    await applyRecentAdminEventSelection(event.target.value);
+  });
+  document.querySelector("#recentAdminEventSelect")?.addEventListener("dblclick", async (event) => {
+    await applyRecentAdminEventSelection(event.target.value);
+  });
+  document.querySelector("#recentAdminEventSelect")?.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    await applyRecentAdminEventSelection(event.target.value);
+  });
+  document.querySelector("#adminEventCodeInput")?.addEventListener("input", (event) => {
+    state.adminEventCodeDraft = normalizeText(event.target.value).toLowerCase();
+  });
+  document.querySelector("#adminEventCodeInput")?.addEventListener("change", async (event) => {
+    await applyAdminEventCodeDraft(event.target.value);
+  });
+  document.querySelector("#adminEventCodeInput")?.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    await applyAdminEventCodeDraft(event.target.value);
+  });
+  document.querySelector("#adminTbaAuthKeyInput")?.addEventListener("focus", () => {
+    beginEditingTbaAuthKey();
+  });
+  document.querySelector("#adminTbaAuthKeyInput")?.addEventListener("input", (event) => {
+    updateTbaAuthKeyDraft(event.target.value);
+    document.querySelector("#saveTbaAuthKeyButton")?.removeAttribute("disabled");
+  });
+  document.querySelector("#adminTbaAuthKeyInput")?.addEventListener("blur", () => {
+    restoreTbaAuthKeyDraftIfNeeded();
+  });
+  document.querySelector("#saveTbaAuthKeyButton")?.addEventListener("click", () => {
+    saveTbaAuthKeyDraft();
+  });
+  document.querySelector("#adminStatboticsBaseUrlInput")?.addEventListener("input", (event) => {
+    updateStatboticsBaseUrlDraft(event.target.value);
+    document.querySelector("#saveStatboticsBaseUrlButton")?.removeAttribute("disabled");
+  });
+  document.querySelector("#adminStatboticsBaseUrlInput")?.addEventListener("blur", () => {
+    restoreStatboticsBaseUrlDraftIfNeeded();
+  });
+  document.querySelector("#saveStatboticsBaseUrlButton")?.addEventListener("click", () => {
+    saveStatboticsBaseUrlDraft();
+  });
+  document.querySelector("#chooseLocalScoutingFileButton")?.addEventListener("click", async () => {
+    await chooseLocalScoutingAttachmentFile();
+  });
+  document.querySelector("#chooseLocalScoutingSchemaFileButton")?.addEventListener("click", async () => {
+    await chooseLocalScoutingSchemaFile();
+  });
+  document.querySelector("#clearCurrentEventScoutingDataButton")?.addEventListener("click", () => {
+    if (!confirm(`Clear all saved scouting rows for ${state.activeEventKey}? This keeps your event settings and source bindings.`)) return;
+    clearCurrentEventScoutingData();
+  });
+  document.querySelector("#refreshAllSourcesButton")?.addEventListener("click", async () => {
+    await refreshAllDataSources();
+  });
+  document.querySelector("#toggleAllSourcePollingButton")?.addEventListener("click", () => {
+    setAllDataSourcePollingEnabled(!allDataSourcePollingEnabled());
   });
   document.querySelector("#clearAllianceBoardButton")?.addEventListener("click", clearAllianceBoard);
   document.querySelectorAll("[data-team], [data-team-link]").forEach((element) => {
@@ -5502,7 +7860,7 @@ function bindViewEvents() {
   });
   document.querySelector("#addSortEquationButton")?.addEventListener("click", () => {
     const name = uniqueEntityName("Sort Equation", state.sortEquations, "Sort Equation");
-    const equation = { id: createId("sort"), name, terms: normalizeCriteriaTerms(defaultCriteriaTerms) };
+    const equation = { id: createId("sort"), name, terms: normalizeCriteriaTerms(defaultCriteriaTerms()) };
     state.sortEquations = [...state.sortEquations, equation];
     state.activeSortEquation = equation.id;
     state.builderFocus.sortBuilder = "list";
@@ -5511,12 +7869,12 @@ function bindViewEvents() {
   });
   document.querySelector("#addDerivedEquationButton")?.addEventListener("click", () => {
     if (!isAdmin()) return;
-    addSeasonEquation();
+    addProfileEquation();
   });
   document.querySelector("#derivedEquationFormulaInput")?.addEventListener("input", (event) => {
     const definition = activeDerivedEquation();
     if (!definition) return;
-    updateSeasonEquationFormula(definition.id, event.target.value);
+    updateProfileEquationFormula(definition.id, event.target.value);
     updateFormulaSuggestionList(event.target);
     saveState();
   });
@@ -5572,7 +7930,7 @@ function bindViewEvents() {
         }
       }
       const definition = activeDerivedEquation();
-      if (definition) updateSeasonEquationFormula(definition.id, nextValue);
+      if (definition) updateProfileEquationFormula(definition.id, nextValue);
       saveState();
       hideFormulaAutocomplete();
       render();
@@ -5603,6 +7961,7 @@ function bindViewEvents() {
   });
   document.querySelectorAll("[data-derived-preview-metric]").forEach((item) => {
     item.addEventListener("click", () => {
+      captureBuilderListScroll();
       state.activeDerivedPreviewMetricId = item.dataset.derivedPreviewMetric || "";
       state.builderFocus.derivedBuilder = "metrics";
       saveState();
@@ -5624,9 +7983,15 @@ function bindViewEvents() {
       });
     });
   });
+  document.querySelectorAll("[data-builder-list-scroll]").forEach((list) => {
+    list.addEventListener("scroll", () => {
+      captureBuilderListScroll();
+    });
+  });
   document.querySelectorAll("[data-entity-row]").forEach((row) => {
     row.addEventListener("click", () => {
       captureBuilderGridScroll();
+      captureBuilderListScroll();
       const kind = row.dataset.entityKind;
       const id = row.dataset.entityId;
       if (kind === "sortEquation") {
@@ -5636,8 +8001,6 @@ function bindViewEvents() {
         state.activeDerivedEquationId = id;
         state.activeDerivedPreviewMetricId = "";
         state.builderFocus.derivedBuilder = "equations";
-      } else if (kind === "seasonFilter") {
-        state.activeSeasonFilterId = id;
       } else {
         state.activePicklist = id;
         state.builderFocus.picklistBuilder = "list";
@@ -5673,11 +8036,8 @@ function bindViewEvents() {
         if (draggedId === protectedEpaSortId || row.dataset.entityId === protectedEpaSortId) return;
         state.sortEquations = moveItemBefore(state.sortEquations, state.sortEquations.find((item) => item.id === draggedId), state.sortEquations.find((item) => item.id === row.dataset.entityId));
       } else if (kind === "derivedEquation") {
-        const moved = moveItemBefore(currentSeasonEquationList(), currentSeasonEquationList().find((item) => item.id === draggedId), currentSeasonEquationList().find((item) => item.id === row.dataset.entityId));
-        updateSeasonEquationList(moved.map((item, index) => ({ ...item, sourceOrder: index })));
-      } else if (kind === "seasonFilter") {
-        const moved = moveItemBefore(currentSeasonFilterList(), currentSeasonFilterList().find((item) => item.id === draggedId), currentSeasonFilterList().find((item) => item.id === row.dataset.entityId));
-        updateSeasonFilterList(moved.map((item, index) => ({ ...item, sourceOrder: index })));
+        const moved = moveItemBefore(currentProfileEquationList(), currentProfileEquationList().find((item) => item.id === draggedId), currentProfileEquationList().find((item) => item.id === row.dataset.entityId));
+        updateProfileEquationList(moved.map((item, index) => ({ ...item, sourceOrder: index })));
       } else {
         state.picklists = moveItemBefore(state.picklists, state.picklists.find((item) => item.id === draggedId), state.picklists.find((item) => item.id === row.dataset.entityId));
       }
@@ -5701,14 +8061,13 @@ function bindViewEvents() {
       const [kind, id] = button.dataset.contextDelete.split(":");
       state.contextMenu = null;
       render();
-      const collection = kind === "sortEquation" ? state.sortEquations : kind === "derivedEquation" ? currentSeasonEquationList() : kind === "seasonFilter" ? currentSeasonFilterList() : state.picklists;
+      const collection = kind === "sortEquation" ? state.sortEquations : kind === "derivedEquation" ? currentProfileEquationList() : state.picklists;
       const item = collection.find((entry) => entry.id === id);
       if (!item) return;
-      const label = kind === "sortEquation" ? "sort equation" : kind === "derivedEquation" ? "derived equation" : kind === "seasonFilter" ? "season filter" : "picklist";
+      const label = kind === "sortEquation" ? "sort equation" : kind === "derivedEquation" ? "derived equation" : "picklist";
       if (!confirm(`Remove ${label} "${item.name}"? This cannot be undone.`)) return;
       if (kind === "sortEquation") removeSortEquation(id);
-      else if (kind === "derivedEquation") removeSeasonEquation(id);
-      else if (kind === "seasonFilter") removeSeasonFilter(id);
+      else if (kind === "derivedEquation") removeProfileEquation(id);
       else removePicklist(id);
     });
   });
@@ -5716,7 +8075,7 @@ function bindViewEvents() {
     const equation = activeSortEquation();
     if (isProtectedSortEquation(equation)) return;
     if (equation.terms.length >= 5) return;
-    const terms = normalizeCriteriaTerms([...equation.terms, { operator: "+", weight: 1, metricId: currentEvent().defaultMetricId }]);
+    const terms = normalizeCriteriaTerms([...equation.terms, { operator: "+", weight: 1, metricId: "" }]);
     updateSortEquation(equation.id, (current) => ({ ...current, terms }));
   });
   document.querySelectorAll(".term-weight, .term-operator, .term-metric").forEach((control) => {
@@ -5826,12 +8185,32 @@ function bindViewEvents() {
     });
   });
   document.querySelector("#importSourceUrl")?.addEventListener("input", (event) => {
-    state.importSourceUrl = event.target.value;
+    setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: false });
+  });
+  document.querySelector("#importSourceUrl")?.addEventListener("change", async (event) => {
+    setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: false });
+    await applyScoutingSourceInputChange({
+      scoutingImportSource: "manual-source-change",
+    });
+  });
+  document.querySelector("#importSchemaSourceUrl")?.addEventListener("input", (event) => {
+    setCurrentScoutingSchemaSourceUrl(event.target.value, { applyToAttachment: false });
+  });
+  document.querySelector("#importSchemaSourceUrl")?.addEventListener("change", async (event) => {
+    setCurrentScoutingSchemaSourceUrl(event.target.value, { applyToAttachment: false });
+    await applyScoutingSchemaSourceInputChange({
+      scoutingImportSource: "manual-schema-source-change",
+    });
+  });
+  document.querySelector("#scoutingAttachmentProfileId")?.addEventListener("change", async (event) => {
+    await applyScoutingProfileSelectionChange(event.target.value);
   });
   document.querySelector("#importCsvInput")?.addEventListener("input", (event) => {
     state.importCsvText = event.target.value;
+    state.importDraftSource = "";
   });
   document.querySelector("#loadScoutingDataButton")?.addEventListener("click", async () => {
+    saveCurrentScoutingAttachmentDraftFromDom({ render: false });
     await loadScoutingData();
   });
   document.querySelector("#dryRunImportButton")?.addEventListener("click", () => {
@@ -5842,7 +8221,9 @@ function bindViewEvents() {
   });
   document.querySelector("#clearImportButton")?.addEventListener("click", () => {
     state.importCsvText = "";
+    state.importSchemaJsonText = "";
     state.importSelectedProfileId = "";
+    state.importDraftSource = "";
     state.importResult = null;
     render();
   });
@@ -5872,3 +8253,4 @@ function bindViewEvents() {
   document.onkeydown = handleBuilderKeyboard;
 }
 
+bootstrapApp();

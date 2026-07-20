@@ -1,0 +1,22 @@
+{
+  "meta": {
+    "format": "frc-scouting-analysis/v1",
+    "season": 2026,
+    "eventKey": "2026chcmp",
+    "entryType": "match",
+    "exportedAt": ""
+  },
+  "entries": [
+    {
+      "entryId": "entry-1",
+      "matchNumber": 1,
+      "teamNumber": 686,
+      "alliance": "red",
+      "rawMetrics": {
+        "autoFuelPct": 80,
+        "scoutUser": "Scout A",
+        "station": "1"
+      }
+    }
+  ]
+}

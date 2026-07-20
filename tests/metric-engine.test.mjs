@@ -493,12 +493,12 @@ runTest("evaluateFormulaExpression delegates alliance-scoped functions", () => {
 });
 
 runTest("evaluateFormulaExpression delegates event-scoped functions", () => {
-  const result = metricEngine.evaluateFormulaExpression("eventAverage(average(scouting.autoFuelPct), statbotics.total > 0)", {
+  const result = metricEngine.evaluateFormulaExpression("eventAverage(average(scouting.autoFuelPct), statbotics.epa.total_points > 0)", {
     resolveIdentifier(identifier) {
       if (identifier === "scouting.autoFuelPct") {
         return metricEngine.seriesResult([{ key: 3, value: 40 }]);
       }
-      if (identifier === "statbotics.total") {
+      if (identifier === "statbotics.epa.total_points") {
         return metricEngine.scalarResult(10, "event");
       }
       return metricEngine.errorResult(`Unknown identifier ${identifier}`);
@@ -517,12 +517,12 @@ runTest("evaluateFormulaExpression delegates event-scoped functions", () => {
 });
 
 runTest("evaluateFormulaExpression rejects mixed granularity without averaging", () => {
-  const result = metricEngine.evaluateFormulaExpression("scouting.teleL3Made + statbotics.total", {
+  const result = metricEngine.evaluateFormulaExpression("scouting.teleL3Made + statbotics.epa.total_points", {
     resolveIdentifier(identifier) {
       if (identifier === "scouting.teleL3Made") {
         return metricEngine.seriesResult([{ key: 1, value: 3 }]);
       }
-      if (identifier === "statbotics.total") {
+      if (identifier === "statbotics.epa.total_points") {
         return metricEngine.scalarResult(100, "event");
       }
       return metricEngine.errorResult(`Unknown identifier ${identifier}`);
@@ -844,7 +844,7 @@ runTest("metricTrendValues returns direct and derived trends", () => {
         components: { auto: 10 },
         componentTrend: { auto: [4, 10, 16] },
       },
-      epa: {
+      statbotics: {
         total: 50,
         trend: [40, 50, 60],
         components: { auto: 15 },
@@ -860,7 +860,7 @@ runTest("metricTrendValues returns direct and derived trends", () => {
   );
 
   assert.deepEqual(
-    metricEngine.metricTrendValues(team, { kind: "source", sourceId: "epa", componentId: "auto" }),
+    metricEngine.metricTrendValues(team, { kind: "source", sourceId: "statbotics", componentId: "auto" }),
     [12, 15, 18],
   );
 

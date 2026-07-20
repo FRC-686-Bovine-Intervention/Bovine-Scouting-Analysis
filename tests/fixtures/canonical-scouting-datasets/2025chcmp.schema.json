@@ -1,0 +1,326 @@
+{
+  "meta": {
+    "format": "frc-scouting-analysis/v1",
+    "sourceApp": "legacy-sheet-translator",
+    "templateProfileId": "match-current-v2",
+    "profileLabel": "Current Match Template",
+    "translationVersion": "2025-thin-v2"
+  },
+  "schema": {
+    "schemaId": "match-v2",
+    "fields": [
+      {
+        "id": "autoL4Made",
+        "label": "Auto L4 Made",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "autoL4Missed",
+        "label": "Auto L4 Missed",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "autoL3Made",
+        "label": "Auto L3 Made",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "autoL3Missed",
+        "label": "Auto L3 Missed",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "autoL2Made",
+        "label": "Auto L2 Made",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "autoL2Missed",
+        "label": "Auto L2 Missed",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "autoTroughMade",
+        "label": "Auto Trough Made",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "autoTroughMissed",
+        "label": "Auto Trough Missed",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "autoRemovedAlgaeMade",
+        "label": "Auto Removed Algae Made",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "autoRemovedAlgaeMissed",
+        "label": "Auto Removed Algae Missed",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "autoProcessorMade",
+        "label": "Auto Processor Made",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "autoProcessorMissed",
+        "label": "Auto Processor Missed",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "autoBargeMade",
+        "label": "Auto Barge Made",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "autoBargeMissed",
+        "label": "Auto Barge Missed",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "teleL4Made",
+        "label": "Teleop L4 Made",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "teleL4Missed",
+        "label": "Teleop L4 Missed",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "teleL3Made",
+        "label": "Teleop L3 Made",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "teleL3Missed",
+        "label": "Teleop L3 Missed",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "teleL2Made",
+        "label": "Teleop L2 Made",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "teleL2Missed",
+        "label": "Teleop L2 Missed",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "teleTroughMade",
+        "label": "Teleop Trough Made",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "teleTroughMissed",
+        "label": "Teleop Trough Missed",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "teleRemovedAlgaeMade",
+        "label": "Teleop Removed Algae Made",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "teleRemovedAlgaeMissed",
+        "label": "Teleop Removed Algae Missed",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "teleProcessorMade",
+        "label": "Teleop Processor Made",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "teleProcessorMissed",
+        "label": "Teleop Processor Missed",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "teleBargeMade",
+        "label": "Teleop Barge Made",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "teleBargeMissed",
+        "label": "Teleop Barge Missed",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "climbLevel",
+        "label": "Climb Level",
+        "type": "number",
+        "unit": "level",
+        "optional": false,
+        "aggregate": "average"
+      },
+      {
+        "id": "climbAttempt",
+        "label": "Climb Attempt",
+        "type": "number",
+        "unit": "count",
+        "optional": false,
+        "aggregate": "max"
+      },
+      {
+        "id": "driverPerformance",
+        "label": "Driver Performance",
+        "type": "number",
+        "unit": "rating",
+        "optional": true,
+        "aggregate": "average"
+      },
+      {
+        "id": "playedDefenseRating",
+        "label": "Played Defense",
+        "type": "number",
+        "unit": "rating",
+        "optional": true,
+        "aggregate": "average"
+      },
+      {
+        "id": "defenseOnThemRating",
+        "label": "Defense On Them",
+        "type": "number",
+        "unit": "rating",
+        "optional": true,
+        "aggregate": "average"
+      }
+    ]
+  },
+  "profile": {
+    "id": "match-current-v2",
+    "label": "Current Match Template",
+    "equations": [
+      {
+        "id": "scoutingTotal",
+        "name": "Scouting Total",
+        "formula": "scouting.auto + scouting.coral + scouting.algae + scouting.climb",
+        "unit": "pts",
+        "description": "Per-match scouting total from the imported scoring components."
+      },
+      {
+        "id": "auto",
+        "name": "Auto",
+        "formula": "average(scouting.autoL3Made * 6 + scouting.autoL2Made * 4 + scouting.autoTroughMade * 3 + scouting.autoProcessorMade * 6 + scouting.autoBargeMade * 4)",
+        "unit": "pts",
+        "description": "Average scouted autonomous points per match."
+      },
+      {
+        "id": "coral",
+        "name": "Coral",
+        "formula": "average(scouting.teleL4Made * 5 + scouting.teleL3Made * 4 + scouting.teleL2Made * 3 + scouting.teleTroughMade * 2)",
+        "unit": "pts",
+        "description": "Average scouted teleop coral points per match."
+      },
+      {
+        "id": "algae",
+        "name": "Algae",
+        "formula": "average(scouting.teleProcessorMade * 6 + scouting.teleBargeMade * 4)",
+        "unit": "pts",
+        "description": "Average scouted teleop algae points per match."
+      },
+      {
+        "id": "climb",
+        "name": "Climb",
+        "formula": "average(if(scouting.climbLevel == 3, 12, if(scouting.climbLevel == 2, 6, if(scouting.climbLevel == 1, 2, 0))))",
+        "unit": "pts",
+        "description": "Average scouted climb points per match."
+      },
+      {
+        "id": "avgClimbScoreOverAttempts",
+        "name": "Average Climb Score Over Attempts",
+        "formula": "average(if(scouting.climbLevel == 3, 12, if(scouting.climbLevel == 2, 6, if(scouting.climbLevel == 1, 2, 0))), scouting.climbAttempt > 0)",
+        "unit": "pts",
+        "description": "Average scouted climb score over recent attempted climbs."
+      }
+    ]
+  }
+}

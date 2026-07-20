@@ -1,0 +1,17 @@
+{
+  "meta": {
+    "format": "frc-scouting-analysis/v1",
+    "sourceApp": "",
+    "templateProfileId": "canonical-json-v1",
+    "profileLabel": "Canonical JSON",
+    "translationVersion": ""
+  },
+  "schema": {
+    "schemaId": "2026-match-v1"
+  },
+  "profile": {
+    "id": "canonical-json-v1",
+    "label": "Canonical JSON",
+    "equations": []
+  }
+}

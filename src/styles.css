@@ -392,6 +392,44 @@ select {
   gap: 10px;
 }
 
+.admin-field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: 0;
+}
+
+.admin-field-row > * {
+  min-width: 0;
+}
+
+.admin-field-row input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.checkbox-row input {
+  width: auto;
+  min-height: auto;
+}
+
+.attachment-status-card,
+.attachment-metadata-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.attachment-metadata-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .review-group-list,
 .review-submission-list {
   display: grid;
@@ -561,7 +599,7 @@ select {
 
 .data-source-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 130px 160px;
+  grid-template-columns: minmax(220px, 1fr) 170px;
   gap: 12px;
   align-items: center;
   padding: 10px 12px;
@@ -576,13 +614,55 @@ select {
 }
 
 .source-status {
+  display: inline-flex;
+  align-items: center;
   justify-self: start;
   padding: 4px 7px;
-  border: 1px solid color-mix(in srgb, var(--warn) 50%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--line) 75%, var(--panel));
   border-radius: 999px;
-  color: var(--warn);
+  background: color-mix(in srgb, var(--line) 10%, var(--panel));
+  color: var(--muted);
   font-size: 0.74rem;
   font-weight: 800;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.source-status.status-ready {
+  border-color: color-mix(in srgb, var(--good) 50%, var(--line));
+  background: color-mix(in srgb, var(--good) 12%, var(--panel));
+  color: var(--good);
+}
+
+.source-status.status-stale {
+  border-color: color-mix(in srgb, var(--warn) 50%, var(--line));
+  background: color-mix(in srgb, var(--warn) 12%, var(--panel));
+  color: var(--warn);
+}
+
+.source-status.status-error {
+  border-color: color-mix(in srgb, #dc2626 45%, var(--line));
+  background: color-mix(in srgb, #dc2626 10%, var(--panel));
+  color: #b91c1c;
+}
+
+.source-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.source-status-stack {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+
+
+.source-actions-stack {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
 }
 
 .stat span,

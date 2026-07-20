@@ -17,6 +17,10 @@ const templateProfileSpecs = [
 
 const requiredMetadataKeys = ["season", "eventKey", "schemaVersion", "templateProfileId"];
 const requiredIdentityFields = ["matchNumber", "teamNumber", "scoutUser", "alliance", "station"];
+
+function currentScoutingSourceUtils() {
+  return globalThis.ScoutingSourceUtils || {};
+}
 const headerSynonymGroups = {
   matchnumber: ["match", "matchnum", "qualificationmatch"],
   teamnumber: ["team", "team#", "teamnum", "team_no", "teamno"],
@@ -105,19 +109,63 @@ function normalizeHeader(value, map) {
 }
 
 function componentFieldId(component) {
-  return normalizeToken((seasonFramework.metricFieldId || ((metricDefinition) => metricDefinition.id))(component));
+  return normalizeToken((component?.csvKey || component?.id || ""));
 }
 
 function scouterMetricDefinitions(eventModel) {
-  return (seasonFramework.scouterMetricDefinitions || ((model) => model?.scoringComponents || []))(eventModel);
+  if (Array.isArray(eventModel?.scouterMetricDefinitions) && eventModel.scouterMetricDefinitions.length) {
+    return eventModel.scouterMetricDefinitions;
+  }
+  if (typeof seasonFramework.scouterMetricDefinitions === "function") {
+    const seededDefinitions = seasonFramework.scouterMetricDefinitions(eventModel);
+    if (Array.isArray(seededDefinitions) && seededDefinitions.length) return seededDefinitions;
+  }
+  return formulaFieldDefinitions(eventModel).filter((fieldDefinition) => {
+    const fieldType = String(fieldDefinition?.type || "").trim().toLowerCase()
+      || (String(fieldDefinition?.unit || "").trim().toLowerCase() === "text" ? "string" : "number");
+    return fieldType !== "string";
+  });
 }
 
 function formulaFieldDefinitions(eventModel) {
-  return (seasonFramework.formulaFieldDefinitions || seasonFramework.scouterMetricDefinitions || ((model) => model?.scoringComponents || []))(eventModel);
+  if (Array.isArray(eventModel?.formulaFieldDefinitions) && eventModel.formulaFieldDefinitions.length) {
+    return eventModel.formulaFieldDefinitions;
+  }
+  if (typeof seasonFramework.formulaFieldDefinitions === "function") {
+    const seededDefinitions = seasonFramework.formulaFieldDefinitions(eventModel);
+    if (Array.isArray(seededDefinitions) && seededDefinitions.length) return seededDefinitions;
+  }
+  const definitions = [];
+  const seen = new Set();
+  const append = (fieldDefinition) => {
+    const fieldId = normalizeToken(fieldDefinition?.id);
+    if (!fieldId || seen.has(fieldId)) return;
+    seen.add(fieldId);
+    definitions.push(fieldDefinition);
+  };
+  (eventModel?.scoringComponents || []).forEach((component) => append({
+    id: component.id,
+    label: component.label,
+    unit: component.unit || "pts",
+  }));
+  (eventModel?.scouterMetricDefinitions || eventModel?.scouterMetrics || []).forEach(append);
+  (eventModel?.formulaFields || []).forEach(append);
+  return definitions;
+}
+
+function schemaFieldEntries(eventModel) {
+  return formulaFieldDefinitions(eventModel).map((fieldDefinition) => ({
+    id: fieldDefinition.id,
+    label: fieldDefinition.label || fieldDefinition.id,
+    type: String(fieldDefinition?.type || "").trim() || (String(fieldDefinition.unit || "").trim().toLowerCase() === "text" ? "string" : "number"),
+    unit: fieldDefinition.unit || "",
+    aggregate: fieldDefinition.aggregate || "average",
+  }));
 }
 
 function csvHeaderForMetric(component) {
-  return (seasonFramework.csvHeaderForMetric || ((metricDefinition) => (metricDefinition.unit === "pts" ? `${metricDefinition.id}Pts` : metricDefinition.id)))(component);
+  if (component?.csvKey) return component.csvKey;
+  return component?.unit === "pts" ? `${component.id}Pts` : component.id;
 }
 
 function currentHeaderLabels(eventModel) {
@@ -218,6 +266,18 @@ function parseImportedMetricValue(value) {
   return value;
 }
 
+function buildSubmissionProvenance(metadata, rowNumber, submissionId) {
+  return Object.fromEntries(
+    Object.entries({
+      mode: "csv-import",
+      sourceRowNumber: rowNumber,
+      sourceSubmissionId: submissionId,
+      translatorVersion: metadata.translationVersion || "",
+      templateProfileId: metadata.templateProfileId || "",
+    }).filter(([, value]) => value !== undefined && value !== null && value !== ""),
+  );
+}
+
 function importedValueType(value) {
   if (value === null || value === undefined) return "null";
   if (typeof value === "number") return "number";
@@ -273,7 +333,7 @@ function expectedTemplateMetadata(eventModel, profile) {
 function validateMetadata(metadata, eventModel, profile, activeEventKey) {
   const warnings = [];
   const errors = [];
-  const expected = expectedTemplateMetadata(eventModel, profile);
+  const expected = profile ? expectedTemplateMetadata(eventModel, profile) : null;
 
   requiredMetadataKeys.forEach((key) => {
     if (!metadata[key]) warnings.push(`Missing metadata field: ${key}`);
@@ -282,10 +342,10 @@ function validateMetadata(metadata, eventModel, profile, activeEventKey) {
   if (metadata.season && String(metadata.season) !== String(eventModel.season)) {
     errors.push(`Metadata season ${metadata.season} does not match active season ${eventModel.season}.`);
   }
-  if (metadata.schemaVersion && metadata.schemaVersion !== expected.schemaVersion) {
+  if (expected && metadata.schemaVersion && metadata.schemaVersion !== expected.schemaVersion) {
     errors.push(`Metadata schema version ${metadata.schemaVersion} does not match profile ${profile.schemaVersion}.`);
   }
-  if (metadata.templateProfileId && metadata.templateProfileId !== profile.id) {
+  if (expected && metadata.templateProfileId && metadata.templateProfileId !== profile.id) {
     errors.push(`Metadata template profile ${metadata.templateProfileId} does not match detected profile ${profile.id}.`);
   }
   if (metadata.eventKey && metadata.eventKey !== activeEventKey) {
@@ -301,7 +361,7 @@ function parseRows(rows, headers, profile, eventModel, metadata) {
   const parsedRows = [];
   const metricHeaders = formulaFieldDefinitions(eventModel).map((fieldDefinition) => ({
     fieldDefinition,
-    normalizedHeader: normalizeHeader(profile.kind === "current" ? csvHeaderForMetric(fieldDefinition) : fieldDefinition.label, profile.synonyms),
+    normalizedHeader: componentFieldId(fieldDefinition),
   }));
 
   rows.forEach((row, rowOffset) => {
@@ -311,8 +371,8 @@ function parseRows(rows, headers, profile, eventModel, metadata) {
       id: createId("submission"),
       season: Number(metadata.season || eventModel.season),
       eventKey: metadata.eventKey || eventModel.key,
-      schemaVersion: metadata.schemaVersion || profile.schemaVersion,
-      templateProfileId: metadata.templateProfileId || profile.id,
+      schemaVersion: metadata.schemaVersion || profile?.schemaVersion || "",
+      templateProfileId: metadata.templateProfileId || profile?.id || "",
       sourceType: "team-scouting",
       matchNumber: toNumber(row[index.get("matchnumber")]),
       teamNumber: toNumber(row[index.get("teamnumber")]),
@@ -327,7 +387,9 @@ function parseRows(rows, headers, profile, eventModel, metadata) {
       confidenceTier: "high",
       confidenceReasons: [],
       rowNumber,
+      provenance: buildSubmissionProvenance(metadata, rowNumber, null),
     };
+    baseRecord.provenance.sourceSubmissionId = baseRecord.id;
 
     metricHeaders.forEach(({ fieldDefinition, normalizedHeader }) => {
       const cellIndex = index.get(normalizedHeader);
@@ -362,47 +424,18 @@ function parseRows(rows, headers, profile, eventModel, metadata) {
   return { parsedRows, warnings };
 }
 
-function duplicateKey(submission) {
-  return `${submission.eventKey}:${submission.matchNumber}:${submission.teamNumber}`;
-}
-
-function applyDuplicateFlags(existingSubmissions, incomingSubmissions) {
-  const grouped = new Map();
-  [...existingSubmissions, ...incomingSubmissions].forEach((submission) => {
-    const key = duplicateKey(submission);
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key).push(submission);
-  });
-
-  const impactedTeams = new Set();
-  const duplicateGroups = [];
-
-  incomingSubmissions.forEach((submission) => {
-    const group = grouped.get(duplicateKey(submission)) || [];
-    if (group.length > 1) {
-      submission.validity = "flagged";
-      submission.confidenceTier = "low";
-      if (!submission.confidenceReasons.includes("duplicate_submission")) {
-        submission.confidenceReasons.push("duplicate_submission");
-      }
-      impactedTeams.add(submission.teamNumber);
-      duplicateGroups.push(duplicateKey(submission));
-    }
-  });
-
-  return {
-    impactedTeams: [...impactedTeams],
-    duplicateGroups: [...new Set(duplicateGroups)],
-  };
+function assessDuplicateSubmissions(existingSubmissions, incomingSubmissions) {
+  const scoutingSourceUtils = currentScoutingSourceUtils();
+  return scoutingSourceUtils.assessDuplicateSubmissions
+    ? scoutingSourceUtils.assessDuplicateSubmissions(existingSubmissions, incomingSubmissions)
+    : { impactedTeams: [], duplicateGroups: [] };
 }
 
 function validateSeasonPackage(eventModel) {
   const missing = [];
   if (!eventModel?.season) missing.push("season");
   if (!eventModel?.seasonLabel) missing.push("seasonLabel");
-  if (!Array.isArray(eventModel?.metrics) || !eventModel.metrics.length) missing.push("metrics");
   if (!Array.isArray(scouterMetricDefinitions(eventModel)) || !scouterMetricDefinitions(eventModel).length) missing.push("scouterMetricDefinitions");
-  if (!Array.isArray(eventModel?.criteriaSources) || !eventModel.criteriaSources.length) missing.push("criteriaSources");
   return {
     valid: missing.length === 0,
     missing,
@@ -472,30 +505,24 @@ function previewScoutingImport({ csvText, eventModel, activeEventKey, existingSu
   const errors = [];
   const detection = detectProfile(normalizedHeaders, profiles);
 
-  const requestedProfileId = templateProfileId || metadataRead.metadata.templateProfileId || "";
-  if (requestedProfileId) {
-    profile = profileById(requestedProfileId, profiles);
+  const explicitProfileId = templateProfileId || "";
+  const metadataProfileId = metadataRead.metadata.templateProfileId || "";
+  if (explicitProfileId) {
+    profile = profileById(explicitProfileId, profiles);
     if (!profile) {
-      errors.push(`Unknown template profile id: ${requestedProfileId}.`);
+      errors.push(`Unknown template profile id: ${explicitProfileId}.`);
     }
+  } else if (metadataProfileId) {
+    profile = profileById(metadataProfileId, profiles);
+    if (!profile) warnings.push(`Metadata template profile ${metadataProfileId} is not recognized; continuing with generic field mapping.`);
   } else if (detection.status === "matched") {
     profile = detection.profile;
     warnings.push("Metadata block missing; used header auto-detection.");
   } else if (detection.status === "ambiguous") {
-    return {
-      ok: false,
-      errors: ["Importer profile detection is ambiguous. Admin must choose a profile."],
-      warnings: detection.candidates.map((candidate) => `Possible match: ${candidate.profile.label}`),
-      summary: null,
-      ambiguousProfiles: detection.candidates.map((candidate) => ({ id: candidate.profile.id, label: candidate.profile.label })),
-    };
+    warnings.push("Importer profile detection is ambiguous; continuing with generic field mapping.");
+    warnings.push(...detection.candidates.map((candidate) => `Possible match: ${candidate.profile.label}`));
   } else {
-    return {
-      ok: false,
-      errors: ["No importer profile matched the CSV headers."],
-      warnings: [],
-      summary: null,
-    };
+    warnings.push("No importer profile matched the CSV headers; continuing with generic field mapping.");
   }
 
   const metadataValidation = validateMetadata(metadataRead.metadata, eventModel, profile, activeEventKey);
@@ -514,7 +541,7 @@ function previewScoutingImport({ csvText, eventModel, activeEventKey, existingSu
   const dataRows = rows.slice(metadataRead.headerIndex + 1);
   const parsed = parseRows(dataRows, normalizedHeaders, profile, eventModel, metadataRead.metadata);
   warnings.push(...parsed.warnings);
-  const duplicateAssessment = applyDuplicateFlags(existingSubmissions, parsed.parsedRows);
+  const duplicateAssessment = assessDuplicateSubmissions(existingSubmissions, parsed.parsedRows);
   const flaggedRows = parsed.parsedRows.filter((submission) => submission.validity === "flagged");
   const excludedRows = parsed.parsedRows.filter((submission) => submission.validity === "excluded");
   const impactedTeams = [...new Set([...duplicateAssessment.impactedTeams, ...flaggedRows.map((submission) => submission.teamNumber)])];
@@ -524,12 +551,13 @@ function previewScoutingImport({ csvText, eventModel, activeEventKey, existingSu
     errors,
     warnings,
     summary: {
-      profileId: profile.id,
-      profileLabel: profile.label,
-      schemaVersion: profile.schemaVersion,
+      profileId: profile?.id || "",
+      profileLabel: profile?.label || "",
+      schemaVersion: metadataRead.metadata.schemaVersion || profile?.schemaVersion || "",
       rowCount: parsed.parsedRows.length,
       newRows: parsed.parsedRows.length,
       duplicateGroups: duplicateAssessment.duplicateGroups.length,
+      duplicateGroupKeys: duplicateAssessment.duplicateGroups.map((group) => group.key),
       flaggedRows: flaggedRows.length,
       excludedRows: excludedRows.length,
       impactedTeams,
@@ -537,9 +565,11 @@ function previewScoutingImport({ csvText, eventModel, activeEventKey, existingSu
       metadata: {
         season: metadataRead.metadata.season || String(eventModel.season),
         eventKey: metadataRead.metadata.eventKey || eventModel.key,
-        schemaVersion: metadataRead.metadata.schemaVersion || profile.schemaVersion,
-        templateProfileId: metadataRead.metadata.templateProfileId || profile.id,
+        schemaVersion: metadataRead.metadata.schemaVersion || profile?.schemaVersion || "",
+        templateProfileId: metadataRead.metadata.templateProfileId || profile?.id || "",
+        translationVersion: metadataRead.metadata.translationVersion || "",
       },
+      schemaFields: schemaFieldEntries(eventModel),
       submissions: parsed.parsedRows,
     },
   };
