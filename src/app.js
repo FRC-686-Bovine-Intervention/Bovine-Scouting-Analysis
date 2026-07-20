@@ -1354,17 +1354,109 @@ function saveStatboticsBaseUrlDraft() {
 }
 
 function currentScoutingSubmissions() {
+  const rawSubmissions = currentRawScoutingSubmissions();
+  const reviewOverrides = Array.isArray(state.scoutingReviewOverrides) ? state.scoutingReviewOverrides : [];
+  if (
+    currentScoutingSubmissionsCache.rawSubmissions === rawSubmissions
+    && currentScoutingSubmissionsCache.reviewOverrides === reviewOverrides
+    && currentScoutingSubmissionsCache.eventKey === state.activeEventKey
+  ) {
+    return currentScoutingSubmissionsCache.value;
+  }
   const overrideMap = activeScoutingReviewOverrideMap();
-  return currentRawScoutingSubmissions().map((submission) => applyScoutingReviewOverride(submission, overrideMap));
+  const value = rawSubmissions.map((submission) => applyScoutingReviewOverride(submission, overrideMap));
+  currentScoutingSubmissionsCache.rawSubmissions = rawSubmissions;
+  currentScoutingSubmissionsCache.reviewOverrides = reviewOverrides;
+  currentScoutingSubmissionsCache.eventKey = state.activeEventKey;
+  currentScoutingSubmissionsCache.value = value;
+  return value;
 }
 
 function currentRawScoutingSubmissions() {
   const allSubmissions = Array.isArray(state.scoutingSubmissions) ? state.scoutingSubmissions : [];
-  return allSubmissions.filter((submission) => submission.eventKey === state.activeEventKey);
+  if (
+    currentRawScoutingSubmissionsCache.allSubmissions === allSubmissions
+    && currentRawScoutingSubmissionsCache.eventKey === state.activeEventKey
+  ) {
+    return currentRawScoutingSubmissionsCache.value;
+  }
+  const value = allSubmissions.filter((submission) => submission.eventKey === state.activeEventKey);
+  currentRawScoutingSubmissionsCache.allSubmissions = allSubmissions;
+  currentRawScoutingSubmissionsCache.eventKey = state.activeEventKey;
+  currentRawScoutingSubmissionsCache.value = value;
+  return value;
+}
+
+const currentRawScoutingSubmissionsCache = {
+  allSubmissions: null,
+  eventKey: "",
+  value: null,
+};
+
+const currentScoutingSubmissionsCache = {
+  rawSubmissions: null,
+  reviewOverrides: null,
+  eventKey: "",
+  value: null,
+};
+
+const currentTeamsCache = {
+  eventModel: null,
+  eventKey: "",
+  recentMatchCount: 0,
+  profileVersionKey: "",
+  schemaSignature: "",
+  submissionRef: null,
+  reviewOverrideRef: null,
+  value: null,
+};
+const overlaidTeamCache = new Map();
+
+function currentOverlayCacheContext(eventModel = currentEvent()) {
+  return {
+    eventModel,
+    eventKey: normalizeText(eventModel?.key),
+    recentMatchCount: currentRecentMatchCount(),
+    profileVersionKey: normalizeText(currentImportedProfileDefinition(eventModel)?.versionKey),
+    schemaSignature: currentTeamsSchemaSignature(eventModel),
+    submissionRef: state.scoutingSubmissions,
+    reviewOverrideRef: state.scoutingReviewOverrides,
+  };
+}
+
+function currentTeamsSchemaSignature(eventModel = currentEvent()) {
+  const committedSignature = normalizeText(
+    state.scoutingSubmissions.find((submission) => submission?.eventKey === normalizeText(eventModel?.key))?.scoutingSchemaSignature,
+  );
+  if (committedSignature) return committedSignature;
+  return normalizeText(currentScoutingAttachment()?.schemaSignature);
 }
 
 function currentTeams() {
-  return currentEvent().teams.map((team) => overlayTeamWithScouting(team));
+  const cacheContext = currentOverlayCacheContext();
+  const { eventModel, eventKey: nextEventKey, recentMatchCount: nextRecentMatchCount, profileVersionKey: nextProfileVersionKey, schemaSignature: nextSchemaSignature } = cacheContext;
+  if (
+    currentTeamsCache.value
+    && currentTeamsCache.eventModel === eventModel
+    && currentTeamsCache.eventKey === nextEventKey
+    && currentTeamsCache.recentMatchCount === nextRecentMatchCount
+    && currentTeamsCache.profileVersionKey === nextProfileVersionKey
+    && currentTeamsCache.schemaSignature === nextSchemaSignature
+    && currentTeamsCache.submissionRef === cacheContext.submissionRef
+    && currentTeamsCache.reviewOverrideRef === cacheContext.reviewOverrideRef
+  ) {
+    return currentTeamsCache.value;
+  }
+  const value = eventModel.teams.map((team) => overlayTeamWithScouting(team));
+  currentTeamsCache.eventModel = eventModel;
+  currentTeamsCache.eventKey = nextEventKey;
+  currentTeamsCache.recentMatchCount = nextRecentMatchCount;
+  currentTeamsCache.profileVersionKey = nextProfileVersionKey;
+  currentTeamsCache.schemaSignature = nextSchemaSignature;
+  currentTeamsCache.submissionRef = cacheContext.submissionRef;
+  currentTeamsCache.reviewOverrideRef = cacheContext.reviewOverrideRef;
+  currentTeamsCache.value = value;
+  return value;
 }
 
 function currentMatches() {
@@ -2377,8 +2469,16 @@ function evaluateEquationForTeam(team, equationId, options = {}) {
   return evaluation;
 }
 
-function equationStatusForTeam(team, equationId, eventModel = currentEvent()) {
-  const evaluation = evaluateEquationForTeam(team, equationId, { eventModel });
+function equationStatusForTeam(team, equationId, options = {}) {
+  const eventModel = options.eventModel || currentEvent();
+  const evaluation = evaluateEquationForTeam(team, equationId, {
+    eventModel,
+    formulaContext: options.formulaContext,
+    evaluationCache: options.evaluationCache,
+    filterEvaluationCache: options.filterEvaluationCache,
+    groupEvaluationCache: options.groupEvaluationCache,
+    eventEvaluationCache: options.eventEvaluationCache,
+  });
   if (isErrorFormulaResult(evaluation.result)) return { label: "Invalid", severity: "danger", detail: evaluation.result.error };
   if (evaluation.result.granularity !== "event") return { label: "Match Only", severity: "warn", detail: "Equation stays at match granularity until averaged." };
   return null;
@@ -4005,6 +4105,20 @@ function applyEquationBackedScoutingRollups(baseTeam, overlaidTeam, eventModel =
 
 function overlayTeamWithScouting(baseTeam) {
   if (!buildTeamScoutingOverlay) return baseTeam;
+  const cacheContext = currentOverlayCacheContext();
+  const cacheEntry = overlaidTeamCache.get(baseTeam.number);
+  if (
+    cacheEntry
+    && cacheEntry.eventModel === cacheContext.eventModel
+    && cacheEntry.eventKey === cacheContext.eventKey
+    && cacheEntry.recentMatchCount === cacheContext.recentMatchCount
+    && cacheEntry.profileVersionKey === cacheContext.profileVersionKey
+    && cacheEntry.schemaSignature === cacheContext.schemaSignature
+    && cacheEntry.submissionRef === cacheContext.submissionRef
+    && cacheEntry.reviewOverrideRef === cacheContext.reviewOverrideRef
+  ) {
+    return cacheEntry.value;
+  }
   const overlaidTeam = buildTeamScoutingOverlay(baseTeam, {
     submissions: currentScoutingSubmissions(),
     scoringComponents: currentEvent().scoringComponents,
@@ -4012,7 +4126,12 @@ function overlayTeamWithScouting(baseTeam) {
     derivedMetricDefinitions: currentDerivedMetricDefinitions(),
     recentMatchCount: state.recentMatchCount,
   });
-  return applyEquationBackedScoutingRollups(baseTeam, overlaidTeam, currentEvent());
+  const value = applyEquationBackedScoutingRollups(baseTeam, overlaidTeam, currentEvent());
+  overlaidTeamCache.set(baseTeam.number, {
+    ...cacheContext,
+    value,
+  });
+  return value;
 }
 
 function currentScoutingWindow() {
@@ -4606,9 +4725,21 @@ function metricFromTerm(term) {
   return metricById(metricIdFromLegacyTerm(term));
 }
 
-function teamMetricValue(team, metric) {
+function derivedMetricEvaluation(team, metric, options = {}) {
+  if (!(metric?.kind === "derived" && metric.definition?.expression)) return null;
+  return evaluateEquationForTeam(team, metric.componentId, {
+    eventModel: options.eventModel,
+    formulaContext: options.formulaContext,
+    evaluationCache: options.evaluationCache,
+    filterEvaluationCache: options.filterEvaluationCache,
+    groupEvaluationCache: options.groupEvaluationCache,
+    eventEvaluationCache: options.eventEvaluationCache,
+  });
+}
+
+function teamMetricValue(team, metric, options = {}) {
   if (metric?.kind === "derived" && metric.definition?.expression) {
-    const evaluation = evaluateEquationForTeam(team, metric.componentId);
+    const evaluation = derivedMetricEvaluation(team, metric, options);
     return evaluation.result.granularity === "event" ? Number(evaluation.result.value) : Number.NaN;
   }
   if (engineTeamMetricValue) return engineTeamMetricValue(team, metric, { window: currentScoutingWindow() });
@@ -5149,9 +5280,9 @@ function renderTeamDetail(team) {
   `;
 }
 
-function metricTrendValues(team, metric) {
+function metricTrendValues(team, metric, options = {}) {
   if (metric?.kind === "derived" && metric.definition?.expression) {
-    const evaluation = evaluateEquationForTeam(team, metric.componentId);
+    const evaluation = derivedMetricEvaluation(team, metric, options);
     return isSeriesFormulaResult(evaluation.result) ? evaluation.result.entries.map((entry) => Number(entry.value)) : [];
   }
   if (engineMetricTrendValues) return engineMetricTrendValues(team, metric, { window: currentScoutingWindow() });
@@ -5177,13 +5308,13 @@ function metricTrendValues(team, metric) {
     return team.derivedTrend[metric.componentId];
   }
   const baseline = average(team.matches) || 1;
-  return team.matches.map((value) => (value / baseline) * teamMetricValue(team, metric));
+  return team.matches.map((value) => (value / baseline) * teamMetricValue(team, metric, options));
 }
 
-function metricUsesMatchDistribution(team, metric) {
+function metricUsesMatchDistribution(team, metric, options = {}) {
   if (!team || !metric) return false;
   if (metric?.kind === "derived" && metric.definition?.expression) {
-    const evaluation = evaluateEquationForTeam(team, metric.componentId);
+    const evaluation = derivedMetricEvaluation(team, metric, options);
     return isSeriesFormulaResult(evaluation.result);
   }
   return metric.kind === "source" && (metric.sourceId === "scouter" || (metric.sourceId === "tba" && metric.granularity === "match"));
@@ -5201,10 +5332,10 @@ function applyRecentMatchCountToEntries(entries, recentMatchCount = currentRecen
 }
 
 function analysisSeriesEntriesForMetric(team, metric, options = {}) {
-  if (!team || !metric || !metricUsesMatchDistribution(team, metric)) return [];
+  if (!team || !metric || !metricUsesMatchDistribution(team, metric, options)) return [];
   const useRecentWindow = options.window === "recent";
   if (metric?.kind === "derived" && metric.definition?.expression) {
-    const evaluation = evaluateEquationForTeam(team, metric.componentId);
+    const evaluation = derivedMetricEvaluation(team, metric, options);
     const normalizedEntries = filterResultEntries(evaluation.result).filter((entry) => Number.isFinite(Number(entry.value)));
     const filteredEntries = applyAnalysisPredicateToEntries(team, normalizedEntries, currentEvent());
     return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
@@ -5240,12 +5371,77 @@ function filteredSeriesEntriesForMetric(team, metric, options = {}) {
   return analysisSeriesEntriesForMetric(team, metric, options);
 }
 
-function analysisScoreForTeam(team, metric, options = {}) {
-  if (!metricUsesMatchDistribution(team, metric)) return teamMetricValue(team, metric);
+function analysisStatsForTeam(team, metric, options = {}) {
+  if (!metricUsesMatchDistribution(team, metric, options)) {
+    const center = teamMetricValue(team, metric, options);
+    const safeCenter = Number.isFinite(center) ? center : 0;
+    return {
+      score: center,
+      distribution: {
+        min: safeCenter,
+        q1: safeCenter,
+        median: safeCenter,
+        q3: safeCenter,
+        max: safeCenter,
+        mean: safeCenter,
+        kind: Number.isFinite(center) ? "value" : "empty",
+      },
+    };
+  }
+
   const values = filteredSeriesEntriesForMetric(team, metric, options)
     .map((entry) => Number(entry.value))
     .filter((value) => Number.isFinite(value));
-  return values.length ? average(values) : Number.NaN;
+
+  if (values.length > 1) {
+    const mean = average(values);
+    return {
+      score: mean,
+      distribution: {
+        min: Math.min(...values),
+        q1: quantile(values, 0.25),
+        median: quantile(values, 0.5),
+        q3: quantile(values, 0.75),
+        max: Math.max(...values),
+        mean,
+        kind: "distribution",
+      },
+    };
+  }
+
+  if (state.activeAnalysisFilterId && values.length === 0) {
+    return {
+      score: Number.NaN,
+      distribution: {
+        min: 0,
+        q1: 0,
+        median: 0,
+        q3: 0,
+        max: 0,
+        mean: 0,
+        kind: "empty",
+      },
+    };
+  }
+
+  const center = values.length === 1 ? values[0] : Number.NaN;
+  const safeCenter = Number.isFinite(center) ? center : 0;
+  return {
+    score: center,
+    distribution: {
+      min: safeCenter,
+      q1: safeCenter,
+      median: safeCenter,
+      q3: safeCenter,
+      max: safeCenter,
+      mean: safeCenter,
+      kind: Number.isFinite(center) ? "value" : "empty",
+    },
+  };
+}
+
+function analysisScoreForTeam(team, metric, options = {}) {
+  return analysisStatsForTeam(team, metric, options).score;
 }
 
 function truthy(value) {
@@ -5313,14 +5509,25 @@ function renderAnalysis() {
     `;
   }
   const analysisWindowOptions = { window: "recent", recentMatchCount: currentRecentMatchCount() };
-  const scoreForTeam = (team) => analysisScoreForTeam(team, selection.metric, analysisWindowOptions);
-  const sortableScoreForTeam = (team) => {
-    const value = scoreForTeam(team);
-    return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
+  const derivedAnalysisOptions = {
+    eventModel: currentEvent(),
+    evaluationCache: new Map(),
+    filterEvaluationCache: new Map(),
+    groupEvaluationCache: new Map(),
+    eventEvaluationCache: new Map(),
   };
-  const ranked = [...currentTeams()].sort((a, b) => sortableScoreForTeam(b) - sortableScoreForTeam(a) || a.number - b.number);
-  const allScores = ranked.map((team) => scoreForTeam(team));
-  const distributions = ranked.map((team) => distributionForMetric(team, selection.metric.id, analysisWindowOptions));
+  const ranked = currentTeams()
+    .map((team) => ({
+      team,
+      stats: analysisStatsForTeam(team, selection.metric, { ...analysisWindowOptions, ...derivedAnalysisOptions }),
+    }))
+    .sort((left, right) => {
+      const leftScore = Number.isFinite(left.stats.score) ? left.stats.score : Number.NEGATIVE_INFINITY;
+      const rightScore = Number.isFinite(right.stats.score) ? right.stats.score : Number.NEGATIVE_INFINITY;
+      return rightScore - leftScore || left.team.number - right.team.number;
+    });
+  const allScores = ranked.map((entry) => entry.stats.score);
+  const distributions = ranked.map((entry) => entry.stats.distribution);
   const finiteScores = allScores.filter((value) => Number.isFinite(value));
   const finiteDistributions = distributions.filter(
     (item) => Number.isFinite(item.min) && Number.isFinite(item.max) && Number.isFinite(item.mean) && Number.isFinite(item.median) && Number.isFinite(item.q1) && Number.isFinite(item.q3),
@@ -5349,7 +5556,7 @@ function renderAnalysis() {
       ${renderBoxPlotLegend()}
     </div>
     <div class="analysis-chart" style="margin-top: 8px;">
-      ${ranked.map((team, index) => renderChartRow(team, selection, distributions[index], globalMin, globalMax, eventAverage, scoreForTeam(team))).join("")}
+      ${ranked.map((entry, index) => renderChartRow(entry.team, selection, distributions[index], globalMin, globalMax, eventAverage, entry.stats.score)).join("")}
     </div>
     <div class="analysis-axis-row" aria-hidden="true">
       <span></span>
@@ -5365,79 +5572,138 @@ function renderAnalysis() {
 }
 
 function renderDerivedBuilder() {
+  const eventModel = currentEvent();
   const activeEquation = activeDerivedEquation();
+  const activeEquationId = ensureActiveDerivedEquation(eventModel);
   const activePreviewMetricId = String(state.activeDerivedPreviewMetricId || "");
   const equationListSelected = !activePreviewMetricId;
   const formulaTitle = activePreviewMetricId || activeEquation?.name || "New Equation";
   const formulaInputValue = activePreviewMetricId || activeEquation?.formula || "";
-  const teams = currentEvent().teams.slice().sort((left, right) => left.number - right.number);
+  const teams = eventModel.teams.slice().sort((left, right) => left.number - right.number);
+  const equationDefinitions = currentProfileEquationList(eventModel);
+  const teamFormulaContexts = new Map(
+    teams.map((team) => [team.number, buildTeamFormulaContext(team, eventModel)]),
+  );
   const previewTeam = teams[0] || null;
-  const previewStatus = !activePreviewMetricId && activeEquation && previewTeam ? equationStatusForTeam(previewTeam, activeEquation.id) : null;
-  const previewEvaluation = !activePreviewMetricId && activeEquation && previewTeam ? evaluateEquationForTeam(previewTeam, activeEquation.id) : null;
+  const previewFormulaContext = previewTeam ? teamFormulaContexts.get(previewTeam.number) || null : null;
+  const sidebarEvaluationCache = new Map();
+  const sidebarFilterCache = new Map();
+  const sidebarGroupCache = new Map();
+  const sidebarEventCache = new Map();
+  const previewStatus = !activePreviewMetricId && activeEquation && previewTeam ? equationStatusForTeam(previewTeam, activeEquation.id, {
+    eventModel,
+    formulaContext: previewFormulaContext,
+    evaluationCache: sidebarEvaluationCache,
+    filterEvaluationCache: sidebarFilterCache,
+    groupEvaluationCache: sidebarGroupCache,
+    eventEvaluationCache: sidebarEventCache,
+  }) : null;
+  const previewEvaluation = !activePreviewMetricId && activeEquation && previewTeam ? evaluateEquationForTeam(previewTeam, activeEquation.id, {
+    eventModel,
+    formulaContext: previewFormulaContext,
+    evaluationCache: sidebarEvaluationCache,
+    filterEvaluationCache: sidebarFilterCache,
+    groupEvaluationCache: sidebarGroupCache,
+    eventEvaluationCache: sidebarEventCache,
+  }) : null;
   const identifiers = previewEvaluation?.result?.identifiers || [];
-  const availableMetrics = currentDerivedAvailableMetrics(currentEvent(), activeEquation);
-  const gridRows = teams.flatMap((team) => {
-    const context = buildTeamFormulaContext(team);
-    return (context?.matchRows || []).map((row, index, rows) => ({
+  const availableMetrics = currentDerivedAvailableMetrics(eventModel, activeEquation);
+  const teamGridModels = teams.map((team) => {
+    const formulaContext = teamFormulaContexts.get(team.number) || null;
+    const matchRows = formulaContext?.matchRows || [];
+    return {
       teamNumber: team.number,
+      formulaContext,
+      matchRows,
+    };
+  });
+  const gridRows = teamGridModels.flatMap((teamModel) =>
+    teamModel.matchRows.map((row, index, rows) => ({
+      teamNumber: teamModel.teamNumber,
       matchNumber: row.matchNumber,
       teamStart: index === 0,
       teamEnd: index === rows.length - 1,
       rowIndex: index,
       rowCount: rows.length,
-      formulaContext: context,
-    }));
-  });
+    })),
+  );
   const gridEquationCache = new Map();
   const gridFilterCache = new Map();
+  const gridGroupCache = new Map();
+  const gridEventCache = new Map();
   const resultEvaluationCache = new Map();
-  const identifierResultCache = new Map();
-  const identifierSeriesMapCache = new Map();
-  const equationSeriesMapCache = new Map();
-  const teamEquationResultCache = new Map();
-  const resolveGridCellValue = (identifier, rowModel) => {
-    const cacheKey = `${rowModel.teamNumber}:${identifier}`;
-    if (!identifierResultCache.has(cacheKey)) {
-      identifierResultCache.set(
-        cacheKey,
-        resolveFormulaIdentifier(identifier, rowModel.formulaContext, gridEquationCache, [], gridFilterCache, []) || { kind: "error", error: `Unknown identifier "${identifier}".` },
+  const buildGridDisplayModel = (result, { showScalarErrorOnFirstRowOnly = false } = {}) => {
+    if (isErrorFormulaResult(result)) {
+      return {
+        kind: "error",
+        valueForRow: (rowIndex) => ({
+          text: !showScalarErrorOnFirstRowOnly || rowIndex === 0 ? "Invalid" : "",
+          className: "danger",
+        }),
+      };
+    }
+    if (isSeriesFormulaResult(result)) {
+      const entryMap = new Map((result.entries || []).map((entry) => [entry.key, entry.value]));
+      return {
+        kind: "series",
+        valueForRow: (_rowIndex, matchNumber) => {
+          const entryValue = entryMap.get(matchNumber);
+          return {
+            text: entryValue !== undefined && !Number.isNaN(entryValue) ? formatMetricValue(entryValue) : "",
+            className: "",
+          };
+        },
+      };
+    }
+    const scalarText = !Number.isNaN(result?.value) ? formatMetricValue(result.value) : "";
+    return {
+      kind: "scalar",
+      valueForRow: (rowIndex) => ({
+        text: rowIndex === 0 ? scalarText : "",
+        className: rowIndex === 0 ? "" : "muted",
+      }),
+    };
+  };
+  const identifierDisplayModelsByTeam = new Map();
+  const resultDisplayModelsByTeam = new Map();
+  teamGridModels.forEach((teamModel) => {
+    if (!teamModel.formulaContext) return;
+    const identifierDisplayModels = new Map();
+    identifiers.forEach((identifier) => {
+      const result = resolveFormulaIdentifier(
+        identifier,
+        teamModel.formulaContext,
+        gridEquationCache,
+        [],
+        gridFilterCache,
+        [],
+        gridGroupCache,
+        gridEventCache,
+      ) || { kind: "error", error: `Unknown identifier "${identifier}".` };
+      identifierDisplayModels.set(identifier, buildGridDisplayModel(result));
+    });
+    identifierDisplayModelsByTeam.set(teamModel.teamNumber, identifierDisplayModels);
+    if (activePreviewMetricId) {
+      resultDisplayModelsByTeam.set(
+        teamModel.teamNumber,
+        identifierDisplayModels.get(activePreviewMetricId) || buildGridDisplayModel({ kind: "error", error: `Unknown identifier "${activePreviewMetricId}".` }),
       );
+      return;
     }
-    const result = identifierResultCache.get(cacheKey);
-    if (isErrorFormulaResult(result)) return { text: "Invalid", className: "danger" };
-    if (isSeriesFormulaResult(result)) {
-      if (!identifierSeriesMapCache.has(cacheKey)) {
-        identifierSeriesMapCache.set(cacheKey, new Map((result.entries || []).map((entry) => [entry.key, entry.value])));
-      }
-      const entryValue = identifierSeriesMapCache.get(cacheKey).get(rowModel.matchNumber);
-      return { text: entryValue !== undefined ? formatMetricValue(entryValue) : "", className: "" };
+    if (!activeEquation) {
+      resultDisplayModelsByTeam.set(teamModel.teamNumber, buildGridDisplayModel(formulaScalarValue(Number.NaN)));
+      return;
     }
-    return { text: rowModel.rowIndex === 0 ? formatMetricValue(result.value) : "", className: rowModel.rowIndex === 0 ? "" : "muted" };
-  };
-  const resolveResultCellValue = (rowModel) => {
-    if (activePreviewMetricId) return resolveGridCellValue(activePreviewMetricId, rowModel);
-    if (!activeEquation) return { text: "", className: "" };
-    const teamKey = `${rowModel.teamNumber}:${activeEquation.id}`;
-    if (!teamEquationResultCache.has(teamKey)) {
-      const evaluation = evaluateEquationForTeam(rowModel.formulaContext.baseTeam, activeEquation.id, {
-        formulaContext: rowModel.formulaContext,
-        eventModel: currentEvent(),
-        evaluationCache: resultEvaluationCache,
-        filterEvaluationCache: gridFilterCache,
-      });
-      teamEquationResultCache.set(teamKey, evaluation.result);
-    }
-    const result = teamEquationResultCache.get(teamKey);
-    if (isErrorFormulaResult(result)) return { text: rowModel.rowIndex === 0 ? "Invalid" : "", className: "danger" };
-    if (isSeriesFormulaResult(result)) {
-      if (!equationSeriesMapCache.has(teamKey)) {
-        equationSeriesMapCache.set(teamKey, new Map((result.entries || []).map((entry) => [entry.key, entry.value])));
-      }
-      const matchValue = equationSeriesMapCache.get(teamKey).get(rowModel.matchNumber);
-      return { text: matchValue !== undefined && !Number.isNaN(matchValue) ? formatMetricValue(matchValue) : "", className: "" };
-    }
-    return { text: rowModel.rowIndex === 0 && !Number.isNaN(result.value) ? formatMetricValue(result.value) : "", className: rowModel.rowIndex === 0 ? "" : "muted" };
-  };
+    const evaluation = evaluateEquationForTeam(teamModel.formulaContext.baseTeam, activeEquation.id, {
+      formulaContext: teamModel.formulaContext,
+      eventModel,
+      evaluationCache: resultEvaluationCache,
+      filterEvaluationCache: gridFilterCache,
+      groupEvaluationCache: gridGroupCache,
+      eventEvaluationCache: gridEventCache,
+    });
+    resultDisplayModelsByTeam.set(teamModel.teamNumber, buildGridDisplayModel(evaluation.result, { showScalarErrorOnFirstRowOnly: true }));
+  });
   const resultColumnLabel = activePreviewMetricId || activeEquation?.name || "Result";
   return `
     <div class="grid">
@@ -5453,13 +5719,13 @@ function renderDerivedBuilder() {
                 <button type="button" id="addDerivedEquationButton">New</button>
               </div>
               <div class="builder-list" data-builder-list-scroll="derived:equations">
-                ${currentProfileEquationList()
+                ${equationDefinitions
                   .map((definition, index) => {
-                    const status = previewTeam ? equationStatusForTeam(previewTeam, definition.id) : null;
+                    const status = definition.id === activeEquation?.id ? previewStatus : null;
                     const rename = state.inlineRename?.kind === "derivedEquation" && state.inlineRename?.id === definition.id;
                     return `
                       <div
-                        class="builder-list-item ${equationListSelected && definition.id === ensureActiveDerivedEquation() ? "active" : ""}"
+                        class="builder-list-item ${equationListSelected && definition.id === activeEquationId ? "active" : ""}"
                         data-entity-row="derivedEquation:${definition.id}"
                         data-entity-kind="derivedEquation"
                         data-entity-id="${definition.id}"
@@ -5527,7 +5793,7 @@ function renderDerivedBuilder() {
                         <header>${escapeHtml(identifier)}</header>
                         <div class="derived-grid-column-body" data-derived-scroll="${escapeAttribute(identifier)}" data-builder-grid-column-scroll="${escapeAttribute(`derived:${identifier}`)}">
                           ${gridRows.map((row) => {
-                            const value = resolveGridCellValue(identifier, row);
+                            const value = identifierDisplayModelsByTeam.get(row.teamNumber)?.get(identifier)?.valueForRow(row.rowIndex, row.matchNumber) || { text: "", className: "" };
                             return `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""} ${value.className}">${escapeHtml(value.text)}</div>`;
                           }).join("")}
                         </div>
@@ -5539,7 +5805,7 @@ function renderDerivedBuilder() {
                   <header>${escapeHtml(resultColumnLabel)}</header>
                   <div class="derived-grid-column-body" data-derived-scroll="result" data-builder-grid-column-scroll="derived:result">
                     ${gridRows.map((row) => {
-                      const value = resolveResultCellValue(row);
+                      const value = resultDisplayModelsByTeam.get(row.teamNumber)?.valueForRow(row.rowIndex, row.matchNumber) || { text: "", className: "" };
                       return `<div class="derived-grid-cell ${row.teamStart ? "team-start" : ""} ${row.teamEnd ? "team-end" : ""} ${value.className}">${escapeHtml(value.text)}</div>`;
                     }).join("")}
                   </div>
@@ -5568,42 +5834,7 @@ function renderBoxPlotLegend() {
 
 function distributionForMetric(team, metricId, options = {}) {
   const metric = metricById(metricId);
-  const values = metricUsesMatchDistribution(team, metric)
-    ? filteredSeriesEntriesForMetric(team, metric, options).map((entry) => Number(entry.value)).filter((value) => Number.isFinite(Number(value)))
-    : [];
-  if (values.length > 1) {
-    return {
-      min: Math.min(...values),
-      q1: quantile(values, 0.25),
-      median: quantile(values, 0.5),
-      q3: quantile(values, 0.75),
-      max: Math.max(...values),
-      mean: average(values),
-      kind: "distribution",
-    };
-  }
-  if (metricUsesMatchDistribution(team, metric) && state.activeAnalysisFilterId && values.length === 0) {
-    return {
-      min: 0,
-      q1: 0,
-      median: 0,
-      q3: 0,
-      max: 0,
-      mean: 0,
-      kind: "empty",
-    };
-  }
-  const center = teamMetricValue(team, metric);
-  const safeCenter = Number.isFinite(center) ? center : 0;
-  return {
-    min: safeCenter,
-    q1: safeCenter,
-    median: safeCenter,
-    q3: safeCenter,
-    max: safeCenter,
-    mean: safeCenter,
-    kind: Number.isFinite(center) ? "value" : "empty",
-  };
+  return analysisStatsForTeam(team, metric, options).distribution;
 }
 
 function distributionForEquationScore(score, minScore, maxScore) {
