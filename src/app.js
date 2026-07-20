@@ -264,7 +264,7 @@ const picklistCompareLimit = 4;
 const protectedEpaSortId = "sort-epa";
 const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
 const maskedTbaAuthKeyValue = "............";
-const defaultStatboticsBaseUrl = "https://api.statbotics.io/v3";
+const defaultStatboticsBaseUrl = "https://api-statbotics.iterativerefinement.com/v3";
 
 function readBootstrapStoredJson(key, fallback) {
   try {
@@ -6788,7 +6788,7 @@ function renderAdmin() {
                 />
                 <button type="button" id="saveStatboticsBaseUrlButton" ${state.statboticsBaseUrlDirty ? "" : "disabled"}>Save</button>
               </div>
-              <span class="muted">Use the default official host or override with <code>https://api-statbotics.iterativerefinement.com/v3</code> while the main Statbotics API is unavailable.</span>
+              <span class="muted">Using a temporary default mirror right now. The original official Statbotics API is <code>https://api.statbotics.io/v3</code>.</span>
             </label>
             <div class="admin-actions">
               <button type="button" id="clearCurrentEventScoutingDataButton">Clear Saved Scouting Data</button>
