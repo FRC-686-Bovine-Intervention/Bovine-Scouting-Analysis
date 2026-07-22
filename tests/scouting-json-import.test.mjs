@@ -66,6 +66,32 @@ runTest("previewScoutingJsonImport accepts canonical scouting JSON and preserves
   assert.equal(preview.summary.submissions[0].provenance.sourceEntryId, "entry-1");
 });
 
+runTest("previewScoutingJsonImport accepts schema-carrying canonical JSON without season-seeded field definitions", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
+  const eventModel = {
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: "2026 Season",
+    scoringComponents: [],
+    formulaFieldDefinitions: [],
+    scouterMetricDefinitions: [],
+    derivedMetricDefinitions: [],
+    metrics: [],
+  };
+
+  const preview = context.ScoutingJsonImport.previewScoutingJsonImport({
+    jsonText: fs.readFileSync(path.resolve("tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.entries.json"), "utf8"),
+    schemaJsonText: fs.readFileSync(path.resolve("tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.schema.json"), "utf8"),
+    eventModel,
+    activeEventKey: "2026chcmp",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, true);
+  assert.equal(preview.summary.schemaFields.length > 0, true);
+  assert.equal(preview.summary.submissions[0].rawMetrics.autoFuelPct, 80);
+});
+
 runTest("previewScoutingJsonImport preserves explicit entry provenance", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];

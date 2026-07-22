@@ -102,7 +102,6 @@ function validateSeasonPackage(eventModel) {
   const missing = [];
   if (!eventModel?.season) missing.push("season");
   if (!eventModel?.seasonLabel) missing.push("seasonLabel");
-  if (!Array.isArray(formulaFieldDefinitions(eventModel)) || !formulaFieldDefinitions(eventModel).length) missing.push("formulaFieldDefinitions");
   return {
     valid: missing.length === 0,
     missing,

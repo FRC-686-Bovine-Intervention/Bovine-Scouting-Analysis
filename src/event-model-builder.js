@@ -70,20 +70,6 @@ function flattenStatboticsScalarEntries(value, prefix = "") {
   return prefix && scalar !== null ? [[prefix, scalar]] : [];
 }
 
-function sumBreakdownValues(breakdown, keys) {
-  return round((keys || []).reduce((sum, key) => sum + Number(breakdown?.[key] || 0), 0));
-}
-
-function buildComponentMap(total, season, breakdown) {
-  const entries = season.scoringComponents.map((component) => [component.id, sumBreakdownValues(breakdown, season.breakdownMap[component.id])]);
-  const mappedTotal = entries.reduce((sum, [, value]) => sum + value, 0);
-  if (!mappedTotal && total > 0 && entries.length) {
-    const share = round(total / entries.length);
-    return Object.fromEntries(entries.map(([id], index) => [id, index === entries.length - 1 ? round(Math.max(0, total - share * (entries.length - 1))) : share]));
-  }
-  return Object.fromEntries(entries);
-}
-
 function sourceValue(team, sourceId, componentId = "total") {
   if (sourceId === "derived") return Number(team.derived?.[componentId] || 0);
   if (componentId === "total") return Number(team.sources?.[sourceId]?.total || 0);
@@ -193,10 +179,6 @@ function buildTbaEventComponents(rankingEntry, tbaStatEntries = []) {
   return components;
 }
 
-function emptySourceComponents(season, fallback = null) {
-  return Object.fromEntries(season.scoringComponents.map((component) => [component.id, fallback]));
-}
-
 function buildTeam(teamInfo, teamEvent, scoutingSchema, rankingEntry, tbaComponents) {
   const statboticsTotal = Number(teamEvent?.epa?.total_points || 0);
   const statboticsComponents = Object.fromEntries(
@@ -229,7 +211,7 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, rankingEntry, tbaCompone
       scouter: { total: 0, components: emptyScouterComponents, trend: [], componentTrend: Object.fromEntries(scouterFields.map((component) => [component.id, []])) },
       statbotics: { total: round(statboticsTotal), components: { ...statboticsComponents }, trend: [] },
       tba: { total: null, components: { ...(tbaComponents || {}) }, trend: [] },
-      pridge: { total: null, components: emptySourceComponents(scoutingSchema), trend: [] },
+      pridge: { total: null, components: {}, trend: [] },
     },
     derived: {},
   };
@@ -238,15 +220,12 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, rankingEntry, tbaCompone
 function buildEventModelFromPayloads(payload) {
   const season = seasonMetadataByYear[payload.year] || {
     label: `${payload.year} Season`,
-    scoringComponents: [],
-    breakdownMap: {},
   };
   const explicitScouterMetricDefinitions = Array.isArray(payload?.scouterMetricDefinitions) ? payload.scouterMetricDefinitions : [];
   const explicitFormulaFieldDefinitions = Array.isArray(payload?.formulaFieldDefinitions) ? payload.formulaFieldDefinitions : [];
   const explicitDerivedMetricDefinitions = Array.isArray(payload?.derivedMetricDefinitions) ? payload.derivedMetricDefinitions : [];
-  const scoutingSchemaSeed = {
-    scoringComponents: season.scoringComponents || [],
-    breakdownMap: season.breakdownMap || {},
+  const eventSchema = {
+    scoringComponents: [],
     scouterMetricDefinitions: explicitScouterMetricDefinitions,
     formulaFieldDefinitions: explicitFormulaFieldDefinitions,
     derivedMetricDefinitions: explicitDerivedMetricDefinitions,
@@ -261,7 +240,7 @@ function buildEventModelFromPayloads(payload) {
       return buildTeam(
         teamInfo,
         teamEventsByNumber.get(teamNumber) || {},
-        scoutingSchemaSeed,
+        eventSchema,
         rankingsByTeamNumber.get(teamNumber) || null,
         buildTbaEventComponents(rankingsByTeamNumber.get(teamNumber) || null, [
           ...buildTbaTeamStatEntries(tbaTeamStats, teamNumber),
@@ -290,7 +269,7 @@ function buildEventModelFromPayloads(payload) {
         ...team.sources,
         pridge: {
           total,
-          components: emptySourceComponents(season),
+          components: {},
           trend: [],
         },
       },
@@ -301,15 +280,14 @@ function buildEventModelFromPayloads(payload) {
     name: payload.tbaEvent?.name || payload.statboticsEvent?.name || payload.key,
     season: payload.year,
     seasonLabel: season.label,
-    breakdownMap: season.breakdownMap || {},
     matchesComplete: matches.length,
     matches,
-    scoringComponents: season.scoringComponents,
-    scoringMatrixPresets: scoutingSchemaSeed.scoringMatrixPresets || [],
+    scoringComponents: [],
+    scoringMatrixPresets: eventSchema.scoringMatrixPresets || [],
     scouterMetricDefinitions: explicitScouterMetricDefinitions,
     formulaFieldDefinitions: explicitFormulaFieldDefinitions,
     derivedMetricDefinitions: explicitDerivedMetricDefinitions,
-    metrics: buildMetricCatalog(scoutingSchemaSeed),
+    metrics: buildMetricCatalog(eventSchema),
     teams: teamsWithPridge,
     teamNumbers: teamsWithPridge.map((team) => team.number),
     defaultMetricId: "",
