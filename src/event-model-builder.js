@@ -133,15 +133,6 @@ function parseTeamNumberFromKey(value) {
   return Number(String(value || "").replace("frc", ""));
 }
 
-function normalizeQualRecord(record) {
-  if (!record || typeof record !== "object") return null;
-  return {
-    wins: Number(record.wins || 0),
-    losses: Number(record.losses || 0),
-    ties: Number(record.ties || 0),
-  };
-}
-
 function buildRankingMap(rankingsPayload) {
   const rankings = Array.isArray(rankingsPayload?.rankings) ? rankingsPayload.rankings : [];
   return new Map(rankings.map((entry) => [parseTeamNumberFromKey(entry?.team_key), entry]));
@@ -179,34 +170,20 @@ function buildTbaEventComponents(rankingEntry, tbaStatEntries = []) {
   return components;
 }
 
-function buildTeam(teamInfo, teamEvent, scoutingSchema, rankingEntry, tbaComponents) {
+function buildTeam(teamInfo, teamEvent, scoutingSchema, tbaComponents) {
   const statboticsTotal = Number(teamEvent?.epa?.total_points || 0);
   const statboticsComponents = Object.fromEntries(
     flattenStatboticsScalarEntries(teamEvent || {}).filter(([fieldId]) => fieldId !== "team_name" && fieldId !== "event_name"),
   );
-  const qualRecord = teamEvent?.record?.qual || {};
   const scouterFields = Array.isArray(scoutingSchema?.scouterMetricDefinitions) ? scoutingSchema.scouterMetricDefinitions : [];
   const emptyScouterComponents = Object.fromEntries(scouterFields.map((component) => [component.id, 0]));
-  const normalizedRankingRecord = normalizeQualRecord(rankingEntry?.record);
-  const rankingSortOrders = Array.isArray(rankingEntry?.sort_orders) ? rankingEntry.sort_orders : [];
-  const rankingScore = rankingSortOrders.length ? Number(rankingSortOrders[0] || 0) : Number(qualRecord.rps_per_match || 0);
   return {
     number: Number(teamInfo.team_number),
     name: teamInfo.nickname || teamEvent?.team_name || `Team ${teamInfo.team_number}`,
     drivetrain: "unknown",
     flags: [],
     matches: [],
-    eventRank: Number(rankingEntry?.rank || qualRecord.rank || 0) || null,
-    record: {
-      ...(teamEvent?.record || {}),
-      qual: {
-        ...(teamEvent?.record?.qual || {}),
-        ...(normalizedRankingRecord || {}),
-        rank: Number(rankingEntry?.rank || qualRecord.rank || 0) || null,
-        rps: rankingScore || null,
-        rps_per_match: Number(qualRecord.rps_per_match || 0) || null,
-      },
-    },
+    record: teamEvent?.record ? { ...teamEvent.record } : {},
     sources: {
       scouter: { total: 0, components: emptyScouterComponents, trend: [], componentTrend: Object.fromEntries(scouterFields.map((component) => [component.id, []])) },
       statbotics: { total: round(statboticsTotal), components: { ...statboticsComponents }, trend: [] },
@@ -241,7 +218,6 @@ function buildEventModelFromPayloads(payload) {
         teamInfo,
         teamEventsByNumber.get(teamNumber) || {},
         eventSchema,
-        rankingsByTeamNumber.get(teamNumber) || null,
         buildTbaEventComponents(rankingsByTeamNumber.get(teamNumber) || null, [
           ...buildTbaTeamStatEntries(tbaTeamStats, teamNumber),
         ]),
@@ -290,6 +266,7 @@ function buildEventModelFromPayloads(payload) {
     metrics: buildMetricCatalog(eventSchema),
     teams: teamsWithPridge,
     teamNumbers: teamsWithPridge.map((team) => team.number),
+    rankingSortOrderInfo: Array.isArray(payload.tbaRankings?.sort_order_info) ? [...payload.tbaRankings.sort_order_info] : [],
     defaultMetricId: "",
     defaultTeamDetailMetricId: "",
     seedSortEquations: [],

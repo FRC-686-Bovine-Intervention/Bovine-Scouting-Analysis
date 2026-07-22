@@ -1868,7 +1868,6 @@ function collectTbaMetricDefinitions(eventModel = currentEvent()) {
 
   const metricDefinitions = formulaDefinitions
     .filter((definition) => definition.type === "number")
-    .filter((definition) => definition.fieldId !== "opr.total")
     .map((definition) => ({
       id: `source:tba:${definition.fieldId}`,
       kind: "source",
@@ -2373,11 +2372,6 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
     const componentId = identifier.slice("pridge.".length);
     if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.total ?? Number.NaN);
     return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.components?.[componentId] ?? Number.NaN);
-  }
-  if (identifier.startsWith("opr.")) {
-    const componentId = identifier.slice("opr.".length);
-    if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.total ?? Number.NaN);
-    return formulaScalarValue(formulaContext.overlayTeam.sources?.opr?.components?.[componentId] ?? Number.NaN);
   }
   if (identifier.startsWith("filter.")) {
     const referencedFilter = profileFilterDefinitionByReference(identifier, formulaContext.eventModel);
@@ -3542,7 +3536,6 @@ function updateSortEquation(id, updater) {
 
 function normalizeLegacyMetricId(id) {
   const normalizedId = String(id || "");
-  if (normalizedId === "opr" || normalizedId === "source:opr:total") return "source:tba:opr.total";
   if (normalizedId.startsWith("source:epa:")) return `source:statbotics:${normalizedId.slice("source:epa:".length)}`;
   return normalizedId;
 }
@@ -5122,22 +5115,28 @@ function renderRecoveryScreen(error) {
 }
 
 function renderRankings() {
+  const rankingTeams = currentTeams();
+  const showSecondarySort = rankingTeams.some((team) => rankingSortValueForTeam(team, 1) !== null);
+  const primarySortLabel = rankingSortLabel(0);
+  const secondarySortLabel = rankingSortLabel(1);
   const displayedRankedTeams = [...currentTeams()]
     .sort((a, b) => {
-      const leftRankingScore = rankingScoreForTeam(a);
-      const rightRankingScore = rankingScoreForTeam(b);
+      const leftRank = rankingRankForTeam(a);
+      const rightRank = rankingRankForTeam(b);
+      const leftRankingScore = rankingSortValueForTeam(a, 0);
+      const rightRankingScore = rankingSortValueForTeam(b, 0);
       const leftSortScore = Number.isFinite(leftRankingScore) ? leftRankingScore : Number.NEGATIVE_INFINITY;
       const rightSortScore = Number.isFinite(rightRankingScore) ? rightRankingScore : Number.NEGATIVE_INFINITY;
-      return (a.eventRank || Infinity) - (b.eventRank || Infinity)
+      return (leftRank ?? Infinity) - (rightRank ?? Infinity)
         || rightSortScore - leftSortScore
         || a.number - b.number;
     })
-    .map((team, index) => ({
+    .map((team) => ({
       ...team,
-      rank: team.eventRank || index + 1,
-      rankingScore: rankingScoreForTeam(team),
-      rp: rankingPoints(team),
-      record: recordForTeam(team),
+      rank: rankingRankForTeam(team),
+      primaryRankingSort: rankingSortValueForTeam(team, 0),
+      secondaryRankingSort: rankingSortValueForTeam(team, 1),
+      rankingRecord: rankingRecordForTeam(team),
     }));
   return `
     <article class="card">
@@ -5145,26 +5144,26 @@ function renderRankings() {
         <div>
           <h2>Current Event Rankings</h2>
         </div>
-        <span class="muted">Sorted by event rank, then ranking score</span>
+        <span class="muted">Sorted by raw TBA rank, then raw TBA sort order 1</span>
       </div>
       <div class="ranking-table" role="table" aria-label="Current event rankings">
         <div class="ranking-row ranking-header" role="row">
           <span>Rank</span>
           <span>Team</span>
-          <span>Ranking Score</span>
+          <span>${escapeHtml(primarySortLabel)}</span>
           <span>Record</span>
-          <span>RP</span>
+          ${showSecondarySort ? `<span>${escapeHtml(secondarySortLabel)}</span>` : ""}
           <span>Flags</span>
         </div>
         ${displayedRankedTeams
           .map(
             (team) => `
           <button class="ranking-row" data-team="${team.number}" role="row">
-            <strong>${team.rank}</strong>
+            <strong>${team.rank === null ? "&mdash;" : team.rank}</strong>
             <span>${team.number} ${team.name}</span>
-            <span>${team.rankingScore === null ? "&mdash;" : team.rankingScore.toFixed(2)}</span>
-            <span>${team.record || "&mdash;"}</span>
-            <span>${team.rp === null ? "&mdash;" : team.rp}</span>
+            <span>${team.primaryRankingSort === null ? "&mdash;" : team.primaryRankingSort.toFixed(2)}</span>
+            <span>${team.rankingRecord || "&mdash;"}</span>
+            ${showSecondarySort ? `<span>${team.secondaryRankingSort === null ? "&mdash;" : team.secondaryRankingSort.toFixed(2)}</span>` : ""}
             <span>${renderDrivetrainBadge(team)}</span>
           </button>
         `,
@@ -5175,22 +5174,32 @@ function renderRankings() {
   `;
 }
 
-function rankingScoreForTeam(team) {
-  const rankingScore = Number(team.record?.qual?.rps);
-  return Number.isFinite(rankingScore) ? rankingScore : null;
+function rankingTbaNumber(team, fieldId) {
+  const value = Number(team.sources?.tba?.components?.[fieldId]);
+  return Number.isFinite(value) ? value : null;
 }
 
-function rankingPoints(team) {
-  const rankingPointsValue = Number(team.record?.qual?.rps);
-  return Number.isFinite(rankingPointsValue) ? rankingPointsValue : null;
+function rankingRankForTeam(team) {
+  return rankingTbaNumber(team, "rank");
 }
 
-function recordForTeam(team) {
-  if (team.record?.qual) {
-    const qual = team.record.qual;
-    return `${qual.wins}-${qual.losses}-${qual.ties}`;
-  }
-  return "";
+function rankingSortValueForTeam(team, index = 0) {
+  return rankingTbaNumber(team, `sort_orders.${index}`);
+}
+
+function rankingRecordForTeam(team) {
+  const wins = rankingTbaNumber(team, "record.wins");
+  const losses = rankingTbaNumber(team, "record.losses");
+  const ties = rankingTbaNumber(team, "record.ties");
+  if (wins === null && losses === null && ties === null) return "";
+  return `${wins ?? 0}-${losses ?? 0}-${ties ?? 0}`;
+}
+
+function rankingSortLabel(index = 0, eventModel = currentEvent()) {
+  const sortOrderInfo = Array.isArray(eventModel?.rankingSortOrderInfo) ? eventModel.rankingSortOrderInfo : [];
+  const entry = sortOrderInfo[index];
+  const providedLabel = normalizeText(entry?.name || entry?.short_name || entry?.label);
+  return providedLabel || `TBA Sort ${index + 1}`;
 }
 
 function renderTeams() {
@@ -5272,7 +5281,7 @@ function renderTeamDetail(team) {
         <div class="compact-flags">
           <h3>Source Snapshot</h3>
           <p><strong>pRidge:</strong> ${detailPridgeMetric ? teamMetricValue(team, detailPridgeMetric).toFixed(1) : "-"}</p>
-          <p><strong>Rank:</strong> ${team.eventRank || "Unranked"}</p>
+          <p><strong>TBA Rank:</strong> ${rankingRankForTeam(team) || "Unranked"}</p>
           <p><strong>Imported scouting matches:</strong> ${team.scouting?.importedMatches || 0}</p>
           <p><strong>Scouting confidence:</strong> ${escapeHtml(confidenceLabel(detailScoutingConfidence.tier))}</p>
           ${team.flags.length ? team.flags.map((flag) => `<p><span class="flag ${flag.severity}">${flag.label}</span> <span class="flag-evidence">${flag.evidence}</span></p>`).join("") : `<p class="muted">No active flags.</p>`}
@@ -5759,7 +5768,7 @@ function renderDerivedBuilder() {
                 <textarea
                   id="derivedEquationFormulaInput"
                   class="admin-input derived-formula-input"
-                  placeholder="average(opr.total)"
+                  placeholder="average(tba.opr.total)"
                   autocomplete="off"
                   rows="2"
                   spellcheck="false"
@@ -7041,7 +7050,6 @@ function formulaAutocompleteCandidates(token) {
     ...currentAvailableScoutingFieldDefinitions().map((metricDefinition) => `scouting.${metricDefinition.id}`),
     ...currentAvailableTbaFormulaIdentifiers(),
     ...currentAvailableStatboticsFormulaIdentifiers(),
-    "opr.total",
     "pridge.total",
     ...currentProfileEquationList().map((definition) => definition.id),
     "allianceMatch",
