@@ -127,3 +127,34 @@ runTest("validateCanonicalSchema accepts split entries and schema artifacts", ()
   assert.equal(validation.profile.id, "canonical-json-v1");
   assert.equal(validation.entries.length, 1);
 });
+
+runTest("validateCanonicalSchema rejects contextual fields at the top level of entries", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
+  const eventModel = buildEventModel(context);
+  const entriesPayload = {
+    meta: {
+      format: "frc-scouting-analysis/v1",
+      season: 2026,
+      eventKey: "2026chcmp",
+      entryType: "match",
+    },
+    entries: [{
+      entryId: "split-1",
+      matchNumber: 1,
+      teamNumber: 686,
+      alliance: "red",
+      scoutUser: "Top Level Scout",
+      rawMetrics: { autoFuelPct: 80, scoutUser: "Payload Scout", station: "1" },
+    }],
+  };
+  const schemaPayload = {
+    meta: {
+      format: "frc-scouting-analysis/v1",
+      templateProfileId: "canonical-json-v1",
+    },
+    schema: context.ScoutingJsonSchema.buildCanonicalSchemaForEventModel(eventModel),
+  };
+  const validation = context.ScoutingJsonSchema.validateCanonicalSchema(entriesPayload, eventModel, "2026chcmp", schemaPayload);
+
+  assert.equal(validation.errors.some((error) => error.includes("must store scoutUser inside rawMetrics")), true);
+});

@@ -2,6 +2,7 @@
 const seasonFramework = globalThis.SeasonFramework || {};
 const scoutingJsonSchema = globalThis.ScoutingJsonSchema || {};
 const requiredIdentityFields = scoutingJsonSchema.requiredEntryIdentityFields || ["matchNumber", "teamNumber", "alliance"];
+const contextualEntryMetricIds = new Set(scoutingJsonSchema.contextualEntryMetricIds || ["scoutUser", "station", "defensePlayed", "robotStatus", "notes"]);
 const canonicalFormatId = scoutingJsonSchema.canonicalFormatId || "frc-scouting-analysis/v1";
 const canonicalTemplateProfileId = scoutingJsonSchema.canonicalTemplateProfileId || "canonical-json-v1";
 const buildCanonicalSchemaForEventModel = scoutingJsonSchema.buildCanonicalSchemaForEventModel || (() => ({ schemaId: canonicalTemplateProfileId, fields: [] }));
@@ -70,8 +71,6 @@ function normalizeProvenance(value, fallback = {}) {
   );
 }
 
-const contextualEntryMetricIds = new Set(["scoutUser", "station", "defensePlayed", "robotStatus", "notes"]);
-
 function formulaFieldDefinitions(eventModel) {
   if (Array.isArray(eventModel?.formulaFieldDefinitions) && eventModel.formulaFieldDefinitions.length) {
     return eventModel.formulaFieldDefinitions;
@@ -121,11 +120,6 @@ function parseCanonicalJson(text) {
   } catch (error) {
     return { error: `Canonical scouting artifact is not valid JSON. ${error?.message || ""}`.trim() };
   }
-}
-
-function entryContextValue(entry, rawMetricsSource, fieldId) {
-  if (entry && Object.prototype.hasOwnProperty.call(entry, fieldId)) return entry[fieldId];
-  return rawMetricsSource?.[fieldId];
 }
 
 function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, activeEventKey, existingSubmissions = [] }) {
@@ -210,12 +204,12 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
       sourceType: "team-scouting",
       matchNumber: toNumber(entry?.matchNumber),
       teamNumber: toNumber(entry?.teamNumber),
-      scoutUser: normalizeText(entryContextValue(entry, rawMetricsSource, "scoutUser")),
+      scoutUser: normalizeText(rawMetricsSource?.scoutUser),
       alliance: normalizeText(entry?.alliance),
-      station: normalizeText(entryContextValue(entry, rawMetricsSource, "station")),
-      defensePlayed: toBoolean(entryContextValue(entry, rawMetricsSource, "defensePlayed")),
-      robotStatus: normalizeText(entryContextValue(entry, rawMetricsSource, "robotStatus")),
-      notes: normalizeText(entryContextValue(entry, rawMetricsSource, "notes")),
+      station: normalizeText(rawMetricsSource?.station),
+      defensePlayed: toBoolean(rawMetricsSource?.defensePlayed),
+      robotStatus: normalizeText(rawMetricsSource?.robotStatus),
+      notes: normalizeText(rawMetricsSource?.notes),
       rawMetrics,
       validity: "valid",
       confidenceTier: "high",

@@ -2,12 +2,12 @@
   "meta": {
     "format": "frc-scouting-analysis/v1",
     "sourceApp": "legacy-sheet-translator",
-    "templateProfileId": "match-current-v2",
-    "profileLabel": "Current Match Template",
+    "templateProfileId": "canonical-json-v1",
+    "profileLabel": "Canonical JSON",
     "translationVersion": "2026-thin-v2"
   },
   "schema": {
-    "schemaId": "match-v2",
+    "schemaId": "2026-match-v1",
     "fields": [
       {
         "id": "autoFuelPct",
@@ -276,8 +276,8 @@
     ]
   },
   "profile": {
-    "id": "match-current-v2",
-    "label": "Current Match Template",
+    "id": "canonical-json-v1",
+    "label": "Canonical JSON",
     "equations": [
       {
         "id": "scoutingTotal",

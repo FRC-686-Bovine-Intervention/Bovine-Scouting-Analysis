@@ -5,6 +5,7 @@ const canonicalTemplateProfileId = "canonical-json-v1";
 const requiredEntryIdentityFields = ["matchNumber", "teamNumber", "alliance"];
 const requiredEntriesMetaFields = ["format", "season", "eventKey", "entryType"];
 const requiredSchemaMetaFields = ["format"];
+const contextualEntryMetricIds = ["scoutUser", "station", "defensePlayed", "robotStatus", "notes"];
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -264,6 +265,16 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
     errors.push("Canonical scouting schema JSON schema.fields must be an array.");
   }
 
+  if (Array.isArray(entries)) {
+    entries.forEach((entry, index) => {
+      contextualEntryMetricIds.forEach((fieldId) => {
+        if (Object.prototype.hasOwnProperty.call(entry || {}, fieldId)) {
+          errors.push(`Entry ${index + 1} must store ${fieldId} inside rawMetrics, not as a top-level field.`);
+        }
+      });
+    });
+  }
+
   const expectedFields = buildCanonicalSchemaForEventModel(eventModel).fields;
   const expectedFieldMap = new Map(expectedFields.map((field) => [field.id, field]));
   const schemaFieldMap = new Map();
@@ -335,6 +346,7 @@ globalThis.ScoutingJsonSchema = {
   inferCanonicalFieldType,
   normalizeCanonicalProfile,
   normalizeCanonicalPayload,
+  contextualEntryMetricIds,
   requiredEntryIdentityFields,
   validateCanonicalSchema,
 };

@@ -1010,12 +1010,12 @@ function adaptEventSheetCsv(eventModel, csvText, options = {}) {
   const records = dataset.entries.map((entry) => ({
     matchNumber: entry.matchNumber,
     teamNumber: entry.teamNumber,
-    scoutUser: entry.rawMetrics?.scoutUser || entry.scoutUser,
+    scoutUser: entry.rawMetrics?.scoutUser || "",
     alliance: entry.alliance,
-    station: entry.rawMetrics?.station || entry.station,
-    defensePlayed: entry.rawMetrics?.defensePlayed ?? entry.defensePlayed,
-    robotStatus: entry.rawMetrics?.robotStatus || entry.robotStatus,
-    notes: entry.rawMetrics?.notes || entry.notes,
+    station: entry.rawMetrics?.station || "",
+    defensePlayed: entry.rawMetrics?.defensePlayed ?? false,
+    robotStatus: entry.rawMetrics?.robotStatus || "",
+    notes: entry.rawMetrics?.notes || "",
     metrics: entry.rawMetrics || {},
   }));
   return buildCanonicalImportCsv(eventModel, records, {

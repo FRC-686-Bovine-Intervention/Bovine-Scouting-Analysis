@@ -167,6 +167,7 @@ migrationFixtures.forEach((fixture) => {
     assert.equal(eventModel.season, fixture.season);
 
     const { jsonText, schemaJsonText } = readCanonicalFixturePair(fixture);
+    const schemaPayload = JSON.parse(schemaJsonText);
     const preview = scoutingJsonImport.previewScoutingJsonImport({
       jsonText,
       schemaJsonText,
@@ -177,6 +178,9 @@ migrationFixtures.forEach((fixture) => {
 
     assert.equal(preview.ok, true, (preview.errors || []).join("; "));
     assert.ok(preview.summary?.submissions?.length, `Canonical fixture should produce submissions for ${fixture.eventKey}`);
+    assert.equal(schemaPayload.meta.templateProfileId, "canonical-json-v1");
+    assert.equal(schemaPayload.profile.id, "canonical-json-v1");
+    assert.equal(schemaPayload.schema.schemaId, `${fixture.season}-match-v1`);
   });
 });
 

@@ -133,7 +133,9 @@ This replaces the current assumption that an event model is mostly a static snap
 
 ## Canonical Scouting JSON Format
 
-The canonical JSON should be event-scoped and self-describing.
+The canonical scouting payload is split into event-scoped entries and schema/profile artifacts.
+
+Entries artifact:
 
 ```json
 {
@@ -141,27 +143,19 @@ The canonical JSON should be event-scoped and self-describing.
     "format": "frc-scouting-analysis/v1",
     "eventKey": "2026chcmp",
     "season": 2026,
-    "exportedAt": "2026-04-05T14:32:00Z",
-    "sourceApp": "Team 686 Scouting",
-    "entryType": "match"
-  },
-  "schema": {
-    "schemaId": "2026-match-v1",
-    "fields": [
-      { "id": "autoFuelPct", "label": "Auto Fuel %", "type": "number" },
-      { "id": "autoPrimaryRole", "label": "Auto Primary Role", "type": "string" }
-    ]
+    "entryType": "match",
+    "exportedAt": "2026-04-05T14:32:00Z"
   },
   "entries": [
     {
       "entryId": "abc123",
       "matchNumber": 1,
       "teamNumber": 686,
-      "scoutUser": "Avery",
       "alliance": "red",
-      "station": "1",
-      "notes": "",
       "rawMetrics": {
+        "scoutUser": "Avery",
+        "station": "1",
+        "notes": "",
         "autoFuelPct": 80,
         "autoPrimaryRole": "Score"
       },
@@ -173,8 +167,34 @@ The canonical JSON should be event-scoped and self-describing.
 }
 ```
 
+Schema/profile artifact:
+
+```json
+{
+  "meta": {
+    "format": "frc-scouting-analysis/v1",
+    "sourceApp": "Team 686 Scouting",
+    "templateProfileId": "canonical-json-v1",
+    "profileLabel": "Canonical JSON"
+  },
+  "schema": {
+    "schemaId": "2026-match-v1",
+    "fields": [
+      { "id": "autoFuelPct", "label": "Auto Fuel %", "type": "number" },
+      { "id": "autoPrimaryRole", "label": "Auto Primary Role", "type": "string" }
+    ]
+  },
+  "profile": {
+    "id": "canonical-json-v1",
+    "label": "Canonical JSON"
+  }
+}
+```
+
 ### Canonical Rules
 - `entries` remain atomic, one scout submission per team per match.
+- Only `entryId`, `matchNumber`, `teamNumber`, and `alliance` are universal top-level entry fields.
+- Event-specific contextual fields like `scoutUser`, `station`, `defensePlayed`, `robotStatus`, and `notes` live inside `rawMetrics`.
 - `rawMetrics` is flexible and may contain numeric or categorical values.
 - Unknown fields are allowed.
 - Identity fields are required.

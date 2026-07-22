@@ -10,7 +10,8 @@
 - The Blue Alliance Developer APIs: <https://www.thebluealliance.com/apidocs>
 - Statbotics repository README: <https://github.com/avgupta456/statbotics>
 - This repo's current canonical scouting fixture and import pipeline:
-  - [tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.json](D:/FIRST/Scouting/Scouting-Analysis/tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.json)
+  - [tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.entries.json](D:/FIRST/Scouting/Scouting-Analysis/tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.entries.json)
+  - [tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.schema.json](D:/FIRST/Scouting/Scouting-Analysis/tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.schema.json)
   - [src/scouting-json-schema.js](D:/FIRST/Scouting/Scouting-Analysis/src/scouting-json-schema.js)
   - [src/scouting-json-import.js](D:/FIRST/Scouting/Scouting-Analysis/src/scouting-json-import.js)
   - [src/import-foundation.js](D:/FIRST/Scouting/Scouting-Analysis/src/import-foundation.js)
@@ -61,7 +62,7 @@ Implication:
 
 ### 5. Identity should stay explicit and row-like
 - Spreadsheet scouting workflows naturally revolve around one scouting observation per row.
-- This repo's canonical format preserves that model with explicit identity fields like match number, team number, scouter, alliance, and station.
+- This repo's canonical format preserves that model with explicit universal identity fields like match number, team number, and alliance, while keeping scouter/station/notes in the event-specific payload.
 
 Implication:
 - Continue to model canonical scouting JSON as a flat list of event-scoped scouting entries.
