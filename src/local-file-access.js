@@ -8,6 +8,45 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function normalizePathKey(value) {
+  return normalizeText(value).replace(/\\/g, "/").toLowerCase();
+}
+
+function pathBasename(value) {
+  const normalized = normalizePathKey(value);
+  if (!normalized) return "";
+  return normalized.split("/").pop() || "";
+}
+
+function normalizeStoredAttachmentRecord(value, attachmentId = "", displayPath = "") {
+  if (!value || typeof value !== "object") return null;
+  if (value.kind === "snapshot") {
+    return {
+      kind: "snapshot",
+      path: normalizeText(value.path) || normalizeText(displayPath) || "Selected local file",
+      name: normalizeText(value.name) || pathBasename(value.path) || pathBasename(displayPath),
+      text: String(value.text || ""),
+    };
+  }
+  if (value.kind === "handle" && value.handle) {
+    return {
+      kind: "handle",
+      path: normalizeText(value.path) || normalizeText(displayPath) || normalizeText(value.handle?.name) || normalizeText(attachmentId) || "Selected local file",
+      name: normalizeText(value.name) || normalizeText(value.handle?.name) || pathBasename(value.path) || pathBasename(displayPath),
+      handle: value.handle,
+    };
+  }
+  if (typeof value.getFile === "function" || typeof value.createWritable === "function") {
+    return {
+      kind: "handle",
+      path: normalizeText(displayPath) || normalizeText(value?.name) || normalizeText(attachmentId) || "Selected local file",
+      name: normalizeText(value?.name) || pathBasename(displayPath),
+      handle: value,
+    };
+  }
+  return null;
+}
+
 function supportsHtmlFileInput(deps = {}) {
   const documentRef = deps.document || globalThis.document;
   return Boolean(documentRef && typeof documentRef.createElement === "function" && documentRef.body);
@@ -153,6 +192,48 @@ async function readTextFromHandleFile(handle) {
   return file.text();
 }
 
+async function withAttachmentPermission(handle, mode, deps = {}, work) {
+  try {
+    return await work();
+  } catch (error) {
+    if (typeof handle?.queryPermission !== "function") throw error;
+    let permission = await handle.queryPermission({ mode });
+    if (
+      permission === "prompt"
+      && typeof handle.requestPermission === "function"
+      && hasActiveUserActivation(deps)
+    ) {
+      permission = await handle.requestPermission({ mode });
+    }
+    if (permission !== "granted") {
+      throw new Error(`Permission to ${mode} the local scouting file was denied.`);
+    }
+    return work();
+  }
+}
+
+async function writeTextToHandleFile(handle, text) {
+  if (typeof handle?.createWritable !== "function") {
+    throw new Error("The saved local scouting file is not writable.");
+  }
+  const writable = await handle.createWritable();
+  await writable.write(String(text || ""));
+  await writable.close();
+}
+
+async function requestAttachmentPermission(handle, mode, deps = {}) {
+  if (typeof handle?.queryPermission !== "function") return "granted";
+  let permission = await handle.queryPermission({ mode });
+  if (
+    permission === "prompt"
+    && typeof handle.requestPermission === "function"
+    && hasActiveUserActivation(deps)
+  ) {
+    permission = await handle.requestPermission({ mode });
+  }
+  return permission;
+}
+
 async function pickAttachmentFileWithInput(options = {}, deps = {}) {
   const documentRef = deps.document || globalThis.document;
   if (!documentRef?.body || typeof documentRef.createElement !== "function") {
@@ -207,10 +288,17 @@ async function pickAttachmentFile(options = {}, deps = {}) {
       });
       const handle = Array.isArray(handles) ? handles[0] : handles;
       if (!handle) throw new Error("No local scouting file was selected.");
-      await storage.set(attachmentId, handle);
+      if (options.requestWriteAccess === true) {
+        const permission = await requestAttachmentPermission(handle, "readwrite", deps);
+        if (permission !== "granted") {
+          throw new Error("Permission to write the local scouting file was denied.");
+        }
+      }
+      const displayPath = normalizeText(options.path) || normalizeText(handle.name) || "Selected local file";
+      await storage.set(attachmentId, normalizeStoredAttachmentRecord(handle, attachmentId, displayPath));
       return {
         attachmentId,
-        path: normalizeText(handle.name) || normalizeText(options.path) || "Selected local file",
+        path: displayPath,
         name: normalizeText(handle.name),
       };
     } catch (error) {
@@ -218,7 +306,7 @@ async function pickAttachmentFile(options = {}, deps = {}) {
     }
   }
   const snapshot = await pickAttachmentFileWithInput(options, deps);
-  await storage.set(attachmentId, snapshot);
+  await storage.set(attachmentId, normalizeStoredAttachmentRecord(snapshot, attachmentId, snapshot.path));
   return {
     attachmentId,
     path: snapshot.path,
@@ -233,36 +321,38 @@ async function loadAttachmentHandle(attachmentId, deps = {}) {
   if (!storage || typeof storage.get !== "function") {
     throw new Error("Persistent local scouting files are unavailable in this browser.");
   }
-  const handle = await storage.get(normalizedAttachmentId);
-  if (!handle) {
+  const storedValue = await storage.get(normalizedAttachmentId);
+  if (!storedValue) {
     throw new Error("No saved local scouting file handle exists for this attachment.");
   }
-  return handle;
+  return normalizeStoredAttachmentRecord(storedValue, normalizedAttachmentId) || storedValue;
 }
 
 async function readAttachmentText(attachmentId, deps = {}) {
-  const handle = await loadAttachmentHandle(attachmentId, deps);
-  if (handle && typeof handle === "object" && handle.kind === "snapshot") {
-    return String(handle.text || "");
+  const record = await loadAttachmentHandle(attachmentId, deps);
+  if (record && typeof record === "object" && record.kind === "snapshot") {
+    return String(record.text || "");
   }
+  const handle = record?.kind === "handle" ? record.handle : record;
+  return withAttachmentPermission(handle, "read", deps, () => readTextFromHandleFile(handle));
+}
 
-  try {
-    return await readTextFromHandleFile(handle);
-  } catch (error) {
-    if (typeof handle.queryPermission !== "function") throw error;
-    let permission = await handle.queryPermission({ mode: "read" });
-    if (
-      permission === "prompt"
-      && typeof handle.requestPermission === "function"
-      && hasActiveUserActivation(deps)
-    ) {
-      permission = await handle.requestPermission({ mode: "read" });
+async function writeAttachmentText(attachmentId, text, deps = {}) {
+  const record = await loadAttachmentHandle(attachmentId, deps);
+  if (record && typeof record === "object" && record.kind === "snapshot") {
+    const storage = deps.storage || createIndexedDbStorage(deps);
+    if (!storage || typeof storage.set !== "function") {
+      throw new Error("Persistent local scouting files are unavailable in this browser.");
     }
-    if (permission !== "granted") {
-      throw new Error("Permission to read the local scouting file was denied.");
-    }
-    return readTextFromHandleFile(handle);
+    await storage.set(attachmentId, {
+      ...record,
+      text: String(text || ""),
+    });
+    return true;
   }
+  const handle = record?.kind === "handle" ? record.handle : record;
+  await withAttachmentPermission(handle, "readwrite", deps, () => writeTextToHandleFile(handle, text));
+  return true;
 }
 
 async function removeAttachment(attachmentId, deps = {}) {
@@ -310,6 +400,9 @@ async function clearAllScoutingSubmissions(deps = {}) {
 globalThis.LocalFileAccess = {
   buildPickerTypes,
   createIndexedDbKeyValueStorage,
+  normalizePathKey,
+  pathBasename,
+  normalizeStoredAttachmentRecord,
   createIndexedDbStorage,
   createScoutingSubmissionStorage,
   pickAttachmentFileWithInput,
@@ -317,6 +410,7 @@ globalThis.LocalFileAccess = {
   pickAttachmentFile,
   loadAttachmentHandle,
   readAttachmentText,
+  writeAttachmentText,
   removeAttachment,
   readScoutingSubmissions,
   writeScoutingSubmissions,

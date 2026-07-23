@@ -2,6 +2,17 @@ function normalizeSourceUrl(value) {
   return String(value || "").trim();
 }
 
+function sourceBasename(value) {
+  const normalized = normalizeSourceUrl(value).split(/[?#]/)[0];
+  if (!normalized) return "";
+  const decoded = normalized.replace(/^file:\/\/\//i, "").replace(/\\/g, "/").split("/").pop() || "";
+  try {
+    return decodeURIComponent(decoded);
+  } catch {
+    return decoded;
+  }
+}
+
 function googleSheetInfo(url) {
   const match = String(url || "").match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   if (!match) return null;
@@ -27,6 +38,22 @@ function sourceUrlMatchesEventSheet(url, eventModel = {}) {
 
 function shouldFallbackToEventSheetSample(url, eventModel = {}) {
   return Boolean(eventModel?.sheet?.sampleCsvText && sourceUrlMatchesEventSheet(url, eventModel));
+}
+
+function inferProfileIdFromAttachmentSource(source, options = {}) {
+  const filename = sourceBasename(source).toLowerCase();
+  const normalizedFormat = normalizeSourceUrl(options.format).toLowerCase();
+  if (!filename) return normalizedFormat === "scouting-json" ? "canonical-json-v1" : "";
+  if (normalizedFormat === "scouting-json" || /\.(entries|schema)\.json$/i.test(filename) || /\.json$/i.test(filename)) {
+    return "canonical-json-v1";
+  }
+  if (/(^|[^a-z])legacy([^a-z]|$)|match[-_. ]?v1/i.test(filename)) {
+    return "match-legacy-v1";
+  }
+  if (/(^|[^a-z])current([^a-z]|$)|match[-_. ]?v2|teamcalculations|scouting analysis/i.test(filename)) {
+    return "match-current-v2";
+  }
+  return "";
 }
 
 function duplicateSubmissionKey(submission) {
@@ -78,9 +105,11 @@ function assessDuplicateSubmissions(existingSubmissions, incomingSubmissions) {
 
 globalThis.ScoutingSourceUtils = {
   normalizeSourceUrl,
+  sourceBasename,
   googleSheetInfo,
   sourceUrlMatchesEventSheet,
   shouldFallbackToEventSheetSample,
+  inferProfileIdFromAttachmentSource,
   duplicateSubmissionKey,
   assessDuplicateSubmissions,
 };

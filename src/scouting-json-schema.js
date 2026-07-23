@@ -169,6 +169,41 @@ function buildCanonicalSchemaMeta(options = {}) {
   };
 }
 
+function buildCanonicalSchemaArtifact(schemaPayload, options = {}) {
+  const normalized = normalizeCanonicalPayload({}, schemaPayload);
+  const eventModel = options.eventModel || {};
+  const resolvedSchemaId = normalizeText(options.schemaId)
+    || normalizeText(normalized.schema?.schemaId)
+    || `${eventModel?.season || "season"}-match-v1`;
+  const profile = normalizeCanonicalProfile(
+    options.profile || normalized.profile,
+    {
+      ...normalized.schemaMeta,
+      templateProfileId: normalizeText(options.profile?.id || normalized.schemaMeta?.templateProfileId),
+      profileLabel: normalizeText(options.profile?.label || normalized.schemaMeta?.profileLabel),
+    },
+  ) || normalizeCanonicalProfile(null, normalized.schemaMeta);
+  const schema = Array.isArray(normalized.schema?.fields) && normalized.schema.fields.length
+    ? {
+        ...normalized.schema,
+        schemaId: resolvedSchemaId,
+        fields: normalized.schema.fields.map((fieldDefinition) => normalizeSchemaField(fieldDefinition)),
+      }
+    : buildCanonicalSchemaForEventModel(eventModel, { schemaId: resolvedSchemaId });
+  return {
+    meta: {
+      ...normalized.schemaMeta,
+      format: normalizeText(normalized.schemaMeta?.format) || canonicalFormatId,
+      sourceApp: normalizeText(normalized.schemaMeta?.sourceApp),
+      templateProfileId: normalizeText(profile?.id || normalized.schemaMeta?.templateProfileId) || canonicalTemplateProfileId,
+      profileLabel: normalizeText(profile?.label || normalized.schemaMeta?.profileLabel),
+      translationVersion: normalizeText(normalized.schemaMeta?.translationVersion),
+    },
+    schema,
+    profile,
+  };
+}
+
 function normalizeCanonicalPayload(payload, schemaPayload = null) {
   const entriesPayload = payload && typeof payload === "object" && !Array.isArray(payload) ? payload : {};
   const schemaSource = schemaPayload && typeof schemaPayload === "object" && !Array.isArray(schemaPayload)
@@ -339,6 +374,7 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
 globalThis.ScoutingJsonSchema = {
   buildCanonicalEntriesMetaForEventModel,
   buildCanonicalSchemaMeta,
+  buildCanonicalSchemaArtifact,
   buildCanonicalMetaForEventModel,
   buildCanonicalSchemaForEventModel,
   canonicalFormatId,

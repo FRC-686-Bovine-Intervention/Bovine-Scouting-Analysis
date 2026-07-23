@@ -9,6 +9,7 @@ const scoutingDependencyDiagnostics = globalThis.ScoutingDependencyDiagnostics |
 const scoutingDiagnosticsState = globalThis.ScoutingDiagnosticsState || {};
 const scoutingSourceUtils = globalThis.ScoutingSourceUtils || {};
 const scoutingJsonImport = globalThis.ScoutingJsonImport || {};
+const scoutingJsonSchema = globalThis.ScoutingJsonSchema || {};
 const sourceRefresh = globalThis.SourceRefresh || {};
 const seasonFramework = globalThis.SeasonFramework || {};
 const scoutingSchemaRuntime = globalThis.ScoutingSchemaRuntime || {};
@@ -29,12 +30,17 @@ const pickLocalAttachmentFile = localFileAccess.pickAttachmentFile || (async () 
 const readLocalAttachmentText = localFileAccess.readAttachmentText || (async () => {
   throw new Error("Persistent local scouting files are unavailable in this browser.");
 });
+const writeLocalAttachmentText = localFileAccess.writeAttachmentText || (async () => {
+  throw new Error("Persistent local scouting files are unavailable in this browser.");
+});
 const clearLocalAttachmentFile = localFileAccess.removeAttachment || (async () => false);
 const readPersistedScoutingSubmissions = localFileAccess.readScoutingSubmissions || (async () => null);
 const writePersistedScoutingSubmissions = localFileAccess.writeScoutingSubmissions || (async () => false);
 const clearPersistedScoutingSubmissions = localFileAccess.clearScoutingSubmissions || (async () => false);
 const clearAllPersistedScoutingSubmissions = localFileAccess.clearAllScoutingSubmissions || (async () => false);
 const normalizeScoutingSourceUrl = scoutingSourceUtils.normalizeSourceUrl || ((value) => String(value || "").trim());
+const inferScoutingProfileIdFromAttachmentSource = scoutingSourceUtils.inferProfileIdFromAttachmentSource || (() => "");
+const localAttachmentPathBasename = localFileAccess.pathBasename || ((value) => String(value || "").trim().replace(/\\/g, "/").split("/").pop() || "");
 const describeGoogleSheetInfo = scoutingSourceUtils.googleSheetInfo || (() => null);
 const matchesEventSheetSourceUrl = scoutingSourceUtils.sourceUrlMatchesEventSheet || (() => false);
 const shouldFallbackToCachedEventSheetSample = scoutingSourceUtils.shouldFallbackToEventSheetSample || (() => false);
@@ -42,6 +48,11 @@ const sharedDuplicateSubmissionKey =
   scoutingSourceUtils.duplicateSubmissionKey ||
   ((submission) => `${submission?.eventKey || ""}:${submission?.matchNumber || ""}:${submission?.teamNumber || ""}`);
 const previewScoutingJsonImport = scoutingJsonImport.previewScoutingJsonImport;
+const buildCanonicalSchemaArtifact = scoutingJsonSchema.buildCanonicalSchemaArtifact || ((schemaPayload) => ({
+  meta: schemaPayload?.meta || {},
+  schema: schemaPayload?.schema || {},
+  profile: schemaPayload?.profile || {},
+}));
 const defaultRefreshPolicyForSource = sourceRefresh.defaultPolicyForSource || (() => ({ baseIntervalMs: 60 * 1000, staleAfterMs: 5 * 60 * 1000, maxBackoffMs: 20 * 60 * 1000 }));
 const freshnessForSource = sourceRefresh.freshnessForSource || ((source) => source?.freshness || "unknown");
 const sourceStatusBadgeClassName = sourceRefresh.sourceStatusBadgeClassName || ((status) => {
@@ -669,6 +680,28 @@ function inferredScoutingTranslatorId(currentTranslatorId, format) {
   return normalizedTranslatorId;
 }
 
+function inferredScoutingProfileIdForAttachment({ format, source = "", schemaSource = "", currentProfileId = "", eventModel = currentEvent() } = {}) {
+  const normalizedFormat = normalizeText(format);
+  if (normalizedFormat === "scouting-json") return "canonical-json-v1";
+  return (
+    inferScoutingProfileIdFromAttachmentSource(schemaSource, { format: normalizedFormat, eventModel })
+    || inferScoutingProfileIdFromAttachmentSource(source, { format: normalizedFormat, eventModel })
+    || normalizeText(currentProfileId)
+    || preferredScoutingProfileIdForEvent(eventModel)
+    || defaultScoutingProfileId
+  );
+}
+
+function isEquivalentLocalAttachmentPath(left, right) {
+  const normalizedLeft = normalizeText(left);
+  const normalizedRight = normalizeText(right);
+  if (!normalizedLeft || !normalizedRight) return false;
+  if (normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()) return true;
+  const leftBase = localAttachmentPathBasename(normalizedLeft);
+  const rightBase = localAttachmentPathBasename(normalizedRight);
+  return Boolean(leftBase && rightBase && leftBase === rightBase);
+}
+
 function setTbaAuthKey(value, options = {}) {
   state.tbaAuthKey = normalizeText(value);
   globalThis.__TBA_AUTH_KEY = state.tbaAuthKey;
@@ -766,6 +799,66 @@ function markCurrentScoutingAttachmentSuccess(preview, csvText, update = {}) {
     schemaSignature,
     translatorVersion: translationVersion,
     sourceFingerprint: buildCombinedScoutingSourceFingerprint(csvText, update.schemaJsonText || ""),
+  });
+}
+
+function currentSchemaArtifactSeed(profileDefinition, eventModel = currentEvent()) {
+  return {
+    meta: {
+      templateProfileId: profileDefinition?.id,
+      profileLabel: profileDefinition?.label,
+      translationVersion: currentScoutingAttachment()?.translatorVersion || "",
+    },
+    profile: profileDefinition,
+  };
+}
+
+function buildCurrentSchemaArtifactText(profileDefinition, eventModel = currentEvent(), schemaJsonText = state.importSchemaJsonText) {
+  const parsedSchemaPayload = (() => {
+    const sourceText = normalizeText(schemaJsonText);
+    if (!sourceText) return currentSchemaArtifactSeed(profileDefinition, eventModel);
+    try {
+      return JSON.parse(sourceText);
+    } catch {
+      return currentSchemaArtifactSeed(profileDefinition, eventModel);
+    }
+  })();
+  return JSON.stringify(
+    buildCanonicalSchemaArtifact(parsedSchemaPayload, {
+      eventModel,
+      profile: profileDefinition,
+    }),
+    null,
+    2,
+  );
+}
+
+async function persistCurrentProfileToSchemaArtifact(eventModel = currentEvent()) {
+  const profileDefinition = currentImportedProfileDefinition(eventModel);
+  if (!profileDefinition) return false;
+  const attachment = currentScoutingAttachment();
+  const attachmentLoad = describeEventWorkspaceScoutingAttachmentLoad(currentEventWorkspace(), eventModel);
+  const hasSchemaArtifact = Boolean(
+    normalizeText(state.importSchemaJsonText)
+    || normalizeText(attachmentLoad?.schemaPath)
+    || normalizeText(attachmentLoad?.schemaUrl),
+  );
+  if (!hasSchemaArtifact) return false;
+  let existingSchemaJsonText = state.importSchemaJsonText;
+  if (!normalizeText(existingSchemaJsonText) && normalizeText(attachmentLoad?.schemaPath) && attachment?.attachmentId) {
+    existingSchemaJsonText = await readLocalAttachmentText(`${attachment.attachmentId}:schema`).catch(() => "");
+  }
+  const nextSchemaJsonText = buildCurrentSchemaArtifactText(profileDefinition, eventModel, existingSchemaJsonText);
+  state.importSchemaJsonText = nextSchemaJsonText;
+  if (normalizeText(attachmentLoad?.schemaPath) && attachment?.attachmentId) {
+    await writeLocalAttachmentText(`${attachment.attachmentId}:schema`, nextSchemaJsonText);
+  }
+  return true;
+}
+
+function persistCurrentProfileToSchemaArtifactSoon(eventModel = currentEvent()) {
+  void persistCurrentProfileToSchemaArtifact(eventModel).catch((error) => {
+    pushActivity(`Unable to update the bound scouting schema JSON. ${error?.message || "Re-select the schema file with Browse to grant write access, then try again."}`);
   });
 }
 
@@ -940,7 +1033,13 @@ function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
   const resolvedProfileId =
     normalizedFormat === "scouting-json"
       ? "canonical-json-v1"
-      : requestedProfileId || normalizeText(activeAttachment.profileId) || normalizeText(activeAttachment.translatorId) || defaultScoutingProfileId;
+      : requestedProfileId
+        || inferredScoutingProfileIdForAttachment({
+          format: normalizedFormat,
+          source: normalizedSource,
+          schemaSource: normalizedSchemaSource,
+          currentProfileId: normalizeText(activeAttachment.profileId) || normalizeText(activeAttachment.translatorId),
+        });
   const isRemoteSource = /^(https?|file):\/\//i.test(normalizedSource);
   const isRemoteSchemaSource = /^(https?|file):\/\//i.test(normalizedSchemaSource);
   state.eventWorkspace = upsertEventWorkspaceScoutingAttachment(
@@ -954,8 +1053,8 @@ function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
           ...(activeAttachment.location || {}),
           url: isRemoteSource ? normalizedSource : "",
           path: normalizedSource && !isRemoteSource ? normalizedSource : "",
-          schemaUrl: normalizedFormat === "scouting-json" && isRemoteSchemaSource ? normalizedSchemaSource : "",
-          schemaPath: normalizedFormat === "scouting-json" && normalizedSchemaSource && !isRemoteSchemaSource ? normalizedSchemaSource : "",
+          schemaUrl: isRemoteSchemaSource ? normalizedSchemaSource : "",
+          schemaPath: normalizedSchemaSource && !isRemoteSchemaSource ? normalizedSchemaSource : "",
         },
         translatorId: inferredScoutingTranslatorId(
           normalizeText(draft.translatorId) || (normalizedFormat === "scouting-json" ? "canonical-json-v1" : resolvedProfileId) || activeAttachment.translatorId,
@@ -1030,12 +1129,20 @@ async function chooseLocalScoutingAttachmentFile() {
       activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
       selectedSource,
     );
+    const inferredProfileId = inferredScoutingProfileIdForAttachment({
+      format: selectedSourceFormat,
+      source: selectedSource,
+      schemaSource: currentScoutingSchemaSourceInputValue(),
+      currentProfileId: attachment.profileId,
+    });
     saveCurrentScoutingAttachmentDraft(
       {
         ...draft,
         label: normalizeText(draft.label) || attachment.label,
         format: selectedSourceFormat,
-        translatorId: inferredScoutingTranslatorId(normalizeText(draft.translatorId) || attachment.translatorId, selectedSourceFormat),
+        translatorId: inferredScoutingTranslatorId(inferredProfileId || normalizeText(draft.translatorId) || attachment.translatorId, selectedSourceFormat),
+        profileId: inferredProfileId,
+        profileLabel: scoutingProfileLabel(inferredProfileId, attachment.profileLabel),
         source: selectedSource,
         autoLoad: true,
       },
@@ -1066,16 +1173,25 @@ async function chooseLocalScoutingSchemaFile() {
       attachmentId: `${attachment.attachmentId}:schema`,
       format: "scouting-json",
       path: currentSchemaSource || attachment.location?.schemaPath,
+      requestWriteAccess: true,
+    });
+    const selectedSchemaSource = normalizeText(selected.path);
+    const activeFormat = activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent());
+    const inferredProfileId = inferredScoutingProfileIdForAttachment({
+      format: activeFormat,
+      source: currentScoutingSourceInputValue(),
+      schemaSource: selectedSchemaSource,
+      currentProfileId: attachment.profileId,
     });
     saveCurrentScoutingAttachmentDraft(
       {
         label: attachment.label,
-        format: activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
-        translatorId: attachment.translatorId,
-        profileId: attachment.profileId,
-        profileLabel: attachment.profileLabel,
+        format: activeFormat,
+        translatorId: inferredScoutingTranslatorId(inferredProfileId || attachment.translatorId, activeFormat),
+        profileId: inferredProfileId,
+        profileLabel: scoutingProfileLabel(inferredProfileId, attachment.profileLabel),
         source: currentScoutingSourceInputValue(),
-        schemaSource: normalizeText(selected.path),
+        schemaSource: selectedSchemaSource,
         autoLoad: true,
       },
       { render: false },
@@ -1115,12 +1231,18 @@ function readCurrentScoutingAttachmentDraftFromDom() {
   const schemaSource = document.querySelector("#importSchemaSourceUrl")?.value;
   const inferredFormat = inferredScoutingAttachmentFormat(document.querySelector("#scoutingAttachmentFormatSelect")?.value, source);
   const selectedProfileId = normalizeText(document.querySelector("#scoutingAttachmentProfileId")?.value);
+  const inferredProfileId = inferredScoutingProfileIdForAttachment({
+    format: inferredFormat,
+    source,
+    schemaSource,
+    currentProfileId: selectedProfileId,
+  });
   return {
     label: document.querySelector("#scoutingAttachmentLabel")?.value,
     format: inferredFormat,
     translatorId: inferredScoutingTranslatorId(document.querySelector("#scoutingAttachmentTranslatorId")?.value, inferredFormat),
-    profileId: inferredFormat === "scouting-json" ? "canonical-json-v1" : selectedProfileId,
-    profileLabel: scoutingProfileLabel(inferredFormat === "scouting-json" ? "canonical-json-v1" : selectedProfileId, ""),
+    profileId: inferredProfileId,
+    profileLabel: scoutingProfileLabel(inferredProfileId, ""),
     source,
     schemaSource,
     autoLoad: document.querySelector("#scoutingAttachmentAutoLoad")?.checked,
@@ -1234,7 +1356,7 @@ async function applyScoutingSourceInputChange(options = {}) {
     return false;
   }
   const nextSourceIsLocal = Boolean(nextSource) && !/^(https?|file):\/\//i.test(nextSource);
-  if (nextSourceIsLocal && nextSource !== normalizeText(attachment.location?.path)) {
+  if (nextSourceIsLocal && !isEquivalentLocalAttachmentPath(nextSource, normalizeText(attachment.location?.path))) {
     await clearLocalAttachmentFile(attachment.attachmentId).catch(() => {});
   }
   saveCurrentScoutingAttachmentDraft(
@@ -1272,7 +1394,7 @@ async function applyScoutingSchemaSourceInputChange(options = {}) {
     return false;
   }
   const nextSchemaSourceIsLocal = Boolean(nextSchemaSource) && !/^(https?|file):\/\//i.test(nextSchemaSource);
-  if (nextSchemaSourceIsLocal && nextSchemaSource !== normalizeText(attachment.location?.schemaPath)) {
+  if (nextSchemaSourceIsLocal && !isEquivalentLocalAttachmentPath(nextSchemaSource, normalizeText(attachment.location?.schemaPath))) {
     await clearLocalAttachmentFile(`${attachment.attachmentId}:schema`).catch(() => {});
   }
   saveCurrentScoutingAttachmentDraft(
@@ -7035,6 +7157,7 @@ function renameProfileEquation(id, requestedName) {
   const name = uniqueEntityName(trimmed, currentProfileEquationList().filter((item) => item.id !== id), trimmed);
   updateProfileEquationList(currentProfileEquationList().map((item) => (item.id === id ? { ...item, name } : item)));
   saveState();
+  persistCurrentProfileToSchemaArtifactSoon();
   render();
 }
 
@@ -7888,6 +8011,7 @@ function bindViewEvents() {
   });
   document.querySelector("#derivedEquationFormulaInput")?.addEventListener("change", () => {
     saveState();
+    persistCurrentProfileToSchemaArtifactSoon();
     render();
   });
   document.querySelector("#derivedEquationFormulaInput")?.addEventListener("focus", (event) => {
