@@ -704,6 +704,41 @@ function isEquivalentLocalAttachmentPath(left, right) {
   return Boolean(leftBase && rightBase && leftBase === rightBase);
 }
 
+function replaceLocalAttachmentBasename(sourcePath, nextBasename) {
+  const normalizedSourcePath = normalizeText(sourcePath);
+  const normalizedBasename = normalizeText(nextBasename);
+  if (!normalizedSourcePath || !normalizedBasename) return "";
+  const lastSlashIndex = Math.max(normalizedSourcePath.lastIndexOf("/"), normalizedSourcePath.lastIndexOf("\\"));
+  if (lastSlashIndex < 0) return normalizedBasename;
+  return `${normalizedSourcePath.slice(0, lastSlashIndex + 1)}${normalizedBasename}`;
+}
+
+function inferCompanionScoutingSourceFromSchemaSource(schemaSource, currentSource = "") {
+  const normalizedSchemaSource = normalizeScoutingSourceUrl(schemaSource);
+  if (!normalizedSchemaSource || /^(https?|file):\/\//i.test(normalizedSchemaSource)) return "";
+
+  const normalizedCurrentSource = normalizeScoutingSourceUrl(currentSource);
+  if (normalizedCurrentSource && !/^(https?|file):\/\//i.test(normalizedCurrentSource)) {
+    return normalizedCurrentSource;
+  }
+
+  const schemaBasename = localAttachmentPathBasename(normalizedSchemaSource);
+  const normalizedSchemaBasename = schemaBasename.toLowerCase();
+  if (normalizedSchemaBasename.endsWith("_profile.json")) {
+    return replaceLocalAttachmentBasename(
+      normalizedSchemaSource,
+      `${schemaBasename.slice(0, -"_profile.json".length)}.json`,
+    );
+  }
+  if (normalizedSchemaBasename.endsWith(".schema.json")) {
+    return replaceLocalAttachmentBasename(
+      normalizedSchemaSource,
+      `${schemaBasename.slice(0, -".schema.json".length)}.entries.json`,
+    );
+  }
+  return "";
+}
+
 function setTbaAuthKey(value, options = {}) {
   state.tbaAuthKey = normalizeText(value);
   globalThis.__TBA_AUTH_KEY = state.tbaAuthKey;
@@ -1178,10 +1213,15 @@ async function chooseLocalScoutingSchemaFile() {
       requestWriteAccess: true,
     });
     const selectedSchemaSource = normalizeText(selected.path);
-    const activeFormat = activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent());
+    const nextSource = inferCompanionScoutingSourceFromSchemaSource(selectedSchemaSource, currentScoutingSourceInputValue())
+      || currentScoutingSourceInputValue();
+    const activeFormat = inferredScoutingAttachmentFormat(
+      activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+      nextSource,
+    );
     const inferredProfileId = inferredScoutingProfileIdForAttachment({
       format: activeFormat,
-      source: currentScoutingSourceInputValue(),
+      source: nextSource,
       schemaSource: selectedSchemaSource,
       currentProfileId: attachment.profileId,
     });
@@ -1192,7 +1232,7 @@ async function chooseLocalScoutingSchemaFile() {
         translatorId: inferredScoutingTranslatorId(inferredProfileId || attachment.translatorId, activeFormat),
         profileId: inferredProfileId,
         profileLabel: scoutingProfileLabel(inferredProfileId, attachment.profileLabel),
-        source: currentScoutingSourceInputValue(),
+        source: nextSource,
         schemaSource: selectedSchemaSource,
         autoLoad: true,
       },
@@ -1339,16 +1379,28 @@ async function applyScoutingSchemaSourceInputChange(options = {}) {
   if (nextSchemaSourceIsLocal && !isEquivalentLocalAttachmentPath(nextSchemaSource, normalizeText(attachment.location?.schemaPath))) {
     await clearLocalAttachmentFile(`${attachment.attachmentId}:schema`).catch(() => {});
   }
+  const nextSource = inferCompanionScoutingSourceFromSchemaSource(nextSchemaSource, currentScoutingSourceInputValue())
+    || currentScoutingSourceInputValue();
+  const nextFormat = inferredScoutingAttachmentFormat(
+    activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+    nextSource,
+  );
+  const nextProfileId = inferredScoutingProfileIdForAttachment({
+    format: nextFormat,
+    source: nextSource,
+    schemaSource: nextSchemaSource,
+    currentProfileId: attachment.profileId,
+  });
   saveCurrentScoutingAttachmentDraft(
     {
       label: attachment.label,
-      format: activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
-      translatorId: attachment.translatorId,
-      profileId: attachment.profileId,
-      profileLabel: attachment.profileLabel,
-      source: currentScoutingSourceInputValue(),
+      format: nextFormat,
+      translatorId: inferredScoutingTranslatorId(nextProfileId || attachment.translatorId, nextFormat),
+      profileId: nextProfileId,
+      profileLabel: scoutingProfileLabel(nextProfileId, attachment.profileLabel),
+      source: nextSource,
       schemaSource: nextSchemaSource,
-      autoLoad: Boolean(currentScoutingSourceInputValue()) || Boolean(attachment.autoLoad),
+      autoLoad: Boolean(nextSource) || Boolean(attachment.autoLoad),
     },
     { render: false },
   );

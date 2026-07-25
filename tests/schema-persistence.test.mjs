@@ -297,6 +297,69 @@ await runTest("typing a fuller schema path for the same local file keeps the exi
   );
 });
 
+await runTest("selecting a local schema path switches a sheet-backed attachment to the companion local scouting json source", async () => {
+  const context = loadAppContext({
+    eventCatalog: [{
+      key: "2025chcmp",
+      season: 2025,
+      name: "CHCMP",
+      seasonLabel: "2025",
+      teams: [{ number: 1 }],
+      teamNumbers: [1],
+      matches: [{ number: 1 }],
+      dataSources: [],
+      seedPicklists: [],
+      seedSortEquations: [],
+      formulaFieldDefinitions: [],
+      sheet: {
+        url: "https://docs.google.com/spreadsheets/d/example/edit#gid=0",
+        recommendedProfileId: "match-current-v2",
+      },
+    }],
+  });
+
+  const state = context.__scoutingAppState;
+  const eventModel = context.eventCatalog[0];
+  state.activeEventKey = eventModel.key;
+  state.eventWorkspace = context.EventWorkspace.createEventWorkspace(eventModel, {
+    activeScoutingAttachmentId: "sheet-attachment",
+    sources: {
+      scouting: [{
+        attachmentId: "sheet-attachment",
+        label: "Google Sheet import",
+        format: "legacy-sheet-url",
+        locationKind: "url",
+        location: {
+          url: "https://docs.google.com/spreadsheets/d/example/edit#gid=0",
+          schemaPath: "",
+        },
+        profileId: "match-current-v2",
+        translatorId: "match-current-v2",
+        autoLoad: true,
+      }],
+    },
+  });
+  state.importSourceUrl = "https://docs.google.com/spreadsheets/d/example/edit#gid=0";
+
+  await context.applyScoutingSchemaSourceInputChange({
+    source: "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp.schema.json",
+    forceReload: true,
+  });
+
+  assert.equal(
+    context.currentScoutingAttachment().location.path,
+    "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp.entries.json",
+  );
+  assert.equal(
+    context.currentScoutingAttachment().location.schemaPath,
+    "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp.schema.json",
+  );
+  assert.equal(context.currentScoutingAttachment().locationKind, "path");
+  assert.equal(context.currentScoutingAttachment().format, "scouting-json");
+  assert.equal(context.currentScoutingSourceInputValue(), "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp.entries.json");
+  assert.equal(context.detectedScoutingSourceLabel(), "Local JSON file");
+});
+
 await runTest("provider-backed derived equations resolve TBA and Statbotics identifiers from live team sources", async () => {
   const eventCatalog = [{
     key: "2023chcmp",
