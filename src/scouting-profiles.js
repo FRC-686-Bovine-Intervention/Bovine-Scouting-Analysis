@@ -3,6 +3,30 @@ function normalizeText(value) {
   return String(value ?? "").trim();
 }
 
+function sanitizeProfileIdentifier(value, fallback = "value") {
+  const trimmed = normalizeText(value);
+  const normalized = trimmed
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!normalized) return fallback;
+  if (/^[A-Za-z_]/.test(normalized)) return normalized;
+  return `_${normalized}`;
+}
+
+function isValidProfileIdentifier(value) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(normalizeText(value));
+}
+
+function canonicalProfileEquationName(definition, fallback = "equation") {
+  const explicitId = normalizeText(definition?.id);
+  const explicitName = normalizeText(definition?.name);
+  const explicitLabel = normalizeText(definition?.label);
+  if (isValidProfileIdentifier(explicitId)) return explicitId;
+  if (isValidProfileIdentifier(explicitName)) return explicitName;
+  if (isValidProfileIdentifier(explicitLabel)) return explicitLabel;
+  return sanitizeProfileIdentifier(explicitId || explicitName || explicitLabel, fallback);
+}
+
 function cloneJsonValue(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -84,18 +108,24 @@ function buildProfileVersionKey(profile = {}) {
   const normalizedFieldMigrations = normalizeFieldMigrationRecords(profile?.fieldMigrations || profile?.fieldMigrationRecords);
   const normalizedEquations = (Array.isArray(profile?.equations) ? profile.equations : [])
     .map((definition) => ({
-      id: normalizeText(definition?.id),
-      name: normalizeText(definition?.name),
+      name: canonicalProfileEquationName(definition),
       formula: normalizeText(definition?.formula),
-      unit: normalizeText(definition?.unit),
       usage: normalizeText(definition?.usage),
       sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : 0,
     }))
-    .filter((definition) => definition.id);
+    .filter((definition) => definition.name);
+  const normalizedFilters = (Array.isArray(profile?.filters) ? profile.filters : [])
+    .map((definition) => ({
+      name: canonicalProfileEquationName(definition, "filter"),
+      formula: normalizeText(definition?.formula),
+      sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : 0,
+    }))
+    .filter((definition) => definition.name);
   const fingerprint = fnv1aHash(JSON.stringify(stableValue({
     fields: normalizedFields,
     fieldMigrations: normalizedFieldMigrations,
     equations: normalizedEquations,
+    filters: normalizedFilters,
   })));
   return `${profileId}|${fingerprint}`;
 }

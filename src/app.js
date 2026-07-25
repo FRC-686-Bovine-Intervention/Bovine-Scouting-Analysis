@@ -1745,8 +1745,7 @@ function currentProfileEquationList(eventModel = currentEvent()) {
 }
 
 function currentProfileFilterList(eventModel = currentEvent()) {
-  return currentProfileEquationList(eventModel)
-    .filter((definition) => isPredicateEquationDefinition(definition))
+  return [...(currentImportedProfileDefinition(eventModel)?.filters || [])]
     .sort((left, right) => Number(left.sourceOrder || 0) - Number(right.sourceOrder || 0) || left.name.localeCompare(right.name));
 }
 
@@ -1755,18 +1754,45 @@ function equationDefinitionById(id, eventModel = currentEvent()) {
 }
 
 function profileFilterDefinitionById(id, eventModel = currentEvent()) {
-  return currentProfileFilterList(eventModel).find((definition) => definition.id === id) || null;
+  return currentProfileFilterList(eventModel).find((definition) => definition.name === id || definition.id === id) || null;
 }
 
-function sanitizeFormulaReferenceToken(value) {
+function sanitizeFormulaReferenceToken(value, fallback = "value") {
   const trimmed = String(value || "").trim();
   const normalized = trimmed
     .trim()
     .replace(/[^A-Za-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
-  if (!normalized) return "filter";
+  if (!normalized) return fallback;
   if (/^[A-Za-z_]/.test(normalized)) return normalized;
   return `_${normalized}`;
+}
+
+function isValidCIdentifier(value) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(String(value || "").trim());
+}
+
+function canonicalProfileEquationName(definition, fallback = "equation") {
+  const explicitId = normalizeText(definition?.id);
+  const explicitName = normalizeText(definition?.name);
+  const explicitLabel = normalizeText(definition?.label);
+  if (isValidCIdentifier(explicitId)) return explicitId;
+  if (isValidCIdentifier(explicitName)) return explicitName;
+  if (isValidCIdentifier(explicitLabel)) return explicitLabel;
+  return sanitizeFormulaReferenceToken(explicitId || explicitName || explicitLabel, fallback);
+}
+
+function uniqueProfileEquationName(requestedName, existingDefinitions = [], fallback = "equation") {
+  const baseName = canonicalProfileEquationName({ id: requestedName, name: requestedName }, fallback);
+  const existingNames = new Set((existingDefinitions || []).map((definition) => normalizeText(definition?.name)).filter(Boolean));
+  if (!existingNames.has(baseName)) return baseName;
+  let suffix = 2;
+  let candidate = `${baseName}_${suffix}`;
+  while (existingNames.has(candidate)) {
+    suffix += 1;
+    candidate = `${baseName}_${suffix}`;
+  }
+  return candidate;
 }
 
 function profileFilterReferenceEntries(eventModel = currentEvent()) {
@@ -3032,6 +3058,7 @@ function registerScoutingProfile(eventModel, profile) {
         label: scoutingProfileLabel(profileId, profile?.label || existingProfile?.label || profile?.id || ""),
         fields: Array.isArray(profile?.fields) ? profile.fields : (existingProfile?.fields || []),
         equations: Array.isArray(profile?.equations) ? profile.equations : (existingProfile?.equations || []),
+        filters: Array.isArray(profile?.filters) ? profile.filters : (existingProfile?.filters || []),
         fieldMigrations: Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords)
           ? (profile.fieldMigrations || profile.fieldMigrationRecords)
           : (existingProfile?.fieldMigrations || []),
@@ -3290,18 +3317,15 @@ function normalizeEquationDefinitions(definitions) {
   const seen = new Set();
   const nextDefinitions = [];
   (definitions || []).forEach((definition, index) => {
-    const id = String(definition?.id || "").trim();
-    const name = String(definition?.name || "").trim();
+    const name = canonicalProfileEquationName(definition, `equation_${index + 1}`);
     const formula = String(definition?.formula || "");
     const usage = normalizeText(definition?.usage).toLowerCase() === "predicate" ? "predicate" : "metric";
-    if (!id || !name || seen.has(id)) return;
-    seen.add(id);
+    if (!name || seen.has(name)) return;
+    seen.add(name);
     nextDefinitions.push({
-      id,
+      id: name,
       name,
       formula: canonicalizeStoredFormula(formula, "0"),
-      unit: String(definition?.unit || (usage === "predicate" ? "bool" : "pts")).trim() || (usage === "predicate" ? "bool" : "pts"),
-      description: String(definition?.description || "").trim(),
       sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
       usage,
     });
@@ -3313,15 +3337,13 @@ function normalizeFilterDefinitions(definitions) {
   const seen = new Set();
   const nextDefinitions = [];
   (definitions || []).forEach((definition, index) => {
-    const id = String(definition?.id || "").trim();
-    const name = String(definition?.name || "").trim();
-    if (!id || !name || seen.has(id)) return;
-    seen.add(id);
+    const name = canonicalProfileEquationName(definition, `filter_${index + 1}`);
+    if (!name || seen.has(name)) return;
+    seen.add(name);
     nextDefinitions.push({
-      id,
+      id: name,
       name,
       formula: canonicalizeStoredFormula(String(definition?.formula || "").trim() || "0 > 1", "0 > 1"),
-      description: String(definition?.description || "").trim(),
       sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
     });
   });
@@ -3341,10 +3363,8 @@ function filterDefinitionsFromPredicateEquations(definitions) {
     (definitions || [])
       .filter((definition) => isPredicateEquationDefinition(definition))
       .map((definition) => ({
-        id: definition.id,
         name: definition.name,
         formula: definition.formula,
-        description: definition.description,
         sourceOrder: definition.sourceOrder,
       })),
   );
@@ -3363,11 +3383,13 @@ function normalizeScoutingProfileDefinition(profile) {
     ...(Array.isArray(profile?.equations) ? profile.equations : []),
     ...predicateEquationDefinitionsFromFilters(profile?.filters),
   ]);
+  const filters = filterDefinitionsFromPredicateEquations(equations);
   const versionKey = normalizeText(profile?.versionKey || profile?.versionId)
     || buildNormalizedScoutingProfileVersionKey({
       id,
       fields,
       equations,
+      filters,
       fieldMigrations,
     });
   return {
@@ -3377,6 +3399,7 @@ function normalizeScoutingProfileDefinition(profile) {
     fieldMigrations,
     fields,
     equations,
+    filters,
   };
 }
 
@@ -3471,7 +3494,7 @@ function normalizeAnalysisSelection(value, eventModel = currentEvent()) {
 
 function normalizeAnalysisFilterSelection(value, eventModel = currentEvent()) {
   if (typeof value !== "string" || !value) return "";
-  return currentProfileFilterList(eventModel).some((definition) => definition.id === value) ? value : "";
+  return currentProfileFilterList(eventModel).some((definition) => definition.name === value || definition.id === value) ? value : "";
 }
 
 function normalizeTeamDetailMetric(value, eventModel = currentEvent()) {
@@ -4459,6 +4482,7 @@ function commitImportPreview(options = {}) {
     label: preview.summary.profileLabel,
     fields: preview.summary.schemaFields,
     equations: preview.summary.profileDefinition?.equations,
+    filters: preview.summary.profileDefinition?.filters,
     fieldMigrations: preview.summary.profileDefinition?.fieldMigrations,
     versionKey: preview.summary.profileDefinition?.versionKey,
   });
@@ -7083,19 +7107,16 @@ function updateProfileEquationList(nextDefinitions, eventModel = currentEvent())
 
 function addProfileEquation() {
   const existing = currentProfileEquationList();
-  const name = uniqueEntityName("New Equation", existing, "New Equation");
+  const name = uniqueProfileEquationName("newEquation", existing, "newEquation");
   const definition = {
-    id: createId("derived"),
     name,
     formula: "0",
-    unit: "pts",
-    description: "",
     sourceOrder: existing.length,
   };
   updateProfileEquationList([...existing, definition]);
-  state.activeDerivedEquationId = definition.id;
+  state.activeDerivedEquationId = definition.name;
   rememberActiveDerivedEquationEditSession();
-  state.inlineRename = { kind: "derivedEquation", id: definition.id, value: definition.name };
+  state.inlineRename = { kind: "derivedEquation", id: definition.name, value: definition.name };
   saveState();
   render();
 }
@@ -7115,9 +7136,46 @@ function renameProfileEquation(id, requestedName) {
   const definition = currentProfileEquationList().find((item) => item.id === id);
   if (!definition) return;
   const trimmed = requestedName.trim();
-  if (!trimmed || trimmed === definition.name) return;
-  const name = uniqueEntityName(trimmed, currentProfileEquationList().filter((item) => item.id !== id), trimmed);
-  updateProfileEquationList(currentProfileEquationList().map((item) => (item.id === id ? { ...item, name } : item)));
+  if (!trimmed) return;
+  const name = uniqueProfileEquationName(trimmed, currentProfileEquationList().filter((item) => item.id !== id), "equation");
+  if (name === definition.name) return;
+  const replacements = new Map([[definition.name, name]]);
+  const rewriteFormulaReferences = (formula) => {
+    const parsed = metricEngine.parseFormulaExpression(canonicalizeStoredFormula(formula, "0"));
+    if (parsed?.error || !parsed?.ast) return canonicalizeStoredFormula(formula, "0");
+    const rewriteAst = (ast) => {
+      if (!ast || typeof ast !== "object") return ast;
+      if (ast.type === "identifier") {
+        return replacements.has(ast.name) ? { ...ast, name: replacements.get(ast.name) } : ast;
+      }
+      if (ast.type === "unary") return { ...ast, argument: rewriteAst(ast.argument) };
+      if (["binary", "comparison", "logical"].includes(ast.type)) {
+        return { ...ast, left: rewriteAst(ast.left), right: rewriteAst(ast.right) };
+      }
+      if (ast.type === "call") return { ...ast, args: (ast.args || []).map(rewriteAst) };
+      return ast;
+    };
+    return serializeFormulaAst(rewriteAst(parsed.ast)).trim() || canonicalizeStoredFormula(formula, "0");
+  };
+  updateProfileEquationList(currentProfileEquationList().map((item) => (
+    item.id === id
+      ? { ...item, id: name, name, formula: rewriteFormulaReferences(item.formula) }
+      : { ...item, formula: rewriteFormulaReferences(item.formula) }
+  )));
+  state.sortEquations = state.sortEquations.map((equation) => ({
+    ...equation,
+    terms: (equation.terms || []).map((term) => (
+      term.metricId === `derived:${definition.name}` ? { ...term, metricId: `derived:${name}` } : term
+    )),
+  }));
+  if (state.activeDerivedEquationId === definition.name) state.activeDerivedEquationId = name;
+  if (state.derivedEquationEditSession?.equationId === definition.name) {
+    state.derivedEquationEditSession = {
+      ...state.derivedEquationEditSession,
+      equationId: name,
+      originalFormula: rewriteFormulaReferences(state.derivedEquationEditSession.originalFormula),
+    };
+  }
   saveState();
   persistCurrentProfileToSchemaArtifactSoon();
   render();
@@ -7136,7 +7194,7 @@ function formulaAutocompleteCandidates(token) {
     ...currentAvailableTbaFormulaIdentifiers(),
     ...currentAvailableStatboticsFormulaIdentifiers(),
     "pridge.total",
-    ...currentProfileEquationList().map((definition) => definition.id),
+    ...currentProfileEquationList().map((definition) => definition.name),
     "allianceMatch",
     "match",
     "if",

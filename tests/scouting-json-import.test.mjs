@@ -526,8 +526,10 @@ runTest("previewScoutingJsonImport surfaces profile equations from schema artifa
         id: "canonical-json-v1",
         label: "Canonical JSON",
         equations: [
-          { id: "scoutingTotal", name: "Scouting Total", formula: "scouting.auto + scouting.cycle + scouting.endgame", unit: "pts" },
-          { id: "shareGate", name: "Share Gate", formula: "scouting.autoFuelPct > 0", unit: "bool", usage: "predicate" },
+          { id: "scoutingTotal", name: "Scouting Total", formula: "scouting.auto + scouting.cycle + scouting.endgame" },
+        ],
+        filters: [
+          { id: "shareGate", name: "Share Gate", formula: "scouting.autoFuelPct > 0" },
         ],
       },
     }),
@@ -538,7 +540,8 @@ runTest("previewScoutingJsonImport surfaces profile equations from schema artifa
 
   assert.equal(preview.ok, true);
   assert.equal(preview.summary.profileDefinition.id, "canonical-json-v1");
-  assert.equal(preview.summary.profileDefinition.equations.length, 2);
-  assert.equal(preview.summary.profileDefinition.equations[0].id, "scoutingTotal");
-  assert.equal(preview.summary.profileDefinition.equations[1].usage, "predicate");
+  assert.equal(preview.summary.profileDefinition.equations.length, 1);
+  assert.equal(preview.summary.profileDefinition.equations[0].name, "scoutingTotal");
+  assert.equal(preview.summary.profileDefinition.filters.length, 1);
+  assert.equal(preview.summary.profileDefinition.filters[0].name, "shareGate");
 });

@@ -11,6 +11,30 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function sanitizeProfileIdentifier(value, fallback = "value") {
+  const trimmed = normalizeText(value);
+  const normalized = trimmed
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!normalized) return fallback;
+  if (/^[A-Za-z_]/.test(normalized)) return normalized;
+  return `_${normalized}`;
+}
+
+function isValidProfileIdentifier(value) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(normalizeText(value));
+}
+
+function canonicalProfileEquationName(definition, fallback = "equation") {
+  const explicitId = normalizeText(definition?.id);
+  const explicitName = normalizeText(definition?.name);
+  const explicitLabel = normalizeText(definition?.label);
+  if (isValidProfileIdentifier(explicitId)) return explicitId;
+  if (isValidProfileIdentifier(explicitName)) return explicitName;
+  if (isValidProfileIdentifier(explicitLabel)) return explicitLabel;
+  return sanitizeProfileIdentifier(explicitId || explicitName || explicitLabel, fallback);
+}
+
 function formulaFieldDefinitions(eventModel) {
   if (Array.isArray(eventModel?.formulaFieldDefinitions) && eventModel.formulaFieldDefinitions.length) {
     return eventModel.formulaFieldDefinitions;
@@ -57,16 +81,21 @@ function normalizeSchemaField(fieldDefinition) {
 }
 
 function normalizeProfileEquation(definition, index = 0) {
-  const id = normalizeText(definition?.id);
-  const name = normalizeText(definition?.name || definition?.label || id);
-  if (!id || !name) return null;
+  const name = canonicalProfileEquationName(definition, `equation_${index + 1}`);
+  if (!name) return null;
   return {
-    id,
     name,
     formula: normalizeText(definition?.formula || definition?.expression),
-    unit: normalizeText(definition?.unit) || "pts",
-    description: normalizeText(definition?.description),
-    usage: normalizeText(definition?.usage),
+    sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
+  };
+}
+
+function normalizeProfileFilter(definition, index = 0) {
+  const name = canonicalProfileEquationName(definition, `filter_${index + 1}`);
+  if (!name) return null;
+  return {
+    name,
+    formula: normalizeText(definition?.formula || definition?.expression),
     sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
   };
 }
@@ -128,6 +157,9 @@ function normalizeCanonicalProfile(profile, schemaMeta = {}) {
     versionKey: normalizeText(profile?.versionKey || profile?.versionId),
     equations: (Array.isArray(profile?.equations) ? profile.equations : [])
       .map((definition, index) => normalizeProfileEquation(definition, index))
+      .filter(Boolean),
+    filters: (Array.isArray(profile?.filters) ? profile.filters : [])
+      .map((definition, index) => normalizeProfileFilter(definition, index))
       .filter(Boolean),
     fieldMigrations: (Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords)
       ? (profile.fieldMigrations || profile.fieldMigrationRecords)

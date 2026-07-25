@@ -156,20 +156,23 @@ await runTest("renaming a derived equation updates the bound local schema json a
     label: "Canonical JSON",
     fields: fixturePayload.schema?.fields || [],
     equations: fixturePayload.profile?.equations || [],
+    filters: fixturePayload.profile?.filters || [],
   });
 
-  const target = context.currentProfileEquationList(eventModel).find((equation) => equation?.name === "Auto Fuel Share");
-  assert.ok(target, "Expected Auto Fuel Share to exist in the loaded profile.");
+  const target = context.currentProfileEquationList(eventModel).find((equation) => equation?.name === "autoFuelShare");
+  assert.ok(target, "Expected autoFuelShare to exist in the loaded profile.");
 
   context.renameProfileEquation(target.id, "autoFuelShareTest");
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   const updatedSchema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
-  const equationNames = (updatedSchema.profile?.equations || []).map((equation) => equation?.name).filter(Boolean);
+  const equations = updatedSchema.profile?.equations || [];
+  const equationNames = equations.map((equation) => equation?.name).filter(Boolean);
 
   assert.equal(context.detectedScoutingSourceLabel(), "Local CSV file");
   assert.equal(equationNames.includes("autoFuelShareTest"), true);
   assert.equal(equationNames.includes("Auto Fuel Share"), false);
+  assert.equal(equations.every((equation) => !("id" in equation) && !("unit" in equation) && !("description" in equation) && !("usage" in equation)), true);
 });
 
 await runTest("typing a fuller schema path for the same local file keeps the existing writable attachment binding", async () => {
