@@ -39,8 +39,6 @@ function normalizeFieldDefinition(fieldDefinition) {
     label: normalizeText(fieldDefinition?.label || fieldId),
     type: normalizeText(fieldDefinition?.type),
     unit: normalizeText(fieldDefinition?.unit),
-    aggregate: normalizeText(fieldDefinition?.aggregate),
-    optional: fieldDefinition?.optional === true,
   };
 }
 
@@ -106,19 +104,17 @@ function buildProfileVersionKey(profile = {}) {
     .map(normalizeFieldDefinition)
     .filter(Boolean);
   const normalizedFieldMigrations = normalizeFieldMigrationRecords(profile?.fieldMigrations || profile?.fieldMigrationRecords);
-  const normalizedEquations = (Array.isArray(profile?.equations) ? profile.equations : [])
+  const normalizedEquations = (Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : []))
     .map((definition) => ({
       name: canonicalProfileEquationName(definition),
       formula: normalizeText(definition?.formula),
       usage: normalizeText(definition?.usage),
-      sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : 0,
     }))
     .filter((definition) => definition.name);
   const normalizedFilters = (Array.isArray(profile?.filters) ? profile.filters : [])
     .map((definition) => ({
       name: canonicalProfileEquationName(definition, "filter"),
       formula: normalizeText(definition?.formula),
-      sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : 0,
     }))
     .filter((definition) => definition.name);
   const fingerprint = fnv1aHash(JSON.stringify(stableValue({

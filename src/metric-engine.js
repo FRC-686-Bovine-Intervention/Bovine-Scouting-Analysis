@@ -53,10 +53,6 @@ function aggregateSubmissionMatches(submissions, options = {}) {
   const scoringComponentIds = Array.isArray(options.scoringComponentIds) ? options.scoringComponentIds : [];
   const scouterMetricIds = Array.isArray(options.scouterMetricIds) ? options.scouterMetricIds : [];
   const aggregatedComponentIds = [...new Set([...scouterMetricIds, ...scoringComponentIds])];
-  const scouterMetricDefinitions = Array.isArray(options.scouterMetricDefinitions) ? options.scouterMetricDefinitions : [];
-  const componentAggregation = Object.fromEntries(
-    scouterMetricDefinitions.map((metricDefinition) => [metricDefinition.id, String(metricDefinition.aggregate || "average")]),
-  );
   const grouped = new Map();
   (submissions || [])
     .filter((submission) => usableSubmission(submission, { includeFlagged: Boolean(options.includeFlagged) }))
@@ -89,16 +85,9 @@ function aggregateSubmissionMatches(submissions, options = {}) {
     .map((group) => {
       const components = Object.fromEntries(
         aggregatedComponentIds.map((componentId) => {
-          const aggregation = componentAggregation[componentId] || "average";
-          const value =
-            aggregation === "max"
-              ? group.submissions.reduce((maxValue, submission) => {
-                const submissionValue = Number(submission.rawMetrics?.[componentId] || 0);
-                return Number.isFinite(submissionValue) ? Math.max(maxValue, submissionValue) : maxValue;
-              }, 0)
-              : group.componentCounts[componentId]
-                ? group.componentSums[componentId] / group.componentCounts[componentId]
-                : null;
+          const value = group.componentCounts[componentId]
+            ? group.componentSums[componentId] / group.componentCounts[componentId]
+            : null;
           return [componentId, value];
         }),
       );

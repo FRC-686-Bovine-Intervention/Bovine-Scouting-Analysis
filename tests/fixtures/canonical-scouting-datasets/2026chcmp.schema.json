@@ -8,484 +8,212 @@
   },
   "schema": {
     "schemaId": "2026-match-v1",
-    "fields": [
-      {
-        "id": "autoFuelPct",
-        "label": "Auto Fuel %",
-        "type": "number",
-        "unit": "%",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "transitionFuelPct",
-        "label": "Transition Fuel %",
-        "type": "number",
-        "unit": "%",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "shift1FuelPct",
-        "label": "Shift 1 Fuel %",
-        "type": "number",
-        "unit": "%",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "shift2FuelPct",
-        "label": "Shift 2 Fuel %",
-        "type": "number",
-        "unit": "%",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "shift3FuelPct",
-        "label": "Shift 3 Fuel %",
-        "type": "number",
-        "unit": "%",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "shift4FuelPct",
-        "label": "Shift 4 Fuel %",
-        "type": "number",
-        "unit": "%",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "endgameFuelPct",
-        "label": "Endgame Fuel %",
-        "type": "number",
-        "unit": "%",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "overallShooter",
-        "label": "Overall Shooter",
-        "type": "number",
-        "unit": "rating",
-        "optional": true,
-        "aggregate": "average"
-      },
-      {
-        "id": "overallPasser",
-        "label": "Overall Passer",
-        "type": "number",
-        "unit": "rating",
-        "optional": true,
-        "aggregate": "average"
-      },
-      {
-        "id": "overallIntake",
-        "label": "Overall Intake",
-        "type": "number",
-        "unit": "rating",
-        "optional": true,
-        "aggregate": "average"
-      },
-      {
-        "id": "overallDriver",
-        "label": "Overall Driver",
-        "type": "number",
-        "unit": "rating",
-        "optional": true,
-        "aggregate": "average"
-      },
-      {
-        "id": "overallDefenseAvoidance",
-        "label": "Overall Defense Avoidance",
-        "type": "number",
-        "unit": "rating",
-        "optional": true,
-        "aggregate": "average"
-      },
-      {
-        "id": "overallDefense",
-        "label": "Overall Defense",
-        "type": "number",
-        "unit": "rating",
-        "optional": true,
-        "aggregate": "average"
-      },
-      {
-        "id": "noShow",
-        "label": "No Show",
-        "type": "number",
-        "unit": "count",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "alliance",
-        "label": "Alliance",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "startingPosition",
-        "label": "Starting Position",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "autoPrimaryRole",
-        "label": "Auto Primary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "autoSecondaryRole",
-        "label": "Auto Secondary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "autoClimbAttempt",
-        "label": "Auto Climb Attempt",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "transitionPrimaryRole",
-        "label": "Transition Primary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "transitionSecondaryRole",
-        "label": "Transition Secondary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "shift1PrimaryRole",
-        "label": "Shift 1 Primary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "shift1SecondaryRole",
-        "label": "Shift 1 Secondary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "shift2PrimaryRole",
-        "label": "Shift 2 Primary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "shift2SecondaryRole",
-        "label": "Shift 2 Secondary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "shift3PrimaryRole",
-        "label": "Shift 3 Primary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "shift3SecondaryRole",
-        "label": "Shift 3 Secondary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "shift4PrimaryRole",
-        "label": "Shift 4 Primary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "shift4SecondaryRole",
-        "label": "Shift 4 Secondary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "endgamePrimaryRole",
-        "label": "Endgame Primary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "endgameSecondaryRole",
-        "label": "Endgame Secondary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "teleopClimbAttempt",
-        "label": "Tele-Op Climb Attempt",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "overallNotes",
-        "label": "Overall Notes",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      }
+    "expectedScoutingFields": [
+      "autoFuelPct",
+      "transitionFuelPct",
+      "shift1FuelPct",
+      "shift2FuelPct",
+      "shift3FuelPct",
+      "shift4FuelPct",
+      "endgameFuelPct",
+      "overallShooter",
+      "overallPasser",
+      "overallIntake",
+      "overallDriver",
+      "overallDefenseAvoidance",
+      "overallDefense",
+      "noShow",
+      "alliance",
+      "startingPosition",
+      "autoPrimaryRole",
+      "autoSecondaryRole",
+      "autoClimbAttempt",
+      "transitionPrimaryRole",
+      "transitionSecondaryRole",
+      "shift1PrimaryRole",
+      "shift1SecondaryRole",
+      "shift2PrimaryRole",
+      "shift2SecondaryRole",
+      "shift3PrimaryRole",
+      "shift3SecondaryRole",
+      "shift4PrimaryRole",
+      "shift4SecondaryRole",
+      "endgamePrimaryRole",
+      "endgameSecondaryRole",
+      "teleopClimbAttempt",
+      "overallNotes"
     ]
   },
   "profile": {
     "id": "canonical-json-v1",
     "label": "Canonical JSON",
     "versionKey": "canonical-json-v1|a1abea4b",
-    "equations": [
+    "fieldMigrations": [],
+    "derivedEquations": [
       {
         "name": "scoutingTotal",
-        "formula": "scouting.auto + scouting.cycle + scouting.endgameFuelPct",
-        "sourceOrder": 0
+        "formula": "scouting.auto + scouting.cycle + scouting.endgameFuelPct"
       },
       {
         "name": "auto",
-        "formula": "average(autoFuelTeam)",
-        "sourceOrder": 1
+        "formula": "average(autoFuelTeam)"
       },
       {
         "name": "cycle",
-        "formula": "average(transitionFuelTeam + shift1FuelTeam + shift2FuelTeam + shift3FuelTeam + shift4FuelTeam)",
-        "sourceOrder": 2
+        "formula": "average(transitionFuelTeam + shift1FuelTeam + shift2FuelTeam + shift3FuelTeam + shift4FuelTeam)"
       },
       {
         "name": "endgame",
-        "formula": "average(endgameFuelTeam + if(contains(scouting.teleopClimbAttempt, \"park\"), 8, if(contains(scouting.teleopClimbAttempt, \"climb\") || contains(scouting.teleopClimbAttempt, \"successful\"), 20, 0)) + if(contains(scouting.autoClimbAttempt, \"climb\") || contains(scouting.autoClimbAttempt, \"successful\"), 15, 0))",
-        "sourceOrder": 3
+        "formula": "average(endgameFuelTeam + if(contains(scouting.teleopClimbAttempt, \"park\"), 8, if(contains(scouting.teleopClimbAttempt, \"climb\") || contains(scouting.teleopClimbAttempt, \"successful\"), 20, 0)) + if(contains(scouting.autoClimbAttempt, \"climb\") || contains(scouting.autoClimbAttempt, \"successful\"), 15, 0))"
       },
       {
         "name": "autoFuelShare",
-        "formula": "valueOr(scouting.autoFuelPct, 0) / 100",
-        "sourceOrder": 4
+        "formula": "valueOr(scouting.autoFuelPct, 0) / 100"
       },
       {
         "name": "autoFuelShareAlliance",
-        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(autoFuelShare), 1)",
-        "sourceOrder": 5
+        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(autoFuelShare), 1)"
       },
       {
         "name": "autoFuelTeam",
-        "formula": "if(autoFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.autoPoints, 0) / allianceCount(scouting.hasEntry), 0), valueOr(autoFuelShare / autoFuelShareAlliance * valueOr(tba.hubScore.autoPoints, 0), 0))",
-        "sourceOrder": 6
+        "formula": "if(autoFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.autoPoints, 0) / allianceCount(scouting.hasEntry), 0), valueOr(autoFuelShare / autoFuelShareAlliance * valueOr(tba.hubScore.autoPoints, 0), 0))"
       },
       {
         "name": "autoPctShooting",
-        "formula": "if(scouting.autoPrimaryRole == \"Score\", if(scouting.autoSecondaryRole == \"None\" || scouting.autoSecondaryRole == \"Score\", 1, 0.667), if(scouting.autoSecondaryRole == \"Score\", 0.333, 0))",
-        "sourceOrder": 7
+        "formula": "if(scouting.autoPrimaryRole == \"Score\", if(scouting.autoSecondaryRole == \"None\" || scouting.autoSecondaryRole == \"Score\", 1, 0.667), if(scouting.autoSecondaryRole == \"Score\", 0.333, 0))"
       },
       {
         "name": "autoMaxFuelPossible",
-        "formula": "if(autoPctShooting == 0, 0, autoFuelTeam / autoPctShooting)",
-        "sourceOrder": 8
+        "formula": "if(autoPctShooting == 0, 0, autoFuelTeam / autoPctShooting)"
       },
       {
         "name": "transitionFuelShare",
-        "formula": "valueOr(scouting.transitionFuelPct, 0) / 100",
-        "sourceOrder": 9
+        "formula": "valueOr(scouting.transitionFuelPct, 0) / 100"
       },
       {
         "name": "transitionFuelShareAlliance",
-        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(transitionFuelShare), 1)",
-        "sourceOrder": 10
+        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(transitionFuelShare), 1)"
       },
       {
         "name": "transitionFuelTeam",
-        "formula": "if(transitionFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.transitionPoints, 0) / allianceCount(scouting.hasEntry), 0), valueOr(transitionFuelShare / transitionFuelShareAlliance * valueOr(tba.hubScore.transitionPoints, 0), 0))",
-        "sourceOrder": 11
+        "formula": "if(transitionFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.transitionPoints, 0) / allianceCount(scouting.hasEntry), 0), valueOr(transitionFuelShare / transitionFuelShareAlliance * valueOr(tba.hubScore.transitionPoints, 0), 0))"
       },
       {
         "name": "transitionPctShooting",
-        "formula": "if(scouting.transitionPrimaryRole == \"Score\", if(scouting.transitionSecondaryRole == \"None\" || scouting.transitionSecondaryRole == \"Score\", 1, 0.667), if(scouting.transitionSecondaryRole == \"Score\", 0.333, 0))",
-        "sourceOrder": 12
+        "formula": "if(scouting.transitionPrimaryRole == \"Score\", if(scouting.transitionSecondaryRole == \"None\" || scouting.transitionSecondaryRole == \"Score\", 1, 0.667), if(scouting.transitionSecondaryRole == \"Score\", 0.333, 0))"
       },
       {
         "name": "transitionMaxFuelPossible",
-        "formula": "if(transitionPctShooting == 0, 0, transitionFuelTeam / transitionPctShooting)",
-        "sourceOrder": 13
+        "formula": "if(transitionPctShooting == 0, 0, transitionFuelTeam / transitionPctShooting)"
       },
       {
         "name": "shift1FuelShare",
-        "formula": "valueOr(scouting.shift1FuelPct, 0) / 100",
-        "sourceOrder": 14
+        "formula": "valueOr(scouting.shift1FuelPct, 0) / 100"
       },
       {
         "name": "shift1FuelShareAlliance",
-        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(shift1FuelShare), 1)",
-        "sourceOrder": 15
+        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(shift1FuelShare), 1)"
       },
       {
         "name": "shift1FuelTeam",
-        "formula": "if(shift1FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift1Points, 0) / allianceCount(scouting.hasEntry), 0), valueOr(shift1FuelShare / shift1FuelShareAlliance * valueOr(tba.hubScore.shift1Points, 0), 0))",
-        "sourceOrder": 16
+        "formula": "if(shift1FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift1Points, 0) / allianceCount(scouting.hasEntry), 0), valueOr(shift1FuelShare / shift1FuelShareAlliance * valueOr(tba.hubScore.shift1Points, 0), 0))"
       },
       {
         "name": "shift1PctShooting",
-        "formula": "if(scouting.shift1PrimaryRole == \"Score\", if(scouting.shift1SecondaryRole == \"None\" || scouting.shift1SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift1SecondaryRole == \"Score\", 0.333, 0))",
-        "sourceOrder": 17
+        "formula": "if(scouting.shift1PrimaryRole == \"Score\", if(scouting.shift1SecondaryRole == \"None\" || scouting.shift1SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift1SecondaryRole == \"Score\", 0.333, 0))"
       },
       {
         "name": "shift1MaxFuelPossible",
-        "formula": "if(shift1PctShooting == 0, 0, shift1FuelTeam / shift1PctShooting)",
-        "sourceOrder": 18
+        "formula": "if(shift1PctShooting == 0, 0, shift1FuelTeam / shift1PctShooting)"
       },
       {
         "name": "shift2FuelShare",
-        "formula": "valueOr(scouting.shift2FuelPct, 0) / 100",
-        "sourceOrder": 19
+        "formula": "valueOr(scouting.shift2FuelPct, 0) / 100"
       },
       {
         "name": "shift2FuelShareAlliance",
-        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(shift2FuelShare), 1)",
-        "sourceOrder": 20
+        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(shift2FuelShare), 1)"
       },
       {
         "name": "shift2FuelTeam",
-        "formula": "if(shift2FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift2Points, 0) / allianceCount(scouting.hasEntry), 0), valueOr(shift2FuelShare / shift2FuelShareAlliance * valueOr(tba.hubScore.shift2Points, 0), 0))",
-        "sourceOrder": 21
+        "formula": "if(shift2FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift2Points, 0) / allianceCount(scouting.hasEntry), 0), valueOr(shift2FuelShare / shift2FuelShareAlliance * valueOr(tba.hubScore.shift2Points, 0), 0))"
       },
       {
         "name": "shift2PctShooting",
-        "formula": "if(scouting.shift2PrimaryRole == \"Score\", if(scouting.shift2SecondaryRole == \"None\" || scouting.shift2SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift2SecondaryRole == \"Score\", 0.333, 0))",
-        "sourceOrder": 22
+        "formula": "if(scouting.shift2PrimaryRole == \"Score\", if(scouting.shift2SecondaryRole == \"None\" || scouting.shift2SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift2SecondaryRole == \"Score\", 0.333, 0))"
       },
       {
         "name": "shift2MaxFuelPossible",
-        "formula": "if(shift2PctShooting == 0, 0, shift2FuelTeam / shift2PctShooting)",
-        "sourceOrder": 23
+        "formula": "if(shift2PctShooting == 0, 0, shift2FuelTeam / shift2PctShooting)"
       },
       {
         "name": "shift3FuelShare",
-        "formula": "0",
-        "sourceOrder": 24
+        "formula": "0"
       },
       {
         "name": "shift3FuelShareAlliance",
-        "formula": "if(allianceCount(scouting.hasEntry) >= 3, 0, 1)",
-        "sourceOrder": 25
+        "formula": "if(allianceCount(scouting.hasEntry) >= 3, 0, 1)"
       },
       {
         "name": "shift3FuelTeam",
-        "formula": "if(allianceCount(scouting.hasEntry) >= 3, valueOr(tba.hubScore.shift3Points, 0) / allianceCount(scouting.hasEntry), 0)",
-        "sourceOrder": 26
+        "formula": "if(allianceCount(scouting.hasEntry) >= 3, valueOr(tba.hubScore.shift3Points, 0) / allianceCount(scouting.hasEntry), 0)"
       },
       {
         "name": "shift3PctShooting",
-        "formula": "if(scouting.shift3PrimaryRole == \"Score\", if(scouting.shift3SecondaryRole == \"None\" || scouting.shift3SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift3SecondaryRole == \"Score\", 0.333, 0))",
-        "sourceOrder": 27
+        "formula": "if(scouting.shift3PrimaryRole == \"Score\", if(scouting.shift3SecondaryRole == \"None\" || scouting.shift3SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift3SecondaryRole == \"Score\", 0.333, 0))"
       },
       {
         "name": "shift3MaxFuelPossible",
-        "formula": "if(shift3PctShooting == 0, 0, shift3FuelTeam / shift3PctShooting)",
-        "sourceOrder": 28
+        "formula": "if(shift3PctShooting == 0, 0, shift3FuelTeam / shift3PctShooting)"
       },
       {
         "name": "shift4FuelShare",
-        "formula": "valueOr(scouting.shift4FuelPct, 0) / 100",
-        "sourceOrder": 29
+        "formula": "valueOr(scouting.shift4FuelPct, 0) / 100"
       },
       {
         "name": "shift4FuelShareAlliance",
-        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(shift4FuelShare), 1)",
-        "sourceOrder": 30
+        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(shift4FuelShare), 1)"
       },
       {
         "name": "shift4FuelTeam",
-        "formula": "if(shift4FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift4Points, 0) / allianceCount(scouting.hasEntry), 0), valueOr(shift4FuelShare / shift4FuelShareAlliance * valueOr(tba.hubScore.shift4Points, 0), 0))",
-        "sourceOrder": 31
+        "formula": "if(shift4FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift4Points, 0) / allianceCount(scouting.hasEntry), 0), valueOr(shift4FuelShare / shift4FuelShareAlliance * valueOr(tba.hubScore.shift4Points, 0), 0))"
       },
       {
         "name": "shift4PctShooting",
-        "formula": "if(scouting.shift4PrimaryRole == \"Score\", if(scouting.shift4SecondaryRole == \"None\" || scouting.shift4SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift4SecondaryRole == \"Score\", 0.333, 0))",
-        "sourceOrder": 32
+        "formula": "if(scouting.shift4PrimaryRole == \"Score\", if(scouting.shift4SecondaryRole == \"None\" || scouting.shift4SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift4SecondaryRole == \"Score\", 0.333, 0))"
       },
       {
         "name": "shift4MaxFuelPossible",
-        "formula": "if(shift4PctShooting == 0, 0, shift4FuelTeam / shift4PctShooting)",
-        "sourceOrder": 33
+        "formula": "if(shift4PctShooting == 0, 0, shift4FuelTeam / shift4PctShooting)"
       },
       {
         "name": "endgameFuelShare",
-        "formula": "valueOr(scouting.endgameFuelPct, 0) / 100",
-        "sourceOrder": 34
+        "formula": "valueOr(scouting.endgameFuelPct, 0) / 100"
       },
       {
         "name": "endgameFuelShareAlliance",
-        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(endgameFuelShare), 1)",
-        "sourceOrder": 35
+        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(endgameFuelShare), 1)"
       },
       {
         "name": "endgameFuelTeam",
-        "formula": "if(endgameFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.endgamePoints, 0) / allianceCount(scouting.hasEntry), 0), valueOr(endgameFuelShare / endgameFuelShareAlliance * valueOr(tba.hubScore.endgamePoints, 0), 0))",
-        "sourceOrder": 36
+        "formula": "if(endgameFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.endgamePoints, 0) / allianceCount(scouting.hasEntry), 0), valueOr(endgameFuelShare / endgameFuelShareAlliance * valueOr(tba.hubScore.endgamePoints, 0), 0))"
       },
       {
         "name": "endgamePctShooting",
-        "formula": "if(scouting.endgamePrimaryRole == \"Score\", if(scouting.endgameSecondaryRole == \"None\" || scouting.endgameSecondaryRole == \"Score\", 1, 0.667), if(scouting.endgameSecondaryRole == \"Score\", 0.333, 0))",
-        "sourceOrder": 37
+        "formula": "if(scouting.endgamePrimaryRole == \"Score\", if(scouting.endgameSecondaryRole == \"None\" || scouting.endgameSecondaryRole == \"Score\", 1, 0.667), if(scouting.endgameSecondaryRole == \"Score\", 0.333, 0))"
       },
       {
         "name": "endgameMaxFuelPossible",
-        "formula": "if(endgamePctShooting == 0, 0, endgameFuelTeam / endgamePctShooting)",
-        "sourceOrder": 38
+        "formula": "if(endgamePctShooting == 0, 0, endgameFuelTeam / endgamePctShooting)"
       },
       {
         "name": "teleopMaxFuelPossible",
-        "formula": "autoMaxFuelPossible + transitionMaxFuelPossible + shift1MaxFuelPossible + shift2MaxFuelPossible + shift3MaxFuelPossible + shift4MaxFuelPossible + endgameMaxFuelPossible",
-        "sourceOrder": 39
+        "formula": "autoMaxFuelPossible + transitionMaxFuelPossible + shift1MaxFuelPossible + shift2MaxFuelPossible + shift3MaxFuelPossible + shift4MaxFuelPossible + endgameMaxFuelPossible"
       },
       {
         "name": "totalFuelScored",
-        "formula": "autoFuelTeam + transitionFuelTeam + shift1FuelTeam + shift2FuelTeam + shift3FuelTeam + shift4FuelTeam + endgameFuelTeam",
-        "sourceOrder": 40
+        "formula": "autoFuelTeam + transitionFuelTeam + shift1FuelTeam + shift2FuelTeam + shift3FuelTeam + shift4FuelTeam + endgameFuelTeam"
       }
-    ],
-    "fieldMigrations": []
+    ]
   }
 }

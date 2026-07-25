@@ -81,7 +81,7 @@ runTest("buildProfileVersionKey is stable for equivalent profiles and changes wh
       { id: "teleAmpMade", label: "Tele Amp Made", type: "number", unit: "count" },
     ],
     fieldMigrations: [{ kind: "rename", fromFieldId: "autoSpeaker", toFieldId: "autoSpeakerMade" }],
-    equations: [{ id: "speakerTotal", name: "Speaker Total", formula: "sum(scouting.autoSpeakerMade)", sourceOrder: 0 }],
+    derivedEquations: [{ id: "speakerTotal", name: "Speaker Total", formula: "sum(scouting.autoSpeakerMade)" }],
   });
   const right = scoutingProfiles.buildProfileVersionKey({
     id: "match-current-v2",
@@ -90,7 +90,7 @@ runTest("buildProfileVersionKey is stable for equivalent profiles and changes wh
       { unit: "count", type: "number", id: "teleAmpMade", label: "Tele Amp Made" },
     ],
     fieldMigrations: [{ toFieldId: "autoSpeakerMade", kind: "rename", fromFieldId: "autoSpeaker" }],
-    equations: [{ name: "Speaker Total", formula: "sum(scouting.autoSpeakerMade)", id: "speakerTotal", sourceOrder: 0 }],
+    derivedEquations: [{ name: "Speaker Total", formula: "sum(scouting.autoSpeakerMade)", id: "speakerTotal" }],
   });
   const changed = scoutingProfiles.buildProfileVersionKey({
     id: "match-current-v2",
@@ -99,7 +99,7 @@ runTest("buildProfileVersionKey is stable for equivalent profiles and changes wh
       { id: "teleAmpMissed", label: "Tele Amp Missed", type: "number", unit: "count" },
     ],
     fieldMigrations: [{ kind: "rename", fromFieldId: "autoSpeaker", toFieldId: "autoSpeakerMade" }],
-    equations: [{ id: "speakerTotal", name: "Speaker Total", formula: "sum(scouting.autoSpeakerMade)", sourceOrder: 0 }],
+    derivedEquations: [{ id: "speakerTotal", name: "Speaker Total", formula: "sum(scouting.autoSpeakerMade)" }],
   });
 
   assert.equal(left, right);

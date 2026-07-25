@@ -119,7 +119,6 @@ runTest("dynamic scouting fields surface preview schema fields before submission
         label: "Driver Tag",
         type: "string",
         unit: "text",
-        aggregate: "",
       },
     ],
   });

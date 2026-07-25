@@ -8,133 +8,44 @@
   },
   "schema": {
     "schemaId": "2024-match-v1",
-    "fields": [
-      {
-        "id": "autoSpeakerMade",
-        "label": "Auto Speaker Made",
-        "type": "number",
-        "unit": "notes",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "autoSpeakerMissed",
-        "label": "Auto Speaker Missed",
-        "type": "number",
-        "unit": "notes",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "autoAmpMade",
-        "label": "Auto Amp Made",
-        "type": "number",
-        "unit": "notes",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "autoAmpMissed",
-        "label": "Auto Amp Missed",
-        "type": "number",
-        "unit": "notes",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "teleSpeakerMade",
-        "label": "Teleop Speaker Made",
-        "type": "number",
-        "unit": "notes",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "teleSpeakerMissed",
-        "label": "Teleop Speaker Missed",
-        "type": "number",
-        "unit": "notes",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "teleAmpMade",
-        "label": "Teleop Amp Made",
-        "type": "number",
-        "unit": "notes",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "teleAmpMissed",
-        "label": "Teleop Amp Missed",
-        "type": "number",
-        "unit": "notes",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "climbAttempt",
-        "label": "Climb Attempt",
-        "type": "number",
-        "unit": "count",
-        "optional": false,
-        "aggregate": "max"
-      },
-      {
-        "id": "climbSuccess",
-        "label": "Climb Success",
-        "type": "number",
-        "unit": "count",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "driverPerformance",
-        "label": "Driver Performance",
-        "type": "number",
-        "unit": "rating",
-        "optional": true,
-        "aggregate": "average"
-      },
-      {
-        "id": "defenseOnThemRating",
-        "label": "Defense On Them",
-        "type": "number",
-        "unit": "rating",
-        "optional": true,
-        "aggregate": "average"
-      }
+    "expectedScoutingFields": [
+      "autoSpeakerMade",
+      "autoSpeakerMissed",
+      "autoAmpMade",
+      "autoAmpMissed",
+      "teleSpeakerMade",
+      "teleSpeakerMissed",
+      "teleAmpMade",
+      "teleAmpMissed",
+      "climbAttempt",
+      "climbSuccess",
+      "driverPerformance",
+      "defenseOnThemRating"
     ]
   },
   "profile": {
     "id": "canonical-json-v1",
     "label": "Canonical JSON",
-    "equations": [
+    "derivedEquations": [
       {
         "name": "scoutingTotal",
-        "formula": "scouting.auto + scouting.speaker + scouting.amp + scouting.trap",
-        "sourceOrder": 0
+        "formula": "scouting.auto + scouting.speaker + scouting.amp + scouting.trap"
       },
       {
         "name": "auto",
-        "formula": "average(scouting.autoSpeakerMade * 5 + scouting.autoAmpMade * 2)",
-        "sourceOrder": 1
+        "formula": "average(scouting.autoSpeakerMade * 5 + scouting.autoAmpMade * 2)"
       },
       {
         "name": "speaker",
-        "formula": "average(scouting.teleSpeakerMade * 2)",
-        "sourceOrder": 2
+        "formula": "average(scouting.teleSpeakerMade * 2)"
       },
       {
         "name": "amp",
-        "formula": "average(scouting.teleAmpMade)",
-        "sourceOrder": 3
+        "formula": "average(scouting.teleAmpMade)"
       },
       {
         "name": "trap",
-        "formula": "0",
-        "sourceOrder": 4
+        "formula": "0"
       }
     ]
   }

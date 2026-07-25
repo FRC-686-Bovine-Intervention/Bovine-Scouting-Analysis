@@ -154,8 +154,8 @@ await runTest("renaming a derived equation updates the bound local schema json a
   context.registerScoutingProfile(eventModel, {
     id: "canonical-json-v1",
     label: "Canonical JSON",
-    fields: fixturePayload.schema?.fields || [],
-    equations: fixturePayload.profile?.equations || [],
+    fields: fixturePayload.schema?.expectedScoutingFields || fixturePayload.schema?.fields || [],
+    derivedEquations: fixturePayload.profile?.derivedEquations || fixturePayload.profile?.equations || [],
     filters: fixturePayload.profile?.filters || [],
   });
 
@@ -166,13 +166,88 @@ await runTest("renaming a derived equation updates the bound local schema json a
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   const updatedSchema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
-  const equations = updatedSchema.profile?.equations || [];
+  const equations = updatedSchema.profile?.derivedEquations || updatedSchema.profile?.equations || [];
   const equationNames = equations.map((equation) => equation?.name).filter(Boolean);
 
   assert.equal(context.detectedScoutingSourceLabel(), "Local CSV file");
   assert.equal(equationNames.includes("autoFuelShareTest"), true);
   assert.equal(equationNames.includes("Auto Fuel Share"), false);
   assert.equal(equations.every((equation) => !("id" in equation) && !("unit" in equation) && !("description" in equation) && !("usage" in equation)), true);
+});
+
+await runTest("editing scoutingTotal updates the bound 2025 schema json artifact for CSV-backed scouting attachments", async () => {
+  const fixturePath = path.resolve("tests/fixtures/canonical-scouting-datasets/2025chcmp.schema.json");
+  const fixtureText = fs.readFileSync(fixturePath, "utf8");
+  const fixturePayload = JSON.parse(fixtureText);
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "schema-persistence-2025-"));
+  const schemaPath = path.join(tempDir, "2025chcmp.schema.json");
+  fs.writeFileSync(schemaPath, fixtureText, "utf8");
+
+  const context = loadAppContext({
+    eventCatalog: [{
+      key: "2025chcmp",
+      season: 2025,
+      name: "CHCMP",
+      seasonLabel: "2025",
+      teams: [{ number: 1 }],
+      teamNumbers: [1],
+      matches: [{ number: 1 }],
+      dataSources: [],
+      seedPicklists: [],
+      seedSortEquations: [],
+      formulaFieldDefinitions: [],
+      sheet: { recommendedProfileId: "match-current-v2" },
+    }],
+    readAttachmentText: async () => fs.readFileSync(schemaPath, "utf8"),
+    writeAttachmentText: async (_attachmentId, text) => {
+      fs.writeFileSync(schemaPath, String(text || ""), "utf8");
+      return true;
+    },
+  });
+
+  const state = context.__scoutingAppState;
+  const eventModel = context.eventCatalog[0];
+  state.activeEventKey = eventModel.key;
+  state.eventWorkspace = context.EventWorkspace.createEventWorkspace(eventModel, {
+    activeScoutingAttachmentId: "csv-attachment",
+    sources: {
+      scouting: [{
+        attachmentId: "csv-attachment",
+        label: "CSV + schema",
+        format: "legacy-sheet-csv",
+        locationKind: "path",
+        location: {
+          path: path.join(tempDir, "2025chcmp.csv"),
+          schemaPath,
+        },
+        profileId: "match-current-v2",
+        translatorId: "canonical-json-v1",
+        autoLoad: true,
+      }],
+    },
+  });
+  state.importResult = { summary: { profileId: "match-current-v2" } };
+  state.importSchemaJsonText = fixtureText;
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    label: "Current Match Template",
+    fields: fixturePayload.schema?.expectedScoutingFields || fixturePayload.schema?.fields || [],
+    derivedEquations: fixturePayload.profile?.derivedEquations || fixturePayload.profile?.equations || [],
+    filters: fixturePayload.profile?.filters || [],
+  });
+
+  const target = context.currentProfileEquationList(eventModel).find((equation) => equation?.name === "scoutingTotal");
+  assert.ok(target, "Expected scoutingTotal to exist in the loaded profile.");
+
+  context.updateProfileEquationFormula(target.id, "auto + coral + algae + climb + 1");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const updatedSchema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
+  const equations = updatedSchema.profile?.derivedEquations || [];
+  const scoutingTotal = equations.find((equation) => equation?.name === "scoutingTotal");
+
+  assert.ok(scoutingTotal, "Expected scoutingTotal to remain in the saved schema.");
+  assert.equal(scoutingTotal.formula, "auto + coral + algae + climb + 1");
 });
 
 await runTest("typing a fuller schema path for the same local file keeps the existing writable attachment binding", async () => {
@@ -273,9 +348,9 @@ await runTest("provider-backed derived equations resolve TBA and Statbotics iden
     id: "match-current-v2",
     label: "Current",
     fields: [],
-    equations: [
-      { id: "tba_rank", name: "TBA Rank", formula: "tba.ranking.rank", sourceOrder: 1 },
-      { id: "statbotics_total_points", name: "Statbotics Total Points", formula: "statbotics.epa.total_points", sourceOrder: 2 },
+    derivedEquations: [
+      { id: "tba_rank", name: "TBA Rank", formula: "tba.ranking.rank" },
+      { id: "statbotics_total_points", name: "Statbotics Total Points", formula: "statbotics.epa.total_points" },
     ],
   });
 
@@ -349,8 +424,8 @@ await runTest("available metrics preview resolves metrics that are not already r
     id: "match-current-v2",
     label: "Current",
     fields: eventCatalog[0].formulaFieldDefinitions,
-    equations: [
-      { id: "tba_rank", name: "TBA Rank", formula: "tba.ranking.rank", sourceOrder: 1 },
+    derivedEquations: [
+      { id: "tba_rank", name: "TBA Rank", formula: "tba.ranking.rank" },
     ],
   });
   state.activeDerivedEquationId = "tba_rank";
@@ -431,7 +506,7 @@ await runTest("formula autocomplete scrolls the selected suggestion into view wh
     id: "match-current-v2",
     label: "Current",
     fields: [{ id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" }],
-    equations: [],
+    derivedEquations: [],
   });
 
   const input = {
@@ -454,8 +529,8 @@ await runTest("escape in the derived equation editor restores the formula that w
     id: "match-current-v2",
     label: "Current",
     fields: [],
-    equations: [
-      { id: "derived_one", name: "Derived One", formula: "tba.rank", sourceOrder: 1 },
+    derivedEquations: [
+      { id: "derived_one", name: "Derived One", formula: "tba.rank" },
     ],
   });
   state.activeDerivedEquationId = "derived_one";

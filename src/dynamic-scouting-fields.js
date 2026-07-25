@@ -61,8 +61,6 @@ function dynamicFieldDefinition(fieldId, samples = [], schemaField = null) {
     id: fieldId,
     label: normalizeText(schemaField?.label) || humanizeFieldId(fieldId) || fieldId,
     unit: normalizeText(schemaField?.unit) || (type === "number" ? "count" : "text"),
-    aggregate: normalizeText(schemaField?.aggregate) || (type === "number" ? "average" : ""),
-    optional: schemaField?.optional !== undefined ? Boolean(schemaField.optional) : true,
     dynamic: true,
     type,
   };

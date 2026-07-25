@@ -205,7 +205,7 @@ runTest("previewScoutingJsonImport rejects canonical JSON that omits schema fiel
   });
 
   assert.equal(preview.ok, false);
-  assert.ok(preview.errors.some((error) => error.includes("schema.fields must be an array")));
+  assert.ok(preview.errors.some((error) => error.includes("schema.expectedScoutingFields must be an array")));
 });
 
 runTest("previewScoutingJsonImport flags duplicate rows by canonical event, match, and team identity", () => {
@@ -330,8 +330,8 @@ runTest("previewScoutingJsonImport honors payload schema fields instead of forci
       schema: {
         schemaId: "2026-match-drifted",
         fields: [
-          { id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%", aggregate: "average" },
-          { id: "customDriverTag", label: "Driver Tag", type: "string", unit: "text", aggregate: "mode" },
+          { id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" },
+          { id: "customDriverTag", label: "Driver Tag", type: "string", unit: "text" },
         ],
       },
       entries: [
@@ -357,8 +357,8 @@ runTest("previewScoutingJsonImport honors payload schema fields instead of forci
       schema: {
         schemaId: "2026-match-drifted",
         fields: [
-          { id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%", aggregate: "average" },
-          { id: "customDriverTag", label: "Driver Tag", type: "string", unit: "text", aggregate: "mode" },
+          { id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" },
+          { id: "customDriverTag", label: "Driver Tag", type: "string", unit: "text" },
         ],
       },
     }),
@@ -525,7 +525,7 @@ runTest("previewScoutingJsonImport surfaces profile equations from schema artifa
       profile: {
         id: "canonical-json-v1",
         label: "Canonical JSON",
-        equations: [
+        derivedEquations: [
           { id: "scoutingTotal", name: "Scouting Total", formula: "scouting.auto + scouting.cycle + scouting.endgame" },
         ],
         filters: [
@@ -540,8 +540,8 @@ runTest("previewScoutingJsonImport surfaces profile equations from schema artifa
 
   assert.equal(preview.ok, true);
   assert.equal(preview.summary.profileDefinition.id, "canonical-json-v1");
-  assert.equal(preview.summary.profileDefinition.equations.length, 1);
-  assert.equal(preview.summary.profileDefinition.equations[0].name, "scoutingTotal");
+  assert.equal(preview.summary.profileDefinition.derivedEquations.length, 1);
+  assert.equal(preview.summary.profileDefinition.derivedEquations[0].name, "scoutingTotal");
   assert.equal(preview.summary.profileDefinition.filters.length, 1);
   assert.equal(preview.summary.profileDefinition.filters[0].name, "shareGate");
 });

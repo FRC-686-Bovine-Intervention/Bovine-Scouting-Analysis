@@ -22,7 +22,6 @@ function normalizeFieldDefinitions(fieldDefinitions = []) {
       label: normalizeText(fieldDefinition?.label) || normalizeText(fieldDefinition?.id),
       type: inferFieldType(fieldDefinition),
       unit: normalizeText(fieldDefinition?.unit),
-      aggregate: normalizeText(fieldDefinition?.aggregate),
     }))
     .filter((fieldDefinition) => fieldDefinition.id);
 }

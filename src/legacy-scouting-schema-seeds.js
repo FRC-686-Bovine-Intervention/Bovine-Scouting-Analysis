@@ -4,7 +4,7 @@ function metric(id, label, unit = "pts", extra = {}) {
 }
 
 function formulaField(id, label, extra = {}) {
-  return { id, label, unit: "text", optional: true, ...extra };
+  return { id, label, unit: "text", ...extra };
 }
 
 function rateMetric(name, _legacyLabel, madeFields, missFields) {
@@ -30,10 +30,10 @@ globalThis.LegacyScoutingSchemaSeeds = {
       metric("teleSpeakerMissed", "Teleop Speaker Missed", "notes"),
       metric("teleAmpMade", "Teleop Amp Made", "notes"),
       metric("teleAmpMissed", "Teleop Amp Missed", "notes"),
-      metric("climbAttempt", "Climb Attempt", "count", { aggregate: "max" }),
+      metric("climbAttempt", "Climb Attempt", "count"),
       metric("climbSuccess", "Climb Success", "count"),
-      metric("driverPerformance", "Driver Performance", "rating", { optional: true }),
-      metric("defenseOnThemRating", "Defense On Them", "rating", { optional: true }),
+      metric("driverPerformance", "Driver Performance", "rating"),
+      metric("defenseOnThemRating", "Defense On Them", "rating"),
     ],
     formulaFields: [],
     derivedMetrics: [
@@ -90,10 +90,10 @@ globalThis.LegacyScoutingSchemaSeeds = {
       metric("teleBargeMade", "Teleop Barge Made", "count"),
       metric("teleBargeMissed", "Teleop Barge Missed", "count"),
       metric("climbLevel", "Climb Level", "level"),
-      metric("climbAttempt", "Climb Attempt", "count", { aggregate: "max" }),
-      metric("driverPerformance", "Driver Performance", "rating", { optional: true }),
-      metric("playedDefenseRating", "Played Defense", "rating", { optional: true }),
-      metric("defenseOnThemRating", "Defense On Them", "rating", { optional: true }),
+      metric("climbAttempt", "Climb Attempt", "count"),
+      metric("driverPerformance", "Driver Performance", "rating"),
+      metric("playedDefenseRating", "Played Defense", "rating"),
+      metric("defenseOnThemRating", "Defense On Them", "rating"),
     ],
     formulaFields: [],
     derivedMetrics: [
@@ -145,12 +145,12 @@ globalThis.LegacyScoutingSchemaSeeds = {
       metric("shift3FuelPct", "Shift 3 Fuel %", "%"),
       metric("shift4FuelPct", "Shift 4 Fuel %", "%"),
       metric("endgameFuelPct", "Endgame Fuel %", "%"),
-      metric("overallShooter", "Overall Shooter", "rating", { optional: true }),
-      metric("overallPasser", "Overall Passer", "rating", { optional: true }),
-      metric("overallIntake", "Overall Intake", "rating", { optional: true }),
-      metric("overallDriver", "Overall Driver", "rating", { optional: true }),
-      metric("overallDefenseAvoidance", "Overall Defense Avoidance", "rating", { optional: true }),
-      metric("overallDefense", "Overall Defense", "rating", { optional: true }),
+      metric("overallShooter", "Overall Shooter", "rating"),
+      metric("overallPasser", "Overall Passer", "rating"),
+      metric("overallIntake", "Overall Intake", "rating"),
+      metric("overallDriver", "Overall Driver", "rating"),
+      metric("overallDefenseAvoidance", "Overall Defense Avoidance", "rating"),
+      metric("overallDefense", "Overall Defense", "rating"),
       metric("noShow", "No Show", "count"),
     ],
     formulaFields: [

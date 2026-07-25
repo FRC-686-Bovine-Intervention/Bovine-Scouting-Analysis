@@ -69,14 +69,18 @@ function inferCanonicalFieldType(fieldDefinition) {
   return "number";
 }
 
-function normalizeSchemaField(fieldDefinition) {
+function canonicalSchemaFieldName(fieldDefinition) {
+  if (typeof fieldDefinition === "string") return normalizeText(fieldDefinition);
+  return normalizeText(fieldDefinition?.name || fieldDefinition?.id || fieldDefinition?.label);
+}
+
+function normalizeSchemaField(fieldDefinition, expectedField = null) {
+  const fieldId = canonicalSchemaFieldName(fieldDefinition) || normalizeText(expectedField?.id);
   return {
-    id: normalizeText(fieldDefinition?.id),
-    label: normalizeText(fieldDefinition?.label) || normalizeText(fieldDefinition?.id),
-    type: inferCanonicalFieldType(fieldDefinition),
-    unit: normalizeText(fieldDefinition?.unit),
-    optional: fieldDefinition?.optional === true,
-    aggregate: normalizeText(fieldDefinition?.aggregate) || (inferCanonicalFieldType(fieldDefinition) === "number" ? "average" : ""),
+    id: fieldId,
+    label: normalizeText(fieldDefinition?.label) || fieldId,
+    type: inferCanonicalFieldType({ ...(expectedField || {}), ...(fieldDefinition || {}), id: fieldId }),
+    unit: normalizeText(fieldDefinition?.unit) || normalizeText(expectedField?.unit),
   };
 }
 
@@ -86,7 +90,6 @@ function normalizeProfileEquation(definition, index = 0) {
   return {
     name,
     formula: normalizeText(definition?.formula || definition?.expression),
-    sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
   };
 }
 
@@ -96,7 +99,6 @@ function normalizeProfileFilter(definition, index = 0) {
   return {
     name,
     formula: normalizeText(definition?.formula || definition?.expression),
-    sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
   };
 }
 
@@ -148,14 +150,16 @@ function selectSchemaProfile(schemaSource, schemaMeta = {}) {
 function normalizeCanonicalProfile(profile, schemaMeta = {}) {
   const profileId = normalizeText(profile?.id || profile?.profileId) || normalizeText(schemaMeta?.templateProfileId);
   const profileLabel = normalizeText(profile?.label || profile?.name) || normalizeText(schemaMeta?.profileLabel) || profileId;
-  if (!profileId && !profileLabel && !Array.isArray(profile?.equations) && !Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords)) {
+  const derivedEquations = Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : [];
+  const legacyEquations = Array.isArray(profile?.equations) ? profile.equations : [];
+  if (!profileId && !profileLabel && !derivedEquations.length && !legacyEquations.length && !Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords)) {
     return null;
   }
   return {
     id: profileId || canonicalTemplateProfileId,
     label: profileLabel || profileId || canonicalTemplateProfileId,
     versionKey: normalizeText(profile?.versionKey || profile?.versionId),
-    equations: (Array.isArray(profile?.equations) ? profile.equations : [])
+    derivedEquations: (derivedEquations.length ? derivedEquations : legacyEquations)
       .map((definition, index) => normalizeProfileEquation(definition, index))
       .filter(Boolean),
     filters: (Array.isArray(profile?.filters) ? profile.filters : [])
@@ -173,7 +177,9 @@ function buildCanonicalSchemaForEventModel(eventModel, options = {}) {
   const schemaId = normalizeText(options.schemaId) || `${eventModel?.season || "season"}-match-v1`;
   return {
     schemaId,
-    fields: formulaFieldDefinitions(eventModel).map((fieldDefinition) => normalizeSchemaField(fieldDefinition)),
+    expectedScoutingFields: formulaFieldDefinitions(eventModel)
+      .map((fieldDefinition) => normalizeSchemaField(fieldDefinition).id)
+      .filter(Boolean),
   };
 }
 
@@ -204,6 +210,8 @@ function buildCanonicalSchemaMeta(options = {}) {
 function buildCanonicalSchemaArtifact(schemaPayload, options = {}) {
   const normalized = normalizeCanonicalPayload({}, schemaPayload);
   const eventModel = options.eventModel || {};
+  const expectedFields = formulaFieldDefinitions(eventModel).map((fieldDefinition) => normalizeSchemaField(fieldDefinition));
+  const expectedFieldMap = new Map(expectedFields.map((fieldDefinition) => [fieldDefinition.id, fieldDefinition]));
   const resolvedSchemaId = normalizeText(options.schemaId)
     || normalizeText(normalized.schema?.schemaId)
     || `${eventModel?.season || "season"}-match-v1`;
@@ -215,11 +223,16 @@ function buildCanonicalSchemaArtifact(schemaPayload, options = {}) {
       profileLabel: normalizeText(options.profile?.label || normalized.schemaMeta?.profileLabel),
     },
   ) || normalizeCanonicalProfile(null, normalized.schemaMeta);
-  const schema = Array.isArray(normalized.schema?.fields) && normalized.schema.fields.length
+  const schemaFieldEntries = Array.isArray(normalized.schema?.expectedScoutingFields) && normalized.schema.expectedScoutingFields.length
+    ? normalized.schema.expectedScoutingFields
+    : (Array.isArray(normalized.schema?.fields) ? normalized.schema.fields : []);
+  const schema = schemaFieldEntries.length
     ? {
         ...normalized.schema,
         schemaId: resolvedSchemaId,
-        fields: normalized.schema.fields.map((fieldDefinition) => normalizeSchemaField(fieldDefinition)),
+        expectedScoutingFields: schemaFieldEntries
+          .map((fieldDefinition) => normalizeSchemaField(fieldDefinition, expectedFieldMap.get(canonicalSchemaFieldName(fieldDefinition)) || null).id)
+          .filter(Boolean),
       }
     : buildCanonicalSchemaForEventModel(eventModel, { schemaId: resolvedSchemaId });
   return {
@@ -232,7 +245,16 @@ function buildCanonicalSchemaArtifact(schemaPayload, options = {}) {
       translationVersion: normalizeText(normalized.schemaMeta?.translationVersion),
     },
     schema,
-    profile,
+    profile: profile
+      ? {
+          id: profile.id,
+          label: profile.label,
+          versionKey: profile.versionKey,
+          derivedEquations: profile.derivedEquations,
+          filters: profile.filters,
+          fieldMigrations: profile.fieldMigrations,
+        }
+      : profile,
   };
 }
 
@@ -328,8 +350,9 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
   if (!schemaId) {
     errors.push("Canonical scouting schema JSON schema.schemaId is required.");
   }
-  if (!Array.isArray(schema.fields)) {
-    errors.push("Canonical scouting schema JSON schema.fields must be an array.");
+  const schemaFieldEntries = Array.isArray(schema.expectedScoutingFields) ? schema.expectedScoutingFields : schema.fields;
+  if (!Array.isArray(schemaFieldEntries)) {
+    errors.push("Canonical scouting schema JSON schema.expectedScoutingFields must be an array.");
   }
 
   if (Array.isArray(entries)) {
@@ -342,25 +365,24 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
     });
   }
 
-  const expectedFields = buildCanonicalSchemaForEventModel(eventModel).fields;
+  const expectedFields = formulaFieldDefinitions(eventModel).map((fieldDefinition) => normalizeSchemaField(fieldDefinition));
   const expectedFieldMap = new Map(expectedFields.map((field) => [field.id, field]));
   const schemaFieldMap = new Map();
 
-  if (Array.isArray(schema.fields)) {
-    schema.fields.forEach((field, index) => {
-      const fieldId = normalizeText(field?.id);
-      const fieldLabel = normalizeText(field?.label);
-      const fieldType = normalizeText(field?.type).toLowerCase();
+  if (Array.isArray(schemaFieldEntries)) {
+    schemaFieldEntries.forEach((field, index) => {
+      const fieldId = canonicalSchemaFieldName(field);
+      const expectedField = expectedFieldMap.get(fieldId) || null;
+      const normalizedField = normalizeSchemaField(field, expectedField);
+      const fieldLabel = normalizeText(normalizedField?.label);
+      const fieldType = normalizeText(normalizedField?.type).toLowerCase();
       if (!fieldId) {
-        errors.push(`Schema field ${index + 1} is missing id.`);
+        errors.push(`Schema field ${index + 1} is missing name.`);
         return;
       }
       if (schemaFieldMap.has(fieldId)) {
         errors.push(`Schema field ${fieldId} is duplicated.`);
         return;
-      }
-      if (!fieldLabel) {
-        errors.push(`Schema field ${fieldId} is missing label.`);
       }
       if (!fieldType) {
         errors.push(`Schema field ${fieldId} is missing type.`);
@@ -371,9 +393,7 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
         id: fieldId,
         label: fieldLabel || fieldId,
         type: fieldType || "string",
-        unit: normalizeText(field?.unit),
-        optional: field?.optional === true,
-        aggregate: normalizeText(field?.aggregate),
+        unit: normalizeText(normalizedField?.unit),
       });
     });
   }
@@ -394,7 +414,7 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
     schema: {
       ...schema,
       schemaId,
-      fields: Array.isArray(schema.fields) ? schema.fields : [],
+      expectedScoutingFields: Array.isArray(schemaFieldEntries) ? schemaFieldEntries : [],
     },
     profile,
     entries,

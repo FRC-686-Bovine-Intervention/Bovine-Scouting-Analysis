@@ -21,12 +21,12 @@ function schemaFieldDefinitions(eventModel) {
 }
 
 function normalizeSchemaFieldEntry(fieldDefinition) {
+  const fieldId = String(fieldDefinition?.name || fieldDefinition?.id || "").trim();
   return {
-    id: fieldDefinition.id,
-    label: fieldDefinition.label || fieldDefinition.id,
+    id: fieldId,
+    label: fieldDefinition.label || fieldId,
     type: String(fieldDefinition?.type || "").trim() || (String(fieldDefinition?.unit || "").trim().toLowerCase() === "text" ? "string" : "number"),
     unit: fieldDefinition.unit || "",
-    aggregate: fieldDefinition.aggregate || "average",
   };
 }
 

@@ -142,8 +142,6 @@ const normalizeScoutingProfileField =
       label: normalizeText(fieldDefinition?.label || id),
       type: normalizeText(fieldDefinition?.type),
       unit: normalizeText(fieldDefinition?.unit),
-      aggregate: normalizeText(fieldDefinition?.aggregate),
-      optional: fieldDefinition?.optional === true,
     };
   });
 const normalizeScoutingProfileMigrationRecords =
@@ -1745,13 +1743,13 @@ function currentRankableMetrics(eventModel = currentEvent()) {
 }
 
 function currentProfileEquationList(eventModel = currentEvent()) {
-  return [...(currentImportedProfileDefinition(eventModel)?.equations || [])]
-    .sort((left, right) => Number(left.sourceOrder || 0) - Number(right.sourceOrder || 0) || left.name.localeCompare(right.name));
+  return [...(currentImportedProfileDefinition(eventModel)?.derivedEquations || currentImportedProfileDefinition(eventModel)?.equations || [])]
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function currentProfileFilterList(eventModel = currentEvent()) {
   return [...(currentImportedProfileDefinition(eventModel)?.filters || [])]
-    .sort((left, right) => Number(left.sourceOrder || 0) - Number(right.sourceOrder || 0) || left.name.localeCompare(right.name));
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function equationDefinitionById(id, eventModel = currentEvent()) {
@@ -3014,7 +3012,7 @@ function defaultScoutingProfileForEvent(eventModel = currentEvent()) {
       label: knownImportProfileLabels[profileId] || profileId,
       fields: Array.isArray(eventModel?.formulaFieldDefinitions) ? eventModel.formulaFieldDefinitions : [],
       fieldMigrations: [],
-      equations: [],
+      derivedEquations: [],
     }],
   });
   return normalizedProfiles.seed?.[0] || null;
@@ -3062,7 +3060,9 @@ function registerScoutingProfile(eventModel, profile) {
         id: profileId,
         label: scoutingProfileLabel(profileId, profile?.label || existingProfile?.label || profile?.id || ""),
         fields: Array.isArray(profile?.fields) ? profile.fields : (existingProfile?.fields || []),
-        equations: Array.isArray(profile?.equations) ? profile.equations : (existingProfile?.equations || []),
+        derivedEquations: Array.isArray(profile?.derivedEquations)
+          ? profile.derivedEquations
+          : (Array.isArray(profile?.equations) ? profile.equations : (existingProfile?.derivedEquations || existingProfile?.equations || [])),
         filters: Array.isArray(profile?.filters) ? profile.filters : (existingProfile?.filters || []),
         fieldMigrations: Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords)
           ? (profile.fieldMigrations || profile.fieldMigrationRecords)
@@ -3091,7 +3091,7 @@ function backfillScoutingProfilesFromSubmissions(eventModel = currentEvent()) {
       label: knownImportProfileLabels[profileId] || profileId,
       fields: parseScoutingSchemaSignatureFields(normalizeText(submission?.scoutingSchemaSignature)),
       fieldMigrations: [],
-      equations: [],
+      derivedEquations: [],
     });
   });
   if (!discovered.size) return;
@@ -3331,7 +3331,6 @@ function normalizeEquationDefinitions(definitions) {
       id: name,
       name,
       formula: canonicalizeStoredFormula(formula, "0"),
-      sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
       usage,
     });
   });
@@ -3349,7 +3348,6 @@ function normalizeFilterDefinitions(definitions) {
       id: name,
       name,
       formula: canonicalizeStoredFormula(String(definition?.formula || "").trim() || "0 > 1", "0 > 1"),
-      sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
     });
   });
   return nextDefinitions;
@@ -3370,7 +3368,6 @@ function filterDefinitionsFromPredicateEquations(definitions) {
       .map((definition) => ({
         name: definition.name,
         formula: definition.formula,
-        sourceOrder: definition.sourceOrder,
       })),
   );
 }
@@ -3385,7 +3382,7 @@ function normalizeScoutingProfileDefinition(profile) {
     : [];
   const fieldMigrations = normalizeScoutingProfileMigrationRecords(profile?.fieldMigrations || profile?.fieldMigrationRecords);
   const equations = normalizeEquationDefinitions([
-    ...(Array.isArray(profile?.equations) ? profile.equations : []),
+    ...(Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : [])),
     ...predicateEquationDefinitionsFromFilters(profile?.filters),
   ]);
   const filters = filterDefinitionsFromPredicateEquations(equations);
@@ -3448,15 +3445,15 @@ function migrateLegacyScopedConfigIntoProfiles(profileCatalog, legacyEquationCat
         id: defaultScoutingProfileId,
         label: knownImportProfileLabels[defaultScoutingProfileId] || defaultScoutingProfileId,
         fields: [],
-        equations: [],
+        derivedEquations: [],
       }];
     const legacyEquations = normalizeEquationDefinitions(legacyEquationCatalog?.seasons?.[seasonKey] || []);
     const legacyPredicateEquations = predicateEquationDefinitionsFromFilters(legacyFilterCatalog?.seasons?.[seasonKey] || []);
     migrated[seasonKey] = baseProfiles.map((profile) => ({
       ...profile,
-      equations: normalizeEquationDefinitions(
-        profile.equations?.length
-          ? [...profile.equations, ...legacyPredicateEquations]
+      derivedEquations: normalizeEquationDefinitions(
+        profile.derivedEquations?.length
+          ? [...profile.derivedEquations, ...legacyPredicateEquations]
           : [...legacyEquations, ...legacyPredicateEquations],
       ),
     }));
@@ -4486,7 +4483,7 @@ function commitImportPreview(options = {}) {
     id: preview.summary.profileId,
     label: preview.summary.profileLabel,
     fields: preview.summary.schemaFields,
-    equations: preview.summary.profileDefinition?.equations,
+    derivedEquations: preview.summary.profileDefinition?.derivedEquations || preview.summary.profileDefinition?.equations,
     filters: preview.summary.profileDefinition?.filters,
     fieldMigrations: preview.summary.profileDefinition?.fieldMigrations,
     versionKey: preview.summary.profileDefinition?.versionKey,
@@ -7104,7 +7101,7 @@ function updateProfileEquationList(nextDefinitions, eventModel = currentEvent())
     ...(currentImportedProfileDefinition(eventModel) || {}),
     id: profileId,
     label: currentImportedProfileDefinition(eventModel)?.label || knownImportProfileLabels[profileId] || profileId,
-    equations: normalizeEquationDefinitions(nextDefinitions),
+    derivedEquations: normalizeEquationDefinitions(nextDefinitions),
   });
   ensureActiveDerivedEquation(eventModel);
   saveState();
@@ -7116,7 +7113,6 @@ function addProfileEquation() {
   const definition = {
     name,
     formula: "0",
-    sourceOrder: existing.length,
   };
   updateProfileEquationList([...existing, definition]);
   state.activeDerivedEquationId = definition.name;
@@ -7190,6 +7186,7 @@ function updateProfileEquationFormula(id, formula) {
   updateProfileEquationList(currentProfileEquationList().map((item) => (
     item.id === id ? { ...item, formula: normalizeStoredFormula(formula, "0") } : item
   )));
+  persistCurrentProfileToSchemaArtifactSoon();
 }
 
 function formulaAutocompleteCandidates(token) {
@@ -8204,7 +8201,7 @@ function bindViewEvents() {
         state.sortEquations = moveItemBefore(state.sortEquations, state.sortEquations.find((item) => item.id === draggedId), state.sortEquations.find((item) => item.id === row.dataset.entityId));
       } else if (kind === "derivedEquation") {
         const moved = moveItemBefore(currentProfileEquationList(), currentProfileEquationList().find((item) => item.id === draggedId), currentProfileEquationList().find((item) => item.id === row.dataset.entityId));
-        updateProfileEquationList(moved.map((item, index) => ({ ...item, sourceOrder: index })));
+        updateProfileEquationList(moved);
       } else {
         state.picklists = moveItemBefore(state.picklists, state.picklists.find((item) => item.id === draggedId), state.picklists.find((item) => item.id === row.dataset.entityId));
       }

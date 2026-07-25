@@ -4,7 +4,7 @@ const scoutingSchemaRuntime = globalThis.ScoutingSchemaRuntime || {};
 const scoutingJsonSchema = globalThis.ScoutingJsonSchema || {};
 const buildCanonicalSchemaForEventModel =
   scoutingJsonSchema.buildCanonicalSchemaForEventModel ||
-  ((eventModel, options = {}) => ({ schemaId: String(options.schemaId || `${eventModel?.season || "season"}-match-v1`), fields: [] }));
+  ((eventModel, options = {}) => ({ schemaId: String(options.schemaId || `${eventModel?.season || "season"}-match-v1`), expectedScoutingFields: [] }));
 const buildCanonicalEntriesMetaForEventModel =
   scoutingJsonSchema.buildCanonicalEntriesMetaForEventModel ||
   ((eventModel, options = {}) => ({ format: "frc-scouting-analysis/v1", season: Number(options.season || eventModel?.season || 0), eventKey: String(options.eventKey || eventModel?.key || ""), entryType: "match" }));
@@ -17,7 +17,7 @@ const normalizeCanonicalProfile =
     id: String(profile?.id || profile?.profileId || schemaMeta?.templateProfileId || genericSheetTemplateProfileId).trim(),
     label: String(profile?.label || profile?.name || schemaMeta?.profileLabel || profile?.id || genericSheetTemplateProfileId).trim(),
     versionKey: String(profile?.versionKey || profile?.versionId || "").trim(),
-    equations: Array.isArray(profile?.equations) ? profile.equations : [],
+    derivedEquations: Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : []),
     fieldMigrations: Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords) ? (profile.fieldMigrations || profile.fieldMigrationRecords) : [],
   }));
 const buildCanonicalMetaForEventModel =
@@ -448,13 +448,12 @@ function inferSheetFieldType(values = [], fallbackType = "string") {
 }
 
 function normalizeSchemaField(fieldDefinition = {}) {
+  const fieldId = String(fieldDefinition.name || fieldDefinition.id || "").trim();
   return {
-    id: String(fieldDefinition.id || "").trim(),
-    label: String(fieldDefinition.label || fieldDefinition.id || "").trim(),
+    id: fieldId,
+    label: String(fieldDefinition.label || fieldId || "").trim(),
     type: inferCanonicalFieldType(fieldDefinition),
     unit: String(fieldDefinition.unit || "").trim(),
-    optional: fieldDefinition.optional !== false,
-    aggregate: String(fieldDefinition.aggregate || "").trim() || (inferCanonicalFieldType(fieldDefinition) === "number" ? "average" : ""),
   };
 }
 
@@ -533,8 +532,6 @@ function buildGenericColumnDescriptors(eventModel, headers = [], dataRows = []) 
         label: label || fieldId,
         type: fieldType,
         unit: fieldType === "number" ? "count" : "text",
-        optional: true,
-        aggregate: fieldType === "number" ? "average" : "",
       },
     };
   });
@@ -860,14 +857,14 @@ function buildCanonicalDataset(eventModel, records, options = {}) {
   const profile = normalizeCanonicalProfile(options.profileDefinition || {
     id: templateProfileId,
     label: profileLabel,
-    equations: options.profileEquations,
+    derivedEquations: options.profileEquations,
     fieldMigrations: options.fieldMigrations,
     versionKey: options.profileVersionKey,
   }, schemaMeta);
   const schema = {
     ...baseSchema,
     schemaId: schemaVersion,
-    fields: [...mergedSchemaFieldMap.values()],
+    expectedScoutingFields: [...mergedSchemaFieldMap.values()].map((fieldDefinition) => fieldDefinition.id).filter(Boolean),
   };
   const entries = canonicalEntriesFromRecords(normalizedRecords, {
     translationVersion,

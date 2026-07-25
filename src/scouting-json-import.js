@@ -10,7 +10,7 @@ const normalizeCanonicalProfile = scoutingJsonSchema.normalizeCanonicalProfile |
   id: String(profile?.id || profile?.profileId || schemaMeta?.templateProfileId || canonicalTemplateProfileId).trim(),
   label: String(profile?.label || profile?.name || schemaMeta?.profileLabel || profile?.id || canonicalTemplateProfileId).trim(),
   versionKey: String(profile?.versionKey || profile?.versionId || "").trim(),
-  equations: Array.isArray(profile?.equations) ? profile.equations : [],
+  derivedEquations: Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : []),
   fieldMigrations: Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords) ? (profile.fieldMigrations || profile.fieldMigrationRecords) : [],
 }));
 const normalizeCanonicalPayload = scoutingJsonSchema.normalizeCanonicalPayload || ((payload, schemaPayload = null) => ({
@@ -41,6 +41,10 @@ function currentScoutingSourceUtils() {
 
 function normalizeText(value) {
   return String(value || "").trim();
+}
+
+function schemaFieldName(fieldDefinition = {}) {
+  return normalizeText(fieldDefinition?.name || fieldDefinition?.id || fieldDefinition?.label);
 }
 
 function toNumber(value) {
@@ -183,9 +187,11 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
   }
 
   const expectedSchema = buildCanonicalSchemaForEventModel(eventModel);
-  const schemaFieldDefinitions = Array.isArray(schema.fields) && schema.fields.length
-    ? schema.fields
-    : expectedSchema.fields;
+  const schemaFieldDefinitions = Array.isArray(schema.expectedScoutingFields) && schema.expectedScoutingFields.length
+    ? schema.expectedScoutingFields
+    : (Array.isArray(schema.fields) && schema.fields.length
+      ? schema.fields
+      : expectedSchema.expectedScoutingFields);
   const fieldIds = new Set(schemaFieldDefinitions.map((fieldDefinition) => normalizeText(fieldDefinition?.id)).filter(Boolean));
   const schemaFieldMap = validation.schemaFieldMap || new Map();
   const parsedRows = [];
@@ -237,7 +243,7 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
       schemaFieldDefinitions.forEach((fieldDefinition) => {
         const fieldId = normalizeText(fieldDefinition?.id);
         if (!fieldId) return;
-        if (!Object.prototype.hasOwnProperty.call(rawMetrics, fieldId) && fieldDefinition.optional !== true) {
+        if (!Object.prototype.hasOwnProperty.call(rawMetrics, fieldId)) {
           submission.confidenceReasons.push("missing_metric");
         }
       });
@@ -300,12 +306,11 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
         templateProfileId: profileIdOverride || normalizeText(schemaMeta.templateProfileId) || normalizeText(meta.templateProfileId) || canonicalTemplateProfileId,
         translationVersion: translationVersionOverride || normalizeText(schemaMeta.translationVersion) || normalizeText(meta.translationVersion),
       },
-      schemaFields: (schema.fields || []).map((field) => ({
-        id: normalizeText(field?.id),
-        label: normalizeText(field?.label) || normalizeText(field?.id),
+      schemaFields: schemaFieldDefinitions.map((field) => ({
+        id: schemaFieldName(field),
+        label: normalizeText(field?.label) || schemaFieldName(field),
         type: normalizeText(field?.type),
         unit: normalizeText(field?.unit),
-        aggregate: normalizeText(field?.aggregate),
       })),
       submissions: parsedRows,
     },

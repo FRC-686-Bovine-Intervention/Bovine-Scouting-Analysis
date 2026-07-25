@@ -159,7 +159,6 @@ function schemaFieldEntries(eventModel) {
     label: fieldDefinition.label || fieldDefinition.id,
     type: String(fieldDefinition?.type || "").trim() || (String(fieldDefinition.unit || "").trim().toLowerCase() === "text" ? "string" : "number"),
     unit: fieldDefinition.unit || "",
-    aggregate: fieldDefinition.aggregate || "average",
   }));
 }
 
@@ -399,7 +398,7 @@ function parseRows(rows, headers, profile, eventModel, metadata) {
       }
       const parsedValue = parseImportedMetricValue(row[cellIndex]);
       baseRecord.rawMetrics[fieldDefinition.id] = parsedValue;
-      if (parsedValue === null && fieldDefinition.optional !== true) baseRecord.confidenceReasons.push("missing_metric");
+      if (parsedValue === null) baseRecord.confidenceReasons.push("missing_metric");
     });
 
     const missingIdentity = requiredIdentityFields.filter((field) => {

@@ -52,14 +52,12 @@ runTest("buildCanonicalSchemaForEventModel emits canonical field metadata for ac
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
   const eventModel = buildEventModel(context);
   const schema = context.ScoutingJsonSchema.buildCanonicalSchemaForEventModel(eventModel);
-  const autoFuel = schema.fields.find((field) => field.id === "autoFuelPct");
-  const autoRole = schema.fields.find((field) => field.id === "autoPrimaryRole");
+  const autoFuel = schema.expectedScoutingFields.find((field) => field === "autoFuelPct");
+  const autoRole = schema.expectedScoutingFields.find((field) => field === "autoPrimaryRole");
 
   assert.equal(schema.schemaId, "2026-match-v1");
-  assert.equal(autoFuel.type, "number");
-  assert.equal(autoFuel.optional, false);
-  assert.equal(autoRole.type, "string");
-  assert.equal(autoRole.optional, true);
+  assert.equal(autoFuel, "autoFuelPct");
+  assert.equal(autoRole, "autoPrimaryRole");
 });
 
 runTest("buildCanonicalSchemaForEventModel uses event-owned field definitions without SeasonFramework", () => {
@@ -68,14 +66,14 @@ runTest("buildCanonicalSchemaForEventModel uses event-owned field definitions wi
     season: 2027,
     key: "2027demo",
     formulaFieldDefinitions: [
-      { id: "autoCoral", label: "Auto Coral", unit: "count", aggregate: "average" },
-      { id: "driverTag", label: "Driver Tag", unit: "text", optional: true, aggregate: "" },
+      { id: "autoCoral", label: "Auto Coral", unit: "count" },
+      { id: "driverTag", label: "Driver Tag", unit: "text" },
     ],
   });
 
   assert.equal(schema.schemaId, "2027-match-v1");
-  assert.equal(schema.fields.find((field) => field.id === "autoCoral").type, "number");
-  assert.equal(schema.fields.find((field) => field.id === "driverTag").type, "string");
+  assert.equal(schema.expectedScoutingFields.some((field) => field === "autoCoral"), true);
+  assert.equal(schema.expectedScoutingFields.some((field) => field === "driverTag"), true);
 });
 
 runTest("validateCanonicalSchema accepts fixture-backed canonical scouting JSON", () => {
@@ -91,14 +89,14 @@ runTest("validateCanonicalSchema accepts fixture-backed canonical scouting JSON"
   assert.equal(validation.schemaFieldMap.get("autoFuelPct").type, "number");
 });
 
-runTest("validateCanonicalSchema rejects missing schema.fields with actionable errors", () => {
+runTest("validateCanonicalSchema rejects missing schema.expectedScoutingFields with actionable errors", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
   const eventModel = buildEventModel(context);
   const payload = JSON.parse(fs.readFileSync(path.resolve("tests/fixtures/canonical-scouting-json/invalid-missing-schema-fields.entries.json"), "utf8"));
   const schemaPayload = JSON.parse(fs.readFileSync(path.resolve("tests/fixtures/canonical-scouting-json/invalid-missing-schema-fields.schema.json"), "utf8"));
   const validation = context.ScoutingJsonSchema.validateCanonicalSchema(payload, eventModel, "2026chcmp", schemaPayload);
 
-  assert.equal(validation.errors.some((error) => error.includes("schema.fields must be an array")), true);
+  assert.equal(validation.errors.some((error) => error.includes("schema.expectedScoutingFields must be an array")), true);
 });
 
 runTest("validateCanonicalSchema accepts split entries and schema artifacts", () => {

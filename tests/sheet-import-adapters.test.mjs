@@ -97,8 +97,8 @@ runTest("translateEventSheetToCanonical preserves extra legacy sheet columns as 
   assert.equal(dataset.entries[0].rawMetrics.overallDriver, 4);
   assert.equal(dataset.entries[0].rawMetrics.customDriverTag, "calm");
   assert.equal(dataset.entries[0].rawMetrics.newCounter, 3);
-  assert.ok(dataset.schema.fields.some((field) => field.id === "customDriverTag" && field.type === "string"));
-  assert.ok(dataset.schema.fields.some((field) => field.id === "newCounter" && field.type === "number"));
+  assert.ok(dataset.schema.expectedScoutingFields.some((field) => field === "customDriverTag"));
+  assert.ok(dataset.schema.expectedScoutingFields.some((field) => field === "newCounter"));
 });
 
 runTest("translateEventSheetToCanonical can match a legacy adapter by headers even when season differs", () => {

@@ -612,7 +612,7 @@ runTest("aggregateSubmissionMatches collapses multiple valid submissions for the
   );
 });
 
-runTest("aggregateSubmissionMatches supports max aggregation for binary attempt fields", () => {
+runTest("aggregateSubmissionMatches treats all scouting fields as raw per-match averages", () => {
   const matches = metricEngine.aggregateSubmissionMatches(
     [
       {
@@ -629,10 +629,6 @@ runTest("aggregateSubmissionMatches supports max aggregation for binary attempt 
     {
       scoringComponentIds: ["tele"],
       scouterMetricIds: ["climbAttempt", "tele"],
-      scouterMetricDefinitions: [
-        { id: "climbAttempt", aggregate: "max" },
-        { id: "tele" },
-      ],
     },
   );
 
@@ -643,7 +639,7 @@ runTest("aggregateSubmissionMatches supports max aggregation for binary attempt 
       tele: match.components.tele,
     })))),
     [
-      { matchNumber: 12, climbAttempt: 1, tele: 5 },
+      { matchNumber: 12, climbAttempt: 0.5, tele: 5 },
     ],
   );
 });

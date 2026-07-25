@@ -68,8 +68,8 @@ runTest("stampScoutingSubmissionMetadata uses event-owned field definitions with
     key: "2027demo",
     season: 2027,
     formulaFieldDefinitions: [
-      { id: "customCounter", label: "Custom Counter", unit: "count", aggregate: "average" },
-      { id: "driverTag", label: "Driver Tag", unit: "text", aggregate: "" },
+      { id: "customCounter", label: "Custom Counter", unit: "count" },
+      { id: "driverTag", label: "Driver Tag", unit: "text" },
     ],
   };
   const stamped = context.ScoutingImportRepair.stampScoutingSubmissionMetadata(
@@ -172,8 +172,8 @@ runTest("stamped submissions can use explicit schema fields instead of season-se
     formulaFieldDefinitions: context.SeasonFramework.formulaFieldDefinitions(season),
   };
   const schemaFields = [
-    { id: "customDriverTag", label: "Custom Driver Tag", type: "string", unit: "text", aggregate: "" },
-    { id: "newCounter", label: "New Counter", type: "number", unit: "count", aggregate: "average" },
+    { id: "customDriverTag", label: "Custom Driver Tag", type: "string", unit: "text" },
+    { id: "newCounter", label: "New Counter", type: "number", unit: "count" },
   ];
   const stamped = context.ScoutingImportRepair.stampScoutingSubmissionMetadata(
     [
