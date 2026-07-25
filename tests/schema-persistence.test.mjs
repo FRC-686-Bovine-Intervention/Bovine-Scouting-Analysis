@@ -18,20 +18,22 @@ function loadAppContext(options = {}) {
   const noop = () => {};
   const workspaceRoot = path.resolve(".");
   const schemaFields = Array.isArray(options.schemaFields) ? options.schemaFields : [];
-  const eventCatalog = [{
-    key: "2026chcmp",
-    season: 2026,
-    name: "CHCMP",
-    seasonLabel: "2026",
-    teams: [{ number: 1 }],
-    teamNumbers: [1],
-    matches: [{ number: 1 }],
-    dataSources: [],
-    seedPicklists: [],
-    seedSortEquations: [],
-    formulaFieldDefinitions: schemaFields,
-    sheet: { recommendedProfileId: "match-current-v2" },
-  }];
+  const eventCatalog = Array.isArray(options.eventCatalog) && options.eventCatalog.length
+    ? options.eventCatalog
+    : [{
+      key: "2026chcmp",
+      season: 2026,
+      name: "CHCMP",
+      seasonLabel: "2026",
+      teams: [{ number: 1 }],
+      teamNumbers: [1],
+      matches: [{ number: 1 }],
+      dataSources: [],
+      seedPicklists: [],
+      seedSortEquations: [],
+      formulaFieldDefinitions: schemaFields,
+      sheet: { recommendedProfileId: "match-current-v2" },
+    }];
   const appElement = {
     innerHTML: "",
     querySelector: () => null,
@@ -211,4 +213,73 @@ await runTest("typing a fuller schema path for the same local file keeps the exi
     context.currentScoutingAttachment().location.schemaPath,
     "D:\\FIRST\\Scouting\\Scouting-Analysis\\2026chcmp.schema.json",
   );
+});
+
+await runTest("provider-backed derived equations resolve TBA and Statbotics identifiers from live team sources", async () => {
+  const eventCatalog = [{
+    key: "2023chcmp",
+    season: 2023,
+    name: "CHCMP",
+    seasonLabel: "2023",
+    teams: [{
+      number: 111,
+      sources: {
+        tba: {
+          components: {
+            ranking: {
+              rank: 5,
+            },
+          },
+        },
+        statbotics: {
+          components: {
+            epa: {
+              total_points: 42.7,
+            },
+          },
+        },
+      },
+    }],
+    teamNumbers: [111],
+    matches: [{
+      number: 1,
+      red: [111],
+      blue: [222, 333, 444],
+      scoreBreakdown: {
+        red: {},
+        blue: {},
+      },
+    }],
+    dataSources: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    sheet: { recommendedProfileId: "match-current-v2" },
+  }];
+
+  const context = loadAppContext({ eventCatalog });
+  const state = context.__scoutingAppState;
+  const eventModel = context.eventCatalog[0];
+  state.activeEventKey = eventModel.key;
+
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    label: "Current",
+    fields: [],
+    equations: [
+      { id: "tba_rank", name: "TBA Rank", formula: "tba.ranking.rank", sourceOrder: 1 },
+      { id: "statbotics_total_points", name: "Statbotics Total Points", formula: "statbotics.epa.total_points", sourceOrder: 2 },
+    ],
+  });
+
+  const tbaEvaluation = context.evaluateEquationForTeam(111, "tba_rank", { eventModel });
+  const statboticsEvaluation = context.evaluateEquationForTeam(111, "statbotics_total_points", { eventModel });
+
+  assert.equal(tbaEvaluation.result.kind, "scalar");
+  assert.equal(tbaEvaluation.result.granularity, "event");
+  assert.equal(tbaEvaluation.result.value, 5);
+
+  assert.equal(statboticsEvaluation.result.kind, "scalar");
+  assert.equal(statboticsEvaluation.result.granularity, "event");
+  assert.equal(statboticsEvaluation.result.value, 42.7);
 });

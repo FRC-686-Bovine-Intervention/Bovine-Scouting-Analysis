@@ -2425,7 +2425,7 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
     const componentId = identifier.slice("statbotics.".length);
     const candidateFieldIds = [componentId];
     for (const candidateFieldId of candidateFieldIds) {
-      const overlayValue = readFormulaPathValue(formulaContext.overlayTeam.sources?.epa?.components || {}, candidateFieldId);
+      const overlayValue = readFormulaPathValue(formulaContext.overlayTeam.sources?.statbotics?.components || {}, candidateFieldId);
       if (isPresentFormulaValue(overlayValue)) return formulaScalarValue(overlayValue);
     }
     return formulaScalarValue(Number.NaN);
