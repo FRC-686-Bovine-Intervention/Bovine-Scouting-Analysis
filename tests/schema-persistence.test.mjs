@@ -40,6 +40,7 @@ function loadAppContext(options = {}) {
     querySelectorAll: () => [],
     addEventListener: noop,
   };
+  const extraQuerySelectors = options.extraQuerySelectors || {};
   const context = {
     globalThis: {},
     console,
@@ -62,7 +63,10 @@ function loadAppContext(options = {}) {
       removeItem: noop,
     },
     document: {
-      querySelector: (selector) => (selector === "#app" ? appElement : null),
+      querySelector: (selector) => {
+        if (selector === "#app") return appElement;
+        return extraQuerySelectors[selector] || null;
+      },
       querySelectorAll: () => [],
       createElement: () => ({ addEventListener: noop, style: {}, click: noop }),
       body: { appendChild: noop, removeChild: noop },
@@ -351,4 +355,88 @@ await runTest("available metrics preview resolves metrics that are not already r
   const html = context.renderDerivedBuilder();
   assert.match(html, /42\.7/);
   assert.doesNotMatch(html, />Invalid</);
+});
+
+await runTest("formula autocomplete scrolls the selected suggestion into view when keyboard navigation changes selection", async () => {
+  let scrolledSuggestion = "";
+  const popup = {
+    hidden: true,
+    dataset: {},
+    _buttons: [],
+    set innerHTML(value) {
+      this._innerHTML = value;
+      const matches = [...String(value || "").matchAll(/data-formula-suggestion="([^"]+)"/g)];
+      const activeIndex = String(value || "").indexOf("formula-autocomplete-item active");
+      let runningIndex = -1;
+      this._buttons = matches.map((match) => {
+        runningIndex += 1;
+        const raw = match[1]
+          .replaceAll("&quot;", "\"")
+          .replaceAll("&lt;", "<")
+          .replaceAll("&gt;", ">")
+          .replaceAll("&amp;", "&");
+        const active = activeIndex >= 0 && activeIndex < match.index;
+        return {
+          dataset: { formulaSuggestion: raw },
+          scrollIntoView: ({ block } = {}) => {
+            if (block === "nearest") scrolledSuggestion = raw;
+          },
+          _activeCandidate: active,
+        };
+      });
+    },
+    get innerHTML() {
+      return this._innerHTML || "";
+    },
+    querySelectorAll(selector) {
+      if (selector === "[data-formula-suggestion]") return this._buttons;
+      return [];
+    },
+  };
+
+  const context = loadAppContext({
+    schemaFields: [{ id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" }],
+    eventCatalog: [{
+      key: "2026chcmp",
+      season: 2026,
+      name: "CHCMP",
+      seasonLabel: "2026",
+      teams: [{ number: 1 }],
+      teamNumbers: [1],
+      matches: [{
+        number: 1,
+        red: [1, 2, 3],
+        blue: [4, 5, 6],
+        scoreBreakdown: {
+          red: {},
+          blue: {},
+        },
+      }],
+      dataSources: [],
+      seedPicklists: [],
+      seedSortEquations: [],
+      formulaFieldDefinitions: [{ id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" }],
+      sheet: { recommendedProfileId: "match-current-v2" },
+    }],
+    extraQuerySelectors: {
+      "#derivedFormulaAutocomplete": popup,
+    },
+  });
+
+  const eventModel = context.eventCatalog[0];
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    label: "Current",
+    fields: [{ id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" }],
+    equations: [],
+  });
+
+  const input = {
+    value: "scouting.a",
+    selectionStart: "scouting.a".length,
+  };
+
+  const result = context.renderFormulaAutocomplete(input, 0);
+  assert.ok(result.candidates.length > 0, "Expected at least one autocomplete candidate.");
+  assert.equal(scrolledSuggestion, result.candidates[0]);
 });

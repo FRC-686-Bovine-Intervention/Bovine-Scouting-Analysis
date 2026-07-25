@@ -7460,6 +7460,7 @@ function renderFormulaAutocomplete(input, requestedIndex = 0) {
       `,
     )
     .join("");
+  popup.querySelectorAll?.("[data-formula-suggestion]")?.[selectedIndex]?.scrollIntoView?.({ block: "nearest" });
   return { ...autocomplete, selectedIndex };
 }
 
