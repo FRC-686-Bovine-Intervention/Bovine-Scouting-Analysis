@@ -283,3 +283,72 @@ await runTest("provider-backed derived equations resolve TBA and Statbotics iden
   assert.equal(statboticsEvaluation.result.granularity, "event");
   assert.equal(statboticsEvaluation.result.value, 42.7);
 });
+
+await runTest("available metrics preview resolves metrics that are not already referenced by the active equation", async () => {
+  const eventCatalog = [{
+    key: "2023chcmp",
+    season: 2023,
+    name: "CHCMP",
+    seasonLabel: "2023",
+    teams: [{
+      number: 111,
+      sources: {
+        tba: {
+          components: {
+            ranking: {
+              rank: 5,
+            },
+          },
+        },
+        statbotics: {
+          components: {
+            epa: {
+              total_points: 42.7,
+            },
+          },
+        },
+      },
+    }],
+    teamNumbers: [111],
+    matches: [{
+      number: 1,
+      red: [111],
+      blue: [222, 333, 444],
+      scoreBreakdown: {
+        red: {},
+        blue: {},
+      },
+    }],
+    dataSources: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [{
+      id: "autoFuelPct",
+      label: "Auto Fuel %",
+      type: "number",
+      unit: "%",
+    }],
+    sheet: { recommendedProfileId: "match-current-v2" },
+  }];
+
+  const context = loadAppContext({ eventCatalog, schemaFields: eventCatalog[0].formulaFieldDefinitions });
+  const state = context.__scoutingAppState;
+  const eventModel = context.eventCatalog[0];
+  state.activeEventKey = eventModel.key;
+  state.activeView = "derivedBuilder";
+  state.activeDerivedPreviewMetricId = "statbotics.epa.total_points";
+
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    label: "Current",
+    fields: eventCatalog[0].formulaFieldDefinitions,
+    equations: [
+      { id: "tba_rank", name: "TBA Rank", formula: "tba.ranking.rank", sourceOrder: 1 },
+    ],
+  });
+  state.activeDerivedEquationId = "tba_rank";
+
+  const html = context.renderDerivedBuilder();
+  assert.match(html, /42\.7/);
+  assert.doesNotMatch(html, />Invalid</);
+});

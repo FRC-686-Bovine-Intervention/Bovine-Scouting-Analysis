@@ -5756,9 +5756,19 @@ function renderDerivedBuilder() {
     });
     identifierDisplayModelsByTeam.set(teamModel.teamNumber, identifierDisplayModels);
     if (activePreviewMetricId) {
+      const previewMetricResult = resolveFormulaIdentifier(
+        activePreviewMetricId,
+        teamModel.formulaContext,
+        gridEquationCache,
+        [],
+        gridFilterCache,
+        [],
+        gridGroupCache,
+        gridEventCache,
+      ) || { kind: "error", error: `Unknown identifier "${activePreviewMetricId}".` };
       resultDisplayModelsByTeam.set(
         teamModel.teamNumber,
-        identifierDisplayModels.get(activePreviewMetricId) || buildGridDisplayModel({ kind: "error", error: `Unknown identifier "${activePreviewMetricId}".` }),
+        buildGridDisplayModel(previewMetricResult),
       );
       return;
     }
