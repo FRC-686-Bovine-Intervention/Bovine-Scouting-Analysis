@@ -7,16 +7,16 @@ function formulaField(id, label, extra = {}) {
   return { id, label, unit: "text", optional: true, ...extra };
 }
 
-function rateMetric(id, label, madeFields, missFields, unit = "%") {
-  return { id, label, unit, formula: "rate", madeFields, missFields };
+function rateMetric(name, _legacyLabel, madeFields, missFields) {
+  return { name, formula: "rate", madeFields, missFields };
 }
 
-function sumMetric(id, label, fields, unit = "pts") {
-  return { id, label, unit, formula: "sum", fields };
+function sumMetric(name, _legacyLabel, fields) {
+  return { name, formula: "sum", fields };
 }
 
-function averageMetric(id, label, fields, unit = "rating") {
-  return { id, label, unit, formula: "average", fields };
+function averageMetric(name, _legacyLabel, fields) {
+  return { name, formula: "average", fields };
 }
 
 globalThis.LegacyScoutingSchemaSeeds = {

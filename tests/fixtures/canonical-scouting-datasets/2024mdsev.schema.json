@@ -112,39 +112,29 @@
     "label": "Canonical JSON",
     "equations": [
       {
-        "id": "scoutingTotal",
-        "name": "Scouting Total",
+        "name": "scoutingTotal",
         "formula": "scouting.auto + scouting.speaker + scouting.amp + scouting.trap",
-        "unit": "pts",
-        "description": "Per-match scouting total from the imported scoring components."
+        "sourceOrder": 0
       },
       {
-        "id": "auto",
-        "name": "Auto",
+        "name": "auto",
         "formula": "average(scouting.autoSpeakerMade * 5 + scouting.autoAmpMade * 2)",
-        "unit": "pts",
-        "description": "Average scouted autonomous points per match."
+        "sourceOrder": 1
       },
       {
-        "id": "speaker",
-        "name": "Speaker",
+        "name": "speaker",
         "formula": "average(scouting.teleSpeakerMade * 2)",
-        "unit": "pts",
-        "description": "Average scouted teleop speaker points per match."
+        "sourceOrder": 2
       },
       {
-        "id": "amp",
-        "name": "Amp",
+        "name": "amp",
         "formula": "average(scouting.teleAmpMade)",
-        "unit": "pts",
-        "description": "Average scouted teleop amp points per match."
+        "sourceOrder": 3
       },
       {
-        "id": "trap",
-        "name": "Trap",
+        "name": "trap",
         "formula": "0",
-        "unit": "pts",
-        "description": "Trap scoring is not present in the thin import layer and currently defaults to zero."
+        "sourceOrder": 4
       }
     ]
   }

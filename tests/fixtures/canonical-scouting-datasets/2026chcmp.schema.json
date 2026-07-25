@@ -278,294 +278,214 @@
   "profile": {
     "id": "canonical-json-v1",
     "label": "Canonical JSON",
+    "versionKey": "canonical-json-v1|a1abea4b",
     "equations": [
       {
-        "id": "scoutingTotal",
-        "name": "Scouting Total",
-        "formula": "scouting.auto + scouting.cycle + scouting.endgame",
-        "unit": "pts",
-        "description": "Per-match scouting total from the imported scoring components."
+        "name": "scoutingTotal",
+        "formula": "scouting.auto + scouting.cycle + scouting.endgameFuelPct",
+        "sourceOrder": 0
       },
       {
-        "id": "auto",
-        "name": "Auto",
+        "name": "auto",
         "formula": "average(autoFuelTeam)",
-        "unit": "pts",
-        "description": "Average derived autonomous contribution per match."
+        "sourceOrder": 1
       },
       {
-        "id": "cycle",
-        "name": "Cycle",
+        "name": "cycle",
         "formula": "average(transitionFuelTeam + shift1FuelTeam + shift2FuelTeam + shift3FuelTeam + shift4FuelTeam)",
-        "unit": "pts",
-        "description": "Average derived transition and cycle contribution per match."
+        "sourceOrder": 2
       },
       {
-        "id": "endgame",
-        "name": "Endgame",
+        "name": "endgame",
         "formula": "average(endgameFuelTeam + if(contains(scouting.teleopClimbAttempt, \"park\"), 8, if(contains(scouting.teleopClimbAttempt, \"climb\") || contains(scouting.teleopClimbAttempt, \"successful\"), 20, 0)) + if(contains(scouting.autoClimbAttempt, \"climb\") || contains(scouting.autoClimbAttempt, \"successful\"), 15, 0))",
-        "unit": "pts",
-        "description": "Average derived endgame contribution per match, including fuel and climb scoring."
+        "sourceOrder": 3
       },
       {
-        "id": "autoFuelShare",
-        "name": "Auto Fuel Share",
+        "name": "autoFuelShare",
         "formula": "valueOr(scouting.autoFuelPct, 0) / 100",
-        "unit": "share",
-        "description": "Scouted auto fuel share converted to a decimal fraction."
+        "sourceOrder": 4
       },
       {
-        "id": "autoFuelShareAlliance",
-        "name": "Auto Fuel Share Alliance",
+        "name": "autoFuelShareAlliance",
         "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(autoFuelShare), 1)",
-        "unit": "share",
-        "description": "Alliance auto fuel-share denominator with the spreadsheet's fallback to 1 when entries are missing."
+        "sourceOrder": 5
       },
       {
-        "id": "autoFuelTeam",
-        "name": "Auto Fuel Team",
+        "name": "autoFuelTeam",
         "formula": "if(autoFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.autoPoints, 0) / allianceCount(scouting.hasEntry), 0), valueOr(autoFuelShare / autoFuelShareAlliance * valueOr(tba.hubScore.autoPoints, 0), 0))",
-        "unit": "fuel",
-        "description": "Allocated auto fuel for this robot."
+        "sourceOrder": 6
       },
       {
-        "id": "autoPctShooting",
-        "name": "Auto % Shooting",
+        "name": "autoPctShooting",
         "formula": "if(scouting.autoPrimaryRole == \"Score\", if(scouting.autoSecondaryRole == \"None\" || scouting.autoSecondaryRole == \"Score\", 1, 0.667), if(scouting.autoSecondaryRole == \"Score\", 0.333, 0))",
-        "unit": "share",
-        "description": "Estimated share of auto spent shooting based on the two scouted roles."
+        "sourceOrder": 7
       },
       {
-        "id": "autoMaxFuelPossible",
-        "name": "Auto Max Fuel Possible",
+        "name": "autoMaxFuelPossible",
         "formula": "if(autoPctShooting == 0, 0, autoFuelTeam / autoPctShooting)",
-        "unit": "fuel",
-        "description": "Implied auto fuel capacity after adjusting for time spent shooting."
+        "sourceOrder": 8
       },
       {
-        "id": "transitionFuelShare",
-        "name": "Transition Fuel Share",
+        "name": "transitionFuelShare",
         "formula": "valueOr(scouting.transitionFuelPct, 0) / 100",
-        "unit": "share",
-        "description": "Scouted transition fuel share converted to a decimal fraction."
+        "sourceOrder": 9
       },
       {
-        "id": "transitionFuelShareAlliance",
-        "name": "Transition Fuel Share Alliance",
+        "name": "transitionFuelShareAlliance",
         "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(transitionFuelShare), 1)",
-        "unit": "share",
-        "description": "Alliance transition fuel-share denominator with fallback to 1."
+        "sourceOrder": 10
       },
       {
-        "id": "transitionFuelTeam",
-        "name": "Transition Fuel Team",
+        "name": "transitionFuelTeam",
         "formula": "if(transitionFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.transitionPoints, 0) / allianceCount(scouting.hasEntry), 0), valueOr(transitionFuelShare / transitionFuelShareAlliance * valueOr(tba.hubScore.transitionPoints, 0), 0))",
-        "unit": "fuel",
-        "description": "Allocated transition fuel for this robot."
+        "sourceOrder": 11
       },
       {
-        "id": "transitionPctShooting",
-        "name": "Transition % Shooting",
+        "name": "transitionPctShooting",
         "formula": "if(scouting.transitionPrimaryRole == \"Score\", if(scouting.transitionSecondaryRole == \"None\" || scouting.transitionSecondaryRole == \"Score\", 1, 0.667), if(scouting.transitionSecondaryRole == \"Score\", 0.333, 0))",
-        "unit": "share",
-        "description": "Estimated share of transition spent shooting based on the two scouted roles."
+        "sourceOrder": 12
       },
       {
-        "id": "transitionMaxFuelPossible",
-        "name": "Transition Max Fuel Possible",
+        "name": "transitionMaxFuelPossible",
         "formula": "if(transitionPctShooting == 0, 0, transitionFuelTeam / transitionPctShooting)",
-        "unit": "fuel",
-        "description": "Implied transition fuel capacity after adjusting for time spent shooting."
+        "sourceOrder": 13
       },
       {
-        "id": "shift1FuelShare",
-        "name": "Shift 1 Fuel Share",
+        "name": "shift1FuelShare",
         "formula": "valueOr(scouting.shift1FuelPct, 0) / 100",
-        "unit": "share",
-        "description": "Scouted shift 1 fuel share converted to a decimal fraction."
+        "sourceOrder": 14
       },
       {
-        "id": "shift1FuelShareAlliance",
-        "name": "Shift 1 Fuel Share Alliance",
+        "name": "shift1FuelShareAlliance",
         "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(shift1FuelShare), 1)",
-        "unit": "share",
-        "description": "Alliance shift 1 fuel-share denominator with fallback to 1."
+        "sourceOrder": 15
       },
       {
-        "id": "shift1FuelTeam",
-        "name": "Shift 1 Fuel Team",
+        "name": "shift1FuelTeam",
         "formula": "if(shift1FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift1Points, 0) / allianceCount(scouting.hasEntry), 0), valueOr(shift1FuelShare / shift1FuelShareAlliance * valueOr(tba.hubScore.shift1Points, 0), 0))",
-        "unit": "fuel",
-        "description": "Allocated shift 1 fuel for this robot."
+        "sourceOrder": 16
       },
       {
-        "id": "shift1PctShooting",
-        "name": "Shift 1 % Shooting",
+        "name": "shift1PctShooting",
         "formula": "if(scouting.shift1PrimaryRole == \"Score\", if(scouting.shift1SecondaryRole == \"None\" || scouting.shift1SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift1SecondaryRole == \"Score\", 0.333, 0))",
-        "unit": "share",
-        "description": "Estimated share of shift 1 spent shooting based on the two scouted roles."
+        "sourceOrder": 17
       },
       {
-        "id": "shift1MaxFuelPossible",
-        "name": "Shift 1 Max Fuel Possible",
+        "name": "shift1MaxFuelPossible",
         "formula": "if(shift1PctShooting == 0, 0, shift1FuelTeam / shift1PctShooting)",
-        "unit": "fuel",
-        "description": "Implied shift 1 fuel capacity after adjusting for time spent shooting."
+        "sourceOrder": 18
       },
       {
-        "id": "shift2FuelShare",
-        "name": "Shift 2 Fuel Share",
+        "name": "shift2FuelShare",
         "formula": "valueOr(scouting.shift2FuelPct, 0) / 100",
-        "unit": "share",
-        "description": "Scouted shift 2 fuel share converted to a decimal fraction."
+        "sourceOrder": 19
       },
       {
-        "id": "shift2FuelShareAlliance",
-        "name": "Shift 2 Fuel Share Alliance",
+        "name": "shift2FuelShareAlliance",
         "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(shift2FuelShare), 1)",
-        "unit": "share",
-        "description": "Alliance shift 2 fuel-share denominator with fallback to 1."
+        "sourceOrder": 20
       },
       {
-        "id": "shift2FuelTeam",
-        "name": "Shift 2 Fuel Team",
+        "name": "shift2FuelTeam",
         "formula": "if(shift2FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift2Points, 0) / allianceCount(scouting.hasEntry), 0), valueOr(shift2FuelShare / shift2FuelShareAlliance * valueOr(tba.hubScore.shift2Points, 0), 0))",
-        "unit": "fuel",
-        "description": "Allocated shift 2 fuel for this robot."
+        "sourceOrder": 21
       },
       {
-        "id": "shift2PctShooting",
-        "name": "Shift 2 % Shooting",
+        "name": "shift2PctShooting",
         "formula": "if(scouting.shift2PrimaryRole == \"Score\", if(scouting.shift2SecondaryRole == \"None\" || scouting.shift2SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift2SecondaryRole == \"Score\", 0.333, 0))",
-        "unit": "share",
-        "description": "Estimated share of shift 2 spent shooting based on the two scouted roles."
+        "sourceOrder": 22
       },
       {
-        "id": "shift2MaxFuelPossible",
-        "name": "Shift 2 Max Fuel Possible",
+        "name": "shift2MaxFuelPossible",
         "formula": "if(shift2PctShooting == 0, 0, shift2FuelTeam / shift2PctShooting)",
-        "unit": "fuel",
-        "description": "Implied shift 2 fuel capacity after adjusting for time spent shooting."
+        "sourceOrder": 23
       },
       {
-        "id": "shift3FuelShare",
-        "name": "Shift 3 Fuel Share",
+        "name": "shift3FuelShare",
         "formula": "0",
-        "unit": "share",
-        "description": "The current MatchCalculations sheet leaves shift 3 fuel share at zero."
+        "sourceOrder": 24
       },
       {
-        "id": "shift3FuelShareAlliance",
-        "name": "Shift 3 Fuel Share Alliance",
+        "name": "shift3FuelShareAlliance",
         "formula": "if(allianceCount(scouting.hasEntry) >= 3, 0, 1)",
-        "unit": "share",
-        "description": "The current MatchCalculations sheet shows shift 3 alliance coverage as 0% once all three alliance entries are present, otherwise 100%."
+        "sourceOrder": 25
       },
       {
-        "id": "shift3FuelTeam",
-        "name": "Shift 3 Fuel Team",
+        "name": "shift3FuelTeam",
         "formula": "if(allianceCount(scouting.hasEntry) >= 3, valueOr(tba.hubScore.shift3Points, 0) / allianceCount(scouting.hasEntry), 0)",
-        "unit": "fuel",
-        "description": "The current MatchCalculations sheet splits shift 3 alliance fuel evenly across the alliance once all three entries are present."
+        "sourceOrder": 26
       },
       {
-        "id": "shift3PctShooting",
-        "name": "Shift 3 % Shooting",
+        "name": "shift3PctShooting",
         "formula": "if(scouting.shift3PrimaryRole == \"Score\", if(scouting.shift3SecondaryRole == \"None\" || scouting.shift3SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift3SecondaryRole == \"Score\", 0.333, 0))",
-        "unit": "share",
-        "description": "Estimated share of shift 3 spent shooting based on the two scouted roles."
+        "sourceOrder": 27
       },
       {
-        "id": "shift3MaxFuelPossible",
-        "name": "Shift 3 Max Fuel Possible",
+        "name": "shift3MaxFuelPossible",
         "formula": "if(shift3PctShooting == 0, 0, shift3FuelTeam / shift3PctShooting)",
-        "unit": "fuel",
-        "description": "Implied shift 3 fuel capacity after adjusting for time spent shooting."
+        "sourceOrder": 28
       },
       {
-        "id": "shift4FuelShare",
-        "name": "Shift 4 Fuel Share",
+        "name": "shift4FuelShare",
         "formula": "valueOr(scouting.shift4FuelPct, 0) / 100",
-        "unit": "share",
-        "description": "Scouted shift 4 fuel share converted to a decimal fraction."
+        "sourceOrder": 29
       },
       {
-        "id": "shift4FuelShareAlliance",
-        "name": "Shift 4 Fuel Share Alliance",
+        "name": "shift4FuelShareAlliance",
         "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(shift4FuelShare), 1)",
-        "unit": "share",
-        "description": "Alliance shift 4 fuel-share denominator with fallback to 1."
+        "sourceOrder": 30
       },
       {
-        "id": "shift4FuelTeam",
-        "name": "Shift 4 Fuel Team",
+        "name": "shift4FuelTeam",
         "formula": "if(shift4FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift4Points, 0) / allianceCount(scouting.hasEntry), 0), valueOr(shift4FuelShare / shift4FuelShareAlliance * valueOr(tba.hubScore.shift4Points, 0), 0))",
-        "unit": "fuel",
-        "description": "Allocated shift 4 fuel for this robot."
+        "sourceOrder": 31
       },
       {
-        "id": "shift4PctShooting",
-        "name": "Shift 4 % Shooting",
+        "name": "shift4PctShooting",
         "formula": "if(scouting.shift4PrimaryRole == \"Score\", if(scouting.shift4SecondaryRole == \"None\" || scouting.shift4SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift4SecondaryRole == \"Score\", 0.333, 0))",
-        "unit": "share",
-        "description": "Estimated share of shift 4 spent shooting based on the two scouted roles."
+        "sourceOrder": 32
       },
       {
-        "id": "shift4MaxFuelPossible",
-        "name": "Shift 4 Max Fuel Possible",
+        "name": "shift4MaxFuelPossible",
         "formula": "if(shift4PctShooting == 0, 0, shift4FuelTeam / shift4PctShooting)",
-        "unit": "fuel",
-        "description": "Implied shift 4 fuel capacity after adjusting for time spent shooting."
+        "sourceOrder": 33
       },
       {
-        "id": "endgameFuelShare",
-        "name": "Endgame Fuel Share",
+        "name": "endgameFuelShare",
         "formula": "valueOr(scouting.endgameFuelPct, 0) / 100",
-        "unit": "share",
-        "description": "Scouted endgame fuel share converted to a decimal fraction."
+        "sourceOrder": 34
       },
       {
-        "id": "endgameFuelShareAlliance",
-        "name": "Endgame Fuel Share Alliance",
+        "name": "endgameFuelShareAlliance",
         "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(endgameFuelShare), 1)",
-        "unit": "share",
-        "description": "Alliance endgame fuel-share denominator with fallback to 1."
+        "sourceOrder": 35
       },
       {
-        "id": "endgameFuelTeam",
-        "name": "Endgame Fuel Team",
+        "name": "endgameFuelTeam",
         "formula": "if(endgameFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.endgamePoints, 0) / allianceCount(scouting.hasEntry), 0), valueOr(endgameFuelShare / endgameFuelShareAlliance * valueOr(tba.hubScore.endgamePoints, 0), 0))",
-        "unit": "fuel",
-        "description": "Allocated endgame fuel for this robot."
+        "sourceOrder": 36
       },
       {
-        "id": "endgamePctShooting",
-        "name": "Endgame % Shooting",
+        "name": "endgamePctShooting",
         "formula": "if(scouting.endgamePrimaryRole == \"Score\", if(scouting.endgameSecondaryRole == \"None\" || scouting.endgameSecondaryRole == \"Score\", 1, 0.667), if(scouting.endgameSecondaryRole == \"Score\", 0.333, 0))",
-        "unit": "share",
-        "description": "Estimated share of endgame spent shooting based on the two scouted roles."
+        "sourceOrder": 37
       },
       {
-        "id": "endgameMaxFuelPossible",
-        "name": "Endgame Max Fuel Possible",
+        "name": "endgameMaxFuelPossible",
         "formula": "if(endgamePctShooting == 0, 0, endgameFuelTeam / endgamePctShooting)",
-        "unit": "fuel",
-        "description": "Implied endgame fuel capacity after adjusting for time spent shooting."
+        "sourceOrder": 38
       },
       {
-        "id": "teleopMaxFuelPossible",
-        "name": "Tele-Op Max Fuel Possible",
+        "name": "teleopMaxFuelPossible",
         "formula": "autoMaxFuelPossible + transitionMaxFuelPossible + shift1MaxFuelPossible + shift2MaxFuelPossible + shift3MaxFuelPossible + shift4MaxFuelPossible + endgameMaxFuelPossible",
-        "unit": "fuel",
-        "description": "The sheet's total max-fuel estimate across all phases, including auto."
+        "sourceOrder": 39
       },
       {
-        "id": "totalFuelScored",
-        "name": "Total Fuel Scored",
+        "name": "totalFuelScored",
         "formula": "autoFuelTeam + transitionFuelTeam + shift1FuelTeam + shift2FuelTeam + shift3FuelTeam + shift4FuelTeam + endgameFuelTeam",
-        "unit": "fuel",
-        "description": "Allocated total fuel across all phases for this robot and match."
+        "sourceOrder": 40
       }
-    ]
+    ],
+    "fieldMigrations": []
   }
 }

@@ -280,46 +280,34 @@
     "label": "Canonical JSON",
     "equations": [
       {
-        "id": "scoutingTotal",
-        "name": "Scouting Total",
+        "name": "scoutingTotal",
         "formula": "scouting.auto + scouting.coral + scouting.algae + scouting.climb",
-        "unit": "pts",
-        "description": "Per-match scouting total from the imported scoring components."
+        "sourceOrder": 0
       },
       {
-        "id": "auto",
-        "name": "Auto",
+        "name": "auto",
         "formula": "average(scouting.autoL3Made * 6 + scouting.autoL2Made * 4 + scouting.autoTroughMade * 3 + scouting.autoProcessorMade * 6 + scouting.autoBargeMade * 4)",
-        "unit": "pts",
-        "description": "Average scouted autonomous points per match."
+        "sourceOrder": 1
       },
       {
-        "id": "coral",
-        "name": "Coral",
+        "name": "coral",
         "formula": "average(scouting.teleL4Made * 5 + scouting.teleL3Made * 4 + scouting.teleL2Made * 3 + scouting.teleTroughMade * 2)",
-        "unit": "pts",
-        "description": "Average scouted teleop coral points per match."
+        "sourceOrder": 2
       },
       {
-        "id": "algae",
-        "name": "Algae",
+        "name": "algae",
         "formula": "average(scouting.teleProcessorMade * 6 + scouting.teleBargeMade * 4)",
-        "unit": "pts",
-        "description": "Average scouted teleop algae points per match."
+        "sourceOrder": 3
       },
       {
-        "id": "climb",
-        "name": "Climb",
+        "name": "climb",
         "formula": "average(if(scouting.climbLevel == 3, 12, if(scouting.climbLevel == 2, 6, if(scouting.climbLevel == 1, 2, 0))))",
-        "unit": "pts",
-        "description": "Average scouted climb points per match."
+        "sourceOrder": 4
       },
       {
-        "id": "avgClimbScoreOverAttempts",
-        "name": "Average Climb Score Over Attempts",
+        "name": "avgClimbScoreOverAttempts",
         "formula": "average(if(scouting.climbLevel == 3, 12, if(scouting.climbLevel == 2, 6, if(scouting.climbLevel == 1, 2, 0))), scouting.climbAttempt > 0)",
-        "unit": "pts",
-        "description": "Average scouted climb score over recent attempted climbs."
+        "sourceOrder": 5
       }
     ]
   }

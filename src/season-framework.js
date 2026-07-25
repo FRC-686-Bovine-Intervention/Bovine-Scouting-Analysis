@@ -58,6 +58,34 @@ const sourceLabels = scoutingSchemaRuntime.sourceLabels || {
   derived: "Derived",
 };
 
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
+function sanitizeMetricIdentifier(value, fallback = "derivedMetric") {
+  const trimmed = normalizeText(value);
+  const normalized = trimmed
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!normalized) return fallback;
+  if (/^[A-Za-z_]/.test(normalized)) return normalized;
+  return `_${normalized}`;
+}
+
+function isValidMetricIdentifier(value) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(normalizeText(value));
+}
+
+function canonicalDerivedMetricName(metricDefinition, fallback = "derivedMetric") {
+  const explicitName = normalizeText(metricDefinition?.name);
+  const explicitId = normalizeText(metricDefinition?.id);
+  const explicitLabel = normalizeText(metricDefinition?.label);
+  if (isValidMetricIdentifier(explicitName)) return explicitName;
+  if (isValidMetricIdentifier(explicitId)) return explicitId;
+  if (isValidMetricIdentifier(explicitLabel)) return explicitLabel;
+  return sanitizeMetricIdentifier(explicitName || explicitId || explicitLabel, fallback);
+}
+
 function seasonKeyForValue(seasonOrEventModel) {
   const candidate = typeof seasonOrEventModel === "object" && seasonOrEventModel
     ? (seasonOrEventModel.season ?? seasonOrEventModel.year)
@@ -85,16 +113,77 @@ function scouterMetricDefinitions(seasonOrEventModel) {
   return legacyScoutingSchemaForSeason(seasonOrEventModel).scouterMetrics || [];
 }
 
+function referencedDerivedMetricFields(metricDefinition) {
+  return [
+    ...(Array.isArray(metricDefinition?.fields) ? metricDefinition.fields : []),
+    ...(Array.isArray(metricDefinition?.madeFields) ? metricDefinition.madeFields : []),
+    ...(Array.isArray(metricDefinition?.missFields) ? metricDefinition.missFields : []),
+    ...(Array.isArray(metricDefinition?.numeratorFields) ? metricDefinition.numeratorFields : []),
+    ...(Array.isArray(metricDefinition?.denominatorFields) ? metricDefinition.denominatorFields : []),
+    ...(Array.isArray(metricDefinition?.presenceFields) ? metricDefinition.presenceFields : []),
+    ...(Array.isArray(metricDefinition?.weightedFields) ? metricDefinition.weightedFields.map((entry) => entry?.field) : []),
+  ]
+    .map((fieldId) => normalizeText(fieldId))
+    .filter(Boolean);
+}
+
+function inferDerivedMetricUnit(metricDefinition, seasonOrEventModel = {}) {
+  const explicitUnit = normalizeText(metricDefinition?.unit);
+  if (explicitUnit) return explicitUnit;
+  const formula = normalizeText(metricDefinition?.formula).toLowerCase();
+  if (formula === "rate") return "%";
+  const fieldUnitById = new Map(
+    formulaFieldDefinitions(seasonOrEventModel)
+      .map((fieldDefinition) => [normalizeText(fieldDefinition?.id), normalizeText(fieldDefinition?.unit)]),
+  );
+  const referencedUnits = [...new Set(
+    referencedDerivedMetricFields(metricDefinition)
+      .map((fieldId) => fieldUnitById.get(fieldId))
+      .filter(Boolean),
+  )];
+  if (referencedUnits.length === 1) return referencedUnits[0];
+  if (formula === "average" && referencedUnits.length) return referencedUnits[0];
+  if (formula === "sum" || formula === "weighted_sum" || formula === "ratio") return referencedUnits[0] || "pts";
+  return referencedUnits[0] || "pts";
+}
+
+function normalizeDerivedMetricDefinitionsForSeason(sourceDefinitions, seasonOrEventModel = {}) {
+  const seen = new Set();
+  return (Array.isArray(sourceDefinitions) ? sourceDefinitions : [])
+    .map((metricDefinition, index) => {
+      const name = canonicalDerivedMetricName(metricDefinition, `derivedMetric_${index + 1}`);
+      if (!name) return null;
+      return {
+        ...metricDefinition,
+        id: name,
+        name,
+        label: name,
+        unit: inferDerivedMetricUnit(metricDefinition, seasonOrEventModel),
+      };
+    })
+    .filter((metricDefinition) => {
+      const metricId = normalizeText(metricDefinition?.id);
+      if (!metricId || seen.has(metricId)) return false;
+      seen.add(metricId);
+      return true;
+    });
+}
+
 function derivedMetricDefinitions(seasonOrEventModel) {
+  if (typeof scoutingSchemaRuntime.normalizeDerivedMetricDefinitions === "function") {
+    return scoutingSchemaRuntime.normalizeDerivedMetricDefinitions(seasonOrEventModel);
+  }
   if (typeof scoutingSchemaRuntime.derivedMetricDefinitions === "function") {
     return scoutingSchemaRuntime.derivedMetricDefinitions(seasonOrEventModel);
   }
   if (!seasonOrEventModel) return [];
-  if (Array.isArray(seasonOrEventModel.derivedMetricDefinitions)) return seasonOrEventModel.derivedMetricDefinitions;
-  if (Array.isArray(seasonOrEventModel.derivedMetrics) && seasonOrEventModel.derivedMetrics.length) {
-    return seasonOrEventModel.derivedMetrics;
+  if (Array.isArray(seasonOrEventModel.derivedMetricDefinitions)) {
+    return normalizeDerivedMetricDefinitionsForSeason(seasonOrEventModel.derivedMetricDefinitions, seasonOrEventModel);
   }
-  return legacyScoutingSchemaForSeason(seasonOrEventModel).derivedMetrics || [];
+  if (Array.isArray(seasonOrEventModel.derivedMetrics) && seasonOrEventModel.derivedMetrics.length) {
+    return normalizeDerivedMetricDefinitionsForSeason(seasonOrEventModel.derivedMetrics, seasonOrEventModel);
+  }
+  return normalizeDerivedMetricDefinitionsForSeason(legacyScoutingSchemaForSeason(seasonOrEventModel).derivedMetrics || [], seasonOrEventModel);
 }
 
 function formulaFieldDefinitions(seasonOrEventModel) {

@@ -103,6 +103,10 @@ const buildRuntimeMetrics =
   scoutingSchemaRuntime.buildMetricCatalog
   || seasonFramework.buildMetrics
   || ((eventModel) => eventModel?.metrics || []);
+const normalizeRuntimeDerivedMetricDefinitions =
+  scoutingSchemaRuntime.normalizeDerivedMetricDefinitions
+  || seasonFramework.derivedMetricDefinitions
+  || ((eventModel) => (Array.isArray(eventModel?.derivedMetricDefinitions) ? eventModel.derivedMetricDefinitions : []));
 const seasonMetricFieldId =
   scoutingSchemaRuntime.csvHeaderForField
   || seasonFramework.csvHeaderForMetric
@@ -1694,18 +1698,19 @@ function currentProfileDerivedEquationDefinitions(eventModel = currentEvent()) {
   return currentProfileEquationList(eventModel)
     .filter((definition) => !isPredicateEquationDefinition(definition))
     .map((definition) => ({
-    id: definition.id,
-    label: definition.name,
-    unit: definition.unit || "pts",
-    expression: definition.formula,
-    formula: "expression",
-    source: "profile_equation",
-  }));
+      id: definition.name,
+      name: definition.name,
+      label: definition.name,
+      unit: definition.unit || "pts",
+      expression: definition.formula,
+      formula: "expression",
+      source: "profile_equation",
+    }));
 }
 
 function currentDerivedMetricDefinitions(eventModel = currentEvent()) {
   return [
-    ...(Array.isArray(eventModel?.derivedMetricDefinitions) ? eventModel.derivedMetricDefinitions : []),
+    ...(normalizeRuntimeDerivedMetricDefinitions(eventModel) || []),
     ...currentProfileDerivedEquationDefinitions(eventModel),
   ];
 }

@@ -57,13 +57,18 @@ runTest("season metrics do not inject legacy derived metrics that no longer exis
   const season = seasonFramework.gameDefinitions[2026];
   const metrics = seasonFramework.buildMetrics(season);
   const criteriaSources = seasonFramework.buildCriteriaSources(season);
+  const derivedMetric = metrics.find((metric) => metric.id === "derived:fuelContributionAvg");
 
   assert.equal(metrics.some((metric) => metric.id === "derived:defenseImpact"), false);
   assert.equal(metrics.some((metric) => metric.id === "derived:consistency"), false);
+  assert.equal(metrics.some((metric) => metric.id === "derived:fuelContributionAvg"), true);
+  assert.equal(derivedMetric.label, "fuelContributionAvg");
+  assert.equal(derivedMetric.unit, "%");
 
   const derivedCriteriaSource = criteriaSources.find((source) => source.id === "derived");
   assert.equal(derivedCriteriaSource.components.some((component) => component.id === "defenseImpact"), false);
   assert.equal(derivedCriteriaSource.components.some((component) => component.id === "consistency"), false);
+  assert.equal(derivedCriteriaSource.components.some((component) => component.id === "fuelContributionAvg"), true);
 });
 
 runTest("season metrics expose Statbotics under its provider name", () => {
@@ -108,6 +113,7 @@ runTest("formula field definitions include scoring components for derived equati
 
 runTest("gameDefinitions exposes provider metadata without owning scouting schema fields", () => {
   const season2026 = seasonFramework.gameDefinitions[2026];
+  const legacyDerivedMetric = legacyScoutingSchemaSeeds["2026"].derivedMetrics[0];
 
   assert.equal(season2026.season, 2026);
   assert.equal("scouterMetrics" in season2026, false);
@@ -116,4 +122,8 @@ runTest("gameDefinitions exposes provider metadata without owning scouting schem
   assert.equal("scoringMatrixPresets" in season2026, false);
   assert.ok(Array.isArray(legacyScoutingSchemaSeeds["2026"].scouterMetrics));
   assert.ok(Array.isArray(legacyScoutingSchemaSeeds["2026"].derivedMetrics));
+  assert.equal(legacyDerivedMetric.name, "fuelContributionAvg");
+  assert.equal("id" in legacyDerivedMetric, false);
+  assert.equal("label" in legacyDerivedMetric, false);
+  assert.equal("unit" in legacyDerivedMetric, false);
 });
