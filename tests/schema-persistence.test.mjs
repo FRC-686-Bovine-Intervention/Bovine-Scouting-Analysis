@@ -440,3 +440,28 @@ await runTest("formula autocomplete scrolls the selected suggestion into view wh
   assert.ok(result.candidates.length > 0, "Expected at least one autocomplete candidate.");
   assert.equal(scrolledSuggestion, result.candidates[0]);
 });
+
+await runTest("escape in the derived equation editor restores the formula that was present when the equation was selected", async () => {
+  const context = loadAppContext();
+  const eventModel = context.eventCatalog[0];
+  const state = context.__scoutingAppState;
+  state.activeEventKey = eventModel.key;
+
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    label: "Current",
+    fields: [],
+    equations: [
+      { id: "derived_one", name: "Derived One", formula: "tba.rank", sourceOrder: 1 },
+    ],
+  });
+  state.activeDerivedEquationId = "derived_one";
+  context.rememberActiveDerivedEquationEditSession(eventModel);
+
+  context.updateProfileEquationFormula("derived_one", "statbotics.epa.total_points");
+  assert.equal(context.activeDerivedEquation(eventModel).formula, "statbotics.epa.total_points");
+
+  const reverted = context.revertActiveDerivedEquationFormulaToSelectionOriginal(eventModel);
+  assert.equal(reverted, true);
+  assert.equal(context.activeDerivedEquation(eventModel).formula, "tba.rank");
+});

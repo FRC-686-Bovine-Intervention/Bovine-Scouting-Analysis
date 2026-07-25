@@ -401,6 +401,7 @@ const state = {
   ),
   activeDerivedEquationId: "",
   activeDerivedPreviewMetricId: "",
+  derivedEquationEditSession: null,
   eventWorkspace: null,
   eventLookupPending: false,
   eventLookupResult: null,
@@ -1795,6 +1796,35 @@ function ensureActiveDerivedEquation(eventModel = currentEvent()) {
 
 function activeDerivedEquation(eventModel = currentEvent()) {
   return equationDefinitionById(ensureActiveDerivedEquation(eventModel), eventModel);
+}
+
+function rememberActiveDerivedEquationEditSession(eventModel = currentEvent()) {
+  const definition = activeDerivedEquation(eventModel);
+  if (!definition) {
+    state.derivedEquationEditSession = null;
+    return;
+  }
+  state.derivedEquationEditSession = {
+    equationId: definition.id,
+    originalFormula: normalizeStoredFormula(definition.formula, "0"),
+  };
+}
+
+function revertActiveDerivedEquationFormulaToSelectionOriginal(eventModel = currentEvent()) {
+  const definition = activeDerivedEquation(eventModel);
+  const session = state.derivedEquationEditSession;
+  if (!definition || !session || session.equationId !== definition.id) return false;
+  updateProfileEquationFormula(definition.id, session.originalFormula);
+  saveState();
+  render();
+  requestAnimationFrame(() => {
+    const input = document.querySelector("#derivedEquationFormulaInput");
+    if (!input) return;
+    const nextCursor = input.value.length;
+    input.focus();
+    input.setSelectionRange(nextCursor, nextCursor);
+  });
+  return true;
 }
 
 function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
@@ -7064,6 +7094,7 @@ function addProfileEquation() {
   };
   updateProfileEquationList([...existing, definition]);
   state.activeDerivedEquationId = definition.id;
+  rememberActiveDerivedEquationEditSession();
   state.inlineRename = { kind: "derivedEquation", id: definition.id, value: definition.name };
   saveState();
   render();
@@ -7649,6 +7680,7 @@ function handleBuilderKeyboard(event) {
       state.activeDerivedEquationId = next.id;
       state.activeDerivedPreviewMetricId = "";
       state.builderFocus.derivedBuilder = "equations";
+      rememberActiveDerivedEquationEditSession();
       saveState();
       render();
     }
@@ -7956,6 +7988,13 @@ function bindViewEvents() {
     const input = event.target;
     const autocomplete = formulaAutocompleteState(input);
     const selectedIndex = Number(document.querySelector("#derivedFormulaAutocomplete")?.dataset.selectedIndex || "0");
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      hideFormulaAutocomplete();
+      revertActiveDerivedEquationFormulaToSelectionOriginal();
+      return;
+    }
     if (event.key === "Tab") {
       event.preventDefault();
       event.stopPropagation();
@@ -8065,6 +8104,7 @@ function bindViewEvents() {
         state.activeDerivedEquationId = id;
         state.activeDerivedPreviewMetricId = "";
         state.builderFocus.derivedBuilder = "equations";
+        rememberActiveDerivedEquationEditSession();
       } else {
         state.activePicklist = id;
         state.builderFocus.picklistBuilder = "list";
