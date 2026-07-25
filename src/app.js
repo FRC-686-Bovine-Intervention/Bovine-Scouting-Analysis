@@ -1230,12 +1230,11 @@ function readCurrentScoutingAttachmentDraftFromDom() {
   const source = document.querySelector("#importSourceUrl")?.value;
   const schemaSource = document.querySelector("#importSchemaSourceUrl")?.value;
   const inferredFormat = inferredScoutingAttachmentFormat(document.querySelector("#scoutingAttachmentFormatSelect")?.value, source);
-  const selectedProfileId = normalizeText(document.querySelector("#scoutingAttachmentProfileId")?.value);
   const inferredProfileId = inferredScoutingProfileIdForAttachment({
     format: inferredFormat,
     source,
     schemaSource,
-    currentProfileId: selectedProfileId,
+    currentProfileId: normalizeText(currentScoutingAttachment()?.profileId) || normalizeText(currentScoutingAttachment()?.translatorId),
   });
   return {
     label: document.querySelector("#scoutingAttachmentLabel")?.value,
@@ -1263,65 +1262,6 @@ function syncScoutingAttachmentInferenceFromDom() {
 
 function saveCurrentScoutingAttachmentDraftFromDom(options = {}) {
   saveCurrentScoutingAttachmentDraft(readCurrentScoutingAttachmentDraftFromDom(), options);
-}
-
-function availableScoutingImportProfiles(eventModel = currentEvent()) {
-  const attachment = currentScoutingAttachment();
-  const format = activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), eventModel);
-  if (format === "scouting-json") {
-    return [{ id: "canonical-json-v1", label: knownImportProfileLabels["canonical-json-v1"] }];
-  }
-  const choices = new Map();
-  const append = (profileId, label = "") => {
-    const normalizedProfileId = normalizeText(profileId);
-    if (!normalizedProfileId || choices.has(normalizedProfileId)) return;
-    choices.set(normalizedProfileId, {
-      id: normalizedProfileId,
-      label: scoutingProfileLabel(normalizedProfileId, label),
-    });
-  };
-  append(attachment?.profileId, attachment?.profileLabel);
-  append(attachment?.translatorId, attachment?.profileLabel);
-  scoutingProfilesForEvent(eventModel).forEach((profile) => append(profile?.id, profile?.label));
-  append(defaultScoutingProfileId, knownImportProfileLabels[defaultScoutingProfileId]);
-  append("match-legacy-v1", knownImportProfileLabels["match-legacy-v1"]);
-  return [...choices.values()];
-}
-
-function selectedScoutingImportProfileId(eventModel = currentEvent()) {
-  const attachment = currentScoutingAttachment();
-  const format = activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), eventModel);
-  if (format === "scouting-json") return "canonical-json-v1";
-  return normalizeText(attachment?.profileId) || normalizeText(attachment?.translatorId) || preferredScoutingProfileIdForEvent(eventModel) || defaultScoutingProfileId;
-}
-
-async function applyScoutingProfileSelectionChange(profileId) {
-  const attachment = currentScoutingAttachment();
-  if (!attachment) return false;
-  const nextProfileId = normalizeText(profileId) || selectedScoutingImportProfileId();
-  const draft = {
-    label: attachment.label,
-    format: activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
-    translatorId: nextProfileId,
-    profileId: nextProfileId,
-    profileLabel: scoutingProfileLabel(nextProfileId, attachment.profileLabel),
-    source: currentScoutingSourceInputValue(),
-    schemaSource: currentScoutingSchemaSourceInputValue(),
-    autoLoad: attachment.autoLoad,
-  };
-  saveCurrentScoutingAttachmentDraft(draft, { render: false });
-  const attachmentLoad = describeEventWorkspaceScoutingAttachmentLoad(currentEventWorkspace(), currentEvent());
-  if (!attachmentLoad.canLoad) {
-    saveState();
-    render();
-    return false;
-  }
-  await loadScoutingData({
-    autoCommit: true,
-    scoutingImportSource: "manual-profile-change",
-    importDraftSource: "attached",
-  });
-  return true;
 }
 
 async function applyAdminEventCodeDraft(value, options = {}) {
@@ -6784,8 +6724,6 @@ function renderAdmin() {
   const event = currentEvent();
   const workspace = currentEventWorkspace();
   const activeAttachment = currentScoutingAttachment();
-  const importProfiles = availableScoutingImportProfiles(event);
-  const selectedImportProfileId = selectedScoutingImportProfileId(event);
   const result = state.importResult;
   const issues = [...(result?.errors || []), ...(result?.warnings || [])];
   const reviewGroups = flaggedSubmissionGroups();
@@ -6850,37 +6788,21 @@ function renderAdmin() {
                   <button type="button" id="chooseLocalScoutingFileButton" ${localAttachmentFilesSupported() ? "" : "disabled"}>Browse</button>
                 </div>
               </label>
-              ${
-                activeEventWorkspaceScoutingAttachmentFormat(workspace, event) === "scouting-json"
-                  ? `<label>
-                Schema JSON
+              <label>
+                Scouting Profile
                 <div class="admin-actions admin-field-row">
                   <input
                     id="importSchemaSourceUrl"
                     class="admin-input"
                     type="text"
                     value="${escapeAttribute(currentScoutingSchemaSourceInputValue(workspace))}"
-                    placeholder="Optional separate schema JSON URL/path"
-                    aria-label="Scouting schema source"
+                    placeholder="Optional linked profile JSON URL/path"
+                    aria-label="Scouting profile source"
                     spellcheck="false"
                   />
                   <button type="button" id="chooseLocalScoutingSchemaFileButton" ${localAttachmentFilesSupported() ? "" : "disabled"}>Browse</button>
                 </div>
-                <span class="muted">Optional. Leave blank for combined canonical JSON or entries JSON that already embeds schema.</span>
-              </label>`
-                  : ""
-              }
-              <label>
-                Scouting Profile
-                <select id="scoutingAttachmentProfileId" aria-label="Scouting profile">
-                ${importProfiles.map((profile) => `<option value="${escapeAttribute(profile.id)}" ${profile.id === selectedImportProfileId ? "selected" : ""}>${escapeHtml(profile.label)}</option>`).join("")}
-              </select>
-              <span class="muted">
-                ${activeAttachment?.profileVersionKey
-                  ? `Attachment profile version: ${escapeHtml(activeAttachment.profileVersionKey)}`
-                  : "Choose the profile that best matches this scouting source. Switching profiles reloads the current source."}
-              </span>
-            </label>
+              </label>
             ${
               mismatchMessage
                 ? `<div class="issue-list">
@@ -8333,9 +8255,6 @@ function bindViewEvents() {
     await applyScoutingSchemaSourceInputChange({
       scoutingImportSource: "manual-schema-source-change",
     });
-  });
-  document.querySelector("#scoutingAttachmentProfileId")?.addEventListener("change", async (event) => {
-    await applyScoutingProfileSelectionChange(event.target.value);
   });
   document.querySelector("#importCsvInput")?.addEventListener("input", (event) => {
     state.importCsvText = event.target.value;
