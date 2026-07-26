@@ -48,7 +48,6 @@
     "id": "canonical-json-v1",
     "label": "Canonical JSON",
     "versionKey": "canonical-json-v1|a1abea4b",
-    "fieldMigrations": [],
     "derivedEquations": [
       {
         "name": "scoutingTotal",

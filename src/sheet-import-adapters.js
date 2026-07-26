@@ -18,7 +18,6 @@ const normalizeCanonicalProfile =
     label: String(profile?.label || profile?.name || schemaMeta?.profileLabel || profile?.id || genericSheetTemplateProfileId).trim(),
     versionKey: String(profile?.versionKey || profile?.versionId || "").trim(),
     derivedEquations: Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : []),
-    fieldMigrations: Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords) ? (profile.fieldMigrations || profile.fieldMigrationRecords) : [],
   }));
 const buildCanonicalMetaForEventModel =
   scoutingJsonSchema.buildCanonicalMetaForEventModel ||
@@ -858,7 +857,6 @@ function buildCanonicalDataset(eventModel, records, options = {}) {
     id: templateProfileId,
     label: profileLabel,
     derivedEquations: options.profileEquations,
-    fieldMigrations: options.fieldMigrations,
     versionKey: options.profileVersionKey,
   }, schemaMeta);
   const schema = {

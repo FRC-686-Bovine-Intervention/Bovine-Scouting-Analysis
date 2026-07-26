@@ -83,6 +83,7 @@ function loadAppContext(options = {}) {
     alert: noop,
     fetch: async () => ({ ok: false, json: async () => ({}), text: async () => "" }),
     LocalFileAccess: {
+      createAttachmentFile: options.createAttachmentFile || (async () => ({ attachmentId: "", path: "", name: "" })),
       writeAttachmentText: options.writeAttachmentText || (async () => true),
       readAttachmentText: options.readAttachmentText || (async () => ""),
       removeAttachment: options.removeAttachment || (async () => true),
@@ -100,6 +101,8 @@ function loadAppContext(options = {}) {
 
   [
     "src/metric-engine.js",
+    "src/scouting-dependency-diagnostics.js",
+    "src/scouting-diagnostics-state.js",
     "src/scouting-json-schema.js",
     "src/event-workspace.js",
   ].forEach((relativePath) => {
@@ -358,6 +361,147 @@ await runTest("selecting a local schema path switches a sheet-backed attachment 
   assert.equal(context.currentScoutingAttachment().format, "scouting-json");
   assert.equal(context.currentScoutingSourceInputValue(), "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp.entries.json");
   assert.equal(context.detectedScoutingSourceLabel(), "Local JSON file");
+});
+
+await runTest("schema reconciliation remaps derived equations from a removed field to the newly imported field", async () => {
+  const context = loadAppContext({
+    schemaFields: [{ id: "oldField", label: "Old Field", type: "number", unit: "count" }],
+  });
+
+  const state = context.__scoutingAppState;
+  const eventModel = context.eventCatalog[0];
+  state.activeEventKey = eventModel.key;
+  state.eventWorkspace = context.EventWorkspace.createEventWorkspace(eventModel, {
+    activeScoutingAttachmentId: "json-attachment",
+    sources: {
+      scouting: [{
+        attachmentId: "json-attachment",
+        label: "JSON + schema",
+        format: "scouting-json",
+        locationKind: "path",
+        location: {
+          path: "2026chcmp.json",
+          schemaPath: "2026chcmp_profile-v1.json",
+        },
+        profileId: "canonical-json-v1",
+        translatorId: "canonical-json-v1",
+        autoLoad: true,
+      }],
+    },
+  });
+  state.scoutingSubmissions = [{
+    eventKey: eventModel.key,
+    scoutingSchemaSignature: JSON.stringify({
+      fields: [{ id: "oldField", label: "Old Field", type: "number", unit: "count" }],
+    }),
+  }];
+  context.registerScoutingProfile(eventModel, {
+    id: "canonical-json-v1",
+    label: "Canonical JSON",
+    fields: [{ id: "oldField", label: "Old Field", type: "number", unit: "count" }],
+    derivedEquations: [{ id: "total", name: "total", formula: "sum(scouting.oldField)" }],
+  });
+  state.importResult = {
+    ok: true,
+    summary: {
+      profileId: "canonical-json-v1",
+      profileLabel: "Canonical JSON",
+      schemaFields: [{ id: "newField", label: "New Field", type: "number", unit: "count" }],
+      profileDefinition: {
+        id: "canonical-json-v1",
+        label: "Canonical JSON",
+        derivedEquations: [{ id: "total", name: "total", formula: "sum(scouting.oldField)" }],
+        filters: [],
+      },
+    },
+  };
+
+  context.remapScoutingSchemaField("newField", "oldField");
+
+  const model = context.currentScoutingSchemaReconciliationModel();
+  assert.ok(model, "Expected a reconciliation model.");
+  assert.equal(model.readyToPersist, true);
+  assert.equal(model.draftProfileDefinition.derivedEquations[0].formula, "sum(scouting.newField)");
+});
+
+await runTest("saving reconciled schema artifacts as new files writes both the schema and sidecar link", async () => {
+  const createdFiles = [];
+  const writtenFiles = new Map();
+  const context = loadAppContext({
+    createAttachmentFile: async (options) => {
+      const pathValue = String(options.path || options.suggestedName || "");
+      createdFiles.push({ attachmentId: options.attachmentId, path: pathValue });
+      return {
+        attachmentId: options.attachmentId,
+        path: pathValue,
+        name: path.basename(pathValue),
+      };
+    },
+    writeAttachmentText: async (attachmentId, text) => {
+      writtenFiles.set(attachmentId, String(text || ""));
+      return true;
+    },
+    pathBasename: (value) => String(value || "").trim().replace(/\\/g, "/").split("/").pop() || "",
+  });
+
+  const state = context.__scoutingAppState;
+  const eventModel = context.eventCatalog[0];
+  state.activeEventKey = eventModel.key;
+  state.eventWorkspace = context.EventWorkspace.createEventWorkspace(eventModel, {
+    activeScoutingAttachmentId: "json-attachment",
+    sources: {
+      scouting: [{
+        attachmentId: "json-attachment",
+        label: "JSON + schema",
+        format: "scouting-json",
+        locationKind: "path",
+        location: {
+          path: "2026chcmp.json",
+          schemaPath: "2026chcmp_profile-v1.json",
+        },
+        profileId: "canonical-json-v1",
+        translatorId: "canonical-json-v1",
+        autoLoad: true,
+      }],
+    },
+  });
+  context.registerScoutingProfile(eventModel, {
+    id: "canonical-json-v1",
+    label: "Canonical JSON",
+    fields: [{ id: "newField", label: "New Field", type: "number", unit: "count" }],
+    derivedEquations: [{ id: "total", name: "total", formula: "sum(scouting.newField)" }],
+  });
+
+  const result = await context.saveSchemaArtifactAsNewFiles({
+    attachment: context.currentScoutingAttachment(),
+    scoutingSource: "2026chcmp.json",
+    profileDefinition: {
+      id: "canonical-json-v1",
+      label: "Canonical JSON",
+      fields: [{ id: "newField", label: "New Field", type: "number", unit: "count" }],
+      derivedEquations: [{ id: "total", name: "total", formula: "sum(scouting.newField)" }],
+      filters: [],
+    },
+    eventModel,
+    existingSchemaJsonText: "",
+  });
+
+  assert.equal(result.schemaSource, "2026chcmp_profile-v2.json");
+  assert.equal(result.schemaLinkSource, "2026chcmp_profile-v2-link.json");
+  assert.deepEqual(createdFiles, [
+    { attachmentId: "json-attachment:schema", path: "2026chcmp_profile-v2.json" },
+    { attachmentId: "json-attachment:schema-link", path: "2026chcmp_profile-v2-link.json" },
+  ]);
+  assert.ok(writtenFiles.get("json-attachment:schema")?.includes("\"derivedEquations\""));
+  assert.equal(
+    writtenFiles.get("json-attachment:schema-link"),
+    JSON.stringify({
+      scoutingFile: "2026chcmp.json",
+      schemaFile: "2026chcmp_profile-v2.json",
+    }, null, 2),
+  );
+  assert.equal(context.currentScoutingAttachment().location.schemaPath, "2026chcmp_profile-v2.json");
+  assert.equal(context.currentScoutingAttachment().location.schemaLinkPath, "2026chcmp_profile-v2-link.json");
 });
 
 await runTest("provider-backed derived equations resolve TBA and Statbotics identifiers from live team sources", async () => {

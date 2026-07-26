@@ -102,38 +102,6 @@ function normalizeProfileFilter(definition, index = 0) {
   };
 }
 
-function normalizeProfileMigrationRecord(record, index = 0) {
-  const kind = normalizeText(record?.kind).toLowerCase();
-  const id = normalizeText(record?.id) || `field-migration-${index + 1}`;
-  if (kind === "rename") {
-    const fromFieldId = normalizeText(record?.fromFieldId || record?.from || record?.fieldId);
-    const toFieldId = normalizeText(record?.toFieldId || record?.to);
-    if (!fromFieldId || !toFieldId) return null;
-    return {
-      id,
-      kind,
-      fromFieldId,
-      toFieldId,
-      label: normalizeText(record?.label || `${fromFieldId} -> ${toFieldId}`),
-      note: normalizeText(record?.note || record?.description),
-      recordedAt: normalizeText(record?.recordedAt || record?.timestamp),
-    };
-  }
-  if (kind === "add" || kind === "remove") {
-    const fieldId = normalizeText(record?.fieldId || record?.toFieldId || record?.fromFieldId);
-    if (!fieldId) return null;
-    return {
-      id,
-      kind,
-      fieldId,
-      label: normalizeText(record?.label || fieldId),
-      note: normalizeText(record?.note || record?.description),
-      recordedAt: normalizeText(record?.recordedAt || record?.timestamp),
-    };
-  }
-  return null;
-}
-
 function selectSchemaProfile(schemaSource, schemaMeta = {}) {
   if (schemaSource?.profile && typeof schemaSource.profile === "object" && !Array.isArray(schemaSource.profile)) {
     return schemaSource.profile;
@@ -152,7 +120,7 @@ function normalizeCanonicalProfile(profile, schemaMeta = {}) {
   const profileLabel = normalizeText(profile?.label || profile?.name) || normalizeText(schemaMeta?.profileLabel) || profileId;
   const derivedEquations = Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : [];
   const legacyEquations = Array.isArray(profile?.equations) ? profile.equations : [];
-  if (!profileId && !profileLabel && !derivedEquations.length && !legacyEquations.length && !Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords)) {
+  if (!profileId && !profileLabel && !derivedEquations.length && !legacyEquations.length) {
     return null;
   }
   return {
@@ -164,11 +132,6 @@ function normalizeCanonicalProfile(profile, schemaMeta = {}) {
       .filter(Boolean),
     filters: (Array.isArray(profile?.filters) ? profile.filters : [])
       .map((definition, index) => normalizeProfileFilter(definition, index))
-      .filter(Boolean),
-    fieldMigrations: (Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords)
-      ? (profile.fieldMigrations || profile.fieldMigrationRecords)
-      : [])
-      .map((record, index) => normalizeProfileMigrationRecord(record, index))
       .filter(Boolean),
   };
 }
@@ -252,7 +215,6 @@ function buildCanonicalSchemaArtifact(schemaPayload, options = {}) {
           versionKey: profile.versionKey,
           derivedEquations: profile.derivedEquations,
           filters: profile.filters,
-          fieldMigrations: profile.fieldMigrations,
         }
       : profile,
   };

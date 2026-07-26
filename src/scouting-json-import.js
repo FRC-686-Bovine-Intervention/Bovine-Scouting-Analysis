@@ -11,7 +11,6 @@ const normalizeCanonicalProfile = scoutingJsonSchema.normalizeCanonicalProfile |
   label: String(profile?.label || profile?.name || schemaMeta?.profileLabel || profile?.id || canonicalTemplateProfileId).trim(),
   versionKey: String(profile?.versionKey || profile?.versionId || "").trim(),
   derivedEquations: Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : []),
-  fieldMigrations: Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords) ? (profile.fieldMigrations || profile.fieldMigrationRecords) : [],
 }));
 const normalizeCanonicalPayload = scoutingJsonSchema.normalizeCanonicalPayload || ((payload, schemaPayload = null) => ({
   meta: payload?.meta || {},

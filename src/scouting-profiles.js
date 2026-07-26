@@ -42,42 +42,6 @@ function normalizeFieldDefinition(fieldDefinition) {
   };
 }
 
-function normalizeFieldMigrationRecords(records) {
-  return (Array.isArray(records) ? records : [])
-    .map((record, index) => {
-      const kind = normalizeText(record?.kind).toLowerCase();
-      const id = normalizeText(record?.id) || `field-migration-${index + 1}`;
-      if (kind === "rename") {
-        const fromFieldId = normalizeText(record?.fromFieldId || record?.from || record?.fieldId);
-        const toFieldId = normalizeText(record?.toFieldId || record?.to);
-        if (!fromFieldId || !toFieldId) return null;
-        return {
-          id,
-          kind,
-          fromFieldId,
-          toFieldId,
-          label: normalizeText(record?.label || `${fromFieldId} -> ${toFieldId}`),
-          note: normalizeText(record?.note || record?.description),
-          recordedAt: normalizeText(record?.recordedAt || record?.timestamp),
-        };
-      }
-      if (kind === "add" || kind === "remove") {
-        const fieldId = normalizeText(record?.fieldId || record?.toFieldId || record?.fromFieldId);
-        if (!fieldId) return null;
-        return {
-          id,
-          kind,
-          fieldId,
-          label: normalizeText(record?.label || fieldId),
-          note: normalizeText(record?.note || record?.description),
-          recordedAt: normalizeText(record?.recordedAt || record?.timestamp),
-        };
-      }
-      return null;
-    })
-    .filter(Boolean);
-}
-
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
   if (!value || typeof value !== "object") return value;
@@ -103,7 +67,6 @@ function buildProfileVersionKey(profile = {}) {
   const normalizedFields = (Array.isArray(profile?.fields) ? profile.fields : [])
     .map(normalizeFieldDefinition)
     .filter(Boolean);
-  const normalizedFieldMigrations = normalizeFieldMigrationRecords(profile?.fieldMigrations || profile?.fieldMigrationRecords);
   const normalizedEquations = (Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : []))
     .map((definition) => ({
       name: canonicalProfileEquationName(definition),
@@ -119,7 +82,6 @@ function buildProfileVersionKey(profile = {}) {
     .filter((definition) => definition.name);
   const fingerprint = fnv1aHash(JSON.stringify(stableValue({
     fields: normalizedFields,
-    fieldMigrations: normalizedFieldMigrations,
     equations: normalizedEquations,
     filters: normalizedFilters,
   })));
@@ -148,6 +110,5 @@ globalThis.ScoutingProfiles = {
   buildProfileVersionKey,
   materializeEventScopedProfileCatalog,
   normalizeFieldDefinition,
-  normalizeFieldMigrationRecords,
 };
 })();

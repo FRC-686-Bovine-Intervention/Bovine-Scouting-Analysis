@@ -142,6 +142,52 @@ async function main() {
     assert.equal(stored.handle, handle);
   });
 
+  await runTest("createAttachmentFile persists a newly saved handle and returns the chosen display path", async () => {
+    const storage = createMemoryStorage();
+    const context = loadBrowserContext(["src/local-file-access.js"]);
+    const permissionRequests = [];
+    const handle = {
+      name: "2026chcmp_profile-v2.json",
+      async createWritable() {
+        return {
+          async write() {},
+          async close() {},
+        };
+      },
+      async queryPermission(options) {
+        permissionRequests.push(`query:${options.mode}`);
+        return "prompt";
+      },
+      async requestPermission(options) {
+        permissionRequests.push(`request:${options.mode}`);
+        return "granted";
+      },
+    };
+
+    const created = await context.LocalFileAccess.createAttachmentFile(
+      {
+        attachmentId: "attachment-created",
+        format: "scouting-json",
+        suggestedName: "2026chcmp_profile-v2.json",
+        path: "2026chcmp_profile-v2.json",
+        requestWriteAccess: true,
+      },
+      {
+        storage,
+        showSaveFilePicker: async () => handle,
+        userActivation: { isActive: true },
+      },
+    );
+
+    assert.equal(created.path, "2026chcmp_profile-v2.json");
+    const stored = await storage.get("attachment-created");
+    assert.equal(stored.kind, "handle");
+    assert.equal(stored.path, "2026chcmp_profile-v2.json");
+    assert.equal(stored.name, "2026chcmp_profile-v2.json");
+    assert.equal(stored.handle, handle);
+    assert.deepEqual(permissionRequests, ["query:readwrite", "request:readwrite"]);
+  });
+
   await runTest("readAttachmentText reopens a stored handle and reads its text", async () => {
     const storage = createMemoryStorage();
     const context = loadBrowserContext(["src/local-file-access.js"]);

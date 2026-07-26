@@ -63,6 +63,17 @@ function supportsNativeFilePicker(deps = {}) {
   return true;
 }
 
+function supportsNativeSaveFilePicker(deps = {}) {
+  const picker = deps.showSaveFilePicker || globalThis.showSaveFilePicker;
+  const locationRef = deps.location || globalThis.location;
+  const protocol = normalizeText(locationRef?.protocol).toLowerCase();
+  const secureContext = deps.isSecureContext ?? globalThis.isSecureContext;
+  if (typeof picker !== "function") return false;
+  if (protocol === "file:") return false;
+  if (secureContext === false) return false;
+  return true;
+}
+
 function buildPickerTypes(format) {
   const normalizedFormat = normalizeText(format).toLowerCase();
   const sharedTypes = [
@@ -314,6 +325,38 @@ async function pickAttachmentFile(options = {}, deps = {}) {
   };
 }
 
+async function createAttachmentFile(options = {}, deps = {}) {
+  const attachmentId = normalizeText(options.attachmentId);
+  if (!attachmentId) throw new Error("Missing scouting attachment id.");
+  const storage = deps.storage || createIndexedDbStorage(deps);
+  if (!storage || typeof storage.set !== "function" || typeof storage.get !== "function") {
+    throw new Error("Persistent local scouting files are unavailable in this browser.");
+  }
+  if (!supportsNativeSaveFilePicker(deps)) {
+    throw new Error("Saving a new local scouting file is unavailable in this browser.");
+  }
+  const picker = deps.showSaveFilePicker || globalThis.showSaveFilePicker;
+  const handle = await picker({
+    suggestedName: normalizeText(options.suggestedName) || undefined,
+    types: buildPickerTypes(options.format),
+    excludeAcceptAllOption: false,
+  });
+  if (!handle) throw new Error("No local scouting file was selected.");
+  if (options.requestWriteAccess === true) {
+    const permission = await requestAttachmentPermission(handle, "readwrite", deps);
+    if (permission !== "granted") {
+      throw new Error("Permission to write the local scouting file was denied.");
+    }
+  }
+  const displayPath = normalizeText(options.path) || normalizeText(handle.name) || normalizeText(options.suggestedName) || "Selected local file";
+  await storage.set(attachmentId, normalizeStoredAttachmentRecord(handle, attachmentId, displayPath));
+  return {
+    attachmentId,
+    path: displayPath,
+    name: normalizeText(handle.name),
+  };
+}
+
 async function loadAttachmentHandle(attachmentId, deps = {}) {
   const normalizedAttachmentId = normalizeText(attachmentId);
   if (!normalizedAttachmentId) throw new Error("Missing scouting attachment id.");
@@ -407,7 +450,9 @@ globalThis.LocalFileAccess = {
   createScoutingSubmissionStorage,
   pickAttachmentFileWithInput,
   supportsPersistentLocalFiles,
+  supportsNativeSaveFilePicker,
   pickAttachmentFile,
+  createAttachmentFile,
   loadAttachmentHandle,
   readAttachmentText,
   writeAttachmentText,

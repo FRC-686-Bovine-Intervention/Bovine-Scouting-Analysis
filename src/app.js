@@ -33,6 +33,9 @@ const readLocalAttachmentText = localFileAccess.readAttachmentText || (async () 
 const writeLocalAttachmentText = localFileAccess.writeAttachmentText || (async () => {
   throw new Error("Persistent local scouting files are unavailable in this browser.");
 });
+const createLocalAttachmentFile = localFileAccess.createAttachmentFile || (async () => {
+  throw new Error("Persistent local scouting files are unavailable in this browser.");
+});
 const clearLocalAttachmentFile = localFileAccess.removeAttachment || (async () => false);
 const readPersistedScoutingSubmissions = localFileAccess.readScoutingSubmissions || (async () => null);
 const writePersistedScoutingSubmissions = localFileAccess.writeScoutingSubmissions || (async () => false);
@@ -144,9 +147,6 @@ const normalizeScoutingProfileField =
       unit: normalizeText(fieldDefinition?.unit),
     };
   });
-const normalizeScoutingProfileMigrationRecords =
-  scoutingProfilesApi.normalizeFieldMigrationRecords
-  || (() => []);
 const materializeEventScopedProfileCatalog =
   scoutingProfilesApi.materializeEventScopedProfileCatalog
   || ((catalog) => catalog || {});
@@ -376,6 +376,7 @@ const state = {
   importSchemaJsonText: "",
   importSelectedProfileId: "",
   importDraftSource: "",
+  scoutingSchemaResolutions: {},
   importSourceUrl: activeEventWorkspaceScoutingAttachmentSourceValue(initialWorkspace, initialEvent),
   tbaAuthKey: initialTbaAuthKey,
   tbaAuthKeyDraft: initialTbaAuthKey ? maskedTbaAuthKeyValue : "",
@@ -739,6 +740,90 @@ function inferCompanionScoutingSourceFromSchemaSource(schemaSource, currentSourc
   return "";
 }
 
+function replaceFilenameSuffix(name, pattern, replacement) {
+  const normalizedName = normalizeText(name);
+  if (!normalizedName) return "";
+  return normalizedName.replace(pattern, replacement);
+}
+
+function localAttachmentPathDirname(value) {
+  const normalizedValue = normalizeText(value);
+  if (!normalizedValue) return "";
+  const lastSlashIndex = Math.max(normalizedValue.lastIndexOf("/"), normalizedValue.lastIndexOf("\\"));
+  if (lastSlashIndex < 0) return "";
+  return normalizedValue.slice(0, lastSlashIndex + 1);
+}
+
+function localAttachmentPathJoin(dirname, basename) {
+  const normalizedBasename = normalizeText(basename);
+  if (!normalizedBasename) return "";
+  const normalizedDirname = normalizeText(dirname);
+  if (!normalizedDirname) return normalizedBasename;
+  if (/[\\/]$/.test(normalizedDirname)) return `${normalizedDirname}${normalizedBasename}`;
+  const separator = normalizedDirname.includes("\\") ? "\\" : "/";
+  return `${normalizedDirname}${separator}${normalizedBasename}`;
+}
+
+function scoutingSourceBasenameStem(sourcePath) {
+  const basename = localAttachmentPathBasename(sourcePath);
+  if (!basename) return "";
+  return basename.replace(/\.entries\.json$/i, "").replace(/\.json$/i, "");
+}
+
+function schemaProfileVersionNumber(schemaSource) {
+  const basename = localAttachmentPathBasename(schemaSource);
+  const match = basename.match(/_profile-v(\d+)\.json$/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function buildVersionedSchemaProfileBasename(scoutingSource, version = 1) {
+  const stem = scoutingSourceBasenameStem(scoutingSource) || "scouting";
+  return `${stem}_profile-v${Math.max(1, Number(version) || 1)}.json`;
+}
+
+function buildVersionedSchemaProfilePath(scoutingSource, version = 1) {
+  return localAttachmentPathJoin(
+    localAttachmentPathDirname(scoutingSource),
+    buildVersionedSchemaProfileBasename(scoutingSource, version),
+  );
+}
+
+function buildSchemaLinkBasename(schemaSource) {
+  const basename = localAttachmentPathBasename(schemaSource);
+  if (!basename) return "";
+  if (/_profile-v\d+\.json$/i.test(basename)) {
+    return replaceFilenameSuffix(basename, /\.json$/i, "-link.json");
+  }
+  return replaceFilenameSuffix(basename, /\.json$/i, "-link.json");
+}
+
+function buildSchemaLinkPath(schemaSource) {
+  return localAttachmentPathJoin(
+    localAttachmentPathDirname(schemaSource),
+    buildSchemaLinkBasename(schemaSource),
+  );
+}
+
+function buildSchemaLinkArtifactText({ scoutingSource = "", schemaSource = "" } = {}) {
+  return JSON.stringify({
+    scoutingFile: normalizeText(scoutingSource),
+    schemaFile: normalizeText(schemaSource),
+  }, null, 2);
+}
+
+function nextSchemaProfilePath(currentSchemaSource = "", scoutingSource = "") {
+  const normalizedScoutingSource = normalizeText(scoutingSource);
+  const currentVersion = schemaProfileVersionNumber(currentSchemaSource);
+  if (currentVersion > 0) {
+    const dirname = localAttachmentPathDirname(currentSchemaSource);
+    return localAttachmentPathJoin(
+      dirname,
+      buildVersionedSchemaProfileBasename(normalizedScoutingSource || currentSchemaSource, currentVersion + 1),
+    );
+  }
+  return buildVersionedSchemaProfilePath(normalizedScoutingSource || currentSchemaSource, 1);
+}
+
 function setTbaAuthKey(value, options = {}) {
   state.tbaAuthKey = normalizeText(value);
   globalThis.__TBA_AUTH_KEY = state.tbaAuthKey;
@@ -868,6 +953,16 @@ function buildCurrentSchemaArtifactText(profileDefinition, eventModel = currentE
     null,
     2,
   );
+}
+
+async function persistSchemaArtifactTextToAttachment(attachmentId, schemaJsonText) {
+  await writeLocalAttachmentText(`${attachmentId}:schema`, schemaJsonText);
+  return true;
+}
+
+async function persistSchemaLinkArtifactTextToAttachment(attachmentId, linkJsonText) {
+  await writeLocalAttachmentText(`${attachmentId}:schema-link`, linkJsonText);
+  return true;
 }
 
 async function persistCurrentProfileToSchemaArtifact(eventModel = currentEvent()) {
@@ -1062,6 +1157,7 @@ function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
   if (!activeAttachment) return;
   const normalizedSource = normalizeScoutingSourceUrl(draft.source);
   const normalizedSchemaSource = normalizeScoutingSourceUrl(draft.schemaSource);
+  const normalizedSchemaLinkSource = normalizeScoutingSourceUrl(draft.schemaLinkSource);
   const normalizedFormat = inferredScoutingAttachmentFormat(
     normalizeText(draft.format) || activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
     normalizedSource,
@@ -1079,6 +1175,7 @@ function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
         });
   const isRemoteSource = /^(https?|file):\/\//i.test(normalizedSource);
   const isRemoteSchemaSource = /^(https?|file):\/\//i.test(normalizedSchemaSource);
+  const isRemoteSchemaLinkSource = /^(https?|file):\/\//i.test(normalizedSchemaLinkSource);
   state.eventWorkspace = upsertEventWorkspaceScoutingAttachment(
     currentEventWorkspace(),
     {
@@ -1087,12 +1184,14 @@ function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
       format: normalizedFormat,
       locationKind: normalizedSource ? (isRemoteSource ? "url" : "path") : activeAttachment.locationKind,
         location: {
-          ...(activeAttachment.location || {}),
-          url: isRemoteSource ? normalizedSource : "",
-          path: normalizedSource && !isRemoteSource ? normalizedSource : "",
-          schemaUrl: isRemoteSchemaSource ? normalizedSchemaSource : "",
-          schemaPath: normalizedSchemaSource && !isRemoteSchemaSource ? normalizedSchemaSource : "",
-        },
+        ...(activeAttachment.location || {}),
+        url: isRemoteSource ? normalizedSource : "",
+        path: normalizedSource && !isRemoteSource ? normalizedSource : "",
+        schemaUrl: isRemoteSchemaSource ? normalizedSchemaSource : "",
+        schemaPath: normalizedSchemaSource && !isRemoteSchemaSource ? normalizedSchemaSource : "",
+        schemaLinkUrl: isRemoteSchemaLinkSource ? normalizedSchemaLinkSource : "",
+        schemaLinkPath: normalizedSchemaLinkSource && !isRemoteSchemaLinkSource ? normalizedSchemaLinkSource : "",
+      },
         translatorId: inferredScoutingTranslatorId(
           normalizeText(draft.translatorId) || (normalizedFormat === "scouting-json" ? "canonical-json-v1" : resolvedProfileId) || activeAttachment.translatorId,
         normalizedFormat,
@@ -1781,6 +1880,186 @@ function currentScoutingDiagnosticsState() {
   });
 }
 
+function cloneJsonValue(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function normalizeScoutingSchemaResolutionState(value = state.scoutingSchemaResolutions) {
+  const resolutions = value && typeof value === "object" ? value : {};
+  return {
+    added: resolutions.added && typeof resolutions.added === "object" ? resolutions.added : {},
+    removed: resolutions.removed && typeof resolutions.removed === "object" ? resolutions.removed : {},
+  };
+}
+
+function updateScoutingSchemaResolutions(updater) {
+  const currentResolutions = normalizeScoutingSchemaResolutionState();
+  const nextResolutions = typeof updater === "function" ? updater(currentResolutions) : currentResolutions;
+  state.scoutingSchemaResolutions = normalizeScoutingSchemaResolutionState(nextResolutions);
+}
+
+function rewriteScoutingFieldReferences(formula, fromFieldId, toFieldId) {
+  const normalizedFromFieldId = normalizeText(fromFieldId);
+  const normalizedToFieldId = normalizeText(toFieldId);
+  if (!normalizedFromFieldId || !normalizedToFieldId || normalizedFromFieldId === normalizedToFieldId) {
+    return String(formula || "");
+  }
+  const pattern = new RegExp(`\\bscouting\\.${normalizedFromFieldId}\\b`, "g");
+  return String(formula || "").replace(pattern, `scouting.${normalizedToFieldId}`);
+}
+
+function currentScoutingSchemaReconciliationModel() {
+  if (!state.importResult?.summary?.schemaFields?.length) return null;
+  const diagnosticsState = currentScoutingDiagnosticsState();
+  const pendingDiagnostics = diagnosticsState.pendingDiagnostics;
+  if (!pendingDiagnostics) return null;
+  const schemaDiff = pendingDiagnostics.schemaDiff || { added: [], removed: [], typeChanged: [] };
+  const resolutions = normalizeScoutingSchemaResolutionState();
+  const removedFieldCandidates = new Map((schemaDiff.removed || []).map((fieldDefinition) => [fieldDefinition.id, fieldDefinition]));
+  const draftDerivedEquations = cloneJsonValue(currentProfileEquationList());
+  const addedCards = [];
+  const removedCards = [];
+
+  (schemaDiff.added || []).forEach((fieldDefinition) => {
+    const resolution = resolutions.added[fieldDefinition.id] || {};
+    if (normalizeText(resolution.mode) === "new") return;
+    const targetFieldId = normalizeText(resolution.targetFieldId);
+    if (normalizeText(resolution.mode) === "remap" && removedFieldCandidates.has(targetFieldId)) {
+      draftDerivedEquations.forEach((definition) => {
+        definition.formula = rewriteScoutingFieldReferences(definition.formula, targetFieldId, fieldDefinition.id);
+      });
+      return;
+    }
+    addedCards.push({
+      fieldDefinition,
+      resolution,
+      removedFieldCandidates: [...removedFieldCandidates.values()],
+    });
+  });
+
+  (schemaDiff.removed || []).forEach((fieldDefinition) => {
+    const resolvedByRemap = Object.values(resolutions.added || {}).some((resolution) => (
+      normalizeText(resolution?.mode) === "remap" && normalizeText(resolution?.targetFieldId) === fieldDefinition.id
+    ));
+    if (resolvedByRemap) return;
+    const resolution = resolutions.removed[fieldDefinition.id] || {};
+    if (normalizeText(resolution.mode) === "delete") return;
+    removedCards.push({
+      fieldDefinition,
+      resolution,
+    });
+  });
+
+  const draftProfileDefinition = {
+    ...(currentImportedProfileDefinition(currentEvent()) || {}),
+    fields: cloneJsonValue(state.importResult.summary.schemaFields || []),
+    derivedEquations: draftDerivedEquations,
+    filters: cloneJsonValue(currentProfileFilterList()),
+  };
+  const resolvedDiagnostics = buildScoutingDependencyDiagnostics({
+    previousFields: diagnosticsState.committedFields.length ? diagnosticsState.committedFields : currentAvailableScoutingFieldDefinitions(),
+    currentFields: draftProfileDefinition.fields,
+    equations: draftDerivedEquations,
+    filters: draftProfileDefinition.filters,
+    sortEquations: state.sortEquations.filter((equation) => !isProtectedSortEquation(equation)),
+  });
+
+  return {
+    addedCards,
+    removedCards,
+    unresolvedTypeChanged: schemaDiff.typeChanged || [],
+    draftProfileDefinition,
+    resolvedDiagnostics,
+    readyToPersist: addedCards.length === 0 && removedCards.length === 0 && !(schemaDiff.typeChanged || []).length,
+  };
+}
+
+function applyScoutingSchemaResolutionDraft(model = currentScoutingSchemaReconciliationModel()) {
+  if (!model || !state.importResult?.summary) return false;
+  const nextProfileDefinition = {
+    ...(state.importResult.summary.profileDefinition || {}),
+    id: model.draftProfileDefinition.id,
+    label: model.draftProfileDefinition.label,
+    versionKey: model.draftProfileDefinition.versionKey,
+    derivedEquations: cloneJsonValue(model.draftProfileDefinition.derivedEquations || []),
+    filters: cloneJsonValue(model.draftProfileDefinition.filters || []),
+  };
+  state.importResult.summary = {
+    ...state.importResult.summary,
+    schemaFields: cloneJsonValue(model.draftProfileDefinition.fields || []),
+    profileDefinition: nextProfileDefinition,
+  };
+  registerScoutingProfile(currentEvent(), {
+    id: nextProfileDefinition.id || state.importResult.summary.profileId,
+    label: nextProfileDefinition.label || state.importResult.summary.profileLabel,
+    fields: model.draftProfileDefinition.fields,
+    derivedEquations: nextProfileDefinition.derivedEquations,
+    filters: nextProfileDefinition.filters,
+  });
+  return true;
+}
+
+function declareScoutingSchemaFieldAsNew(fieldId) {
+  updateScoutingSchemaResolutions((resolutions) => ({
+    ...resolutions,
+    added: {
+      ...resolutions.added,
+      [fieldId]: { mode: "new" },
+    },
+  }));
+  render();
+}
+
+function remapScoutingSchemaField(fieldId, previousFieldId) {
+  updateScoutingSchemaResolutions((resolutions) => ({
+    ...resolutions,
+    added: {
+      ...resolutions.added,
+      [fieldId]: { mode: "remap", targetFieldId: previousFieldId },
+    },
+  }));
+  render();
+}
+
+function deleteScoutingSchemaField(fieldId) {
+  if (!confirm(`Remove scouting field ${fieldId} from the schema profile? This can leave some derived equations invalid until you update them.`)) return false;
+  updateScoutingSchemaResolutions((resolutions) => ({
+    ...resolutions,
+    removed: {
+      ...resolutions.removed,
+      [fieldId]: { mode: "delete" },
+    },
+  }));
+  render();
+  return true;
+}
+
+async function persistReconciledSchemaToCurrentArtifact() {
+  const model = currentScoutingSchemaReconciliationModel();
+  if (!model?.readyToPersist) return false;
+  if (!applyScoutingSchemaResolutionDraft(model)) return false;
+  await persistCurrentProfileToSchemaArtifact(currentEvent());
+  pushActivity(`Updated the current schema artifact for ${currentScoutingSourceInputValue() || currentEvent().key}.`);
+  saveState();
+  render();
+  return true;
+}
+
+async function persistReconciledSchemaToNewArtifact() {
+  const model = currentScoutingSchemaReconciliationModel();
+  if (!model?.readyToPersist) return false;
+  if (!applyScoutingSchemaResolutionDraft(model)) return false;
+  await saveSchemaArtifactAsNewFiles({
+    profileDefinition: model.draftProfileDefinition,
+    eventModel: currentEvent(),
+    scoutingSource: currentScoutingSourceInputValue(),
+    existingSchemaJsonText: state.importSchemaJsonText,
+  });
+  saveState();
+  render();
+  return true;
+}
+
 function currentRankableMetrics(eventModel = currentEvent()) {
   const previewTeam = eventModel.teams[0];
   return currentMetrics().filter((metric) => {
@@ -1906,6 +2185,73 @@ function revertActiveDerivedEquationFormulaToSelectionOriginal(eventModel = curr
     input.setSelectionRange(nextCursor, nextCursor);
   });
   return true;
+}
+
+async function saveSchemaArtifactAsNewFiles({
+  attachment = currentScoutingAttachment(),
+  scoutingSource = currentScoutingSourceInputValue(),
+  profileDefinition = currentImportedProfileDefinition(currentEvent()),
+  eventModel = currentEvent(),
+  existingSchemaJsonText = state.importSchemaJsonText,
+} = {}) {
+  if (!attachment?.attachmentId) throw new Error("No active scouting attachment is available.");
+  const normalizedScoutingSource = normalizeText(scoutingSource);
+  if (!normalizedScoutingSource || /^(https?|file):\/\//i.test(normalizedScoutingSource)) {
+    throw new Error("Saving a new schema file requires a local scouting data file.");
+  }
+  if (!profileDefinition) throw new Error("No scouting profile is available to persist.");
+
+  const suggestedSchemaPath = nextSchemaProfilePath(
+    normalizeText(attachment.location?.schemaPath),
+    normalizedScoutingSource,
+  );
+  const selectedSchema = await createLocalAttachmentFile({
+    attachmentId: `${attachment.attachmentId}:schema`,
+    format: "scouting-json",
+    path: suggestedSchemaPath,
+    suggestedName: localAttachmentPathBasename(suggestedSchemaPath),
+    requestWriteAccess: true,
+  });
+  const selectedLinkPath = buildSchemaLinkPath(selectedSchema.path);
+  const selectedLink = await createLocalAttachmentFile({
+    attachmentId: `${attachment.attachmentId}:schema-link`,
+    format: "scouting-json",
+    path: selectedLinkPath,
+    suggestedName: localAttachmentPathBasename(selectedLinkPath),
+    requestWriteAccess: true,
+  });
+
+  const schemaArtifactText = buildCurrentSchemaArtifactText(profileDefinition, eventModel, existingSchemaJsonText);
+  const linkArtifactText = buildSchemaLinkArtifactText({
+    scoutingSource: normalizedScoutingSource,
+    schemaSource: selectedSchema.path,
+  });
+
+  await persistSchemaArtifactTextToAttachment(attachment.attachmentId, schemaArtifactText);
+  await persistSchemaLinkArtifactTextToAttachment(attachment.attachmentId, linkArtifactText);
+  saveCurrentScoutingAttachmentDraft(
+    {
+      ...attachment,
+      label: attachment.label,
+      format: attachment.format,
+      translatorId: attachment.translatorId,
+      profileId: profileDefinition.id,
+      profileLabel: profileDefinition.label,
+      source: normalizedScoutingSource,
+      schemaSource: selectedSchema.path,
+      schemaLinkSource: selectedLink.path,
+      autoLoad: attachment.autoLoad,
+    },
+    { render: false },
+  );
+  state.importSchemaJsonText = schemaArtifactText;
+  pushActivity(`Saved a new schema profile ${selectedSchema.path} and schema link ${selectedLink.path} for ${normalizedScoutingSource}.`);
+  return {
+    schemaSource: selectedSchema.path,
+    schemaLinkSource: selectedLink.path,
+    schemaArtifactText,
+    linkArtifactText,
+  };
 }
 
 function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
@@ -3063,7 +3409,6 @@ function defaultScoutingProfileForEvent(eventModel = currentEvent()) {
       id: profileId,
       label: knownImportProfileLabels[profileId] || profileId,
       fields: Array.isArray(eventModel?.formulaFieldDefinitions) ? eventModel.formulaFieldDefinitions : [],
-      fieldMigrations: [],
       derivedEquations: [],
     }],
   });
@@ -3116,9 +3461,6 @@ function registerScoutingProfile(eventModel, profile) {
           ? profile.derivedEquations
           : (Array.isArray(profile?.equations) ? profile.equations : (existingProfile?.derivedEquations || existingProfile?.equations || [])),
         filters: Array.isArray(profile?.filters) ? profile.filters : (existingProfile?.filters || []),
-        fieldMigrations: Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords)
-          ? (profile.fieldMigrations || profile.fieldMigrationRecords)
-          : (existingProfile?.fieldMigrations || []),
         ...(normalizeText(profile?.versionKey || profile?.versionId)
           ? { versionKey: normalizeText(profile?.versionKey || profile?.versionId) }
           : {}),
@@ -3138,13 +3480,12 @@ function backfillScoutingProfilesFromSubmissions(eventModel = currentEvent()) {
   state.scoutingSubmissions.forEach((submission) => {
     const profileId = String(submission?.templateProfileId || "").trim();
     if (!profileId || discovered.has(profileId)) return;
-    discovered.set(profileId, {
-      id: profileId,
-      label: knownImportProfileLabels[profileId] || profileId,
-      fields: parseScoutingSchemaSignatureFields(normalizeText(submission?.scoutingSchemaSignature)),
-      fieldMigrations: [],
-      derivedEquations: [],
-    });
+      discovered.set(profileId, {
+        id: profileId,
+        label: knownImportProfileLabels[profileId] || profileId,
+        fields: parseScoutingSchemaSignatureFields(normalizeText(submission?.scoutingSchemaSignature)),
+        derivedEquations: [],
+      });
   });
   if (!discovered.size) return;
   state.scoutingProfileCatalog = normalizeScoutingProfileCatalog({
@@ -3432,7 +3773,6 @@ function normalizeScoutingProfileDefinition(profile) {
         .map((fieldDefinition) => normalizeScoutingProfileField(fieldDefinition))
         .filter(Boolean)
     : [];
-  const fieldMigrations = normalizeScoutingProfileMigrationRecords(profile?.fieldMigrations || profile?.fieldMigrationRecords);
   const equations = normalizeEquationDefinitions([
     ...(Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : [])),
     ...predicateEquationDefinitionsFromFilters(profile?.filters),
@@ -3444,13 +3784,11 @@ function normalizeScoutingProfileDefinition(profile) {
       fields,
       equations,
       filters,
-      fieldMigrations,
     });
   return {
     id,
     label: scoutingProfileLabel(id, profile?.label || profile?.name || id),
     versionKey,
-    fieldMigrations,
     fields,
     equations,
     filters,
@@ -4421,6 +4759,43 @@ function renderSchemaDiffSummary(schemaDiff) {
   `;
 }
 
+function renderSchemaReconciliationCards(model = currentScoutingSchemaReconciliationModel()) {
+  if (!model) return "";
+  const cards = [
+    ...model.addedCards.map((entry) => {
+      const options = [
+        `<option value="">Choose an action...</option>`,
+        `<option value="__new__"${normalizeText(entry.resolution?.mode) === "new" ? " selected" : ""}>Declare New Field</option>`,
+        ...entry.removedFieldCandidates.map((candidate) => `<option value="${escapeAttribute(candidate.id)}"${normalizeText(entry.resolution?.targetFieldId) === candidate.id ? " selected" : ""}>Map to removed field: ${escapeHtml(candidate.label || candidate.id)}</option>`),
+      ].join("");
+      return `
+        <div class="issue-row warn">
+          <strong>Added field ${escapeHtml(entry.fieldDefinition.id)}</strong>
+          <span>${escapeHtml(entry.fieldDefinition.label || entry.fieldDefinition.id)} needs a decision before the schema can be updated.</span>
+          <select data-schema-added-resolution="${escapeAttribute(entry.fieldDefinition.id)}">${options}</select>
+        </div>
+      `;
+    }),
+    ...model.removedCards.map((entry) => `
+      <div class="issue-row danger">
+        <strong>Removed field ${escapeHtml(entry.fieldDefinition.id)}</strong>
+        <span>${escapeHtml(entry.fieldDefinition.label || entry.fieldDefinition.id)} no longer exists in the imported scouting file.</span>
+        <button type="button" data-schema-remove-field="${escapeAttribute(entry.fieldDefinition.id)}">Delete Field</button>
+      </div>
+    `),
+    ...model.unresolvedTypeChanged.map((entry) => `
+      <div class="issue-row danger">
+        <strong>Type changed for ${escapeHtml(entry.id)}</strong>
+        <span>${escapeHtml(entry.previousType)} -> ${escapeHtml(entry.currentType)}. Manual follow-up is still required.</span>
+      </div>
+    `),
+  ];
+  if (!cards.length) {
+    return `<p class="muted">All schema mismatches have reconciliation decisions. You can update the current schema or save a new schema file now.</p>`;
+  }
+  return `<div class="issue-list">${cards.join("")}</div>`;
+}
+
 function renderDependencyDiagnosticsList(entries, emptyLabel) {
   if (!entries?.length) return `<p class="muted">${escapeHtml(emptyLabel)}</p>`;
   return `
@@ -4537,7 +4912,6 @@ function commitImportPreview(options = {}) {
     fields: preview.summary.schemaFields,
     derivedEquations: preview.summary.profileDefinition?.derivedEquations || preview.summary.profileDefinition?.equations,
     filters: preview.summary.profileDefinition?.filters,
-    fieldMigrations: preview.summary.profileDefinition?.fieldMigrations,
     versionKey: preview.summary.profileDefinition?.versionKey,
   });
   if (state.importDraftSource === "attached") {
@@ -7014,11 +7388,20 @@ function renderAdmin() {
             const diagnosticsState = currentScoutingDiagnosticsState();
             const activeDiagnostics = diagnosticsState.pendingDiagnostics || diagnosticsState.currentDiagnostics;
             const modeLabel = diagnosticsState.pendingDiagnostics ? "Pending import diagnostics" : "Current event diagnostics";
+            const reconciliationModel = currentScoutingSchemaReconciliationModel();
             return `
               <p class="muted">${modeLabel}. Added, removed, and type-changed scouting fields are summarized here, followed by grouped downstream impacts on formulas and sorting.</p>
-              ${renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
+              ${reconciliationModel ? renderSchemaReconciliationCards(reconciliationModel) : renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
+              ${
+                reconciliationModel
+                  ? `<div class="button-row">
+                      <button type="button" id="updateCurrentSchemaFromDiagnosticsButton"${reconciliationModel.readyToPersist ? "" : " disabled"}>Update Current Schema</button>
+                      <button type="button" id="saveNewSchemaFromDiagnosticsButton"${reconciliationModel.readyToPersist ? "" : " disabled"}>Save New Schema As...</button>
+                    </div>`
+                  : ""
+              }
               <h3>Downstream Impact</h3>
-              ${renderDependencyImpactSummary(activeDiagnostics?.diagnostics)}
+              ${renderDependencyImpactSummary(reconciliationModel ? reconciliationModel.resolvedDiagnostics?.diagnostics : activeDiagnostics?.diagnostics)}
             `;
           })()}
         </article>
@@ -7922,6 +8305,41 @@ function bindViewEvents() {
   });
   document.querySelector("#chooseLocalScoutingSchemaFileButton")?.addEventListener("click", async () => {
     await chooseLocalScoutingSchemaFile();
+  });
+  document.querySelectorAll("[data-schema-added-resolution]").forEach((element) => {
+    element.addEventListener("change", (event) => {
+      const fieldId = normalizeText(event.currentTarget?.dataset?.schemaAddedResolution);
+      const selectedValue = normalizeText(event.currentTarget?.value);
+      if (!fieldId) return;
+      if (selectedValue === "__new__") {
+        declareScoutingSchemaFieldAsNew(fieldId);
+        return;
+      }
+      if (selectedValue) {
+        remapScoutingSchemaField(fieldId, selectedValue);
+        return;
+      }
+      updateScoutingSchemaResolutions((resolutions) => ({
+        ...resolutions,
+        added: Object.fromEntries(
+          Object.entries(resolutions.added || {}).filter(([candidateId]) => candidateId !== fieldId),
+        ),
+      }));
+      render();
+    });
+  });
+  document.querySelectorAll("[data-schema-remove-field]").forEach((element) => {
+    element.addEventListener("click", () => {
+      const fieldId = normalizeText(element.dataset.schemaRemoveField);
+      if (!fieldId) return;
+      deleteScoutingSchemaField(fieldId);
+    });
+  });
+  document.querySelector("#updateCurrentSchemaFromDiagnosticsButton")?.addEventListener("click", async () => {
+    await persistReconciledSchemaToCurrentArtifact();
+  });
+  document.querySelector("#saveNewSchemaFromDiagnosticsButton")?.addEventListener("click", async () => {
+    await persistReconciledSchemaToNewArtifact();
   });
   document.querySelector("#clearCurrentEventScoutingDataButton")?.addEventListener("click", () => {
     if (!confirm(`Clear all saved scouting rows for ${state.activeEventKey}? This keeps your event settings and source bindings.`)) return;
