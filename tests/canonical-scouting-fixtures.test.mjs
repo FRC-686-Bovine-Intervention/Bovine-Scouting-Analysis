@@ -96,8 +96,8 @@ const migrationFixtures = [
   {
     eventKey: "2024mdsev",
     season: 2024,
-    entriesFixturePath: "tests/fixtures/canonical-scouting-datasets/2024mdsev.entries.json",
-    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2024mdsev.schema.json",
+    entriesFixturePath: "tests/fixtures/canonical-scouting-datasets/2024mdsev.json",
+    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2024mdsev_profile.json",
     rawSheetPath: "src/real-source-cache/2024mdsev-sheet.csv",
     representativeMetrics: [
       { teamNumber: 686, metricId: "derived:autoSpeakerAccuracy", tolerance: 0.001 },
@@ -108,8 +108,8 @@ const migrationFixtures = [
   {
     eventKey: "2025chcmp",
     season: 2025,
-    entriesFixturePath: "tests/fixtures/canonical-scouting-datasets/2025chcmp.entries.json",
-    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2025chcmp.schema.json",
+    entriesFixturePath: "tests/fixtures/canonical-scouting-datasets/2025chcmp.json",
+    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2025chcmp_profile.json",
     teamCalculationsPath: "tests/fixtures/2025 CHS DCMP Scouting Analysis - TeamCalculations.csv",
     representativeTeams: [
       {
@@ -129,8 +129,8 @@ const migrationFixtures = [
   {
     eventKey: "2026chcmp",
     season: 2026,
-    entriesFixturePath: "tests/fixtures/canonical-scouting-datasets/2026chcmp.entries.json",
-    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2026chcmp.schema.json",
+    entriesFixturePath: "tests/fixtures/canonical-scouting-datasets/2026chcmp.json",
+    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2026chcmp_profile.json",
     teamCalculationsPath: "tests/fixtures/2026 Scouting Analysis CHCMP - TeamCalculations.csv",
     representativeTeams: [
       {

@@ -92,6 +92,42 @@ runTest("stampScoutingSubmissionMetadata uses event-owned field definitions with
   );
 });
 
+runTest("stampScoutingSubmissionMetadata preserves string-only schema field ids", () => {
+  const context = loadBrowserContext(["src/scouting-import-repair.js"]);
+  const eventModel = {
+    key: "2025chcmp",
+    season: 2025,
+  };
+  const schemaFields = ["autoL4Made", "climbLevel", "notes"];
+  const stamped = context.ScoutingImportRepair.stampScoutingSubmissionMetadata(
+    [
+      {
+        teamNumber: 686,
+        matchNumber: 1,
+        schemaVersion: "2025-match-v1",
+        templateProfileId: "canonical-json-v1",
+        rawMetrics: {
+          autoL4Made: 1,
+          climbLevel: 2,
+          notes: "",
+        },
+      },
+    ],
+    eventModel,
+    { schemaFields },
+  );
+
+  const parsedSignature = JSON.parse(stamped[0].scoutingSchemaSignature);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(parsedSignature.fields.map((field) => field.id))),
+    schemaFields,
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(parsedSignature.fields.map((field) => field.type))),
+    ["", "", ""],
+  );
+});
+
 runTest("stamped submissions do not refresh when the current schema matches", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-import-repair.js"]);
   const season = context.SeasonFramework.gameDefinitions[2025];

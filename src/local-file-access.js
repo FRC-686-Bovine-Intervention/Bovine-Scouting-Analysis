@@ -18,6 +18,16 @@ function pathBasename(value) {
   return normalized.split("/").pop() || "";
 }
 
+function resolveDisplayPath(displayPath, handleName) {
+  const normalizedDisplayPath = normalizeText(displayPath);
+  const normalizedHandleName = normalizeText(handleName);
+  if (!normalizedHandleName) return normalizedDisplayPath || "Selected local file";
+  if (!normalizedDisplayPath) return normalizedHandleName;
+  return pathBasename(normalizedDisplayPath) === normalizePathKey(normalizedHandleName)
+    ? normalizedDisplayPath
+    : normalizedHandleName;
+}
+
 function normalizeStoredAttachmentRecord(value, attachmentId = "", displayPath = "") {
   if (!value || typeof value !== "object") return null;
   if (value.kind === "snapshot") {
@@ -305,7 +315,7 @@ async function pickAttachmentFile(options = {}, deps = {}) {
           throw new Error("Permission to write the local scouting file was denied.");
         }
       }
-      const displayPath = normalizeText(options.path) || normalizeText(handle.name) || "Selected local file";
+      const displayPath = resolveDisplayPath(options.path, handle.name);
       await storage.set(attachmentId, normalizeStoredAttachmentRecord(handle, attachmentId, displayPath));
       return {
         attachmentId,

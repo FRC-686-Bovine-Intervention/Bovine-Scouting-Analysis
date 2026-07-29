@@ -1,0 +1,85 @@
+{
+  "meta": {
+    "templateProfileId": "canonical-json-v1",
+    "profileLabel": "Canonical JSON",
+    "translationVersion": "2025-thin-v2",
+    "format": "frc-scouting-analysis/v1",
+    "sourceApp": ""
+  },
+  "schema": {
+    "schemaId": "2025-match-v1",
+    "expectedScoutingFields": [
+      "autoL4Made",
+      "autoL4Missed",
+      "autoL3Made",
+      "autoL3Missed",
+      "autoL2Made",
+      "autoL2Missed",
+      "autoTroughMade",
+      "autoTroughMissed",
+      "autoRemovedAlgaeMade",
+      "autoRemovedAlgaeMissed",
+      "autoProcessorMade",
+      "autoProcessorMissed",
+      "autoBargeMade",
+      "autoBargeMissed",
+      "teleL4Made",
+      "teleL4Missed",
+      "teleL3Made",
+      "teleL3Missed",
+      "teleL2Made",
+      "teleL2Missed",
+      "teleTroughMade",
+      "teleTroughMissed",
+      "teleRemovedAlgaeMade",
+      "teleRemovedAlgaeMissed",
+      "teleProcessorMade",
+      "teleProcessorMissed",
+      "teleBargeMade",
+      "teleBargeMissed",
+      "climbHeight",
+      "fake",
+      "climbAttempt",
+      "driverPerformance",
+      "playedDefenseRating",
+      "defenseOnThemRating",
+      "scoutUser",
+      "station",
+      "defensePlayed",
+      "robotStatus",
+      "notes"
+    ]
+  },
+  "profile": {
+    "id": "canonical-json-v1",
+    "label": "Canonical JSON",
+    "versionKey": "canonical-json-v1|0ab32f86",
+    "derivedEquations": [
+      {
+        "name": "algae",
+        "formula": "average(scouting.teleProcessorMade * 6 + scouting.teleBargeMade * 4)"
+      },
+      {
+        "name": "auto",
+        "formula": "average(scouting.autoL3Made * 6 + scouting.autoL2Made * 4 + scouting.autoTroughMade * 3 + scouting.autoProcessorMade * 6 + scouting.autoBargeMade * 4)"
+      },
+      {
+        "name": "avgClimbScoreOverAttempts",
+        "formula": "average(if(scouting.climbHeight == 3, 12, if(scouting.climbHeight == 2, 6, if(scouting.climbHeight == 1, 2, 0))), scouting.climbAttempt > 0)"
+      },
+      {
+        "name": "climb",
+        "formula": "average(if(scouting.climbHeight == 3, 12, if(scouting.climbHeight == 2, 6, if(scouting.climbHeight == 1, 2, 0))))"
+      },
+      {
+        "name": "coral",
+        "formula": "average(scouting.teleL4Made * 5 + scouting.teleL3Made * 4 + scouting.teleL2Made * 3 + scouting.teleTroughMade * 2)"
+      },
+      {
+        "name": "scoutingTotal",
+        "formula": "auto + coral + algae + climb"
+      }
+    ],
+    "filters": []
+  }
+}

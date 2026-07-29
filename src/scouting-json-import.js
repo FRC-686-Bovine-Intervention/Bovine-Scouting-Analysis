@@ -43,6 +43,7 @@ function normalizeText(value) {
 }
 
 function schemaFieldName(fieldDefinition = {}) {
+  if (typeof fieldDefinition === "string") return normalizeText(fieldDefinition);
   return normalizeText(fieldDefinition?.name || fieldDefinition?.id || fieldDefinition?.label);
 }
 
@@ -305,12 +306,16 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
         templateProfileId: profileIdOverride || normalizeText(schemaMeta.templateProfileId) || normalizeText(meta.templateProfileId) || canonicalTemplateProfileId,
         translationVersion: translationVersionOverride || normalizeText(schemaMeta.translationVersion) || normalizeText(meta.translationVersion),
       },
-      schemaFields: schemaFieldDefinitions.map((field) => ({
-        id: schemaFieldName(field),
-        label: normalizeText(field?.label) || schemaFieldName(field),
-        type: normalizeText(field?.type),
-        unit: normalizeText(field?.unit),
-      })),
+      schemaFields: schemaFieldDefinitions.map((field) => {
+        const fieldId = schemaFieldName(field);
+        const normalizedField = schemaFieldMap.get(fieldId);
+        return {
+          id: fieldId,
+          label: (typeof field === "string" ? "" : normalizeText(field?.label)) || normalizeText(normalizedField?.label) || fieldId,
+          type: (typeof field === "string" ? "" : normalizeText(field?.type)) || normalizeText(normalizedField?.type),
+          unit: (typeof field === "string" ? "" : normalizeText(field?.unit)) || normalizeText(normalizedField?.unit),
+        };
+      }),
       submissions: parsedRows,
     },
   };

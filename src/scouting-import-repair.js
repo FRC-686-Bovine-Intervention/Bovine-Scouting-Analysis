@@ -21,12 +21,16 @@ function schemaFieldDefinitions(eventModel) {
 }
 
 function normalizeSchemaFieldEntry(fieldDefinition) {
-  const fieldId = String(fieldDefinition?.name || fieldDefinition?.id || "").trim();
+  const fieldId = typeof fieldDefinition === "string"
+    ? String(fieldDefinition).trim()
+    : String(fieldDefinition?.name || fieldDefinition?.id || "").trim();
+  const explicitType = typeof fieldDefinition === "string" ? "" : String(fieldDefinition?.type || "").trim();
+  const explicitUnit = typeof fieldDefinition === "string" ? "" : String(fieldDefinition?.unit || "").trim();
   return {
     id: fieldId,
-    label: fieldDefinition.label || fieldId,
-    type: String(fieldDefinition?.type || "").trim() || (String(fieldDefinition?.unit || "").trim().toLowerCase() === "text" ? "string" : "number"),
-    unit: fieldDefinition.unit || "",
+    label: (typeof fieldDefinition === "string" ? "" : fieldDefinition.label) || fieldId,
+    type: explicitType || (explicitUnit ? (explicitUnit.toLowerCase() === "text" ? "string" : "number") : ""),
+    unit: explicitUnit,
   };
 }
 

@@ -142,6 +142,31 @@ async function main() {
     assert.equal(stored.handle, handle);
   });
 
+  await runTest("pickAttachmentFile prefers the newly selected native filename when it differs from the prior display path", async () => {
+    const storage = createMemoryStorage();
+    const context = loadBrowserContext(["src/local-file-access.js"]);
+    const handle = {
+      name: "2026chcmp_profile-v1.json",
+      async getFile() {
+        return { async text() { return "{\"ok\":true}"; } };
+      },
+    };
+
+    const selected = await context.LocalFileAccess.pickAttachmentFile(
+      {
+        attachmentId: "attachment-new-native-name",
+        format: "scouting-json",
+        path: "2026chcmp_profile.json",
+      },
+      { storage, showOpenFilePicker: async () => [handle] },
+    );
+
+    assert.equal(selected.path, "2026chcmp_profile-v1.json");
+    const stored = await storage.get("attachment-new-native-name");
+    assert.equal(stored.path, "2026chcmp_profile-v1.json");
+    assert.equal(stored.name, "2026chcmp_profile-v1.json");
+  });
+
   await runTest("createAttachmentFile persists a newly saved handle and returns the chosen display path", async () => {
     const storage = createMemoryStorage();
     const context = loadBrowserContext(["src/local-file-access.js"]);

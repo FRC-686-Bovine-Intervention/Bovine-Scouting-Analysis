@@ -31,23 +31,6 @@ function baseFormulaFieldDefinitions(eventModel) {
   return definitions;
 }
 
-function titleCaseToken(token) {
-  const normalized = normalizeText(token);
-  if (!normalized) return "";
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-}
-
-function humanizeFieldId(fieldId) {
-  const normalized = normalizeText(fieldId)
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/[_\-]+/g, " ");
-  return normalized
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(titleCaseToken)
-    .join(" ");
-}
-
 function inferFieldType(values) {
   const samples = (values || []).filter((value) => value !== null && value !== undefined && value !== "");
   if (!samples.length) return "string";
@@ -59,7 +42,7 @@ function dynamicFieldDefinition(fieldId, samples = [], schemaField = null) {
   const type = normalizeText(schemaField?.type) || inferFieldType(samples);
   return {
     id: fieldId,
-    label: normalizeText(schemaField?.label) || humanizeFieldId(fieldId) || fieldId,
+    label: normalizeText(schemaField?.label) || fieldId,
     unit: normalizeText(schemaField?.unit) || (type === "number" ? "count" : "text"),
     dynamic: true,
     type,
@@ -100,7 +83,6 @@ function buildDynamicScoutingFieldDefinitions({ eventModel, submissions = [], sc
 
 globalThis.DynamicScoutingFields = {
   buildDynamicScoutingFieldDefinitions,
-  humanizeFieldId,
   inferFieldType,
 };
 })();

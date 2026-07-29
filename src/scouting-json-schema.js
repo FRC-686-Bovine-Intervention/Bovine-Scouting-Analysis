@@ -62,6 +62,8 @@ function formulaFieldDefinitions(eventModel) {
 }
 
 function inferCanonicalFieldType(fieldDefinition) {
+  const fieldId = canonicalSchemaFieldName(fieldDefinition);
+  if (contextualEntryMetricIds.includes(fieldId)) return "string";
   const explicitType = normalizeText(fieldDefinition?.type).toLowerCase();
   if (explicitType) return explicitType;
   const unit = normalizeText(fieldDefinition?.unit).toLowerCase();

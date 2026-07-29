@@ -126,6 +126,56 @@ runTest("validateCanonicalSchema accepts split entries and schema artifacts", ()
   assert.equal(validation.entries.length, 1);
 });
 
+runTest("validateCanonicalSchema infers contextual rawMetrics fields as string-backed when schema ids are bare strings", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
+  const season2025 = context.SeasonFramework.gameDefinitions["2025"];
+  const eventModel = {
+    ...season2025,
+    season: 2025,
+    key: "2025chcmp",
+    seasonLabel: season2025.label,
+  };
+  const entriesPayload = {
+    meta: {
+      format: "frc-scouting-analysis/v1",
+      season: 2025,
+      eventKey: "2025chcmp",
+      entryType: "match",
+    },
+    entries: [{
+      entryId: "entry-1",
+      matchNumber: 1,
+      teamNumber: 686,
+      alliance: "blue",
+      rawMetrics: {
+        scoutUser: "Scout A",
+        station: "1",
+        defensePlayed: false,
+        robotStatus: "ok",
+        notes: "",
+      },
+    }],
+  };
+  const schemaPayload = {
+    meta: {
+      format: "frc-scouting-analysis/v1",
+      templateProfileId: "canonical-json-v1",
+    },
+    schema: {
+      schemaId: "2025-match-v1",
+      expectedScoutingFields: ["scoutUser", "station", "defensePlayed", "robotStatus", "notes"],
+    },
+  };
+  const validation = context.ScoutingJsonSchema.validateCanonicalSchema(entriesPayload, eventModel, "2025chcmp", schemaPayload);
+
+  assert.equal(validation.errors.length, 0);
+  assert.equal(validation.schemaFieldMap.get("scoutUser").type, "string");
+  assert.equal(validation.schemaFieldMap.get("station").type, "string");
+  assert.equal(validation.schemaFieldMap.get("defensePlayed").type, "string");
+  assert.equal(validation.schemaFieldMap.get("robotStatus").type, "string");
+  assert.equal(validation.schemaFieldMap.get("notes").type, "string");
+});
+
 runTest("validateCanonicalSchema rejects contextual fields at the top level of entries", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
   const eventModel = buildEventModel(context);

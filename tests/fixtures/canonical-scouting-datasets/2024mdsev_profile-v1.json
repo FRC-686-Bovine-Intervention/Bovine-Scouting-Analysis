@@ -1,0 +1,43 @@
+{
+  "meta": {
+    "format": "frc-scouting-analysis/v1",
+    "sourceApp": "legacy-sheet-translator",
+    "templateProfileId": "match-current-v2",
+    "profileLabel": "Current Match Template",
+    "translationVersion": "2024-thin-v2"
+  },
+  "schema": {
+    "schemaId": "2024-match-v1",
+    "expectedScoutingFields": [
+      "autoSpeakerMade",
+      "autoSpeakerMissed",
+      "autoAmpMade",
+      "autoAmpMissed",
+      "teleSpeakerMade",
+      "teleSpeakerMissed",
+      "teleAmpMade",
+      "teleAmpMissed",
+      "climbAttempt",
+      "climbSuccess",
+      "driverPerformance",
+      "defenseOnThemRating",
+      "scoutUser",
+      "station",
+      "defensePlayed",
+      "robotStatus",
+      "notes"
+    ]
+  },
+  "profile": {
+    "id": "match-current-v2",
+    "label": "Current Match Template",
+    "versionKey": "match-current-v2|4fb2eee1",
+    "derivedEquations": [
+      {
+        "name": "auto",
+        "formula": "5 * scouting.autoSpeakerMade + 2 * scouting.autoAmpMade"
+      }
+    ],
+    "filters": []
+  }
+}
