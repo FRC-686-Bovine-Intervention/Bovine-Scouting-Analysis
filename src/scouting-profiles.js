@@ -31,6 +31,53 @@ function cloneJsonValue(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+const defaultMetricDiscoveryBlacklist = Object.freeze({
+  tba: Object.freeze([
+    "scoreBreakdown.adjustPoints",
+    "scoreBreakdown.rp",
+  ]),
+  statbotics: Object.freeze([
+    "country",
+    "district",
+    "event",
+    "event_name",
+    "first_event",
+    "state",
+    "status",
+    "team",
+    "team_name",
+    "time",
+    "type",
+    "week",
+    "year",
+  ]),
+});
+
+function metricDiscoveryBlacklist(schemaPayload = {}, sourceId = "") {
+  const normalizedSourceId = normalizeText(sourceId);
+  const metricDiscovery = schemaPayload?.schema?.metricDiscovery || schemaPayload?.metricDiscovery || {};
+  const schemaPatterns = Array.isArray(metricDiscovery?.blacklist?.[normalizedSourceId])
+    ? metricDiscovery.blacklist[normalizedSourceId]
+    : [];
+  return [
+    ...(defaultMetricDiscoveryBlacklist[normalizedSourceId] || []),
+    ...schemaPatterns,
+  ].map(normalizeText).filter(Boolean);
+}
+
+function metricDiscoveryGlobMatches(pattern, fieldId) {
+  const escapedPattern = normalizeText(pattern)
+    .split("*")
+    .map((segment) => segment.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&"))
+    .join(".*");
+  return new RegExp(`^${escapedPattern}$`).test(String(fieldId || ""));
+}
+
+function isProviderMetricDiscoverable(sourceId, fieldId, schemaPayload = {}) {
+  return !metricDiscoveryBlacklist(schemaPayload, sourceId)
+    .some((pattern) => metricDiscoveryGlobMatches(pattern, fieldId));
+}
+
 function normalizeFieldDefinition(fieldDefinition) {
   const fieldId = normalizeText(fieldDefinition?.id);
   if (!fieldId) return null;
@@ -108,7 +155,11 @@ function materializeEventScopedProfileCatalog(profileCatalog = {}, eventModels =
 
 globalThis.ScoutingProfiles = {
   buildProfileVersionKey,
+  defaultMetricDiscoveryBlacklist,
+  isProviderMetricDiscoverable,
   materializeEventScopedProfileCatalog,
+  metricDiscoveryBlacklist,
+  metricDiscoveryGlobMatches,
   normalizeFieldDefinition,
 };
 })();

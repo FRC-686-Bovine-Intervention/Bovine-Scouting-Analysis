@@ -107,6 +107,7 @@ function loadAppContext(options = {}) {
     "src/scouting-dependency-diagnostics.js",
     "src/scouting-diagnostics-state.js",
     "src/scouting-json-schema.js",
+    "src/scouting-profiles.js",
     "src/event-workspace.js",
   ].forEach((relativePath) => {
     const source = fs.readFileSync(path.join(workspaceRoot, relativePath), "utf8");
@@ -962,6 +963,76 @@ await runTest("provider-backed derived equations resolve TBA and Statbotics iden
   assert.equal(statboticsEvaluation.result.kind, "scalar");
   assert.equal(statboticsEvaluation.result.granularity, "event");
   assert.equal(statboticsEvaluation.result.value, 42.7);
+});
+
+await runTest("provider metric catalogs apply default and schema blacklists without hiding foul performance", async () => {
+  const eventCatalog = [{
+    key: "2025chcmp",
+    season: 2025,
+    name: "CHCMP",
+    seasonLabel: "2025",
+    teams: [{
+      number: 111,
+      sources: {
+        tba: { components: {} },
+        statbotics: {
+          components: {
+            team_name: "Example Team",
+            "epa.total_points": 42.7,
+          },
+        },
+      },
+    }],
+    teamNumbers: [111],
+    matches: [{
+      number: 1,
+      red: [111],
+      blue: [222, 333, 444],
+      scoreBreakdown: {
+        red: {
+          adjustPoints: 0,
+          foulPoints: 8,
+          autoReef: {
+            topRow: { nodeA: true },
+            tba_topRowCount: 1,
+          },
+        },
+        blue: {},
+      },
+    }],
+    dataSources: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    sheet: { recommendedProfileId: "match-current-v2" },
+  }];
+
+  const context = loadAppContext({ eventCatalog });
+  const state = context.__scoutingAppState;
+  const eventModel = context.eventCatalog[0];
+  state.activeEventKey = eventModel.key;
+  state.importSchemaJsonText = JSON.stringify({
+    schema: {
+      metricDiscovery: {
+        blacklist: {
+          tba: [
+            "scoreBreakdown.autoReef.*.node*",
+            "scoreBreakdown.teleopReef.*.node*",
+          ],
+          statbotics: [],
+        },
+      },
+    },
+  });
+
+  const identifiers = context.currentDerivedAvailableMetrics(eventModel).map((metric) => metric.id);
+
+  assert.equal(identifiers.includes("tba.autoReef.topRow.nodeA"), false);
+  assert.equal(identifiers.includes("tba.autoReef.tba_topRowCount"), true);
+  assert.equal(identifiers.includes("tba.adjustPoints"), false);
+  assert.equal(identifiers.includes("tba.foulPoints"), true);
+  assert.equal(identifiers.includes("statbotics.team_name"), false);
+  assert.equal(identifiers.includes("statbotics.epa.total_points"), true);
 });
 
 await runTest("available metrics preview resolves metrics that are not already referenced by the active equation", async () => {

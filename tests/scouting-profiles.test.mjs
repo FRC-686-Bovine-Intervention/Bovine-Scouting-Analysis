@@ -94,3 +94,75 @@ runTest("materializeEventScopedProfileCatalog projects legacy season profiles on
     ],
   });
 });
+
+runTest("metric discovery blacklist merges defaults with schema globs and keeps foul metrics discoverable", () => {
+  const schemaPayload = {
+    schema: {
+      metricDiscovery: {
+        blacklist: {
+          tba: [
+            "scoreBreakdown.autoReef.*.node*",
+            "scoreBreakdown.teleopReef.*.node*",
+          ],
+          statbotics: [],
+        },
+      },
+    },
+  };
+
+  assert.equal(
+    scoutingProfiles.isProviderMetricDiscoverable("tba", "scoreBreakdown.autoReef.topRow.nodeA", schemaPayload),
+    false,
+  );
+  assert.equal(
+    scoutingProfiles.isProviderMetricDiscoverable("tba", "scoreBreakdown.autoReef.tba_topRowCount", schemaPayload),
+    true,
+  );
+  assert.equal(
+    scoutingProfiles.isProviderMetricDiscoverable("tba", "scoreBreakdown.adjustPoints", schemaPayload),
+    false,
+  );
+  assert.equal(
+    scoutingProfiles.isProviderMetricDiscoverable("tba", "scoreBreakdown.foulPoints", schemaPayload),
+    true,
+  );
+  assert.equal(
+    scoutingProfiles.isProviderMetricDiscoverable("statbotics", "team_name", schemaPayload),
+    false,
+  );
+});
+
+runTest("metric discovery globs are case-sensitive full matches with star as the only wildcard", () => {
+  const schemaPayload = {
+    metricDiscovery: {
+      blacklist: {
+        tba: [
+          "scoreBreakdown.autoReef.*.node*",
+          "scoreBreakdown.literal?.value",
+        ],
+        statbotics: [],
+      },
+    },
+  };
+
+  assert.equal(
+    scoutingProfiles.isProviderMetricDiscoverable("tba", "scoreBreakdown.autoReef.topRow.nodeA", schemaPayload),
+    false,
+  );
+  assert.equal(
+    scoutingProfiles.isProviderMetricDiscoverable("tba", "prefix.scoreBreakdown.autoReef.topRow.nodeA", schemaPayload),
+    true,
+  );
+  assert.equal(
+    scoutingProfiles.isProviderMetricDiscoverable("tba", "scoreBreakdown.AutoReef.topRow.nodeA", schemaPayload),
+    true,
+  );
+  assert.equal(
+    scoutingProfiles.isProviderMetricDiscoverable("tba", "scoreBreakdown.literal?.value", schemaPayload),
+    false,
+  );
+  assert.equal(
+    scoutingProfiles.isProviderMetricDiscoverable("tba", "scoreBreakdown.literalX.value", schemaPayload),
+    true,
+  );
+});

@@ -143,6 +143,9 @@ const materializeEventScopedProfileCatalog =
 const buildNormalizedScoutingProfileVersionKey =
   scoutingProfilesApi.buildProfileVersionKey
   || ((profile = {}) => normalizeText(profile?.versionKey || profile?.versionId || profile?.id));
+const isProviderMetricDiscoverable =
+  scoutingProfilesApi.isProviderMetricDiscoverable
+  || (() => true);
 const createEventWorkspace = eventWorkspaceApi.createEventWorkspace || ((eventModel) => ({ eventKey: eventModel?.key || "", season: Number(eventModel?.season || 0), identity: { key: eventModel?.key || "", name: eventModel?.name || "", seasonLabel: eventModel?.seasonLabel || "" }, sources: { tba: {}, statbotics: {}, pridge: {}, scouting: [] }, activeScoutingAttachmentId: "" }));
 const markEventWorkspaceScoutingAttachmentAttempt = eventWorkspaceApi.markActiveScoutingAttachmentAttempt || ((workspace) => workspace);
 const markEventWorkspaceScoutingAttachmentFailure = eventWorkspaceApi.markActiveScoutingAttachmentFailure || ((workspace) => workspace);
@@ -2446,6 +2449,32 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
   ];
 }
 
+function currentMetricDiscoverySchemaPayload() {
+  const schemaJsonText = normalizeText(state.importSchemaJsonText);
+  if (!schemaJsonText) return {};
+  try {
+    return JSON.parse(schemaJsonText);
+  } catch {
+    return {};
+  }
+}
+
+function providerMetricDiscoveryFieldId(sourceId, definition = {}) {
+  const fieldId = normalizeText(definition.fieldId);
+  if (sourceId === "tba" && definition.granularity === "match") {
+    return `scoreBreakdown.${fieldId}`;
+  }
+  return fieldId;
+}
+
+function providerMetricDefinitionIsDiscoverable(sourceId, definition, schemaPayload = currentMetricDiscoverySchemaPayload()) {
+  return isProviderMetricDiscoverable(
+    sourceId,
+    providerMetricDiscoveryFieldId(sourceId, definition),
+    schemaPayload,
+  );
+}
+
 function defaultCriteriaTerms(eventModel = currentEvent()) {
   return [{ operator: "+", weight: 1, metricId: "" }];
 }
@@ -2587,11 +2616,17 @@ function collectTbaMetricDefinitions(eventModel = currentEvent()) {
 }
 
 function currentAvailableTbaFormulaIdentifiers(eventModel = currentEvent()) {
-  return collectTbaMetricDefinitions(eventModel).formulaDefinitions.map((definition) => definition.id);
+  return collectTbaMetricDefinitions(eventModel).formulaDefinitions
+    .filter((definition) => providerMetricDefinitionIsDiscoverable("tba", definition))
+    .map((definition) => definition.id);
 }
 
 function currentDynamicTbaMetricDefinitions(eventModel = currentEvent()) {
-  return collectTbaMetricDefinitions(eventModel).metricDefinitions;
+  return collectTbaMetricDefinitions(eventModel).metricDefinitions
+    .filter((definition) => providerMetricDefinitionIsDiscoverable("tba", {
+      fieldId: definition.componentId,
+      granularity: definition.granularity,
+    }));
 }
 
 function collectStatboticsMetricDefinitions(eventModel = currentEvent()) {
@@ -2656,11 +2691,17 @@ function collectStatboticsMetricDefinitions(eventModel = currentEvent()) {
 }
 
 function currentAvailableStatboticsFormulaIdentifiers(eventModel = currentEvent()) {
-  return collectStatboticsMetricDefinitions(eventModel).formulaDefinitions.map((definition) => definition.id);
+  return collectStatboticsMetricDefinitions(eventModel).formulaDefinitions
+    .filter((definition) => providerMetricDefinitionIsDiscoverable("statbotics", definition))
+    .map((definition) => definition.id);
 }
 
 function currentDynamicStatboticsMetricDefinitions(eventModel = currentEvent()) {
-  return collectStatboticsMetricDefinitions(eventModel).metricDefinitions;
+  return collectStatboticsMetricDefinitions(eventModel).metricDefinitions
+    .filter((definition) => providerMetricDefinitionIsDiscoverable("statbotics", {
+      fieldId: definition.componentId,
+      granularity: definition.granularity,
+    }));
 }
 
 function preferredFormulaSubmission(submissions, scouterMetricIds = []) {
