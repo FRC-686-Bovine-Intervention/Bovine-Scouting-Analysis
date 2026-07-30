@@ -162,6 +162,85 @@ runTest("previewScoutingJsonImport preserves string-only expectedScoutingFields 
   );
 });
 
+runTest("previewScoutingJsonImport carries schema metricDiscovery into the imported profile definition", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
+  const eventModel = {
+    season: 2025,
+    key: "2025chcmp",
+    seasonLabel: "2025 Season",
+    scoringComponents: [],
+    formulaFieldDefinitions: [],
+    scouterMetricDefinitions: [],
+    derivedMetricDefinitions: [],
+    metrics: [],
+  };
+
+  const preview = context.ScoutingJsonImport.previewScoutingJsonImport({
+    jsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        season: 2025,
+        eventKey: "2025chcmp",
+        entryType: "match",
+      },
+      entries: [
+        {
+          entryId: "entry-1",
+          matchNumber: 1,
+          teamNumber: 686,
+          alliance: "blue",
+          rawMetrics: {
+            autoL4Made: 1,
+            scoutUser: "Scout A",
+            station: "1",
+          },
+        },
+      ],
+    }),
+    schemaJsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        templateProfileId: "canonical-json-v1",
+        profileLabel: "Canonical JSON",
+      },
+      schema: {
+        schemaId: "2025-match-v1",
+        metricDiscovery: {
+          blacklist: {
+            tba: [
+              "scoreBreakdown.autoReef.*.node*",
+              "scoreBreakdown.teleopReef.*.node*",
+            ],
+            statbotics: [],
+          },
+        },
+        expectedScoutingFields: ["autoL4Made", "notes"],
+      },
+      profile: {
+        id: "canonical-json-v1",
+        label: "Canonical JSON",
+      },
+    }),
+    eventModel,
+    activeEventKey: "2025chcmp",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, true);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(preview.summary.profileDefinition.metricDiscovery)),
+    {
+      blacklist: {
+        tba: [
+          "scoreBreakdown.autoReef.*.node*",
+          "scoreBreakdown.teleopReef.*.node*",
+        ],
+        statbotics: [],
+      },
+    },
+  );
+});
+
 runTest("previewScoutingJsonImport preserves explicit entry provenance", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];

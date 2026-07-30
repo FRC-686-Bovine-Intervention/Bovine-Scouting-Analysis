@@ -288,6 +288,9 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
         ...profileDefinition,
         id: profileIdOverride || normalizeText(profileDefinition?.id) || normalizeText(schemaMeta.templateProfileId) || normalizeText(meta.templateProfileId) || canonicalTemplateProfileId,
         label: profileLabelOverride || normalizeText(profileDefinition?.label) || normalizeText(schemaMeta.profileLabel) || normalizeText(meta.profileLabel) || "Canonical Scouting JSON",
+        metricDiscovery: schema?.metricDiscovery && typeof schema.metricDiscovery === "object"
+          ? JSON.parse(JSON.stringify(schema.metricDiscovery))
+          : null,
       },
       schemaVersion: normalizeText(schema.schemaId) || canonicalTemplateProfileId,
       rowCount: parsedRows.length,
