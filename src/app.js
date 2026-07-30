@@ -2165,6 +2165,7 @@ function applyScoutingSchemaResolutionDraft(model = currentScoutingSchemaReconci
     fields: model.draftProfileDefinition.fields,
     derivedEquations: nextProfileDefinition.derivedEquations,
     filters: nextProfileDefinition.filters,
+    metricDiscovery: nextProfileDefinition.metricDiscovery,
   });
   return true;
 }
@@ -2451,12 +2452,17 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
 
 function currentMetricDiscoverySchemaPayload() {
   const schemaJsonText = normalizeText(state.importSchemaJsonText);
-  if (!schemaJsonText) return {};
-  try {
-    return JSON.parse(schemaJsonText);
-  } catch {
-    return {};
+  if (schemaJsonText) {
+    try {
+      return JSON.parse(schemaJsonText);
+    } catch {
+      return {};
+    }
   }
+  const profileDefinition = currentImportedProfileDefinition(currentEvent());
+  return profileDefinition?.metricDiscovery
+    ? { schema: { metricDiscovery: cloneJsonValue(profileDefinition.metricDiscovery) } }
+    : {};
 }
 
 function providerMetricDiscoveryFieldId(sourceId, definition = {}) {
@@ -3686,6 +3692,9 @@ function registerScoutingProfile(eventModel, profile) {
           ? profile.derivedEquations
           : (Array.isArray(profile?.equations) ? profile.equations : (existingProfile?.derivedEquations || existingProfile?.equations || [])),
         filters: Array.isArray(profile?.filters) ? profile.filters : (existingProfile?.filters || []),
+        metricDiscovery: profile?.metricDiscovery && typeof profile.metricDiscovery === "object"
+          ? cloneJsonValue(profile.metricDiscovery)
+          : (existingProfile?.metricDiscovery ? cloneJsonValue(existingProfile.metricDiscovery) : undefined),
         ...(normalizeText(profile?.versionKey || profile?.versionId)
           ? { versionKey: normalizeText(profile?.versionKey || profile?.versionId) }
           : {}),
@@ -4010,6 +4019,9 @@ function normalizeScoutingProfileDefinition(profile) {
       equations,
       filters,
     });
+  const metricDiscovery = profile?.metricDiscovery && typeof profile.metricDiscovery === "object"
+    ? cloneJsonValue(profile.metricDiscovery)
+    : null;
   return {
     id,
     label: scoutingProfileLabel(id, profile?.label || profile?.name || id),
@@ -4017,6 +4029,7 @@ function normalizeScoutingProfileDefinition(profile) {
     fields,
     equations,
     filters,
+    ...(metricDiscovery ? { metricDiscovery } : {}),
   };
 }
 
@@ -4366,6 +4379,7 @@ function metricById(id) {
 
 function metricTokenLabel(metric) {
   if (!metric) return "";
+  if (metric.kind === "source" && (metric.sourceId === "scouting" || metric.sourceId === "scouter")) return `scouting.${metric.componentId}`;
   if (metric.kind === "source" && metric.sourceId === "tba") return `tba.${metric.componentId}`;
   if (metric.kind === "source" && metric.sourceId === "statbotics") return `statbotics.${metric.componentId}`;
   if (metric.kind === "source" && metric.sourceId === "pridge" && metric.componentId === "total") return "pridge.total";
@@ -5214,6 +5228,7 @@ function commitImportPreview(options = {}) {
     fields: preview.summary.schemaFields,
     derivedEquations: preview.summary.profileDefinition?.derivedEquations || preview.summary.profileDefinition?.equations,
     filters: preview.summary.profileDefinition?.filters,
+    metricDiscovery: preview.summary.profileDefinition?.metricDiscovery,
     versionKey: preview.summary.profileDefinition?.versionKey,
   });
   if (state.importDraftSource === "attached") {

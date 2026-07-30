@@ -1011,28 +1011,50 @@ await runTest("provider metric catalogs apply default and schema blacklists with
   const state = context.__scoutingAppState;
   const eventModel = context.eventCatalog[0];
   state.activeEventKey = eventModel.key;
+  const metricDiscovery = {
+    blacklist: {
+      tba: [
+        "scoreBreakdown.autoReef.*.node*",
+        "scoreBreakdown.teleopReef.*.node*",
+      ],
+      statbotics: [],
+    },
+  };
   state.importSchemaJsonText = JSON.stringify({
     schema: {
-      metricDiscovery: {
-        blacklist: {
-          tba: [
-            "scoreBreakdown.autoReef.*.node*",
-            "scoreBreakdown.teleopReef.*.node*",
-          ],
-          statbotics: [],
-        },
-      },
+      metricDiscovery,
     },
   });
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    label: "Current Match Template",
+    fields: [{
+      id: "autoL4Made",
+      label: "Auto L4 Made",
+      type: "number",
+      unit: "count",
+    }],
+    metricDiscovery,
+  });
+  state.importSchemaJsonText = "";
 
   const identifiers = context.currentDerivedAvailableMetrics(eventModel).map((metric) => metric.id);
-
   assert.equal(identifiers.includes("tba.autoReef.topRow.nodeA"), false);
   assert.equal(identifiers.includes("tba.autoReef.tba_topRowCount"), true);
+  assert.equal(identifiers.includes("tba.teleopReef.topRow.nodeD"), false);
   assert.equal(identifiers.includes("tba.adjustPoints"), false);
   assert.equal(identifiers.includes("tba.foulPoints"), true);
   assert.equal(identifiers.includes("statbotics.team_name"), false);
   assert.equal(identifiers.includes("statbotics.epa.total_points"), true);
+  assert.equal(
+    context.metricTokenLabel({
+      kind: "source",
+      sourceId: "scouter",
+      componentId: "autoL4Made",
+      label: "Scouting Auto L4 Made",
+    }),
+    "scouting.autoL4Made",
+  );
 });
 
 await runTest("available metrics preview resolves metrics that are not already referenced by the active equation", async () => {
