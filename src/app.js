@@ -208,6 +208,8 @@ const storageKeys = {
   sortEquations: "frc-scouting-sort-equations",
   activeSortEquation: "frc-scouting-active-sort-equation",
   picklistColumns: "frc-scouting-picklist-columns",
+  picklistColumnSortDirections: "frc-scouting-picklist-column-sort-directions",
+  loadedSourceSortDirections: "frc-scouting-loaded-source-sort-directions",
   picklistCompareTeams: "frc-scouting-picklist-compare-teams",
   scoutingSubmissions: "frc-scouting-submissions",
   scoutingReviewOverrides: "frc-scouting-review-overrides",
@@ -268,6 +270,7 @@ const appViews = [...navItems, { view: "teamDetail", label: "Team Detail", icon:
 const picklistColumnCount = 4;
 const picklistCompareLimit = 4;
 const protectedEpaSortId = "sort-epa";
+const defaultColumnSortDirection = "desc";
 const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
 const maskedTbaAuthKeyValue = "............";
 const defaultStatboticsBaseUrl = "https://api-statbotics.iterativerefinement.com/v3";
@@ -355,6 +358,8 @@ const state = {
   activePicklist: "",
   activeSortEquation: "",
   picklistColumns: [],
+  picklistColumnSortDirections: Array(picklistColumnCount).fill(defaultColumnSortDirection),
+  loadedSourceSortDirections: {},
   allianceBoard: normalizeBoard(defaultAllianceBoard, initialEvent),
   contextMenu: null,
   inlineRename: null,
@@ -3483,6 +3488,8 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.activePicklist), state.activePicklist);
   localStorage.setItem(eventStorageKey(storageKeys.activeSortEquation), state.activeSortEquation);
   localStorage.setItem(eventStorageKey(storageKeys.picklistColumns), JSON.stringify(state.picklistColumns));
+  localStorage.setItem(eventStorageKey(storageKeys.picklistColumnSortDirections), JSON.stringify(state.picklistColumnSortDirections));
+  localStorage.setItem(eventStorageKey(storageKeys.loadedSourceSortDirections), JSON.stringify(state.loadedSourceSortDirections));
   localStorage.setItem(eventStorageKey(storageKeys.allianceBoard), JSON.stringify(state.allianceBoard));
   localStorage.setItem(eventStorageKey(storageKeys.picklistCompareTeams), JSON.stringify(state.picklistCompareTeams));
   localStorage.setItem(eventStorageKey(storageKeys.scoutingReviewOverrides), JSON.stringify(state.scoutingReviewOverrides));
@@ -3755,6 +3762,12 @@ function hydrateEventState(eventKey) {
     resolveSortEquationId(readStoredItem(storageKeys.activeSortEquation, resolvedEventKey), state.sortEquations) || state.sortEquations[0]?.id || "";
   state.loadedSources = normalizeLoadedSources(readStoredJson(storageKeys.loadedPicklists, [`picklist:${eventModel.seedPicklists[0].id}`], resolvedEventKey));
   state.picklistColumns = normalizePicklistColumns(readStoredJson(storageKeys.picklistColumns, Array(picklistColumnCount).fill(""), resolvedEventKey));
+  state.picklistColumnSortDirections = normalizePicklistColumnSortDirections(
+    readStoredJson(storageKeys.picklistColumnSortDirections, Array(picklistColumnCount).fill(defaultColumnSortDirection), resolvedEventKey),
+  );
+  state.loadedSourceSortDirections = normalizeLoadedSourceSortDirections(
+    readStoredJson(storageKeys.loadedSourceSortDirections, {}, resolvedEventKey),
+  );
   state.allianceBoard = normalizeBoard(readStoredJson(storageKeys.allianceBoard, defaultAllianceBoard, resolvedEventKey), eventModel);
   state.picklistCompareTeams = normalizePicklistCompareTeams(readStoredJson(storageKeys.picklistCompareTeams, [], resolvedEventKey), eventModel);
   setScoutingSubmissions(readStoredScoutingSubmissions(resolvedEventKey, eventModel), eventModel);
@@ -4233,6 +4246,26 @@ function normalizePicklistColumns(columns) {
   });
 }
 
+function normalizeColumnSortDirection(value) {
+  return String(value || "").trim().toLowerCase() === "asc" ? "asc" : defaultColumnSortDirection;
+}
+
+function normalizePicklistColumnSortDirections(values) {
+  const next = Array.isArray(values) ? values.slice(0, picklistColumnCount) : [];
+  while (next.length < picklistColumnCount) next.push(defaultColumnSortDirection);
+  return next.map((value) => normalizeColumnSortDirection(value));
+}
+
+function normalizeLoadedSourceSortDirections(values) {
+  if (!values || typeof values !== "object" || Array.isArray(values)) return {};
+  return Object.entries(values).reduce((next, [entry, direction]) => {
+    const normalizedEntry = normalizeSourceEntry(entry);
+    if (!normalizedEntry) return next;
+    next[normalizedEntry] = normalizeColumnSortDirection(direction);
+    return next;
+  }, {});
+}
+
 function normalizeSourceEntry(entry) {
   if (!entry || typeof entry !== "string") return "";
   if (entry.startsWith("metric:")) {
@@ -4251,6 +4284,34 @@ function normalizeSourceEntry(entry) {
   }
   const legacyPicklistId = resolvePicklistId(entry);
   return legacyPicklistId ? `picklist:${legacyPicklistId}` : "";
+}
+
+function picklistColumnSortDirection(index) {
+  return normalizeColumnSortDirection(state.picklistColumnSortDirections?.[index]);
+}
+
+function loadedSourceSortDirection(entry) {
+  return normalizeColumnSortDirection(state.loadedSourceSortDirections?.[normalizeSourceEntry(entry)]);
+}
+
+function setPicklistColumnSortDirection(index, direction) {
+  if (index < 0 || index >= picklistColumnCount) return;
+  state.picklistColumnSortDirections[index] = normalizeColumnSortDirection(direction);
+  state.contextMenu = null;
+  saveState();
+  render();
+}
+
+function setLoadedSourceSortDirection(entry, direction) {
+  const normalizedEntry = normalizeSourceEntry(entry);
+  if (!normalizedEntry) return;
+  state.loadedSourceSortDirections = {
+    ...state.loadedSourceSortDirections,
+    [normalizedEntry]: normalizeColumnSortDirection(direction),
+  };
+  state.contextMenu = null;
+  saveState();
+  render();
 }
 
 function activePicklist() {
@@ -4345,9 +4406,11 @@ function rankTeamsByEquation(equation) {
     .map((team) => team.number);
 }
 
-function colorForScore(score, min, max) {
+function colorForScore(score, min, max, direction = defaultColumnSortDirection) {
   if (max === min) return "transparent";
-  const ratio = (score - min) / (max - min);
+  const normalizedDirection = normalizeColumnSortDirection(direction);
+  const baseRatio = (score - min) / (max - min);
+  const ratio = normalizedDirection === "asc" ? 1 - baseRatio : baseRatio;
   if (ratio >= 2 / 3) {
     const strength = (ratio - 2 / 3) * 3;
     return `rgba(34, 197, 94, ${strength.toFixed(3)})`;
@@ -4359,6 +4422,9 @@ function colorForScore(score, min, max) {
   return "transparent";
 }
 
+function sortDirectionGlyph(direction) {
+  return normalizeColumnSortDirection(direction) === "asc" ? "&uarr;" : "&darr;";
+}
 function average(values) {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 }
@@ -7226,7 +7292,14 @@ function renderTeamTile(team, index, options = {}) {
   if (options.compareIndex >= 0) classes.push("compare-selected");
   if (options.extraClass) classes.push(options.extraClass);
   const scoreMarkup = options.showScore ? `<span class="tile-score">${Number(options.score || 0).toFixed(1)}</span>` : `<span class="tile-spacer"></span>`;
-  const background = options.showScore ? colorForScore(Number(options.score || 0), Number(options.minScore || 0), Number(options.maxScore || 0)) : "transparent";
+  const background = options.showScore
+    ? colorForScore(
+      Number(options.score || 0),
+      Number(options.minScore || 0),
+      Number(options.maxScore || 0),
+      options.sortDirection,
+    )
+    : "transparent";
   const compareColor = options.compareIndex >= 0 ? compareTeamPalette[options.compareIndex] : "";
   const style = [`background: ${background}`];
   if (compareColor) style.push(`--compare-accent: ${compareColor}`);
@@ -7262,18 +7335,26 @@ function renderBuilderTeamTile(team, index, options = {}) {
   });
 }
 
-function gridColumnModel(entry) {
+function gridColumnModel(entry, options = {}) {
+  const direction = normalizeColumnSortDirection(options.direction);
   if (!entry) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
   if (entry.startsWith("metric:")) {
     const metricId = entry.slice(7);
     const metric = metricById(metricId);
     if (!metric) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
-    const rankedTeams = [...currentTeams()].sort((a, b) => teamMetricValue(b, metric) - teamMetricValue(a, metric) || a.number - b.number);
+    const rankedTeams = [...currentTeams()].sort((a, b) => {
+      const leftScore = teamMetricValue(a, metric);
+      const rightScore = teamMetricValue(b, metric);
+      return direction === "asc"
+        ? leftScore - rightScore || a.number - b.number
+        : rightScore - leftScore || a.number - b.number;
+    });
     const scores = rankedTeams.map((team) => teamMetricValue(team, metric));
     return {
       type: "metric",
       id: metric.id,
       label: metric.label,
+      direction,
       teams: rankedTeams,
       scores,
       minScore: Math.min(...scores),
@@ -7287,11 +7368,13 @@ function gridColumnModel(entry) {
   if (type === "picklist") {
     const picklist = state.picklists.find((item) => item.id === id);
     if (!picklist) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
+    const teams = picklist.teams.map((number) => teamByNumber(number)).filter(Boolean);
     return {
       type,
       id,
       label: picklist.name,
-      teams: picklist.teams.map((number) => teamByNumber(number)).filter(Boolean),
+      direction,
+      teams: direction === "asc" ? [...teams].reverse() : teams,
       minScore: 0,
       maxScore: 0,
     };
@@ -7300,12 +7383,13 @@ function gridColumnModel(entry) {
 }
 
 function renderPicklistGridColumn(entry, index) {
-  const column = gridColumnModel(entry);
+  const sortDirection = picklistColumnSortDirection(index);
+  const column = gridColumnModel(entry, { direction: sortDirection });
   const minHeight = `calc(${currentTeams().length} * var(--picklist-tile-row-size))`;
   return `
     <section class="grid-column ${column.type ? "" : "empty"}" ${column.type ? `data-grid-column="${index}"` : ""}>
       <label class="grid-column-select">
-        <span>Column ${index + 1}</span>
+        <span>Column ${index + 1} ${sortDirectionGlyph(sortDirection)}</span>
         <select data-picklist-column="${index}">
           <option value="" ${entry ? "" : "selected"}>---</option>
           <optgroup label="Metrics">
@@ -7330,6 +7414,7 @@ function renderPicklistGridColumn(entry, index) {
                         score: column.scores[teamIndex],
                         minScore: column.minScore,
                         maxScore: column.maxScore,
+                        sortDirection,
                         compareIndex,
                         builderTeam: true,
                       })
@@ -7351,9 +7436,26 @@ function renderPicklistGridColumn(entry, index) {
 function renderContextMenu() {
   if (!state.contextMenu || state.contextMenu.type === "board") return "";
   if (state.contextMenu.type === "grid-column") {
+    const currentDirection = picklistColumnSortDirection(state.contextMenu.columnIndex);
+    const ascendingDisabled = currentDirection === "asc" ? "disabled" : "";
+    const descendingDisabled = currentDirection === "desc" ? "disabled" : "";
     return `
       <div class="context-menu" style="left: ${state.contextMenu.x}px; top: ${state.contextMenu.y}px;">
+        <button data-grid-column-sort="${state.contextMenu.columnIndex}:asc" ${ascendingDisabled}>Ascending Order</button>
+        <button data-grid-column-sort="${state.contextMenu.columnIndex}:desc" ${descendingDisabled}>Descending Order</button>
         <button data-copy-grid-column="${state.contextMenu.columnIndex}">Copy to current picklist</button>
+      </div>
+    `;
+  }
+  if (state.contextMenu.type === "loaded-source-column") {
+    const normalizedEntry = normalizeSourceEntry(state.contextMenu.entry);
+    const currentDirection = loadedSourceSortDirection(normalizedEntry);
+    const ascendingDisabled = currentDirection === "asc" ? "disabled" : "";
+    const descendingDisabled = currentDirection === "desc" ? "disabled" : "";
+    return `
+      <div class="context-menu" style="left: ${state.contextMenu.x}px; top: ${state.contextMenu.y}px;">
+        <button data-loaded-source-sort="${escapeAttribute(`${normalizedEntry}:asc`)}" ${ascendingDisabled}>Ascending Order</button>
+        <button data-loaded-source-sort="${escapeAttribute(`${normalizedEntry}:desc`)}" ${descendingDisabled}>Descending Order</button>
       </div>
     `;
   }
@@ -7405,8 +7507,14 @@ function renderPicklistTile(number, index, picklist, options = {}) {
 }
 
 function renderAlliance() {
-  const loaded = state.loadedSources.map((entry) => gridColumnModel(entry)).filter((column) => column.teams.length);
-  const headerLines = Math.max(1, ...loaded.map((column) => Math.ceil(column.label.length / 14)));
+  const loaded = state.loadedSources
+    .map((entry) => ({
+      entry,
+      direction: loadedSourceSortDirection(entry),
+      column: gridColumnModel(entry, { direction: loadedSourceSortDirection(entry) }),
+    }))
+    .filter((item) => item.column.teams.length);
+  const headerLines = Math.max(1, ...loaded.map((item) => Math.ceil(item.column.label.length / 14)));
   return `
     <div class="grid alliance-layout">
       <article class="card">
@@ -7469,11 +7577,12 @@ function renderAlliance() {
             loaded.length
               ? loaded
                   .map(
-                    (column) => `
+                    ({ entry, direction, column }) => `
               <section
-                data-loaded-source="${column.type}:${column.id}"
+                data-loaded-source="${entry}"
+                data-loaded-source-column="${entry}"
               >
-                <h3 data-loaded-source-handle="${column.type}:${column.id}" draggable="true">${column.label}</h3>
+                <h3 data-loaded-source-handle="${entry}" draggable="true">${column.label} ${sortDirectionGlyph(direction)}</h3>
                 <div class="alliance-source-list">
                   ${column.teams
                     .map((team, teamIndex) =>
@@ -7484,6 +7593,7 @@ function renderAlliance() {
                         score: column.scores?.[teamIndex],
                         minScore: column.minScore,
                         maxScore: column.maxScore,
+                        sortDirection: direction,
                       }),
                     )
                     .join("")}
@@ -9120,6 +9230,18 @@ function bindViewEvents() {
       render();
     });
   });
+  document.querySelectorAll("[data-loaded-source-column]").forEach((column) => {
+    column.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      state.contextMenu = {
+        type: "loaded-source-column",
+        entry: column.dataset.loadedSourceColumn,
+        x: event.clientX,
+        y: event.clientY,
+      };
+      render();
+    });
+  });
   document.querySelectorAll(".derived-grid-column-body").forEach((column) => {
     column.addEventListener("scroll", () => {
       const scrollTop = column.scrollTop;
@@ -9130,11 +9252,26 @@ function bindViewEvents() {
   });
   document.querySelectorAll("[data-copy-grid-column]").forEach((button) => {
     button.addEventListener("click", () => {
-      const column = gridColumnModel(state.picklistColumns[Number(button.dataset.copyGridColumn)]);
+      const columnIndex = Number(button.dataset.copyGridColumn);
+      const column = gridColumnModel(state.picklistColumns[columnIndex], { direction: picklistColumnSortDirection(columnIndex) });
       const picklist = activePicklist();
       if (!column.teams.length) return;
       if (!confirm(`Replace "${picklist.name}" with "${column.label}"?`)) return;
       updatePicklist(picklist.id, (current) => ({ ...current, teams: column.teams.map((team) => team.number) }));
+    });
+  });
+  document.querySelectorAll("[data-grid-column-sort]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const [indexText, direction] = String(button.dataset.gridColumnSort || "").split(":");
+      setPicklistColumnSortDirection(Number(indexText), direction);
+    });
+  });
+  document.querySelectorAll("[data-loaded-source-sort]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const encoded = String(button.dataset.loadedSourceSort || "");
+      const separator = encoded.lastIndexOf(":");
+      if (separator < 0) return;
+      setLoadedSourceSortDirection(encoded.slice(0, separator), encoded.slice(separator + 1));
     });
   });
   document.querySelectorAll("[data-builder-team]").forEach((tile) => {
