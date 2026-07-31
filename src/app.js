@@ -3760,7 +3760,8 @@ function hydrateEventState(eventKey) {
   state.activePicklist = resolvePicklistId(readStoredItem(storageKeys.activePicklist, resolvedEventKey), state.picklists) || state.picklists[0]?.id || "";
   state.activeSortEquation =
     resolveSortEquationId(readStoredItem(storageKeys.activeSortEquation, resolvedEventKey), state.sortEquations) || state.sortEquations[0]?.id || "";
-  state.loadedSources = normalizeLoadedSources(readStoredJson(storageKeys.loadedPicklists, [`picklist:${eventModel.seedPicklists[0].id}`], resolvedEventKey));
+  const persistedLoadedSources = readStoredJson(storageKeys.loadedPicklists, null, resolvedEventKey);
+  state.loadedSources = normalizeLoadedSources(persistedLoadedSources);
   state.picklistColumns = normalizePicklistColumns(readStoredJson(storageKeys.picklistColumns, Array(picklistColumnCount).fill(""), resolvedEventKey));
   state.picklistColumnSortDirections = normalizePicklistColumnSortDirections(
     readStoredJson(storageKeys.picklistColumnSortDirections, Array(picklistColumnCount).fill(defaultColumnSortDirection), resolvedEventKey),
@@ -3801,7 +3802,9 @@ function hydrateEventState(eventKey) {
   state.scoutingWindow = readStoredItem(storageKeys.scoutingWindow, resolvedEventKey) || "all";
   state.recentMatchCount = Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount, resolvedEventKey) || state.recentMatchCount || 12));
   ensureActiveDerivedEquation(eventModel);
-  if (!state.loadedSources.length && state.picklists.length) state.loadedSources = [`picklist:${state.picklists[0].id}`];
+  if (persistedLoadedSources === null && !state.loadedSources.length && state.picklists.length) {
+    state.loadedSources = [`picklist:${state.picklists[0].id}`];
+  }
   state.selectedTeam = teamByNumber(state.selectedTeam)?.number || eventModel.teams[0].number;
   state.selectedMatch = currentMatches().some((match) => match.number === state.selectedMatch) ? state.selectedMatch : eventModel.matches[0].number;
   state.contextMenu = null;
@@ -7353,7 +7356,7 @@ function gridColumnModel(entry, options = {}) {
     return {
       type: "metric",
       id: metric.id,
-      label: metric.label,
+      label: options.label ?? metric.label,
       direction,
       teams: rankedTeams,
       scores,
@@ -7511,7 +7514,10 @@ function renderAlliance() {
     .map((entry) => ({
       entry,
       direction: loadedSourceSortDirection(entry),
-      column: gridColumnModel(entry, { direction: loadedSourceSortDirection(entry) }),
+      column: gridColumnModel(entry, {
+        direction: loadedSourceSortDirection(entry),
+        label: entry.startsWith("metric:") ? metricTokenLabel(metricById(entry.slice(7))) : undefined,
+      }),
     }))
     .filter((item) => item.column.teams.length);
   const headerLines = Math.max(1, ...loaded.map((item) => Math.ceil(item.column.label.length / 14)));
@@ -7534,22 +7540,11 @@ function renderAlliance() {
           <div>
             <h2>Picklist Selector</h2>
           </div>
+          <div class="admin-actions">
+            <button type="button" id="clearPicklistSourcesButton">Clear Sources</button>
+          </div>
         </div>
         <div class="picklist-loader">
-          <div class="picklist-loader-group">
-            <h3>Metrics</h3>
-            ${currentRankableMetrics()
-              .map(
-                (metric) => `
-            <label class="check-row">
-              <input type="checkbox" class="picklist-check" value="metric:${metric.id}" ${state.loadedSources.includes(`metric:${metric.id}`) ? "checked" : ""} />
-              <span>${metric.label}</span>
-              <span class="muted">${metric.kind === "derived" ? "Derived equation" : "Metric source"}</span>
-            </label>
-          `,
-              )
-              .join("")}
-          </div>
           <div class="picklist-loader-group">
             <h3>Picklists</h3>
             ${state.picklists
@@ -7561,6 +7556,19 @@ function renderAlliance() {
                 <span class="muted">Manual order</span>
               </label>
             `,
+              )
+              .join("")}
+          </div>
+          <div class="picklist-loader-group">
+            <h3>Metrics</h3>
+            ${currentRankableMetrics()
+              .map(
+                (metric) => `
+            <label class="check-row">
+              <input type="checkbox" class="picklist-check" value="metric:${metric.id}" ${state.loadedSources.includes(`metric:${metric.id}`) ? "checked" : ""} />
+              <span>${metricTokenLabel(metric)}</span>
+            </label>
+          `,
               )
               .join("")}
           </div>
@@ -8921,6 +8929,11 @@ function bindViewEvents() {
       saveState();
       render();
     });
+  });
+  document.querySelector("#clearPicklistSourcesButton")?.addEventListener("click", () => {
+    state.loadedSources = [];
+    saveState();
+    render();
   });
   document.querySelectorAll("[data-loaded-source-handle]").forEach((handle) => {
     handle.addEventListener("dragstart", (event) => {
