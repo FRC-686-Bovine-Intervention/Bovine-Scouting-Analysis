@@ -7353,7 +7353,7 @@ function gridColumnModel(entry, options = {}) {
     return {
       type: "metric",
       id: metric.id,
-      label: metric.label,
+      label: metric.id,
       direction,
       teams: rankedTeams,
       scores,
@@ -7534,22 +7534,11 @@ function renderAlliance() {
           <div>
             <h2>Picklist Selector</h2>
           </div>
+          <div class="admin-actions">
+            <button type="button" id="clearPicklistSourcesButton">Clear Sources</button>
+          </div>
         </div>
         <div class="picklist-loader">
-          <div class="picklist-loader-group">
-            <h3>Metrics</h3>
-            ${currentRankableMetrics()
-              .map(
-                (metric) => `
-            <label class="check-row">
-              <input type="checkbox" class="picklist-check" value="metric:${metric.id}" ${state.loadedSources.includes(`metric:${metric.id}`) ? "checked" : ""} />
-              <span>${metric.label}</span>
-              <span class="muted">${metric.kind === "derived" ? "Derived equation" : "Metric source"}</span>
-            </label>
-          `,
-              )
-              .join("")}
-          </div>
           <div class="picklist-loader-group">
             <h3>Picklists</h3>
             ${state.picklists
@@ -7561,6 +7550,19 @@ function renderAlliance() {
                 <span class="muted">Manual order</span>
               </label>
             `,
+              )
+              .join("")}
+          </div>
+          <div class="picklist-loader-group">
+            <h3>Metrics</h3>
+            ${currentRankableMetrics()
+              .map(
+                (metric) => `
+            <label class="check-row">
+              <input type="checkbox" class="picklist-check" value="metric:${metric.id}" ${state.loadedSources.includes(`metric:${metric.id}`) ? "checked" : ""} />
+              <span>${metric.id}</span>
+            </label>
+          `,
               )
               .join("")}
           </div>
@@ -8921,6 +8923,11 @@ function bindViewEvents() {
       saveState();
       render();
     });
+  });
+  document.querySelector("#clearPicklistSourcesButton")?.addEventListener("click", () => {
+    state.loadedSources = [];
+    saveState();
+    render();
   });
   document.querySelectorAll("[data-loaded-source-handle]").forEach((handle) => {
     handle.addEventListener("dragstart", (event) => {
