@@ -2254,8 +2254,10 @@ async function persistReconciledSchemaToNewArtifact() {
 }
 
 function currentRankableMetrics(eventModel = currentEvent()) {
-  const previewTeam = eventModel.teams[0];
-  return currentMetrics().filter((metric) => Number.isFinite(Number(picklistMetricValue(previewTeam, metric, { eventModel }))));
+  return currentMetrics().filter((metric) =>
+    (metric.kind === "source" && metric.sourceId === "scouter")
+    || eventModel.teams.some((team) => Number.isFinite(Number(picklistMetricValue(team, metric, { eventModel })))),
+  );
 }
 
 function availableMetricSourceOrder(metric) {
