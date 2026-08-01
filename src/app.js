@@ -7527,10 +7527,13 @@ function renderAlliance() {
         direction,
         label: entry.startsWith("metric:") ? metricTokenLabel(metricById(entry.slice(7))) : undefined,
       });
-      const rankScores = column.type === "picklist" && hasExplicitLoadedSourceSortDirection(entry)
+      const metric = entry.startsWith("metric:") ? metricById(entry.slice(7)) : null;
+      const useRankColors = (column.type === "picklist" && hasExplicitLoadedSourceSortDirection(entry))
+        || metric?.kind === "source";
+      const rankScores = useRankColors
         ? column.teams.map((_, index) => (direction === "asc" ? index + 1 : column.teams.length - index))
         : null;
-      return { entry, direction, column, rankScores };
+      return { entry, direction, column, rankScores, useRankColors };
     })
     .filter((item) => item.column.teams.length);
   const headerLines = Math.max(1, ...loaded.map((item) => Math.ceil(item.column.label.length / 14)));
@@ -7598,7 +7601,7 @@ function renderAlliance() {
             loaded.length
               ? loaded
                   .map(
-                    ({ entry, direction, column, rankScores }) => `
+                    ({ entry, direction, column, rankScores, useRankColors }) => `
               <section
                 data-loaded-source="${entry}"
                 data-loaded-source-column="${entry}"
@@ -7612,9 +7615,9 @@ function renderAlliance() {
                         navigation: false,
                         showScore: column.type === "metric",
                         score: column.scores?.[teamIndex],
-                        colorScore: column.type === "metric" ? column.scores?.[teamIndex] : rankScores?.[teamIndex],
-                        minScore: column.type === "metric" ? column.minScore : 1,
-                        maxScore: column.type === "metric" ? column.maxScore : column.teams.length,
+                        colorScore: useRankColors ? rankScores?.[teamIndex] : column.scores?.[teamIndex],
+                        minScore: useRankColors ? 1 : column.minScore,
+                        maxScore: useRankColors ? column.teams.length : column.maxScore,
                         sortDirection: direction,
                       }),
                     )
