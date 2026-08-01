@@ -4297,6 +4297,10 @@ function loadedSourceSortDirection(entry) {
   return normalizeColumnSortDirection(state.loadedSourceSortDirections?.[normalizeSourceEntry(entry)]);
 }
 
+function hasExplicitLoadedSourceSortDirection(entry) {
+  return Object.hasOwn(state.loadedSourceSortDirections || {}, normalizeSourceEntry(entry));
+}
+
 function setPicklistColumnSortDirection(index, direction) {
   if (index < 0 || index >= picklistColumnCount) return;
   state.picklistColumnSortDirections[index] = normalizeColumnSortDirection(direction);
@@ -7295,9 +7299,10 @@ function renderTeamTile(team, index, options = {}) {
   if (options.compareIndex >= 0) classes.push("compare-selected");
   if (options.extraClass) classes.push(options.extraClass);
   const scoreMarkup = options.showScore ? `<span class="tile-score">${Number(options.score || 0).toFixed(1)}</span>` : `<span class="tile-spacer"></span>`;
-  const background = options.showScore
+  const colorScore = options.colorScore ?? (options.showScore ? options.score : undefined);
+  const background = colorScore !== undefined
     ? colorForScore(
-      Number(options.score || 0),
+      Number(colorScore || 0),
       Number(options.minScore || 0),
       Number(options.maxScore || 0),
       options.sortDirection,
@@ -7489,6 +7494,10 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         compact: true,
         showName: false,
         showScore: false,
+        colorScore: options.colorScore,
+        minScore: options.minScore,
+        maxScore: options.maxScore,
+        sortDirection: options.sortDirection,
         extraClass: picked,
         draggable: !picked,
         dragData: picked ? "" : String(team.number),
@@ -7499,6 +7508,7 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         showName: false,
         showScore: Boolean(options.showScore),
         score: options.score,
+        colorScore: options.colorScore,
         minScore: options.minScore,
         maxScore: options.maxScore,
         extraClass: picked,
@@ -7511,14 +7521,17 @@ function renderPicklistTile(number, index, picklist, options = {}) {
 
 function renderAlliance() {
   const loaded = state.loadedSources
-    .map((entry) => ({
-      entry,
-      direction: loadedSourceSortDirection(entry),
-      column: gridColumnModel(entry, {
-        direction: loadedSourceSortDirection(entry),
+    .map((entry) => {
+      const direction = loadedSourceSortDirection(entry);
+      const column = gridColumnModel(entry, {
+        direction,
         label: entry.startsWith("metric:") ? metricTokenLabel(metricById(entry.slice(7))) : undefined,
-      }),
-    }))
+      });
+      const rankScores = column.type === "picklist" && hasExplicitLoadedSourceSortDirection(entry)
+        ? column.teams.map((_, index) => (direction === "asc" ? index + 1 : column.teams.length - index))
+        : null;
+      return { entry, direction, column, rankScores };
+    })
     .filter((item) => item.column.teams.length);
   const headerLines = Math.max(1, ...loaded.map((item) => Math.ceil(item.column.label.length / 14)));
   return `
@@ -7585,7 +7598,7 @@ function renderAlliance() {
             loaded.length
               ? loaded
                   .map(
-                    ({ entry, direction, column }) => `
+                    ({ entry, direction, column, rankScores }) => `
               <section
                 data-loaded-source="${entry}"
                 data-loaded-source-column="${entry}"
@@ -7599,8 +7612,9 @@ function renderAlliance() {
                         navigation: false,
                         showScore: column.type === "metric",
                         score: column.scores?.[teamIndex],
-                        minScore: column.minScore,
-                        maxScore: column.maxScore,
+                        colorScore: column.type === "metric" ? column.scores?.[teamIndex] : rankScores?.[teamIndex],
+                        minScore: column.type === "metric" ? column.minScore : 1,
+                        maxScore: column.type === "metric" ? column.maxScore : column.teams.length,
                         sortDirection: direction,
                       }),
                     )
@@ -7613,6 +7627,7 @@ function renderAlliance() {
               : `<div class="empty-state">Select one or more sources to load them here.</div>`
           }
         </div>
+        ${renderContextMenu()}
       </article>
     </div>
   `;
