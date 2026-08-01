@@ -1214,6 +1214,24 @@ await runTest("formula autocomplete scrolls the keyboard-selected suggestion int
   assert.equal(scrolledSuggestion, result.candidates[selectedIndex]);
 });
 
+await runTest("formula autocomplete Tab completion stops at the shared prefix until a suggestion is selected", () => {
+  const context = loadAppContext();
+  const candidates = ["scouting.autoFuel", "scouting.teleOpFuel"];
+
+  assert.equal(
+    context.formulaAutocompleteTabReplacement("scout", candidates),
+    "scouting.",
+  );
+  assert.equal(
+    context.formulaAutocompleteTabReplacement("scout", candidates, "scouting.teleOpFuel"),
+    "scouting.teleOpFuel",
+  );
+  assert.equal(
+    context.formulaAutocompleteTabReplacement("scouting.autoF", ["scouting.autoFuel"]),
+    "scouting.autoFuel",
+  );
+});
+
 await runTest("escape in the derived equation editor restores the formula that was present when the equation was selected", async () => {
   const context = loadAppContext();
   const eventModel = context.eventCatalog[0];

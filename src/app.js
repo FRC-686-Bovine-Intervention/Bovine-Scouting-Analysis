@@ -8420,6 +8420,16 @@ function longestSharedPrefix(values) {
   return prefix;
 }
 
+function formulaAutocompleteTabReplacement(token, candidates, selectedCandidate = "") {
+  const unfinishedCandidates = candidates.filter((candidate) => !stringsEqualIgnoreCase(candidate, token));
+  if (!unfinishedCandidates.length) return "";
+  if (selectedCandidate && unfinishedCandidates.some((candidate) => stringsEqualIgnoreCase(candidate, selectedCandidate))) {
+    return selectedCandidate;
+  }
+  if (unfinishedCandidates.length === 1) return unfinishedCandidates[0];
+  return longestSharedPrefix(unfinishedCandidates);
+}
+
 function stringsEqualIgnoreCase(left, right) {
   return String(left || "").toLowerCase() === String(right || "").toLowerCase();
 }
@@ -8451,7 +8461,7 @@ function formulaAutocompleteState(input) {
   };
 }
 
-function renderFormulaAutocomplete(input, requestedIndex = 0) {
+function renderFormulaAutocomplete(input, requestedIndex = 0, selectionWasNavigated = false) {
   const popup = document.querySelector("#derivedFormulaAutocomplete");
   if (!popup || !input) return { token: "", candidates: [], selectedIndex: -1 };
   const autocomplete = formulaAutocompleteState(input);
@@ -8464,6 +8474,7 @@ function renderFormulaAutocomplete(input, requestedIndex = 0) {
   const selectedIndex = Math.max(0, Math.min(autocomplete.candidates.length - 1, requestedIndex));
   popup.hidden = false;
   popup.dataset.selectedIndex = String(selectedIndex);
+  popup.dataset.selectionWasNavigated = String(selectionWasNavigated);
   popup.innerHTML = autocomplete.candidates
     .slice(0, 100)
     .map(
@@ -9101,11 +9112,11 @@ function bindViewEvents() {
         return;
       }
       const token = autocomplete.token;
-      const selectedCandidate = selectedFormulaAutocompleteCandidate();
-      const candidates = autocomplete.candidates.filter((candidate) => !stringsEqualIgnoreCase(candidate, token));
-      const replacement = selectedCandidate || longestSharedPrefix(candidates);
+      const selectedCandidate = document.querySelector("#derivedFormulaAutocomplete")?.dataset.selectionWasNavigated === "true"
+        ? selectedFormulaAutocompleteCandidate()
+        : "";
+      const replacement = formulaAutocompleteTabReplacement(token, autocomplete.candidates, selectedCandidate);
       if (replacement && !stringsEqualIgnoreCase(replacement, token)) replaceFormulaToken(input, token, replacement);
-      else if (autocomplete.candidates.length === 1 && autocomplete.candidates[0] !== token) replaceFormulaToken(input, token, autocomplete.candidates[0]);
       else requestAnimationFrame(() => input.focus());
       requestAnimationFrame(() => updateFormulaSuggestionList(input));
       return;
@@ -9114,7 +9125,7 @@ function bindViewEvents() {
       event.preventDefault();
       event.stopPropagation();
       const direction = event.key === "ArrowDown" ? 1 : -1;
-      renderFormulaAutocomplete(input, selectedIndex + direction);
+      renderFormulaAutocomplete(input, selectedIndex + direction, true);
       return;
     }
     if (event.key === "Enter") {
