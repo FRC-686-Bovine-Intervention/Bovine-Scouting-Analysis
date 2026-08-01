@@ -86,6 +86,13 @@ async function verifyAvailableMetricsCatalog(page) {
       hasRealTbaMetric: availableMetrics.includes("tba.hubScore.autoPoints"),
       hasRealScoutingMetric: availableMetrics.includes("scouting.autoFuelPct"),
       hasRealStatboticsMetric: availableMetrics.includes("statbotics.epa.breakdown.auto_points"),
+      sourceOrder: [
+        availableMetrics.indexOf("autoFuelTeam"),
+        availableMetrics.findIndex((metric) => metric.startsWith("scouting.")),
+        availableMetrics.findIndex((metric) => metric.startsWith("tba.")),
+        availableMetrics.findIndex((metric) => metric.startsWith("statbotics.")),
+        availableMetrics.indexOf("pridge.total"),
+      ],
     };
   });
 }
@@ -187,11 +194,13 @@ try {
   console.log(JSON.stringify(result, null, 2));
 
   assert(result.tbaFuel.ok, "At least one 2026 TBA fuel identifier still has no finite values.");
-  assert(!result.availableCatalog.hasPridgeTotal, "Available Metrics should only list scouting, TBA, and Statbotics source metrics.");
-  assert(!result.availableCatalog.hasDerivedEquationReference, "Available Metrics should not list other derived equations.");
+  assert(result.availableCatalog.hasPridgeTotal, "Available Metrics should list pridge.total.");
+  assert(result.availableCatalog.hasDerivedEquationReference, "Available Metrics should list existing derived equations.");
   assert(result.availableCatalog.hasRealTbaMetric, "Available Metrics should include real TBA identifiers.");
   assert(result.availableCatalog.hasRealScoutingMetric, "Available Metrics should include real scouting identifiers.");
   assert(result.availableCatalog.hasRealStatboticsMetric, "Available Metrics should include real Statbotics identifiers.");
+  assert(result.availableCatalog.sourceOrder.every((index) => index >= 0), "Available Metrics should include every requested source group.");
+  assert(result.availableCatalog.sourceOrder.every((index, position, order) => position === 0 || order[position - 1] < index), "Available Metrics should order derived, scouting, TBA, Statbotics, then pRidge.");
   Object.entries(result.tbaFuel.metrics).forEach(([identifier, summary]) => {
     assert(summary.finiteCount > 0, `${identifier} still has no finite values.`);
   });

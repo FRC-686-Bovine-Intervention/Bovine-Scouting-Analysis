@@ -2255,15 +2255,19 @@ async function persistReconciledSchemaToNewArtifact() {
 
 function currentRankableMetrics(eventModel = currentEvent()) {
   const previewTeam = eventModel.teams[0];
-  return currentMetrics().filter((metric) => {
-    if (!metric) return false;
-    if (metric.kind === "derived" && metric.definition?.expression) {
-      const evaluation = evaluateEquationForTeam(previewTeam, metric.componentId, { eventModel });
-      return !isErrorFormulaResult(evaluation.result) && evaluation.result.granularity === "event" && Number.isFinite(Number(evaluation.result.value));
-    }
-    const value = teamMetricValue(previewTeam, metric);
-    return Number.isFinite(Number(value));
-  });
+  return currentMetrics().filter((metric) => Number.isFinite(Number(picklistMetricValue(previewTeam, metric, { eventModel }))));
+}
+
+function availableMetricSourceOrder(metric) {
+  if (metric?.kind === "derived") return 0;
+  return ["scouter", "scouting", "tba", "statbotics", "pridge"].indexOf(metric?.sourceId) + 1 || 99;
+}
+
+function orderedRankableMetrics(eventModel = currentEvent()) {
+  return [...currentRankableMetrics(eventModel)].sort((left, right) =>
+    availableMetricSourceOrder(left) - availableMetricSourceOrder(right)
+    || metricTokenLabel(left).localeCompare(metricTokenLabel(right)),
+  );
 }
 
 function currentProfileEquationList(eventModel = currentEvent()) {
@@ -2449,9 +2453,11 @@ async function saveSchemaArtifactAsNewFiles({
 
 function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
   return [
+    ...currentProfileDerivedEquationDefinitions(eventModel).map((definition) => ({ id: definition.name })),
     ...currentAvailableScoutingFieldDefinitions(eventModel).map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
     ...currentAvailableTbaFormulaIdentifiers(eventModel).map((id) => ({ id })),
     ...currentAvailableStatboticsFormulaIdentifiers(eventModel).map((id) => ({ id })),
+    { id: "pridge.total" },
   ];
 }
 
@@ -5683,6 +5689,20 @@ function teamMetricValue(team, metric, options = {}) {
   return Number(team.sources?.[metric.sourceId]?.components?.[metric.componentId] || 0);
 }
 
+function picklistMetricValue(team, metric, options = {}) {
+  if (metric?.kind === "source" && metric.sourceId === "tba" && metric.granularity === "match") {
+    const values = tbaMatchMetricsByTeam(team.number)
+      .map((row) => Number(row?.[metric.componentId]))
+      .filter((value) => Number.isFinite(value));
+    return values.length ? average(values) : Number.NaN;
+  }
+  if (metricUsesMatchDistribution(team, metric, options)) {
+    const values = metricTrendValues(team, metric, options).filter((value) => Number.isFinite(Number(value)));
+    if (values.length) return average(values.map(Number));
+  }
+  return teamMetricValue(team, metric, options);
+}
+
 function setTheme(theme) {
   state.theme = theme;
   document.documentElement.dataset.theme = theme;
@@ -7351,13 +7371,13 @@ function gridColumnModel(entry, options = {}) {
     const metric = metricById(metricId);
     if (!metric) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
     const rankedTeams = [...currentTeams()].sort((a, b) => {
-      const leftScore = teamMetricValue(a, metric);
-      const rightScore = teamMetricValue(b, metric);
+      const leftScore = picklistMetricValue(a, metric);
+      const rightScore = picklistMetricValue(b, metric);
       return direction === "asc"
         ? leftScore - rightScore || a.number - b.number
         : rightScore - leftScore || a.number - b.number;
     });
-    const scores = rankedTeams.map((team) => teamMetricValue(team, metric));
+    const scores = rankedTeams.map((team) => picklistMetricValue(team, metric));
     return {
       type: "metric",
       id: metric.id,
@@ -7401,7 +7421,7 @@ function renderPicklistGridColumn(entry, index) {
         <select data-picklist-column="${index}">
           <option value="" ${entry ? "" : "selected"}>---</option>
           <optgroup label="Metrics">
-            ${currentRankableMetrics().map((item) => `<option value="metric:${item.id}" ${entry === `metric:${item.id}` ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
+            ${orderedRankableMetrics().map((item) => `<option value="metric:${item.id}" ${entry === `metric:${item.id}` ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
           </optgroup>
           <optgroup label="Picklists">
             ${state.picklists.map((item) => `<option value="picklist:${item.id}" ${entry === `picklist:${item.id}` ? "selected" : ""}>${item.name}</option>`).join("")}
@@ -7577,7 +7597,7 @@ function renderAlliance() {
           </div>
           <div class="picklist-loader-group">
             <h3>Metrics</h3>
-            ${currentRankableMetrics()
+            ${orderedRankableMetrics()
               .map(
                 (metric) => `
             <label class="check-row">
