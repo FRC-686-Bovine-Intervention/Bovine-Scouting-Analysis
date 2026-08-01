@@ -106,7 +106,9 @@ function loadAppContext(options = {}) {
     "src/metric-engine.js",
     "src/scouting-dependency-diagnostics.js",
     "src/scouting-diagnostics-state.js",
+    "src/scouting-source-utils.js",
     "src/scouting-json-schema.js",
+    "src/scouting-json-import.js",
     "src/scouting-profiles.js",
     "src/event-workspace.js",
   ].forEach((relativePath) => {
@@ -1294,4 +1296,39 @@ await runTest("escape in the derived equation editor restores the formula that w
   const reverted = context.revertActiveDerivedEquationFormulaToSelectionOriginal(eventModel);
   assert.equal(reverted, true);
   assert.equal(context.activeDerivedEquation(eventModel).formula, "tba.rank");
+});
+
+await runTest("Derived Equation Builder preserves 2026chcmp string scouting metrics for match rows", async () => {
+  const fixturePayload = JSON.parse(fs.readFileSync(
+    path.resolve("tests/fixtures/canonical-scouting-datasets/2026chcmp.json"),
+    "utf8",
+  ));
+  const schemaPayload = JSON.parse(fs.readFileSync(
+    path.resolve("tests/fixtures/canonical-scouting-datasets/2026chcmp_profile-v1.json"),
+    "utf8",
+  ));
+
+  const context = loadAppContext();
+  const eventModel = context.eventCatalog[0];
+  const preview = context.ScoutingJsonImport.previewScoutingJsonImport({
+    jsonText: JSON.stringify(fixturePayload),
+    schemaJsonText: JSON.stringify(schemaPayload),
+    eventModel,
+    activeEventKey: eventModel.key,
+    existingSubmissions: [],
+  });
+  assert.equal(preview.ok, true, (preview.errors || []).join("; "));
+  const submission = preview.summary.submissions.find((entry) => entry.rawMetrics?.autoPrimaryRole === "Score");
+  assert.ok(submission, "The imported 2026chcmp fixture should retain a Score auto primary role.");
+  const match = context.buildFormulaScoutingMatches(
+    [submission],
+    [],
+    ["autoPrimaryRole"],
+  )[0];
+
+  assert.equal(
+    context.rawScoutingMetricValue({ scouting: match }, "autoPrimaryRole"),
+    "Score",
+    "The builder should display the imported string rather than a numeric fallback.",
+  );
 });

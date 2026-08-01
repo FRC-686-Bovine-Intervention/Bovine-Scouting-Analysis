@@ -2758,10 +2758,9 @@ function buildFormulaScoutingMatches(submissions, scoringComponents, scouterMetr
     .map(([matchNumber, matchSubmissions]) => {
       const selectedSubmission = preferredFormulaSubmission(matchSubmissions, scouterMetricIds);
       const components = Object.fromEntries(
-        scouterMetricIds.map((componentId) => {
+        scouterMetricIds.flatMap((componentId) => {
           const value = selectedSubmission?.rawMetrics?.[componentId];
-          const numeric = Number(value);
-          return [componentId, Number.isFinite(numeric) ? numeric : 0];
+          return typeof value === "number" && Number.isFinite(value) ? [[componentId, value]] : [];
         }),
       );
       const total = scoringComponents.reduce((sum, componentId) => sum + Number(components[componentId] || 0), 0);
