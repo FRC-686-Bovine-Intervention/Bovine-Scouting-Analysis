@@ -424,6 +424,7 @@ const pendingExternalRefreshSourceIds = new Set();
 let sourceRefreshIntervalId = null;
 let scoutingSubmissionRevision = 0;
 let scoutingSubmissionLoadSequence = 0;
+let allianceSourceScrollbarResizeObserver = null;
 const scoutingPerf = globalThis.__scoutingPerf || { events: [] };
 globalThis.__scoutingPerf = scoutingPerf;
 
@@ -7628,12 +7629,16 @@ function renderAlliance() {
             <h2>Displayed Sources</h2>
           </div>
         </div>
-        <div class="picklist-columns alliance-picklists" style="--alliance-header-lines: ${headerLines}">
-          ${
-            loaded.length
-              ? loaded
-                  .map(
-                    ({ entry, direction, column }) => `
+        <div class="alliance-source-scrollbar" data-alliance-source-scrollbar hidden aria-hidden="true">
+          <div data-alliance-source-scrollbar-content></div>
+        </div>
+        <div class="alliance-source-scroll" data-alliance-source-scroll>
+          <div class="picklist-columns alliance-picklists" style="--alliance-header-lines: ${headerLines}">
+            ${
+              loaded.length
+                ? loaded
+                    .map(
+                      ({ entry, direction, column }) => `
               <section
                 data-loaded-source="${entry}"
                 data-loaded-source-column="${entry}"
@@ -7657,10 +7662,11 @@ function renderAlliance() {
                 </div>
               </section>
             `,
-                  )
-                  .join("")
-              : `<div class="empty-state">Select one or more sources to load them here.</div>`
-          }
+                    )
+                    .join("")
+                : `<div class="empty-state">Select one or more sources to load them here.</div>`
+            }
+          </div>
         </div>
         ${renderContextMenu()}
       </article>
@@ -8697,6 +8703,35 @@ function handleBuilderKeyboard(event) {
   }
 }
 
+function bindAllianceSourceScrollbars() {
+  allianceSourceScrollbarResizeObserver?.disconnect();
+  allianceSourceScrollbarResizeObserver = null;
+  const topScrollbar = document.querySelector("[data-alliance-source-scrollbar]");
+  const topScrollbarContent = document.querySelector("[data-alliance-source-scrollbar-content]");
+  const sourceScroll = document.querySelector("[data-alliance-source-scroll]");
+  if (!topScrollbar || !topScrollbarContent || !sourceScroll) return;
+
+  const updateScrollbar = () => {
+    topScrollbarContent.style.width = `${sourceScroll.scrollWidth}px`;
+    topScrollbar.hidden = sourceScroll.scrollWidth <= sourceScroll.clientWidth;
+  };
+  updateScrollbar();
+
+  let synchronizing = false;
+  const synchronizeScroll = (source, target) => {
+    source.addEventListener("scroll", () => {
+      if (synchronizing) return;
+      synchronizing = true;
+      target.scrollLeft = source.scrollLeft;
+      synchronizing = false;
+    });
+  };
+  synchronizeScroll(topScrollbar, sourceScroll);
+  synchronizeScroll(sourceScroll, topScrollbar);
+  allianceSourceScrollbarResizeObserver = new ResizeObserver(updateScrollbar);
+  allianceSourceScrollbarResizeObserver.observe(sourceScroll);
+}
+
 function bindViewEvents() {
   document.querySelector("#metricSelect")?.addEventListener("change", (event) => {
     state.metric = event.target.value;
@@ -8985,6 +9020,7 @@ function bindViewEvents() {
     saveState();
     render();
   });
+  bindAllianceSourceScrollbars();
   document.querySelectorAll("[data-loaded-source-handle]").forEach((handle) => {
     handle.addEventListener("dragstart", (event) => {
       event.dataTransfer.setData("application/x-loaded-source", handle.dataset.loadedSourceHandle);

@@ -1301,29 +1301,29 @@ button.pill {
 
 .alliance-layout {
   grid-template-columns: minmax(260px, 0.7fr) minmax(520px, 1.3fr);
+  align-items: start;
 }
 
 .alliance-sources-card {
   min-width: 0;
-  min-height: 0;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto auto;
 }
 
 .alliance-picklists {
-  grid-template-columns: repeat(auto-fill, minmax(164px, 180px));
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: 180px;
   gap: 8px;
   justify-content: start;
   margin-top: 0;
-  height: 100%;
+  width: max-content;
   align-items: stretch;
 }
 
 .alliance-picklists section {
   display: grid;
-  grid-template-rows: minmax(calc(var(--alliance-header-lines, 1) * 1.2em), auto) 1fr;
-  min-height: 0;
-  height: 100%;
+  grid-template-rows: minmax(calc(var(--alliance-header-lines, 1) * 1.2em), auto) auto;
 }
 
 .alliance-picklists h3[draggable="true"] {
@@ -1342,10 +1342,22 @@ button.pill {
 }
 
 .alliance-source-list {
-  min-height: 0;
-  overflow-y: auto;
-  padding-right: 8px;
-  scrollbar-gutter: stable;
+  min-width: 0;
+}
+
+.alliance-source-scrollbar,
+.alliance-source-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.alliance-source-scrollbar {
+  height: 16px;
+  margin-bottom: 8px;
+}
+
+.alliance-source-scrollbar > div {
+  height: 1px;
 }
 
 .picklist-loader {
@@ -1987,6 +1999,10 @@ button.pill {
   .derived-builder-layout,
   .derived-builder-sidebar {
     grid-template-columns: 1fr;
+  }
+
+  .alliance-picklists {
+    grid-template-columns: none;
   }
 
   .picklist-compare-chart-shell {
