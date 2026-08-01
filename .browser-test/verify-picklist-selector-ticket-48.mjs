@@ -42,6 +42,52 @@ async function verifyTbaPerMatchScores(page) {
   }, sourceValue);
 }
 
+async function verifyScoutingPerMatchScores(page) {
+  const sourceValue = await page.evaluate(() => [...document.querySelectorAll('input.picklist-check[value^="metric:source:scouter:"]')]
+    .map((input) => input.value)
+    .find((entry) => {
+      const componentId = metricById(entry.slice(7))?.componentId;
+      return currentTeams().some((team) => aggregateSubmissionMatches(
+        currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === Number(team.number)),
+        { scouterMetricIds: [componentId] },
+      ).some((match) => {
+        const value = Number(match.components?.[componentId]);
+        return Number.isFinite(value) && value !== 0;
+      }));
+    }));
+  if (!sourceValue) throw new Error("No nonzero scouting metric source was available to validate.");
+  const checkbox = page.locator(`input.picklist-check[value="${sourceValue}"]`);
+
+  await checkbox.check();
+  await page.waitForTimeout(150);
+  return page.evaluate((entry) => {
+    const metric = metricById(entry.slice(7));
+    const expectedScores = [...currentTeams()]
+      .map((team) => {
+        const matches = aggregateSubmissionMatches(
+          currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === Number(team.number)),
+          { scouterMetricIds: [metric.componentId] },
+        );
+        const scopedMatches = currentScoutingWindow() === "recent"
+          ? matches.slice(-currentRecentMatchCount())
+          : matches;
+        const values = scopedMatches
+          .map((match) => Number(match.components?.[metric.componentId]))
+          .filter((value) => Number.isFinite(value));
+        return { number: team.number, value: values.length ? average(values) : Number.NaN };
+      })
+      .sort((left, right) => {
+        if (!Number.isFinite(left.value)) return Number.isFinite(right.value) ? 1 : left.number - right.number;
+        if (!Number.isFinite(right.value)) return -1;
+        return right.value - left.value || left.number - right.number;
+      })
+      .map((item) => Number.isFinite(item.value) ? item.value.toFixed(1) : "-");
+    const displayedScores = [...document.querySelectorAll(`[data-loaded-source="${entry}"] .tile-score`)]
+      .map((element) => String(element.textContent || "").trim());
+    return { expectedScores, displayedScores };
+  }, sourceValue);
+}
+
 try {
   await page.goto(appUrl);
   await page.waitForTimeout(1000);
@@ -74,6 +120,10 @@ try {
   const tbaPerMatchScores = await verifyTbaPerMatchScores(page);
   if (tbaPerMatchScores.displayedScores.join(",") !== tbaPerMatchScores.expectedScores.join(",")) {
     throw new Error(`Displayed TBA scores did not match raw per-match averages: ${JSON.stringify(tbaPerMatchScores)}`);
+  }
+  const scoutingPerMatchScores = await verifyScoutingPerMatchScores(page);
+  if (scoutingPerMatchScores.displayedScores.join(",") !== scoutingPerMatchScores.expectedScores.join(",")) {
+    throw new Error(`Displayed scouting scores did not match raw per-match averages: ${JSON.stringify(scoutingPerMatchScores)}`);
   }
 
   await page.locator("#clearPicklistSourcesButton").click();

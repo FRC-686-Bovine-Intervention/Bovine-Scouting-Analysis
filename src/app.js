@@ -5696,6 +5696,23 @@ function picklistMetricValue(team, metric, options = {}) {
       .filter((value) => Number.isFinite(value));
     return values.length ? average(values) : Number.NaN;
   }
+  if (metric?.kind === "source" && metric.sourceId === "scouter") {
+    const componentId = metric.componentId;
+    const matches = aggregateSubmissionMatches(
+      currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === Number(team.number)),
+      {
+        scoringComponentIds: componentId === "total" ? (currentEvent().scoringComponents || []).map((component) => component.id) : [],
+        scouterMetricIds: componentId === "total" ? [] : [componentId],
+      },
+    );
+    const scopedMatches = currentScoutingWindow() === "recent"
+      ? matches.slice(-currentRecentMatchCount())
+      : matches;
+    const values = scopedMatches
+      .map((match) => componentId === "total" ? match.total : Number(match.components?.[componentId]))
+      .filter((value) => Number.isFinite(value));
+    return values.length ? average(values) : Number.NaN;
+  }
   if (metricUsesMatchDistribution(team, metric, options)) {
     const values = metricTrendValues(team, metric, options).filter((value) => Number.isFinite(Number(value)));
     if (values.length) return average(values.map(Number));
