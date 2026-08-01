@@ -1189,6 +1189,10 @@ button.pill {
   min-width: 0;
 }
 
+.current-picklist-card > .section-heading {
+  min-height: 76px;
+}
+
 .picklist-list-offset {
   min-height: 58px;
 }
@@ -1455,6 +1459,21 @@ button.pill {
 
 .picklist-tile.team-focused {
   outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.picklist-tile.pairwise-next {
+  background: color-mix(in srgb, var(--muted) 22%, var(--panel)) !important;
+  color: var(--muted);
+}
+
+.picklist-tile.pairwise-active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.picklist-tile.pairwise-compared {
+  outline: 2px dashed var(--accent);
   outline-offset: 1px;
 }
 

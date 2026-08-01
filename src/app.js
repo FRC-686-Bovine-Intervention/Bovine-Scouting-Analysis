@@ -364,6 +364,7 @@ const state = {
   contextMenu: null,
   inlineRename: null,
   picklistSelectedTeam: null,
+  pairwisePicklist: null,
   picklistCompareTeams: normalizePicklistCompareTeams([], initialEvent),
   builderFocus: { sortBuilder: "list", picklistBuilder: "list", derivedBuilder: "equations" },
   builderFocus: { sortBuilder: "list", picklistBuilder: "list", derivedBuilder: "equations" },
@@ -4358,6 +4359,64 @@ function updatePicklist(id, updater) {
   render();
 }
 
+function startPairwisePicklist() {
+  const picklist = activePicklist();
+  state.picklistCompareTeams = normalizePicklistCompareTeams([], currentEvent());
+  state.pairwisePicklist = { picklistId: picklist.id, session: PairwisePicklist.create(picklist.teams) };
+  state.builderFocus.picklistBuilder = "teams";
+  state.contextMenu = null;
+  render();
+}
+
+function finishPairwisePicklist({ save }) {
+  const pairwise = state.pairwisePicklist;
+  if (!pairwise) return;
+  if (save) state.picklists = state.picklists.map((picklist) => (picklist.id === pairwise.picklistId ? { ...picklist, teams: pairwise.session.teams } : picklist));
+  state.pairwisePicklist = null;
+  state.picklistCompareTeams = normalizePicklistCompareTeams([], currentEvent());
+  state.contextMenu = null;
+  if (save) saveState();
+  render();
+}
+
+function pairwisePicklistKeydown(event) {
+  const pairwise = state.pairwisePicklist;
+  if (!pairwise || pairwise.picklistId !== activePicklist().id) return false;
+  const session = pairwise.session;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    if (session.mode === "sort") pairwise.session = PairwisePicklist.cancel(session);
+    else finishPairwisePicklist({ save: false });
+  } else if (event.key === "Shift" || event.key === "Control") {
+    event.preventDefault();
+    pairwise.session = PairwisePicklist.setComparisonModifiers(
+      session.mode === "select" ? PairwisePicklist.begin(session) : session,
+      { above: event.shiftKey, below: event.ctrlKey },
+    );
+    render();
+  } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+    event.preventDefault();
+    const direction = event.key === "ArrowUp" ? -1 : 1;
+    if (session.mode === "select") {
+      pairwise.session = event.shiftKey || event.ctrlKey
+        ? PairwisePicklist.move(PairwisePicklist.setComparisonModifiers(PairwisePicklist.begin(session), { above: event.shiftKey, below: event.ctrlKey }), direction)
+        : PairwisePicklist.moveCursor(session, direction);
+    } else if (event.shiftKey || event.ctrlKey) {
+      pairwise.session = PairwisePicklist.move(PairwisePicklist.setComparisonModifiers(session, { above: event.shiftKey, below: event.ctrlKey }), direction);
+    }
+    render();
+  } else return false;
+  return true;
+}
+
+function pairwisePicklistKeyup(event) {
+  const pairwise = state.pairwisePicklist;
+  if (!(["Shift", "Control"].includes(event.key)) || !pairwise || pairwise.picklistId !== activePicklist().id || pairwise.session.mode !== "sort") return;
+  if (event.shiftKey || event.ctrlKey) pairwise.session = PairwisePicklist.setComparisonModifiers(pairwise.session, { above: event.shiftKey, below: event.ctrlKey });
+  else pairwise.session = PairwisePicklist.finish(pairwise.session);
+  render();
+}
+
 function updateSortEquation(id, updater) {
   if (id === protectedEpaSortId) return;
   state.sortEquations = state.sortEquations.map((equation) => (equation.id === id ? updater(equation) : equation));
@@ -5644,6 +5703,15 @@ function applyAnalysisPredicateToEntries(team, entries, eventModel = currentEven
 }
 
 function compareSlotIndexForTeam(teamNumber) {
+  const pairwise = state.pairwisePicklist?.picklistId === activePicklist()?.id ? state.pairwisePicklist.session : null;
+  if (pairwise) {
+    const selectedTeam = pairwise.mode === "select" ? pairwise.teams[pairwise.cursorIndex] : pairwise.activeTeam;
+    const selectedIndex = pairwise.teams.indexOf(selectedTeam);
+    if (teamNumber === selectedTeam) return 0;
+    if (pairwise.compareAbove && teamNumber === pairwise.teams[selectedIndex - 1]) return 1;
+    if (pairwise.compareBelow && teamNumber === pairwise.teams[selectedIndex + 1]) return 2;
+    return -1;
+  }
   return state.picklistCompareTeams.indexOf(teamNumber);
 }
 
@@ -7155,7 +7223,9 @@ function renderSubmissionGroup(group) {
 
 function renderPicklistBuilder() {
   const picklist = activePicklist();
-  const currentTeams = picklist.teams.map((number) => teamByNumber(number)).filter(Boolean);
+  const pairwise = state.pairwisePicklist?.picklistId === picklist.id ? state.pairwisePicklist.session : null;
+  const currentTeams = (pairwise?.teams || picklist.teams).map((number) => teamByNumber(number)).filter(Boolean);
+  const nextPairwiseTeams = new Set(pairwise ? PairwisePicklist.suggestions(pairwise) : []);
   const compareTeams = state.picklistCompareTeams.map((number) => teamByNumber(number)).filter(Boolean);
   const comparisonMetric = picklistCompareMetric();
   return `
@@ -7176,12 +7246,13 @@ function renderPicklistBuilder() {
         <div class="section-heading">
           <div>
             <h2>${picklist.name}</h2>
-            <p class="muted">Drag to reorder, or use arrow keys with Shift for one-slot moves.</p>
+            <p class="muted">${pairwise ? "Pairwise mode: hold Shift to compare above, Ctrl to compare below, or both for both. Use an arrow key while holding either to move; release both to accept. Gray teams are suggested next." : "Drag to reorder, or use arrow keys with Shift for one-slot moves."}</p>
           </div>
+          ${pairwise ? `<div class="button-row"><button type="button" data-pairwise-save>Save</button><button type="button" data-pairwise-cancel>Cancel</button></div>` : ""}
         </div>
         <div class="picklist-list-offset" aria-hidden="true"></div>
         <div class="builder-team-list current-picklist-list" data-current-picklist tabindex="0">
-          ${currentTeams.map((team, index) => renderBuilderTeamTile(team, index, { draggable: true })).join("")}
+          ${currentTeams.map((team, index) => renderBuilderTeamTile(team, index, { draggable: !pairwise, pairwise, pairwiseNext: nextPairwiseTeams.has(team.number) })).join("")}
         </div>
       </article>
       <article class="card">
@@ -7384,7 +7455,8 @@ function renderBuilderTeamTile(team, index, options = {}) {
     compact: true,
     showName: false,
     showScore: false,
-    focused,
+    focused: focused || (options.pairwise?.mode === "select" && options.pairwise.teams[options.pairwise.cursorIndex] === team.number),
+    extraClass: options.pairwise?.activeTeam === team.number ? "pairwise-active" : options.pairwise?.comparedTeam === team.number ? "pairwise-compared" : options.pairwiseNext ? "pairwise-next" : "",
     compareIndex: compareSlotIndexForTeam(team.number),
     builderTeam: true,
     reorderTeam: options.draggable,
@@ -7517,6 +7589,16 @@ function renderContextMenu() {
       <div class="context-menu" style="left: ${state.contextMenu.x}px; top: ${state.contextMenu.y}px;">
         <button data-loaded-source-sort="${escapeAttribute(`${normalizedEntry}:asc`)}" ${ascendingDisabled}>Ascending Order</button>
         <button data-loaded-source-sort="${escapeAttribute(`${normalizedEntry}:desc`)}" ${descendingDisabled}>Descending Order</button>
+      </div>
+    `;
+  }
+  if (state.contextMenu.type === "picklist-pairwise") {
+    const active = Boolean(state.pairwisePicklist?.picklistId === state.contextMenu.picklistId);
+    return `
+      <div class="context-menu" style="left: ${state.contextMenu.x}px; top: ${state.contextMenu.y}px;">
+        ${active
+          ? `<button data-pairwise-save>Save</button><button data-pairwise-cancel>Cancel</button>`
+          : `<button data-pairwise-start>Start pairwise mode</button>`}
       </div>
     `;
   }
@@ -8651,6 +8733,8 @@ function handleBuilderKeyboard(event) {
   const target = event.target;
   if (target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) return;
 
+  if (state.activeView === "picklistBuilder" && pairwisePicklistKeydown(event)) return;
+
   if (event.key === "F2") {
     if (state.activeView === "derivedBuilder" && state.builderFocus.derivedBuilder === "equations" && !state.activeDerivedPreviewMetricId && state.activeDerivedEquationId) {
       event.preventDefault();
@@ -9415,6 +9499,12 @@ function bindViewEvents() {
   document.querySelectorAll("[data-builder-team]").forEach((tile) => {
     tile.addEventListener("click", () => {
       const teamNumber = Number(tile.dataset.builderTeam);
+      if (state.pairwisePicklist?.picklistId === activePicklist().id) {
+        const session = state.pairwisePicklist.session;
+        if (session.mode === "select") state.pairwisePicklist.session = PairwisePicklist.choose(session, teamNumber);
+        render();
+        return;
+      }
       const wasCompared = compareSlotIndexForTeam(teamNumber) >= 0;
       const changed = togglePicklistCompareTeam(teamNumber);
       if (!changed) return;
@@ -9424,6 +9514,14 @@ function bindViewEvents() {
       render();
     });
   });
+  document.querySelector("[data-current-picklist]")?.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    state.contextMenu = { type: "picklist-pairwise", picklistId: activePicklist().id, x: event.clientX, y: event.clientY };
+    render();
+  });
+  document.querySelectorAll("[data-pairwise-start]").forEach((button) => button.addEventListener("click", startPairwisePicklist));
+  document.querySelectorAll("[data-pairwise-save]").forEach((button) => button.addEventListener("click", () => finishPairwisePicklist({ save: true })));
+  document.querySelectorAll("[data-pairwise-cancel]").forEach((button) => button.addEventListener("click", () => finishPairwisePicklist({ save: false })));
   document.querySelectorAll("[data-remove-compare-team]").forEach((button) => {
     button.addEventListener("click", () => {
       const teamNumber = Number(button.dataset.removeCompareTeam);
@@ -9516,6 +9614,7 @@ function bindViewEvents() {
     });
   });
   document.onkeydown = handleBuilderKeyboard;
+  document.onkeyup = pairwisePicklistKeyup;
 }
 
 bootstrapApp();
