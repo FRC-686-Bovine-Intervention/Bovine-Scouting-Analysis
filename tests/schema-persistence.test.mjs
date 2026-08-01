@@ -1330,6 +1330,14 @@ await runTest("Derived Equation Builder preserves 2026chcmp string scouting metr
     "Score",
     "Imported raw strings must take priority over legacy numeric component fallbacks.",
   );
+  const staleSchemaContext = loadAppContext({
+    schemaFields: [{ id: "autoSecondaryRole", type: "number" }],
+  });
+  assert.equal(
+    staleSchemaContext.canonicalizeRawMetrics({ autoSecondaryRole: "Score" }).autoSecondaryRole,
+    "Score",
+    "A stale numeric schema must not erase an imported string scouting value during storage normalization.",
+  );
   const match = context.buildFormulaScoutingMatches(
     [submission],
     [],

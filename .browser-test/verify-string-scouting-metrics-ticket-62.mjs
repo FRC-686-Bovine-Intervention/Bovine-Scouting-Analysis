@@ -3,14 +3,10 @@ import fs from "node:fs";
 import { chromium } from "./node_modules/playwright/index.mjs";
 
 const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
-const fixture = JSON.parse(fs.readFileSync(
-  "D:/FIRST/Scouting/Scouting-Analysis/tests/fixtures/canonical-scouting-datasets/2026chcmp.json",
+const rawSheetCsv = fs.readFileSync(
+  "D:/FIRST/Scouting/Scouting-Analysis/src/real-source-cache/2026chcmp-sheet.csv",
   "utf8",
-));
-const schema = JSON.parse(fs.readFileSync(
-  "D:/FIRST/Scouting/Scouting-Analysis/tests/fixtures/canonical-scouting-datasets/2026chcmp_profile-v1.json",
-  "utf8",
-));
+);
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
@@ -25,22 +21,15 @@ try {
   await page.locator("#adminEventCodeInput").press("Enter");
   await page.waitForTimeout(500);
 
-  await page.evaluate(({ fixturePayload, schemaPayload }) => {
+  const imported = await page.evaluate((csvText) => {
     const eventModel = currentEvent();
-    const preview = ScoutingJsonImport.previewScoutingJsonImport({
-      jsonText: JSON.stringify(fixturePayload),
-      schemaJsonText: JSON.stringify(schemaPayload),
-      eventModel,
-      activeEventKey: eventModel.key,
-      existingSubmissions: [],
-    });
-    if (!preview.ok) throw new Error((preview.errors || []).join("; "));
-    registerScoutingProfile(eventModel, {
-      ...preview.summary.profileDefinition,
-      fields: preview.summary.schemaFields,
-    });
-    __scoutingAppState.scoutingSubmissions = preview.summary.submissions;
-  }, { fixturePayload: fixture, schemaPayload: schema });
+    loadPreparedScoutingCsv(sharedAdaptEventSheetCsv(eventModel, csvText), "");
+    commitImportPreview();
+    return __scoutingAppState.scoutingSubmissions
+      .filter((submission) => submission.teamNumber === 122)
+      .map((submission) => submission.rawMetrics.autoSecondaryRole);
+  }, rawSheetCsv);
+  assert.ok(imported.includes("Score"), "Sheet-backed import should retain team 122's string role values.");
 
   await page.locator('[data-view="derivedBuilder"]').click();
   await page.locator('[data-derived-preview-metric="scouting.autoPrimaryRole"]').click();

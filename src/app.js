@@ -4568,7 +4568,7 @@ function canonicalizeRawMetrics(rawMetrics, eventModel = currentEvent()) {
     if (!componentId) return next;
     if ((fieldTypeById.get(componentId) || "") === "number") {
       const numeric = Number(value);
-      next[componentId] = Number.isFinite(numeric) ? numeric : null;
+      next[componentId] = Number.isFinite(numeric) ? numeric : (typeof value === "string" ? value : null);
       return next;
     }
     if (value === null || value === undefined || value === "") {
