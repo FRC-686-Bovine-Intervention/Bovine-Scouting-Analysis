@@ -64,7 +64,7 @@ function normalizeMetricValue(value) {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value === "string") return value;
-  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "boolean") return value;
   return JSON.stringify(value);
 }
 
@@ -258,15 +258,6 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
       if (!fieldIds.has(fieldId)) {
         warnings.push(`Entry ${index + 1} includes unknown metric ${fieldId}.`);
         return;
-      }
-      const schemaField = schemaFieldMap.get(fieldId);
-      const value = rawMetrics[fieldId];
-      if (!schemaField || value === null) return;
-      if (schemaField.type === "number" && typeof value !== "number") {
-        warnings.push(`Entry ${index + 1} metric ${fieldId} should be a number.`);
-      }
-      if (schemaField.type === "string" && typeof value !== "string") {
-        warnings.push(`Entry ${index + 1} metric ${fieldId} should be a string.`);
       }
     });
     parsedRows.push(submission);

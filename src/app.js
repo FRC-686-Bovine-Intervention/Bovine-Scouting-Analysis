@@ -4540,14 +4540,9 @@ function canonicalizeRawMetrics(rawMetrics, eventModel = currentEvent()) {
   if (!rawMetrics || typeof rawMetrics !== "object") return {};
   const repairedRawMetrics = repairLegacySubmissionRawMetrics(rawMetrics, eventModel);
   const aliases = new Map();
-  const fieldTypeById = new Map();
   currentFormulaFieldDefinitions(eventModel).forEach((metricDefinition) => {
     const normalizedId = normalizeImportToken(metricDefinition.id);
     const normalizedLabel = normalizeImportToken(metricDefinition.label || metricDefinition.id);
-    fieldTypeById.set(
-      metricDefinition.id,
-      normalizeText(metricDefinition.type).toLowerCase() || (normalizeText(metricDefinition.unit).toLowerCase() === "text" ? "string" : "number"),
-    );
     [
       metricDefinition.id,
       normalizedId,
@@ -4566,16 +4561,11 @@ function canonicalizeRawMetrics(rawMetrics, eventModel = currentEvent()) {
   return Object.entries(repairedRawMetrics).reduce((next, [key, value]) => {
     const componentId = aliases.get(normalizeImportToken(key)) || normalizeDynamicMetricFieldId(key);
     if (!componentId) return next;
-    if ((fieldTypeById.get(componentId) || "") === "number") {
-      const numeric = Number(value);
-      next[componentId] = Number.isFinite(numeric) ? numeric : (typeof value === "string" ? value : null);
-      return next;
-    }
     if (value === null || value === undefined || value === "") {
       next[componentId] = null;
       return next;
     }
-    next[componentId] = typeof value === "string" ? value : String(value);
+    next[componentId] = value;
     return next;
   }, {});
 }
@@ -4678,6 +4668,7 @@ function formatBadgeLabel(value) {
 function formatMetricValue(value) {
   if (value === null || value === undefined || value === "") return "";
   if (typeof value === "string") return value;
+  if (typeof value === "boolean") return String(value);
   const numeric = Number(value);
   if (Number.isNaN(numeric)) return "NaN";
   return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1);

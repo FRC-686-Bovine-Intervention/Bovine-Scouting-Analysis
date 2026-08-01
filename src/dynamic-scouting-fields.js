@@ -34,12 +34,13 @@ function baseFormulaFieldDefinitions(eventModel) {
 function inferFieldType(values) {
   const samples = (values || []).filter((value) => value !== null && value !== undefined && value !== "");
   if (!samples.length) return "string";
+  if (samples.every((value) => typeof value === "boolean")) return "boolean";
   const allNumeric = samples.every((value) => Number.isFinite(Number(value)));
   return allNumeric ? "number" : "string";
 }
 
 function dynamicFieldDefinition(fieldId, samples = [], schemaField = null) {
-  const type = normalizeText(schemaField?.type) || inferFieldType(samples);
+  const type = inferFieldType(samples);
   return {
     id: fieldId,
     label: normalizeText(schemaField?.label) || fieldId,
@@ -74,8 +75,17 @@ function buildDynamicScoutingFieldDefinitions({ eventModel, submissions = [], sc
   });
 
   [...sampleValuesByFieldId.keys(), ...schemaFieldById.keys()].forEach((fieldId) => {
-    if (definitionById.has(fieldId)) return;
-    definitionById.set(fieldId, dynamicFieldDefinition(fieldId, sampleValuesByFieldId.get(fieldId) || [], schemaFieldById.get(fieldId)));
+    const samples = sampleValuesByFieldId.get(fieldId) || [];
+    if (definitionById.has(fieldId)) {
+      if (samples.length) {
+        definitionById.set(fieldId, {
+          ...definitionById.get(fieldId),
+          type: inferFieldType(samples),
+        });
+      }
+      return;
+    }
+    definitionById.set(fieldId, dynamicFieldDefinition(fieldId, samples, schemaFieldById.get(fieldId)));
   });
 
   return [...definitionById.values()];

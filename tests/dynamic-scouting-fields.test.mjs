@@ -128,3 +128,28 @@ runTest("dynamic scouting fields surface preview schema fields before submission
   assert.equal(customField.type, "string");
   assert.equal(customField.dynamic, true);
 });
+
+runTest("dynamic scouting fields infer strings, numerics, and logicals from imported values instead of schema types", () => {
+  const context = loadBrowserContext(["src/dynamic-scouting-fields.js"]);
+  const fields = context.DynamicScoutingFields.buildDynamicScoutingFieldDefinitions({
+    eventModel: {
+      formulaFieldDefinitions: [
+        { id: "role", type: "number" },
+        { id: "fuel", type: "string" },
+        { id: "defense", type: "number" },
+      ],
+    },
+    schemaFields: [
+      { id: "role", type: "number" },
+      { id: "fuel", type: "string" },
+      { id: "defense", type: "number" },
+    ],
+    submissions: [{
+      rawMetrics: { role: "Score", fuel: 80, defense: false },
+    }],
+  });
+
+  assert.equal(fields.find((fieldDefinition) => fieldDefinition.id === "role").type, "string");
+  assert.equal(fields.find((fieldDefinition) => fieldDefinition.id === "fuel").type, "number");
+  assert.equal(fields.find((fieldDefinition) => fieldDefinition.id === "defense").type, "boolean");
+});
