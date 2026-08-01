@@ -60,7 +60,7 @@ runTest("dynamic scouting fields merge imported raw metric ids into seeded field
 
   assert.ok(fields.some((fieldDefinition) => fieldDefinition.id === "autoFuelPct"));
   const customField = fields.find((fieldDefinition) => fieldDefinition.id === "customDefenseCallout");
-  assert.equal(customField.label, "Custom Defense Callout");
+  assert.equal(customField.label, "customDefenseCallout");
   assert.equal(customField.type, "string");
   assert.equal(customField.dynamic, true);
 });

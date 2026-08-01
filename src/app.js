@@ -7318,11 +7318,13 @@ function renderTeamTile(team, index, options = {}) {
   if (options.focused) classes.push("team-focused");
   if (options.compareIndex >= 0) classes.push("compare-selected");
   if (options.extraClass) classes.push(options.extraClass);
-  const scoreMarkup = options.showScore ? `<span class="tile-score">${Number(options.score || 0).toFixed(1)}</span>` : `<span class="tile-spacer"></span>`;
+  const numericScore = Number(options.score);
+  const scoreMarkup = options.showScore ? `<span class="tile-score">${Number.isFinite(numericScore) ? numericScore.toFixed(1) : "-"}</span>` : `<span class="tile-spacer"></span>`;
   const colorScore = options.colorScore ?? (options.showScore ? options.score : undefined);
-  const background = colorScore !== undefined
+  const numericColorScore = Number(colorScore);
+  const background = Number.isFinite(numericColorScore)
     ? colorForScore(
-      Number(colorScore || 0),
+      numericColorScore,
       Number(options.minScore || 0),
       Number(options.maxScore || 0),
       options.sortDirection,
@@ -7373,11 +7375,14 @@ function gridColumnModel(entry, options = {}) {
     const rankedTeams = [...currentTeams()].sort((a, b) => {
       const leftScore = picklistMetricValue(a, metric);
       const rightScore = picklistMetricValue(b, metric);
+      if (!Number.isFinite(leftScore)) return Number.isFinite(rightScore) ? 1 : a.number - b.number;
+      if (!Number.isFinite(rightScore)) return -1;
       return direction === "asc"
         ? leftScore - rightScore || a.number - b.number
         : rightScore - leftScore || a.number - b.number;
     });
     const scores = rankedTeams.map((team) => picklistMetricValue(team, metric));
+    const finiteScores = scores.filter((score) => Number.isFinite(score));
     return {
       type: "metric",
       id: metric.id,
@@ -7385,8 +7390,8 @@ function gridColumnModel(entry, options = {}) {
       direction,
       teams: rankedTeams,
       scores,
-      minScore: Math.min(...scores),
-      maxScore: Math.max(...scores),
+      minScore: finiteScores.length ? Math.min(...finiteScores) : 0,
+      maxScore: finiteScores.length ? Math.max(...finiteScores) : 0,
     };
   }
   const [type, id] = entry.split(":");
