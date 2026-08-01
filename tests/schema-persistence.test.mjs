@@ -1126,7 +1126,7 @@ await runTest("available metrics preview resolves metrics that are not already r
   assert.doesNotMatch(html, />Invalid</);
 });
 
-await runTest("formula autocomplete scrolls the selected suggestion into view when keyboard navigation changes selection", async () => {
+await runTest("formula autocomplete scrolls the keyboard-selected suggestion into view", async () => {
   let scrolledSuggestion = "";
   const popup = {
     hidden: true,
@@ -1201,13 +1201,17 @@ await runTest("formula autocomplete scrolls the selected suggestion into view wh
   });
 
   const input = {
-    value: "scouting.a",
-    selectionStart: "scouting.a".length,
+    value: "a",
+    selectionStart: "a".length,
   };
 
-  const result = context.renderFormulaAutocomplete(input, 0);
-  assert.ok(result.candidates.length > 0, "Expected at least one autocomplete candidate.");
-  assert.equal(scrolledSuggestion, result.candidates[0]);
+  const initialResult = context.renderFormulaAutocomplete(input, 0);
+  assert.ok(initialResult.candidates.length > 1, "Expected multiple autocomplete candidates.");
+
+  const selectedIndex = Math.min(5, initialResult.candidates.length - 1);
+  const result = context.renderFormulaAutocomplete(input, selectedIndex);
+  assert.equal(result.selectedIndex, selectedIndex);
+  assert.equal(scrolledSuggestion, result.candidates[selectedIndex]);
 });
 
 await runTest("escape in the derived equation editor restores the formula that was present when the equation was selected", async () => {
