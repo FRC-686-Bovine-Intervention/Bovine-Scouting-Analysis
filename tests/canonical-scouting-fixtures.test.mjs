@@ -97,7 +97,8 @@ const migrationFixtures = [
     eventKey: "2024mdsev",
     season: 2024,
     entriesFixturePath: "tests/fixtures/canonical-scouting-datasets/2024mdsev.json",
-    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2024mdsev_profile.json",
+    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2024mdsev_profile-v1.json",
+    profileId: "match-current-v2",
     rawSheetPath: "src/real-source-cache/2024mdsev-sheet.csv",
     representativeMetrics: [
       { teamNumber: 686, metricId: "derived:autoSpeakerAccuracy", tolerance: 0.001 },
@@ -109,7 +110,7 @@ const migrationFixtures = [
     eventKey: "2025chcmp",
     season: 2025,
     entriesFixturePath: "tests/fixtures/canonical-scouting-datasets/2025chcmp.json",
-    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2025chcmp_profile.json",
+    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2025chcmp_profile-v1.json",
     teamCalculationsPath: "tests/fixtures/2025 CHS DCMP Scouting Analysis - TeamCalculations.csv",
     representativeTeams: [
       {
@@ -130,7 +131,7 @@ const migrationFixtures = [
     eventKey: "2026chcmp",
     season: 2026,
     entriesFixturePath: "tests/fixtures/canonical-scouting-datasets/2026chcmp.json",
-    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2026chcmp_profile.json",
+    schemaFixturePath: "tests/fixtures/canonical-scouting-datasets/2026chcmp_profile-v1.json",
     teamCalculationsPath: "tests/fixtures/2026 Scouting Analysis CHCMP - TeamCalculations.csv",
     representativeTeams: [
       {
@@ -178,8 +179,8 @@ migrationFixtures.forEach((fixture) => {
 
     assert.equal(preview.ok, true, (preview.errors || []).join("; "));
     assert.ok(preview.summary?.submissions?.length, `Canonical fixture should produce submissions for ${fixture.eventKey}`);
-    assert.equal(schemaPayload.meta.templateProfileId, "canonical-json-v1");
-    assert.equal(schemaPayload.profile.id, "canonical-json-v1");
+    assert.equal(schemaPayload.meta.templateProfileId, fixture.profileId || "canonical-json-v1");
+    assert.equal(schemaPayload.profile.id, fixture.profileId || "canonical-json-v1");
     assert.equal(schemaPayload.schema.schemaId, `${fixture.season}-match-v1`);
   });
 });
