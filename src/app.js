@@ -7894,9 +7894,7 @@ function renderAdmin() {
             const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
             const activeDiagnostics = diagnosticsSelection.diagnostics;
             const reconciliationModel = currentScoutingSchemaReconciliationModel();
-            const currentProfileFilename = localAttachmentPathBasename(currentScoutingSchemaSourceInputValue(workspace)) || "None";
             return `
-              <p class="muted">Scouting Profile Filename: ${escapeHtml(currentProfileFilename)}</p>
               ${reconciliationModel ? renderSchemaReconciliationCards(reconciliationModel) : renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
               ${
                 reconciliationModel
