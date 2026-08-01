@@ -47,9 +47,10 @@ async function verifyScoutingPerMatchScores(page) {
     .map((input) => input.value)
     .find((entry) => {
       const componentId = metricById(entry.slice(7))?.componentId;
-      return currentTeams().some((team) => aggregateSubmissionMatches(
-        currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === Number(team.number)),
-        { scouterMetricIds: [componentId] },
+      return currentTeams().some((team) => buildFormulaScoutingMatches(
+        formulaSubmissionsForTeam(team.number, currentScoutingSubmissions()),
+        [],
+        [componentId],
       ).some((match) => {
         const value = Number(match.components?.[componentId]);
         return Number.isFinite(value) && value !== 0;
@@ -64,9 +65,10 @@ async function verifyScoutingPerMatchScores(page) {
     const metric = metricById(entry.slice(7));
     const expectedScores = [...currentTeams()]
       .map((team) => {
-        const matches = aggregateSubmissionMatches(
-          currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === Number(team.number)),
-          { scouterMetricIds: [metric.componentId] },
+        const matches = buildFormulaScoutingMatches(
+          formulaSubmissionsForTeam(team.number, currentScoutingSubmissions()),
+          [],
+          [metric.componentId],
         );
         const scopedMatches = currentScoutingWindow() === "recent"
           ? matches.slice(-currentRecentMatchCount())

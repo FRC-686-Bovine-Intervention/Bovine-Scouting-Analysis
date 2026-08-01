@@ -5700,12 +5700,10 @@ function picklistMetricValue(team, metric, options = {}) {
   }
   if (metric?.kind === "source" && metric.sourceId === "scouter") {
     const componentId = metric.componentId;
-    const matches = aggregateSubmissionMatches(
-      currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === Number(team.number)),
-      {
-        scoringComponentIds: componentId === "total" ? (currentEvent().scoringComponents || []).map((component) => component.id) : [],
-        scouterMetricIds: componentId === "total" ? [] : [componentId],
-      },
+    const matches = buildFormulaScoutingMatches(
+      formulaSubmissionsForTeam(team.number, currentScoutingSubmissions()),
+      componentId === "total" ? (currentEvent().scoringComponents || []).map((component) => component.id) : [],
+      componentId === "total" ? currentScouterMetricDefinitions().map((definition) => definition.id) : [componentId],
     );
     const scopedMatches = currentScoutingWindow() === "recent"
       ? matches.slice(-currentRecentMatchCount())
