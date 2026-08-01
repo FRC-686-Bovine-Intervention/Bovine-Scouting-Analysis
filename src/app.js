@@ -2890,11 +2890,11 @@ function rawScoutingMetricValue(matchRow, fieldId) {
   if (fieldId === "hasEntry") {
     return matchRow.scouting?.selectedSubmission ? 1 : 0;
   }
-  if (Object.prototype.hasOwnProperty.call(matchRow.scouting?.components || {}, fieldId)) {
-    return matchRow.scouting.components[fieldId];
-  }
   if (matchRow.scouting?.selectedSubmission?.rawMetrics && Object.prototype.hasOwnProperty.call(matchRow.scouting.selectedSubmission.rawMetrics, fieldId)) {
     return matchRow.scouting.selectedSubmission.rawMetrics[fieldId];
+  }
+  if (Object.prototype.hasOwnProperty.call(matchRow.scouting?.components || {}, fieldId)) {
+    return matchRow.scouting.components[fieldId];
   }
   const submissions = Array.isArray(matchRow.scouting?.submissions) ? matchRow.scouting.submissions : [];
   const validSubmission = submissions.find((submission) => submission?.validity === "valid") || submissions[0] || null;

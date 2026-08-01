@@ -1320,6 +1320,16 @@ await runTest("Derived Equation Builder preserves 2026chcmp string scouting metr
   assert.equal(preview.ok, true, (preview.errors || []).join("; "));
   const submission = preview.summary.submissions.find((entry) => entry.rawMetrics?.autoPrimaryRole === "Score");
   assert.ok(submission, "The imported 2026chcmp fixture should retain a Score auto primary role.");
+  assert.equal(
+    context.rawScoutingMetricValue({
+      scouting: {
+        components: { autoPrimaryRole: 0 },
+        selectedSubmission: submission,
+      },
+    }, "autoPrimaryRole"),
+    "Score",
+    "Imported raw strings must take priority over legacy numeric component fallbacks.",
+  );
   const match = context.buildFormulaScoutingMatches(
     [submission],
     [],
