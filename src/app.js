@@ -7213,6 +7213,8 @@ function renderSubmissionGroup(group) {
 
 function renderPicklistBuilder() {
   const picklist = activePicklist();
+  const metricValueCache = new Map();
+  const rankableMetrics = orderedRankableMetrics();
   const pairwise = state.pairwisePicklist?.picklistId === picklist.id ? state.pairwisePicklist.session : null;
   const currentTeams = (pairwise?.teams || picklist.teams).map((number) => teamByNumber(number)).filter(Boolean);
   const nextPairwiseTeams = new Set(pairwise ? PairwisePicklist.suggestions(pairwise) : []);
@@ -7253,7 +7255,7 @@ function renderPicklistBuilder() {
           </div>
         </div>
         <div class="builder-grid-columns">
-          ${state.picklistColumns.map((entry, index) => renderPicklistGridColumn(entry, index)).join("")}
+          ${state.picklistColumns.map((entry, index) => renderPicklistGridColumn(entry, index, { metricValueCache, rankableMetrics })).join("")}
         </div>
       </article>
       <article class="card picklist-compare-chart-card">
@@ -7462,16 +7464,26 @@ function gridColumnModel(entry, options = {}) {
     const metricId = entry.slice(7);
     const metric = metricById(metricId);
     if (!metric) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
-    const rankedTeams = [...currentTeams()].sort((a, b) => {
-      const leftScore = picklistMetricValue(a, metric);
-      const rightScore = picklistMetricValue(b, metric);
-      if (!Number.isFinite(leftScore)) return Number.isFinite(rightScore) ? 1 : a.number - b.number;
+    const metricValueCache = options.metricValueCache;
+    const scoreForTeam = (team) => {
+      const cacheKey = `${metric.id}:${team.number}`;
+      if (metricValueCache?.has(cacheKey)) return metricValueCache.get(cacheKey);
+      const score = picklistMetricValue(team, metric);
+      metricValueCache?.set(cacheKey, score);
+      return score;
+    };
+    const scoredTeams = currentTeams().map((team) => ({ team, score: scoreForTeam(team) }));
+    scoredTeams.sort((left, right) => {
+      const leftScore = left.score;
+      const rightScore = right.score;
+      if (!Number.isFinite(leftScore)) return Number.isFinite(rightScore) ? 1 : left.team.number - right.team.number;
       if (!Number.isFinite(rightScore)) return -1;
       return direction === "asc"
-        ? leftScore - rightScore || a.number - b.number
-        : rightScore - leftScore || a.number - b.number;
+        ? leftScore - rightScore || left.team.number - right.team.number
+        : rightScore - leftScore || left.team.number - right.team.number;
     });
-    const scores = rankedTeams.map((team) => picklistMetricValue(team, metric));
+    const rankedTeams = scoredTeams.map(({ team }) => team);
+    const scores = scoredTeams.map(({ score }) => score);
     const finiteScores = scores.filter((score) => Number.isFinite(score));
     return {
       type: "metric",
@@ -7505,9 +7517,9 @@ function gridColumnModel(entry, options = {}) {
   return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
 }
 
-function renderPicklistGridColumn(entry, index) {
+function renderPicklistGridColumn(entry, index, options = {}) {
   const sortDirection = picklistColumnSortDirection(index);
-  const column = gridColumnModel(entry, { direction: sortDirection });
+  const column = gridColumnModel(entry, { direction: sortDirection, metricValueCache: options.metricValueCache });
   const minHeight = `calc(${currentTeams().length} * var(--picklist-tile-row-size))`;
   return `
     <section class="grid-column ${column.type ? "" : "empty"}" ${column.type ? `data-grid-column="${index}"` : ""}>
@@ -7516,7 +7528,7 @@ function renderPicklistGridColumn(entry, index) {
         <select data-picklist-column="${index}">
           <option value="" ${entry ? "" : "selected"}>---</option>
           <optgroup label="Metrics">
-            ${orderedRankableMetrics().map((item) => `<option value="metric:${item.id}" ${entry === `metric:${item.id}` ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
+            ${(options.rankableMetrics || orderedRankableMetrics()).map((item) => `<option value="metric:${item.id}" ${entry === `metric:${item.id}` ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
           </optgroup>
           <optgroup label="Picklists">
             ${state.picklists.map((item) => `<option value="picklist:${item.id}" ${entry === `picklist:${item.id}` ? "selected" : ""}>${item.name}</option>`).join("")}
