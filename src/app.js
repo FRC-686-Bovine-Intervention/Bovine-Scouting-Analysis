@@ -4305,10 +4305,6 @@ function loadedSourceSortDirection(entry) {
   return normalizeColumnSortDirection(state.loadedSourceSortDirections?.[normalizeSourceEntry(entry)]);
 }
 
-function hasExplicitLoadedSourceSortDirection(entry) {
-  return Object.hasOwn(state.loadedSourceSortDirections || {}, normalizeSourceEntry(entry));
-}
-
 function setPicklistColumnSortDirection(index, direction) {
   if (index < 0 || index >= picklistColumnCount) return;
   state.picklistColumnSortDirections[index] = normalizeColumnSortDirection(direction);
@@ -7464,7 +7460,7 @@ function renderPicklistGridColumn(entry, index) {
                         score: column.scores[teamIndex],
                         minScore: column.minScore,
                         maxScore: column.maxScore,
-                        sortDirection,
+                        sortDirection: defaultColumnSortDirection,
                         compareIndex,
                         builderTeam: true,
                       })
@@ -7569,13 +7565,7 @@ function renderAlliance() {
         direction,
         label: entry.startsWith("metric:") ? metricTokenLabel(metricById(entry.slice(7))) : undefined,
       });
-      const metric = entry.startsWith("metric:") ? metricById(entry.slice(7)) : null;
-      const useRankColors = (column.type === "picklist" && hasExplicitLoadedSourceSortDirection(entry))
-        || metric?.kind === "source";
-      const rankScores = useRankColors
-        ? column.teams.map((_, index) => (direction === "asc" ? index + 1 : column.teams.length - index))
-        : null;
-      return { entry, direction, column, rankScores, useRankColors };
+      return { entry, direction, column };
     })
     .filter((item) => item.column.teams.length);
   const headerLines = Math.max(1, ...loaded.map((item) => Math.ceil(item.column.label.length / 14)));
@@ -7643,7 +7633,7 @@ function renderAlliance() {
             loaded.length
               ? loaded
                   .map(
-                    ({ entry, direction, column, rankScores, useRankColors }) => `
+                    ({ entry, direction, column }) => `
               <section
                 data-loaded-source="${entry}"
                 data-loaded-source-column="${entry}"
@@ -7657,10 +7647,10 @@ function renderAlliance() {
                         navigation: false,
                         showScore: column.type === "metric",
                         score: column.scores?.[teamIndex],
-                        colorScore: useRankColors ? rankScores?.[teamIndex] : column.scores?.[teamIndex],
-                        minScore: useRankColors ? 1 : column.minScore,
-                        maxScore: useRankColors ? column.teams.length : column.maxScore,
-                        sortDirection: direction,
+                        colorScore: column.scores?.[teamIndex],
+                        minScore: column.minScore,
+                        maxScore: column.maxScore,
+                        sortDirection: defaultColumnSortDirection,
                       }),
                     )
                     .join("")}
