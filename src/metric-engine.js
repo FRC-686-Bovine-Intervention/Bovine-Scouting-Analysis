@@ -509,25 +509,25 @@ function filteredSeriesEntries(result, filterResult, recentEntryCount = 0) {
   return entries.filter((entry) => allowedKeys.get(entry.key));
 }
 
-function averageSeriesValues(result, reducer, recentEntryCount = 0, filterResult = null) {
+function numericSeriesValues(result, recentEntryCount = 0, filterResult = null, seriesError = "Averaging functions require a match-level expression.") {
   if (isScopeResult(result) || isScopeResult(filterResult)) return errorResult("Scope values can only be used inside group functions.");
-  if (!isSeriesResult(result)) return errorResult("Averaging functions require a match-level expression.");
+  if (!isSeriesResult(result)) return errorResult(seriesError);
   const entries = filteredSeriesEntries(result, filterResult, recentEntryCount);
   if (entries === null) return errorResult("Optional filter arguments must evaluate to a match-level expression.");
-  const values = entries
+  return entries
     .map((entry) => numericValueOrNaN(entry.value))
     .filter((value) => !Number.isNaN(value));
+}
+
+function averageSeriesValues(result, reducer, recentEntryCount = 0, filterResult = null) {
+  const values = numericSeriesValues(result, recentEntryCount, filterResult);
+  if (!Array.isArray(values)) return values;
   return scalarResult(reducer(values), "event");
 }
 
 function sumSeriesValues(result, recentEntryCount = 0, filterResult = null) {
-  if (isScopeResult(result) || isScopeResult(filterResult)) return errorResult("Scope values can only be used inside group functions.");
-  if (!isSeriesResult(result)) return errorResult("sum requires a match-level expression.");
-  const entries = filteredSeriesEntries(result, filterResult, recentEntryCount);
-  if (entries === null) return errorResult("Optional filter arguments must evaluate to a match-level expression.");
-  const values = entries
-    .map((entry) => numericValueOrNaN(entry.value))
-    .filter((value) => !Number.isNaN(value));
+  const values = numericSeriesValues(result, recentEntryCount, filterResult, "sum requires a match-level expression.");
+  if (!Array.isArray(values)) return values;
   return scalarResult(values.length ? roundValue(values.reduce((sum, value) => sum + value, 0), 1) : Number.NaN, "event");
 }
 
@@ -538,6 +538,12 @@ function countSeriesValues(result, recentEntryCount = 0, filterResult = null) {
   if (entries === null) return errorResult("Optional filter arguments must evaluate to a match-level expression.");
   const count = entries.filter((entry) => isPresentValue(entry.value)).length;
   return scalarResult(count, "event");
+}
+
+function extremeSeriesValues(name, result, recentEntryCount = 0, filterResult = null) {
+  const values = numericSeriesValues(result, recentEntryCount, filterResult, `${name} requires a match-level expression.`);
+  if (!Array.isArray(values)) return values;
+  return scalarResult(values.length ? Math[name](...values) : Number.NaN, "event");
 }
 
 function averageMatchValues(values) {
@@ -985,24 +991,41 @@ function evaluateFormulaAst(ast, options = {}) {
         evaluateOptionalFilter(ast.args[1] || null),
       );
     }
-    if (["matchaverage", "matchsum", "matchcount", "allianceaverage", "alliancesum", "alliancecount"].includes(normalizedName)) {
+    if (["min", "max"].includes(normalizedName)) {
+      if (ast.args.length < 1 || ast.args.length > 2) return errorResult(`${normalizedName} requires one series argument and an optional filter.`);
+      return extremeSeriesValues(
+        normalizedName,
+        evaluateFormulaAst(ast.args[0], options),
+        recentEntryCount,
+        evaluateOptionalFilter(ast.args[1] || null),
+      );
+    }
+    if (["matchaverage", "matchsum", "matchcount", "matchmin", "matchmax", "allianceaverage", "alliancesum", "alliancecount", "alliancemin", "alliancemax"].includes(normalizedName)) {
       if (!evaluateGroupFunction) return errorResult(`${ast.callee} is not available in this context.`);
       if (ast.args.length < 1 || ast.args.length > 2) return errorResult(`${ast.callee} requires series and an optional filter.`);
       const nameMap = {
         matchaverage: "groupaverage",
         matchsum: "groupsum",
         matchcount: "groupcount",
+        matchmin: "groupmin",
+        matchmax: "groupmax",
         allianceaverage: "groupaverage",
         alliancesum: "groupsum",
         alliancecount: "groupcount",
+        alliancemin: "groupmin",
+        alliancemax: "groupmax",
       };
       const scopeMap = {
         matchaverage: "match",
         matchsum: "match",
         matchcount: "match",
+        matchmin: "match",
+        matchmax: "match",
         allianceaverage: "allianceMatch",
         alliancesum: "allianceMatch",
         alliancecount: "allianceMatch",
+        alliancemin: "allianceMatch",
+        alliancemax: "allianceMatch",
       };
       return evaluateGroupFunction({
         name: nameMap[normalizedName],
@@ -1012,7 +1035,7 @@ function evaluateFormulaAst(ast, options = {}) {
         parentOptions: options,
       });
     }
-    if (["eventaverage", "eventsum", "eventcount"].includes(normalizedName)) {
+    if (["eventaverage", "eventsum", "eventcount", "eventmin", "eventmax"].includes(normalizedName)) {
       const evaluateEventFunction = typeof options.evaluateEventFunction === "function" ? options.evaluateEventFunction : null;
       if (!evaluateEventFunction) return errorResult(`${ast.callee} is not available in this context.`);
       if (ast.args.length < 1 || ast.args.length > 2) return errorResult(`${ast.callee} requires a per-team event value and an optional team-level filter.`);

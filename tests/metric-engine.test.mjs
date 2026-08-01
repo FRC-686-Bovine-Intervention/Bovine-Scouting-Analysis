@@ -240,6 +240,50 @@ runTest("count supports an optional inline filter expression", () => {
   assert.equal(result.value, 1);
 });
 
+runTest("min and max reduce numeric match values with optional filters", () => {
+  [
+    ["min(scouting.fuel, scouting.include > 0)", 4],
+    ["max(scouting.fuel, scouting.include > 0)", 12],
+  ].forEach(([formula, expectedValue]) => {
+    const result = metricEngine.evaluateFormulaExpression(formula, {
+      recentEntryCount: 4,
+      resolveIdentifier(identifier) {
+        if (identifier === "scouting.fuel") {
+          return metricEngine.seriesResult([
+            { key: 1, value: 9 },
+            { key: 2, value: "not numeric" },
+            { key: 3, value: 4 },
+            { key: 4, value: 12 },
+          ]);
+        }
+        if (identifier === "scouting.include") {
+          return metricEngine.seriesResult([
+            { key: 1, value: 0 },
+            { key: 2, value: 1 },
+            { key: 3, value: 1 },
+            { key: 4, value: 1 },
+          ]);
+        }
+        return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+      },
+    });
+
+    assert.equal(result.granularity, "event");
+    assert.equal(result.value, expectedValue);
+  });
+});
+
+runTest("min and max report unavailable results for empty numeric input and retain aggregate errors", () => {
+  const emptyResult = metricEngine.evaluateFormulaExpression("min(scouting.fuel)", {
+    resolveIdentifier: () => metricEngine.seriesResult([{ key: 1, value: null }]),
+  });
+  const invalidResult = metricEngine.evaluateFormulaExpression("max(4)");
+
+  assert.ok(Number.isNaN(emptyResult.value));
+  assert.equal(invalidResult.kind, "error");
+  assert.match(invalidResult.error, /max requires a match-level expression/);
+});
+
 runTest("evaluateFormulaExpression supports comparison operators for match-level filters", () => {
   const result = metricEngine.evaluateFormulaExpression("scouting.climbAttempt > 0", {
     resolveIdentifier(identifier) {
@@ -492,6 +536,34 @@ runTest("evaluateFormulaExpression delegates alliance-scoped functions", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(result.entries)), [{ key: 3, value: 1.25 }]);
 });
 
+runTest("evaluateFormulaExpression delegates match and alliance min/max functions", () => {
+  const expectedRequests = [
+    ["matchMin(scouting.fuel)", "groupmin", "match"],
+    ["matchMax(scouting.fuel)", "groupmax", "match"],
+    ["allianceMin(scouting.fuel)", "groupmin", "allianceMatch"],
+    ["allianceMax(scouting.fuel)", "groupmax", "allianceMatch"],
+  ];
+
+  expectedRequests.forEach(([formula, expectedName, expectedScopeId]) => {
+    const result = metricEngine.evaluateFormulaExpression(formula, {
+      resolveIdentifier(identifier) {
+        if (identifier === "scouting.fuel") return metricEngine.seriesResult([{ key: 3, value: 40 }]);
+        return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+      },
+      evaluateGroupFunction({ name, scopeId, seriesAst, filterAst }) {
+        assert.equal(name, expectedName);
+        assert.equal(scopeId, expectedScopeId);
+        assert.equal(seriesAst.type, "identifier");
+        assert.equal(filterAst, null);
+        return metricEngine.seriesResult([{ key: 3, value: 12 }]);
+      },
+    });
+
+    assert.equal(result.granularity, "match");
+    assert.deepEqual(JSON.parse(JSON.stringify(result.entries)), [{ key: 3, value: 12 }]);
+  });
+});
+
 runTest("evaluateFormulaExpression delegates event-scoped functions", () => {
   const result = metricEngine.evaluateFormulaExpression("eventAverage(average(scouting.autoFuelPct), statbotics.epa.total_points > 0)", {
     resolveIdentifier(identifier) {
@@ -514,6 +586,26 @@ runTest("evaluateFormulaExpression delegates event-scoped functions", () => {
 
   assert.equal(result.granularity, "event");
   assert.equal(result.value, 7.5);
+});
+
+runTest("evaluateFormulaExpression delegates event min/max functions", () => {
+  ["eventMin", "eventMax"].forEach((functionName, index) => {
+    const result = metricEngine.evaluateFormulaExpression(`${functionName}(statbotics.epa.total_points)`, {
+      resolveIdentifier(identifier) {
+        if (identifier === "statbotics.epa.total_points") return metricEngine.scalarResult(10, "event");
+        return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+      },
+      evaluateEventFunction({ name, valueAst, filterAst }) {
+        assert.equal(name, functionName.toLowerCase());
+        assert.equal(valueAst.type, "identifier");
+        assert.equal(filterAst, null);
+        return metricEngine.scalarResult(index ? 15 : 5, "event");
+      },
+    });
+
+    assert.equal(result.granularity, "event");
+    assert.equal(result.value, index ? 15 : 5);
+  });
 });
 
 runTest("evaluateFormulaExpression rejects mixed granularity without averaging", () => {

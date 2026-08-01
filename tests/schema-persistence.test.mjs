@@ -1214,6 +1214,45 @@ await runTest("formula autocomplete scrolls the keyboard-selected suggestion int
   assert.equal(scrolledSuggestion, result.candidates[selectedIndex]);
 });
 
+await runTest("scoped min and max formulas reduce real group and event values", async () => {
+  const eventCatalog = [{
+    key: "2026minmax",
+    season: 2026,
+    name: "Min Max Test",
+    seasonLabel: "2026",
+    teams: [
+      { number: 111, sources: { statbotics: { components: { epa: { total_points: 10 } } } } },
+      { number: 222, sources: { statbotics: { components: { epa: { total_points: 20 } } } } },
+      { number: 333, sources: { statbotics: { components: { epa: { total_points: 35 } } } } },
+    ],
+    teamNumbers: [111, 222, 333],
+    matches: [{ number: 1, red: [111, 222, 333], blue: [] }],
+    dataSources: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    sheet: { recommendedProfileId: "match-current-v2" },
+  }];
+  const context = loadAppContext({ eventCatalog });
+  const eventModel = context.eventCatalog[0];
+  context.__scoutingAppState.activeEventKey = eventModel.key;
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    label: "Current",
+    fields: [],
+    derivedEquations: [
+      { id: "event_min", name: "event_min", formula: "eventMin(statbotics.epa.total_points)" },
+      { id: "event_max_filtered", name: "event_max_filtered", formula: "eventMax(statbotics.epa.total_points, statbotics.epa.total_points < 30)" },
+    ],
+  });
+
+  assert.equal(context.aggregateGroupValues("groupmin", [12, "invalid", 4, undefined]), 4);
+  assert.equal(context.aggregateGroupValues("groupmax", [12, "invalid", 4, undefined]), 12);
+  assert.ok(Number.isNaN(context.aggregateGroupValues("groupmin", ["invalid", undefined])));
+  assert.equal(context.evaluateEquationForTeam(111, "event_min", { eventModel }).result.value, 10);
+  assert.equal(context.evaluateEquationForTeam(111, "event_max_filtered", { eventModel }).result.value, 20);
+});
+
 await runTest("formula autocomplete Tab completion stops at the shared prefix until a suggestion is selected", () => {
   const context = loadAppContext();
   const candidates = ["scouting.autoFuel", "scouting.teleOpFuel"];

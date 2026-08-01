@@ -2913,6 +2913,8 @@ function aggregateGroupValues(name, values) {
   if (name === "groupsum") return numericValues.length ? numericValues.reduce((sum, value) => sum + value, 0) : Number.NaN;
   if (name === "groupaverage") return numericValues.length ? numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length : Number.NaN;
   if (name === "groupcount") return values.filter((value) => value !== null && value !== undefined && value !== "" && value !== 0 && value !== "0").length;
+  if (name === "groupmin") return numericValues.length ? Math.min(...numericValues) : Number.NaN;
+  if (name === "groupmax") return numericValues.length ? Math.max(...numericValues) : Number.NaN;
   return Number.NaN;
 }
 
@@ -3096,6 +3098,8 @@ function evaluateEventFormulaForContext(eventRequest, formulaContext, evaluation
     if (name === "eventsum") result = formulaScalarValue(numericValues.length ? roundValue(numericValues.reduce((sum, value) => sum + value, 0), 1) : Number.NaN, "event");
     else if (name === "eventaverage") result = formulaScalarValue(numericValues.length ? roundValue(average(numericValues), 1) : Number.NaN, "event");
     else if (name === "eventcount") result = formulaScalarValue(countableValues.filter((value) => value !== null && value !== undefined && value !== "" && value !== 0 && value !== "0").length, "event");
+    else if (name === "eventmin") result = formulaScalarValue(numericValues.length ? Math.min(...numericValues) : Number.NaN, "event");
+    else if (name === "eventmax") result = formulaScalarValue(numericValues.length ? Math.max(...numericValues) : Number.NaN, "event");
     eventEvaluationCache.set(cacheKey, result);
     return result;
   };
@@ -3320,6 +3324,8 @@ function canonicalFormulaCall(ast) {
       groupaverage: { match: "matchAverage", alliancematch: "allianceAverage" },
       groupsum: { match: "matchSum", alliancematch: "allianceSum" },
       groupcount: { match: "matchCount", alliancematch: "allianceCount" },
+      groupmin: { match: "matchMin", alliancematch: "allianceMin" },
+      groupmax: { match: "matchMax", alliancematch: "allianceMax" },
     };
     const nextName = scopedNameMap[normalizedName]?.[scopeName];
     if (nextName) return { name: nextName, args: [args[0], ...args.slice(2)] };
@@ -3328,15 +3334,23 @@ function canonicalFormulaCall(ast) {
     average: "average",
     sum: "sum",
     count: "count",
+    min: "min",
+    max: "max",
     matchaverage: "matchAverage",
     matchsum: "matchSum",
     matchcount: "matchCount",
+    matchmin: "matchMin",
+    matchmax: "matchMax",
     allianceaverage: "allianceAverage",
     alliancesum: "allianceSum",
     alliancecount: "allianceCount",
+    alliancemin: "allianceMin",
+    alliancemax: "allianceMax",
     eventaverage: "eventAverage",
     eventsum: "eventSum",
     eventcount: "eventCount",
+    eventmin: "eventMin",
+    eventmax: "eventMax",
     groupaverage: "groupAverage",
     groupsum: "groupSum",
     groupcount: "groupCount",
@@ -8133,15 +8147,23 @@ function formulaAutocompleteCandidates(token) {
     "average",
     "sum",
     "count",
+    "min",
+    "max",
     "matchAverage",
     "matchSum",
     "matchCount",
+    "matchMin",
+    "matchMax",
     "allianceAverage",
     "allianceSum",
     "allianceCount",
+    "allianceMin",
+    "allianceMax",
     "eventAverage",
     "eventSum",
     "eventCount",
+    "eventMin",
+    "eventMax",
   ].filter((candidate) => candidate.toLowerCase().startsWith(normalizedToken));
 }
 
@@ -8172,6 +8194,8 @@ function builtInFunctionGroups() {
       entries: sortEntries([
         { name: "average(series, filter?)", description: "Average a match-level series over this team's recent matches, optionally filtered." },
         { name: "count(series, filter?)", description: "Count present nonblank nonzero entries in a match-level series, optionally filtered." },
+        { name: "min(series, filter?)", description: "Return the lowest numeric value in this team's recent match-level series, optionally filtered." },
+        { name: "max(series, filter?)", description: "Return the highest numeric value in this team's recent match-level series, optionally filtered." },
         { name: "sum(series, filter?)", description: "Sum a match-level series over this team's recent matches, optionally filtered." },
       ]),
     },
@@ -8200,6 +8224,8 @@ function builtInFunctionGroups() {
       entries: sortEntries([
         { name: "allianceAverage(series, filter?)", description: "Average peer values across the current alliance in each match row." },
         { name: "allianceCount(series, filter?)", description: "Count present peer values across the current alliance in each match row." },
+        { name: "allianceMin(series, filter?)", description: "Return the lowest numeric peer value across the current alliance in each match row." },
+        { name: "allianceMax(series, filter?)", description: "Return the highest numeric peer value across the current alliance in each match row." },
         { name: "allianceSum(series, filter?)", description: "Sum peer values across the current alliance in each match row." },
       ]),
     },
@@ -8210,6 +8236,8 @@ function builtInFunctionGroups() {
       entries: sortEntries([
         { name: "matchAverage(series, filter?)", description: "Average peer values across all six robots in each match row." },
         { name: "matchCount(series, filter?)", description: "Count present peer values across all six robots in each match row." },
+        { name: "matchMin(series, filter?)", description: "Return the lowest numeric peer value across all six robots in each match row." },
+        { name: "matchMax(series, filter?)", description: "Return the highest numeric peer value across all six robots in each match row." },
         { name: "matchSum(series, filter?)", description: "Sum peer values across all six robots in each match row." },
       ]),
     },
@@ -8220,6 +8248,8 @@ function builtInFunctionGroups() {
       entries: sortEntries([
         { name: "eventAverage(value, filter?)", description: "Average a per-team event value such as statbotics.epa.total_points or average(scouting.autoSpeakerMade) across teams at the event." },
         { name: "eventCount(value, filter?)", description: "Count teams whose per-team event value is present and nonzero. Do not pass raw match-level series like scouting.autoSpeakerMade." },
+        { name: "eventMin(value, filter?)", description: "Return the lowest numeric per-team event value across teams at the event." },
+        { name: "eventMax(value, filter?)", description: "Return the highest numeric per-team event value across teams at the event." },
         { name: "eventSum(value, filter?)", description: "Sum a per-team event value such as pridge.total or average(scouting.autoSpeakerMade) across teams at the event." },
       ]),
     },
