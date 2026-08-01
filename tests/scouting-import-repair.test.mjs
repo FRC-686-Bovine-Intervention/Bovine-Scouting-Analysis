@@ -68,8 +68,8 @@ runTest("stampScoutingSubmissionMetadata uses event-owned field definitions with
     key: "2027demo",
     season: 2027,
     formulaFieldDefinitions: [
-      { id: "customCounter", label: "Custom Counter", unit: "count", aggregate: "average" },
-      { id: "driverTag", label: "Driver Tag", unit: "text", aggregate: "" },
+      { id: "customCounter", label: "Custom Counter", unit: "count" },
+      { id: "driverTag", label: "Driver Tag", unit: "text" },
     ],
   };
   const stamped = context.ScoutingImportRepair.stampScoutingSubmissionMetadata(
@@ -89,6 +89,42 @@ runTest("stampScoutingSubmissionMetadata uses event-owned field definitions with
   assert.deepEqual(
     JSON.parse(JSON.stringify(parsedSignature.fields.map((field) => field.id))),
     ["customCounter", "driverTag"],
+  );
+});
+
+runTest("stampScoutingSubmissionMetadata preserves string-only schema field ids", () => {
+  const context = loadBrowserContext(["src/scouting-import-repair.js"]);
+  const eventModel = {
+    key: "2025chcmp",
+    season: 2025,
+  };
+  const schemaFields = ["autoL4Made", "climbLevel", "notes"];
+  const stamped = context.ScoutingImportRepair.stampScoutingSubmissionMetadata(
+    [
+      {
+        teamNumber: 686,
+        matchNumber: 1,
+        schemaVersion: "2025-match-v1",
+        templateProfileId: "canonical-json-v1",
+        rawMetrics: {
+          autoL4Made: 1,
+          climbLevel: 2,
+          notes: "",
+        },
+      },
+    ],
+    eventModel,
+    { schemaFields },
+  );
+
+  const parsedSignature = JSON.parse(stamped[0].scoutingSchemaSignature);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(parsedSignature.fields.map((field) => field.id))),
+    schemaFields,
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(parsedSignature.fields.map((field) => field.type))),
+    ["", "", ""],
   );
 });
 
@@ -172,8 +208,8 @@ runTest("stamped submissions can use explicit schema fields instead of season-se
     formulaFieldDefinitions: context.SeasonFramework.formulaFieldDefinitions(season),
   };
   const schemaFields = [
-    { id: "customDriverTag", label: "Custom Driver Tag", type: "string", unit: "text", aggregate: "" },
-    { id: "newCounter", label: "New Counter", type: "number", unit: "count", aggregate: "average" },
+    { id: "customDriverTag", label: "Custom Driver Tag", type: "string", unit: "text" },
+    { id: "newCounter", label: "New Counter", type: "number", unit: "count" },
   ];
   const stamped = context.ScoutingImportRepair.stampScoutingSubmissionMetadata(
     [

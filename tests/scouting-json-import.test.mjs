@@ -66,6 +66,181 @@ runTest("previewScoutingJsonImport accepts canonical scouting JSON and preserves
   assert.equal(preview.summary.submissions[0].provenance.sourceEntryId, "entry-1");
 });
 
+runTest("previewScoutingJsonImport accepts schema-carrying canonical JSON without season-seeded field definitions", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
+  const eventModel = {
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: "2026 Season",
+    scoringComponents: [],
+    formulaFieldDefinitions: [],
+    scouterMetricDefinitions: [],
+    derivedMetricDefinitions: [],
+    metrics: [],
+  };
+
+  const preview = context.ScoutingJsonImport.previewScoutingJsonImport({
+    jsonText: fs.readFileSync(path.resolve("tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.entries.json"), "utf8"),
+    schemaJsonText: fs.readFileSync(path.resolve("tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.schema.json"), "utf8"),
+    eventModel,
+    activeEventKey: "2026chcmp",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, true);
+  assert.equal(preview.summary.schemaFields.length > 0, true);
+  assert.equal(preview.summary.submissions[0].rawMetrics.autoFuelPct, 80);
+});
+
+runTest("previewScoutingJsonImport preserves string-only expectedScoutingFields ids from schema artifacts", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
+  const eventModel = {
+    season: 2025,
+    key: "2025chcmp",
+    seasonLabel: "2025 Season",
+    scoringComponents: [],
+    formulaFieldDefinitions: [],
+    scouterMetricDefinitions: [],
+    derivedMetricDefinitions: [],
+    metrics: [],
+  };
+
+  const preview = context.ScoutingJsonImport.previewScoutingJsonImport({
+    jsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        season: 2025,
+        eventKey: "2025chcmp",
+        entryType: "match",
+      },
+      entries: [
+        {
+          entryId: "entry-1",
+          matchNumber: 1,
+          teamNumber: 686,
+          alliance: "blue",
+          rawMetrics: {
+            autoL4Made: 1,
+            climbHeight: 4,
+            notes: "",
+          },
+        },
+      ],
+    }),
+    schemaJsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        templateProfileId: "canonical-json-v1",
+        profileLabel: "Canonical JSON",
+      },
+      schema: {
+        schemaId: "2025-match-v1",
+        expectedScoutingFields: ["autoL4Made", "climbLevel", "notes"],
+      },
+      profile: {
+        id: "canonical-json-v1",
+        label: "Canonical JSON",
+      },
+    }),
+    eventModel,
+    activeEventKey: "2025chcmp",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, true);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(preview.summary.schemaFields.map((field) => field.id))),
+    ["autoL4Made", "climbLevel", "notes"],
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(preview.summary.schemaFields.map((field) => ({ id: field.id, type: field.type, unit: field.unit })))),
+    [
+      { id: "autoL4Made", type: "number", unit: "" },
+      { id: "climbLevel", type: "number", unit: "" },
+      { id: "notes", type: "string", unit: "" },
+    ],
+  );
+});
+
+runTest("previewScoutingJsonImport carries schema metricDiscovery into the imported profile definition", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
+  const eventModel = {
+    season: 2025,
+    key: "2025chcmp",
+    seasonLabel: "2025 Season",
+    scoringComponents: [],
+    formulaFieldDefinitions: [],
+    scouterMetricDefinitions: [],
+    derivedMetricDefinitions: [],
+    metrics: [],
+  };
+
+  const preview = context.ScoutingJsonImport.previewScoutingJsonImport({
+    jsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        season: 2025,
+        eventKey: "2025chcmp",
+        entryType: "match",
+      },
+      entries: [
+        {
+          entryId: "entry-1",
+          matchNumber: 1,
+          teamNumber: 686,
+          alliance: "blue",
+          rawMetrics: {
+            autoL4Made: 1,
+            scoutUser: "Scout A",
+            station: "1",
+          },
+        },
+      ],
+    }),
+    schemaJsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        templateProfileId: "canonical-json-v1",
+        profileLabel: "Canonical JSON",
+      },
+      schema: {
+        schemaId: "2025-match-v1",
+        metricDiscovery: {
+          blacklist: {
+            tba: [
+              "scoreBreakdown.autoReef.*.node*",
+              "scoreBreakdown.teleopReef.*.node*",
+            ],
+            statbotics: [],
+          },
+        },
+        expectedScoutingFields: ["autoL4Made", "notes"],
+      },
+      profile: {
+        id: "canonical-json-v1",
+        label: "Canonical JSON",
+      },
+    }),
+    eventModel,
+    activeEventKey: "2025chcmp",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, true);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(preview.summary.profileDefinition.metricDiscovery)),
+    {
+      blacklist: {
+        tba: [
+          "scoreBreakdown.autoReef.*.node*",
+          "scoreBreakdown.teleopReef.*.node*",
+        ],
+        statbotics: [],
+      },
+    },
+  );
+});
+
 runTest("previewScoutingJsonImport preserves explicit entry provenance", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];
@@ -179,7 +354,7 @@ runTest("previewScoutingJsonImport rejects canonical JSON that omits schema fiel
   });
 
   assert.equal(preview.ok, false);
-  assert.ok(preview.errors.some((error) => error.includes("schema.fields must be an array")));
+  assert.ok(preview.errors.some((error) => error.includes("schema.expectedScoutingFields must be an array")));
 });
 
 runTest("previewScoutingJsonImport flags duplicate rows by canonical event, match, and team identity", () => {
@@ -304,8 +479,8 @@ runTest("previewScoutingJsonImport honors payload schema fields instead of forci
       schema: {
         schemaId: "2026-match-drifted",
         fields: [
-          { id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%", aggregate: "average" },
-          { id: "customDriverTag", label: "Driver Tag", type: "string", unit: "text", aggregate: "mode" },
+          { id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" },
+          { id: "customDriverTag", label: "Driver Tag", type: "string", unit: "text" },
         ],
       },
       entries: [
@@ -331,8 +506,8 @@ runTest("previewScoutingJsonImport honors payload schema fields instead of forci
       schema: {
         schemaId: "2026-match-drifted",
         fields: [
-          { id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%", aggregate: "average" },
-          { id: "customDriverTag", label: "Driver Tag", type: "string", unit: "text", aggregate: "mode" },
+          { id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" },
+          { id: "customDriverTag", label: "Driver Tag", type: "string", unit: "text" },
         ],
       },
     }),
@@ -405,6 +580,60 @@ runTest("previewScoutingJsonImport can combine split entries and schema artifact
   assert.equal(preview.summary.submissions[0].provenance.sourceApp, "Split Exporter");
 });
 
+runTest("previewScoutingJsonImport rejects contextual fields at the top level of entries", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
+  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
+  const eventModel = {
+    ...season2026,
+    season: 2026,
+    key: "2026chcmp",
+    seasonLabel: season2026.label,
+    metrics: context.SeasonFramework.buildMetrics(season2026),
+    criteriaSources: context.SeasonFramework.buildCriteriaSources(season2026),
+  };
+
+  const preview = context.ScoutingJsonImport.previewScoutingJsonImport({
+    jsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        season: 2026,
+        eventKey: "2026chcmp",
+        entryType: "match",
+      },
+      entries: [
+        {
+          entryId: "split-1",
+          matchNumber: 4,
+          teamNumber: 686,
+          alliance: "blue",
+          scoutUser: "Top Level Scout",
+          rawMetrics: {
+            scoutUser: "Scout Split",
+            station: "2",
+            autoFuelPct: 70,
+          },
+        },
+      ],
+    }),
+    schemaJsonText: JSON.stringify({
+      meta: {
+        format: "frc-scouting-analysis/v1",
+        sourceApp: "Split Exporter",
+        templateProfileId: "canonical-json-v1",
+        profileLabel: "Canonical JSON",
+        translationVersion: "split-v1",
+      },
+      schema: context.ScoutingJsonSchema.buildCanonicalSchemaForEventModel(eventModel),
+    }),
+    eventModel,
+    activeEventKey: "2026chcmp",
+    existingSubmissions: [],
+  });
+
+  assert.equal(preview.ok, false);
+  assert.ok(preview.errors.some((error) => error.includes("must store scoutUser inside rawMetrics")));
+});
+
 runTest("previewScoutingJsonImport surfaces profile equations from schema artifacts", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
   const season2026 = context.SeasonFramework.gameDefinitions["2026"];
@@ -438,16 +667,18 @@ runTest("previewScoutingJsonImport surfaces profile equations from schema artifa
     schemaJsonText: JSON.stringify({
       meta: {
         format: "frc-scouting-analysis/v1",
-        templateProfileId: "match-current-v2",
-        profileLabel: "Current Match Template",
+        templateProfileId: "canonical-json-v1",
+        profileLabel: "Canonical JSON",
       },
       schema: context.ScoutingJsonSchema.buildCanonicalSchemaForEventModel(eventModel),
       profile: {
-        id: "match-current-v2",
-        label: "Current Match Template",
-        equations: [
-          { id: "scoutingTotal", name: "Scouting Total", formula: "scouting.auto + scouting.cycle + scouting.endgame", unit: "pts" },
-          { id: "shareGate", name: "Share Gate", formula: "scouting.autoFuelPct > 0", unit: "bool", usage: "predicate" },
+        id: "canonical-json-v1",
+        label: "Canonical JSON",
+        derivedEquations: [
+          { id: "scoutingTotal", name: "Scouting Total", formula: "scouting.auto + scouting.cycle + scouting.endgame" },
+        ],
+        filters: [
+          { id: "shareGate", name: "Share Gate", formula: "scouting.autoFuelPct > 0" },
         ],
       },
     }),
@@ -457,8 +688,9 @@ runTest("previewScoutingJsonImport surfaces profile equations from schema artifa
   });
 
   assert.equal(preview.ok, true);
-  assert.equal(preview.summary.profileDefinition.id, "match-current-v2");
-  assert.equal(preview.summary.profileDefinition.equations.length, 2);
-  assert.equal(preview.summary.profileDefinition.equations[0].id, "scoutingTotal");
-  assert.equal(preview.summary.profileDefinition.equations[1].usage, "predicate");
+  assert.equal(preview.summary.profileDefinition.id, "canonical-json-v1");
+  assert.equal(preview.summary.profileDefinition.derivedEquations.length, 1);
+  assert.equal(preview.summary.profileDefinition.derivedEquations[0].name, "scoutingTotal");
+  assert.equal(preview.summary.profileDefinition.filters.length, 1);
+  assert.equal(preview.summary.profileDefinition.filters[0].name, "shareGate");
 });

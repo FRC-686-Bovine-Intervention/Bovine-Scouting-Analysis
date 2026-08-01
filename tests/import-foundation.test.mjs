@@ -75,11 +75,11 @@ runTest("previewScoutingImport uses event-owned field definitions without Season
     metrics: [{ id: "source:scouter:customCounter", label: "Scouting Custom Counter", unit: "count" }],
     criteriaSources: [{ id: "scouter", label: "Scouting", components: [{ id: "customCounter", label: "Custom Counter" }] }],
     formulaFieldDefinitions: [
-      { id: "customCounter", label: "Custom Counter", unit: "count", aggregate: "average" },
-      { id: "driverTag", label: "Driver Tag", unit: "text", aggregate: "" },
+      { id: "customCounter", label: "Custom Counter", unit: "count" },
+      { id: "driverTag", label: "Driver Tag", unit: "text" },
     ],
     scouterMetricDefinitions: [
-      { id: "customCounter", label: "Custom Counter", unit: "count", aggregate: "average" },
+      { id: "customCounter", label: "Custom Counter", unit: "count" },
     ],
   };
   const csvText = [

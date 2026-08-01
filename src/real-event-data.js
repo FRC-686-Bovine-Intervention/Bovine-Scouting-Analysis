@@ -26,9 +26,8 @@ function minimalEventModelFromSnapshot(snapshot) {
   const explicitScouterMetricDefinitions = Array.isArray(snapshot?.scouterMetricDefinitions) ? snapshot.scouterMetricDefinitions : [];
   const explicitFormulaFieldDefinitions = Array.isArray(snapshot?.formulaFieldDefinitions) ? snapshot.formulaFieldDefinitions : [];
   const explicitDerivedMetricDefinitions = Array.isArray(snapshot?.derivedMetricDefinitions) ? snapshot.derivedMetricDefinitions : [];
-  const scoutingSchemaSeed = {
-    scoringComponents: seasonDefinition.scoringComponents || [],
-    breakdownMap: seasonDefinition.breakdownMap || {},
+  const eventSchema = {
+    scoringComponents: [],
     scouterMetricDefinitions: explicitScouterMetricDefinitions,
     formulaFieldDefinitions: explicitFormulaFieldDefinitions,
     derivedMetricDefinitions: explicitDerivedMetricDefinitions,
@@ -52,12 +51,12 @@ function minimalEventModelFromSnapshot(snapshot) {
     name: tbaEvent?.name || snapshot?.key || "",
     season,
     seasonLabel: seasonDefinition.label || (season ? `${season} Season` : ""),
-    scoringComponents: seasonDefinition.scoringComponents || [],
-    scoringMatrixPresets: scoutingSchemaSeed.scoringMatrixPresets || [],
+    scoringComponents: [],
+    scoringMatrixPresets: eventSchema.scoringMatrixPresets || [],
     scouterMetricDefinitions: explicitScouterMetricDefinitions,
     formulaFieldDefinitions: explicitFormulaFieldDefinitions,
     derivedMetricDefinitions: explicitDerivedMetricDefinitions,
-    metrics: buildMetricCatalog(scoutingSchemaSeed),
+    metrics: buildMetricCatalog(eventSchema),
     teams,
     teamNumbers: teams.map((team) => team.number),
     sheet: snapshot?.sheet ? { ...snapshot.sheet, recommendedProfileId: snapshot.importProfileId || "" } : null,

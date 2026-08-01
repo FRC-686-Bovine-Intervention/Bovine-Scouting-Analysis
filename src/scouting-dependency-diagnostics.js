@@ -9,6 +9,7 @@ function normalizeText(value) {
 }
 
 function inferFieldType(fieldDefinition = {}) {
+  if (typeof fieldDefinition === "string") return "";
   const explicitType = normalizeText(fieldDefinition.type).toLowerCase();
   if (explicitType) return explicitType;
   const unit = normalizeText(fieldDefinition.unit).toLowerCase();
@@ -18,11 +19,14 @@ function inferFieldType(fieldDefinition = {}) {
 function normalizeFieldDefinitions(fieldDefinitions = []) {
   return (fieldDefinitions || [])
     .map((fieldDefinition) => ({
-      id: normalizeText(fieldDefinition?.id),
-      label: normalizeText(fieldDefinition?.label) || normalizeText(fieldDefinition?.id),
+      id: typeof fieldDefinition === "string"
+        ? normalizeText(fieldDefinition)
+        : normalizeText(fieldDefinition?.id),
+      label: typeof fieldDefinition === "string"
+        ? normalizeText(fieldDefinition)
+        : (normalizeText(fieldDefinition?.label) || normalizeText(fieldDefinition?.id)),
       type: inferFieldType(fieldDefinition),
-      unit: normalizeText(fieldDefinition?.unit),
-      aggregate: normalizeText(fieldDefinition?.aggregate),
+      unit: typeof fieldDefinition === "string" ? "" : normalizeText(fieldDefinition?.unit),
     }))
     .filter((fieldDefinition) => fieldDefinition.id);
 }
@@ -35,21 +39,7 @@ function compareScoutingFieldDefinitions(previousFields = [], currentFields = []
 
   const added = current.filter((fieldDefinition) => !previousById.has(fieldDefinition.id));
   const removed = previous.filter((fieldDefinition) => !currentById.has(fieldDefinition.id));
-  const typeChanged = current
-    .filter((fieldDefinition) => previousById.has(fieldDefinition.id))
-    .map((fieldDefinition) => ({
-      previous: previousById.get(fieldDefinition.id),
-      current: fieldDefinition,
-    }))
-    .filter((entry) => entry.previous.type !== entry.current.type)
-    .map((entry) => ({
-      id: entry.current.id,
-      label: entry.current.label || entry.previous.label,
-      previousType: entry.previous.type,
-      currentType: entry.current.type,
-    }));
-
-  return { added, removed, typeChanged };
+  return { added, removed, typeChanged: [] };
 }
 
 function nodeId(kind, id) {
@@ -75,14 +65,31 @@ function collectFormulaDependencies(formula, catalog) {
     if (!normalizedIdentifier) return;
     if (normalizedIdentifier.startsWith("scouting.")) {
       const fieldId = normalizedIdentifier.slice("scouting.".length);
-      if (fieldId && !isBuiltInScoutingFieldId(fieldId)) {
+      if (!fieldId || isBuiltInScoutingFieldId(fieldId)) return;
+      if (fieldId && catalog.equationIds.has(fieldId)) {
         dependencies.push({
-          nodeId: nodeId("field", fieldId),
-          kind: "field",
+          nodeId: nodeId("equation", fieldId),
+          kind: "equation",
           id: fieldId,
-          reason: "scouting_field_reference",
+          reason: "legacy_scouting_equation_reference",
         });
+        return;
       }
+      if (fieldId && catalog.filterIds.has(fieldId)) {
+        dependencies.push({
+          nodeId: nodeId("filter", fieldId),
+          kind: "filter",
+          id: fieldId,
+          reason: "legacy_scouting_filter_reference",
+        });
+        return;
+      }
+      dependencies.push({
+        nodeId: nodeId("field", fieldId),
+        kind: "field",
+        id: fieldId,
+        reason: "scouting_field_reference",
+      });
       return;
     }
     if (catalog.equationIds.has(normalizedIdentifier)) {
@@ -228,17 +235,6 @@ function buildScoutingDependencyDiagnostics({
       message: `Scouting field ${fieldDefinition.id} was removed from the current schema.`,
     });
   });
-  schemaDiff.typeChanged.forEach((fieldDefinition) => {
-    roots.set(nodeId("field", fieldDefinition.id), {
-      nodeId: nodeId("field", fieldDefinition.id),
-      kind: "field",
-      id: fieldDefinition.id,
-      label: fieldDefinition.label,
-      reason: "type_changed",
-      message: `Scouting field ${fieldDefinition.id} changed type from ${fieldDefinition.previousType} to ${fieldDefinition.currentType}.`,
-    });
-  });
-
   nodes.forEach((node) => {
     if (node.parseError) {
       roots.set(node.nodeId, {
@@ -268,14 +264,18 @@ function buildScoutingDependencyDiagnostics({
   });
 
   const broken = new Map();
+  const visiting = new Set();
 
   function diagnose(node) {
     if (!node) return [];
     if (broken.has(node.nodeId)) return broken.get(node.nodeId);
+    if (visiting.has(node.nodeId)) return [];
+    visiting.add(node.nodeId);
     const directRoot = roots.get(node.nodeId);
     if (directRoot) {
       const result = [directRoot];
       broken.set(node.nodeId, result);
+      visiting.delete(node.nodeId);
       return result;
     }
     const failures = [];
@@ -302,6 +302,7 @@ function buildScoutingDependencyDiagnostics({
       });
     });
     broken.set(node.nodeId, failures);
+    visiting.delete(node.nodeId);
     return failures;
   }
 

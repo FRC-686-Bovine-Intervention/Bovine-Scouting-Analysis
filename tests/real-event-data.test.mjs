@@ -195,6 +195,7 @@ runTest("real event data merges framework season metadata when provider season m
   const [eventModel] = context.eventCatalog;
   assert.equal(eventModel.season, 2024);
   assert.equal(eventModel.seasonLabel, "Crescendo");
-  assert.deepEqual(JSON.parse(JSON.stringify(eventModel.scoringComponents.map((component) => component.id))), ["auto", "speaker", "amp", "trap"]);
-  assert.equal(context.SeasonFramework.formulaFieldDefinitions(eventModel).length > 0, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(eventModel.scoringComponents || [])), []);
+  assert.equal("breakdownMap" in eventModel, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.SeasonFramework.formulaFieldDefinitions(eventModel))), []);
 });

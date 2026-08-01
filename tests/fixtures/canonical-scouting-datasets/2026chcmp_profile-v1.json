@@ -1,0 +1,225 @@
+{
+  "meta": {
+    "format": "frc-scouting-analysis/v1",
+    "sourceApp": "legacy-sheet-translator",
+    "templateProfileId": "canonical-json-v1",
+    "profileLabel": "Canonical JSON",
+    "translationVersion": "2026-thin-v2"
+  },
+  "schema": {
+    "schemaId": "2026-match-v1",
+    "metricDiscovery": {
+      "blacklistComment": "Patterns match the full, case-sensitive flattened field ID; * is the only wildcard and matches any characters, including dots (for example, scoreBreakdown.autoReef.*.node* matches scoreBreakdown.autoReef.topRow.nodeA).",
+      "blacklist": {
+        "tba": [],
+        "statbotics": []
+      }
+    },
+    "expectedScoutingFields": [
+      "autoFuelPct",
+      "transitionFuelPct",
+      "shift1FuelPct",
+      "shift2FuelPct",
+      "shift3FuelPct",
+      "shift4FuelPct",
+      "endgameFuelPct",
+      "overallShooter",
+      "overallPasser",
+      "overallIntake",
+      "overallDriver",
+      "overallDefenseAvoidance",
+      "overallDefense",
+      "noShow",
+      "alliance",
+      "startingPosition",
+      "autoPrimaryRole",
+      "autoSecondaryRole",
+      "autoClimbAttempt",
+      "transitionPrimaryRole",
+      "transitionSecondaryRole",
+      "shift1PrimaryRole",
+      "shift1SecondaryRole",
+      "shift2PrimaryRole",
+      "shift2SecondaryRole",
+      "shift3PrimaryRole",
+      "shift3SecondaryRole",
+      "shift4PrimaryRole",
+      "shift4SecondaryRole",
+      "endgamePrimaryRole",
+      "endgameSecondaryRole",
+      "teleopClimbAttempt",
+      "overallNotes"
+    ]
+  },
+  "profile": {
+    "id": "canonical-json-v1",
+    "label": "Canonical JSON",
+    "versionKey": "canonical-json-v1|a1abea4b",
+    "derivedEquations": [
+      {
+        "name": "scoutingTotal",
+        "formula": "scouting.auto + scouting.cycle + scouting.endgameFuelPct"
+      },
+      {
+        "name": "auto",
+        "formula": "average(autoFuelTeam)"
+      },
+      {
+        "name": "cycle",
+        "formula": "average(transitionFuelTeam + shift1FuelTeam + shift2FuelTeam + shift3FuelTeam + shift4FuelTeam)"
+      },
+      {
+        "name": "endgame",
+        "formula": "average(endgameFuelTeam + if(contains(scouting.teleopClimbAttempt, \"park\"), 8, if(contains(scouting.teleopClimbAttempt, \"climb\") || contains(scouting.teleopClimbAttempt, \"successful\"), 20, 0)) + if(contains(scouting.autoClimbAttempt, \"climb\") || contains(scouting.autoClimbAttempt, \"successful\"), 15, 0))"
+      },
+      {
+        "name": "autoFuelShare",
+        "formula": "valueOr(scouting.autoFuelPct, 0) / 100"
+      },
+      {
+        "name": "autoFuelShareAlliance",
+        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(autoFuelShare), 1)"
+      },
+      {
+        "name": "autoFuelTeam",
+        "formula": "if(autoFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.autoPoints, 0) / allianceCount(scouting.hasEntry), 0), valueOr(autoFuelShare / autoFuelShareAlliance * valueOr(tba.hubScore.autoPoints, 0), 0))"
+      },
+      {
+        "name": "autoPctShooting",
+        "formula": "if(scouting.autoPrimaryRole == \"Score\", if(scouting.autoSecondaryRole == \"None\" || scouting.autoSecondaryRole == \"Score\", 1, 0.667), if(scouting.autoSecondaryRole == \"Score\", 0.333, 0))"
+      },
+      {
+        "name": "autoMaxFuelPossible",
+        "formula": "if(autoPctShooting == 0, 0, autoFuelTeam / autoPctShooting)"
+      },
+      {
+        "name": "transitionFuelShare",
+        "formula": "valueOr(scouting.transitionFuelPct, 0) / 100"
+      },
+      {
+        "name": "transitionFuelShareAlliance",
+        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(transitionFuelShare), 1)"
+      },
+      {
+        "name": "transitionFuelTeam",
+        "formula": "if(transitionFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.transitionPoints, 0) / allianceCount(scouting.hasEntry), 0), valueOr(transitionFuelShare / transitionFuelShareAlliance * valueOr(tba.hubScore.transitionPoints, 0), 0))"
+      },
+      {
+        "name": "transitionPctShooting",
+        "formula": "if(scouting.transitionPrimaryRole == \"Score\", if(scouting.transitionSecondaryRole == \"None\" || scouting.transitionSecondaryRole == \"Score\", 1, 0.667), if(scouting.transitionSecondaryRole == \"Score\", 0.333, 0))"
+      },
+      {
+        "name": "transitionMaxFuelPossible",
+        "formula": "if(transitionPctShooting == 0, 0, transitionFuelTeam / transitionPctShooting)"
+      },
+      {
+        "name": "shift1FuelShare",
+        "formula": "valueOr(scouting.shift1FuelPct, 0) / 100"
+      },
+      {
+        "name": "shift1FuelShareAlliance",
+        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(shift1FuelShare), 1)"
+      },
+      {
+        "name": "shift1FuelTeam",
+        "formula": "if(shift1FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift1Points, 0) / allianceCount(scouting.hasEntry), 0), valueOr(shift1FuelShare / shift1FuelShareAlliance * valueOr(tba.hubScore.shift1Points, 0), 0))"
+      },
+      {
+        "name": "shift1PctShooting",
+        "formula": "if(scouting.shift1PrimaryRole == \"Score\", if(scouting.shift1SecondaryRole == \"None\" || scouting.shift1SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift1SecondaryRole == \"Score\", 0.333, 0))"
+      },
+      {
+        "name": "shift1MaxFuelPossible",
+        "formula": "if(shift1PctShooting == 0, 0, shift1FuelTeam / shift1PctShooting)"
+      },
+      {
+        "name": "shift2FuelShare",
+        "formula": "valueOr(scouting.shift2FuelPct, 0) / 100"
+      },
+      {
+        "name": "shift2FuelShareAlliance",
+        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(shift2FuelShare), 1)"
+      },
+      {
+        "name": "shift2FuelTeam",
+        "formula": "if(shift2FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift2Points, 0) / allianceCount(scouting.hasEntry), 0), valueOr(shift2FuelShare / shift2FuelShareAlliance * valueOr(tba.hubScore.shift2Points, 0), 0))"
+      },
+      {
+        "name": "shift2PctShooting",
+        "formula": "if(scouting.shift2PrimaryRole == \"Score\", if(scouting.shift2SecondaryRole == \"None\" || scouting.shift2SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift2SecondaryRole == \"Score\", 0.333, 0))"
+      },
+      {
+        "name": "shift2MaxFuelPossible",
+        "formula": "if(shift2PctShooting == 0, 0, shift2FuelTeam / shift2PctShooting)"
+      },
+      {
+        "name": "shift3FuelShare",
+        "formula": "0"
+      },
+      {
+        "name": "shift3FuelShareAlliance",
+        "formula": "if(allianceCount(scouting.hasEntry) >= 3, 0, 1)"
+      },
+      {
+        "name": "shift3FuelTeam",
+        "formula": "if(allianceCount(scouting.hasEntry) >= 3, valueOr(tba.hubScore.shift3Points, 0) / allianceCount(scouting.hasEntry), 0)"
+      },
+      {
+        "name": "shift3PctShooting",
+        "formula": "if(scouting.shift3PrimaryRole == \"Score\", if(scouting.shift3SecondaryRole == \"None\" || scouting.shift3SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift3SecondaryRole == \"Score\", 0.333, 0))"
+      },
+      {
+        "name": "shift3MaxFuelPossible",
+        "formula": "if(shift3PctShooting == 0, 0, shift3FuelTeam / shift3PctShooting)"
+      },
+      {
+        "name": "shift4FuelShare",
+        "formula": "valueOr(scouting.shift4FuelPct, 0) / 100"
+      },
+      {
+        "name": "shift4FuelShareAlliance",
+        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(shift4FuelShare), 1)"
+      },
+      {
+        "name": "shift4FuelTeam",
+        "formula": "if(shift4FuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.shift4Points, 0) / allianceCount(scouting.hasEntry), 0), valueOr(shift4FuelShare / shift4FuelShareAlliance * valueOr(tba.hubScore.shift4Points, 0), 0))"
+      },
+      {
+        "name": "shift4PctShooting",
+        "formula": "if(scouting.shift4PrimaryRole == \"Score\", if(scouting.shift4SecondaryRole == \"None\" || scouting.shift4SecondaryRole == \"Score\", 1, 0.667), if(scouting.shift4SecondaryRole == \"Score\", 0.333, 0))"
+      },
+      {
+        "name": "shift4MaxFuelPossible",
+        "formula": "if(shift4PctShooting == 0, 0, shift4FuelTeam / shift4PctShooting)"
+      },
+      {
+        "name": "endgameFuelShare",
+        "formula": "valueOr(scouting.endgameFuelPct, 0) / 100"
+      },
+      {
+        "name": "endgameFuelShareAlliance",
+        "formula": "if(allianceSum(scouting.hasEntry) >= 3, allianceSum(endgameFuelShare), 1)"
+      },
+      {
+        "name": "endgameFuelTeam",
+        "formula": "if(endgameFuelShareAlliance == 0, if(allianceCount(scouting.hasEntry) > 0, valueOr(tba.hubScore.endgamePoints, 0) / allianceCount(scouting.hasEntry), 0), valueOr(endgameFuelShare / endgameFuelShareAlliance * valueOr(tba.hubScore.endgamePoints, 0), 0))"
+      },
+      {
+        "name": "endgamePctShooting",
+        "formula": "if(scouting.endgamePrimaryRole == \"Score\", if(scouting.endgameSecondaryRole == \"None\" || scouting.endgameSecondaryRole == \"Score\", 1, 0.667), if(scouting.endgameSecondaryRole == \"Score\", 0.333, 0))"
+      },
+      {
+        "name": "endgameMaxFuelPossible",
+        "formula": "if(endgamePctShooting == 0, 0, endgameFuelTeam / endgamePctShooting)"
+      },
+      {
+        "name": "teleopMaxFuelPossible",
+        "formula": "autoMaxFuelPossible + transitionMaxFuelPossible + shift1MaxFuelPossible + shift2MaxFuelPossible + shift3MaxFuelPossible + shift4MaxFuelPossible + endgameMaxFuelPossible"
+      },
+      {
+        "name": "totalFuelScored",
+        "formula": "autoFuelTeam + transitionFuelTeam + shift1FuelTeam + shift2FuelTeam + shift3FuelTeam + shift4FuelTeam + endgameFuelTeam"
+      }
+    ]
+  }
+}

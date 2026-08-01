@@ -2,6 +2,7 @@
 const seasonFramework = globalThis.SeasonFramework || {};
 const scoutingJsonSchema = globalThis.ScoutingJsonSchema || {};
 const requiredIdentityFields = scoutingJsonSchema.requiredEntryIdentityFields || ["matchNumber", "teamNumber", "alliance"];
+const contextualEntryMetricIds = new Set(scoutingJsonSchema.contextualEntryMetricIds || ["scoutUser", "station", "defensePlayed", "robotStatus", "notes"]);
 const canonicalFormatId = scoutingJsonSchema.canonicalFormatId || "frc-scouting-analysis/v1";
 const canonicalTemplateProfileId = scoutingJsonSchema.canonicalTemplateProfileId || "canonical-json-v1";
 const buildCanonicalSchemaForEventModel = scoutingJsonSchema.buildCanonicalSchemaForEventModel || (() => ({ schemaId: canonicalTemplateProfileId, fields: [] }));
@@ -9,8 +10,7 @@ const normalizeCanonicalProfile = scoutingJsonSchema.normalizeCanonicalProfile |
   id: String(profile?.id || profile?.profileId || schemaMeta?.templateProfileId || canonicalTemplateProfileId).trim(),
   label: String(profile?.label || profile?.name || schemaMeta?.profileLabel || profile?.id || canonicalTemplateProfileId).trim(),
   versionKey: String(profile?.versionKey || profile?.versionId || "").trim(),
-  equations: Array.isArray(profile?.equations) ? profile.equations : [],
-  fieldMigrations: Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords) ? (profile.fieldMigrations || profile.fieldMigrationRecords) : [],
+  derivedEquations: Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : []),
 }));
 const normalizeCanonicalPayload = scoutingJsonSchema.normalizeCanonicalPayload || ((payload, schemaPayload = null) => ({
   meta: payload?.meta || {},
@@ -42,6 +42,11 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function schemaFieldName(fieldDefinition = {}) {
+  if (typeof fieldDefinition === "string") return normalizeText(fieldDefinition);
+  return normalizeText(fieldDefinition?.name || fieldDefinition?.id || fieldDefinition?.label);
+}
+
 function toNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const numeric = Number(value);
@@ -59,7 +64,7 @@ function normalizeMetricValue(value) {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value === "string") return value;
-  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "boolean") return value;
   return JSON.stringify(value);
 }
 
@@ -69,8 +74,6 @@ function normalizeProvenance(value, fallback = {}) {
     Object.entries({ ...fallback, ...base }).filter(([, entryValue]) => entryValue !== undefined && entryValue !== null && entryValue !== ""),
   );
 }
-
-const contextualEntryMetricIds = new Set(["scoutUser", "station", "defensePlayed", "robotStatus", "notes"]);
 
 function formulaFieldDefinitions(eventModel) {
   if (Array.isArray(eventModel?.formulaFieldDefinitions) && eventModel.formulaFieldDefinitions.length) {
@@ -102,7 +105,6 @@ function validateSeasonPackage(eventModel) {
   const missing = [];
   if (!eventModel?.season) missing.push("season");
   if (!eventModel?.seasonLabel) missing.push("seasonLabel");
-  if (!Array.isArray(formulaFieldDefinitions(eventModel)) || !formulaFieldDefinitions(eventModel).length) missing.push("formulaFieldDefinitions");
   return {
     valid: missing.length === 0,
     missing,
@@ -122,11 +124,6 @@ function parseCanonicalJson(text) {
   } catch (error) {
     return { error: `Canonical scouting artifact is not valid JSON. ${error?.message || ""}`.trim() };
   }
-}
-
-function entryContextValue(entry, rawMetricsSource, fieldId) {
-  if (entry && Object.prototype.hasOwnProperty.call(entry, fieldId)) return entry[fieldId];
-  return rawMetricsSource?.[fieldId];
 }
 
 function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, activeEventKey, existingSubmissions = [] }) {
@@ -190,9 +187,11 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
   }
 
   const expectedSchema = buildCanonicalSchemaForEventModel(eventModel);
-  const schemaFieldDefinitions = Array.isArray(schema.fields) && schema.fields.length
-    ? schema.fields
-    : expectedSchema.fields;
+  const schemaFieldDefinitions = Array.isArray(schema.expectedScoutingFields) && schema.expectedScoutingFields.length
+    ? schema.expectedScoutingFields
+    : (Array.isArray(schema.fields) && schema.fields.length
+      ? schema.fields
+      : expectedSchema.expectedScoutingFields);
   const fieldIds = new Set(schemaFieldDefinitions.map((fieldDefinition) => normalizeText(fieldDefinition?.id)).filter(Boolean));
   const schemaFieldMap = validation.schemaFieldMap || new Map();
   const parsedRows = [];
@@ -211,12 +210,12 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
       sourceType: "team-scouting",
       matchNumber: toNumber(entry?.matchNumber),
       teamNumber: toNumber(entry?.teamNumber),
-      scoutUser: normalizeText(entryContextValue(entry, rawMetricsSource, "scoutUser")),
+      scoutUser: normalizeText(rawMetricsSource?.scoutUser),
       alliance: normalizeText(entry?.alliance),
-      station: normalizeText(entryContextValue(entry, rawMetricsSource, "station")),
-      defensePlayed: toBoolean(entryContextValue(entry, rawMetricsSource, "defensePlayed")),
-      robotStatus: normalizeText(entryContextValue(entry, rawMetricsSource, "robotStatus")),
-      notes: normalizeText(entryContextValue(entry, rawMetricsSource, "notes")),
+      station: normalizeText(rawMetricsSource?.station),
+      defensePlayed: toBoolean(rawMetricsSource?.defensePlayed),
+      robotStatus: normalizeText(rawMetricsSource?.robotStatus),
+      notes: normalizeText(rawMetricsSource?.notes),
       rawMetrics,
       validity: "valid",
       confidenceTier: "high",
@@ -244,7 +243,7 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
       schemaFieldDefinitions.forEach((fieldDefinition) => {
         const fieldId = normalizeText(fieldDefinition?.id);
         if (!fieldId) return;
-        if (!Object.prototype.hasOwnProperty.call(rawMetrics, fieldId) && fieldDefinition.optional !== true) {
+        if (!Object.prototype.hasOwnProperty.call(rawMetrics, fieldId)) {
           submission.confidenceReasons.push("missing_metric");
         }
       });
@@ -259,15 +258,6 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
       if (!fieldIds.has(fieldId)) {
         warnings.push(`Entry ${index + 1} includes unknown metric ${fieldId}.`);
         return;
-      }
-      const schemaField = schemaFieldMap.get(fieldId);
-      const value = rawMetrics[fieldId];
-      if (!schemaField || value === null) return;
-      if (schemaField.type === "number" && typeof value !== "number") {
-        warnings.push(`Entry ${index + 1} metric ${fieldId} should be a number.`);
-      }
-      if (schemaField.type === "string" && typeof value !== "string") {
-        warnings.push(`Entry ${index + 1} metric ${fieldId} should be a string.`);
       }
     });
     parsedRows.push(submission);
@@ -289,6 +279,9 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
         ...profileDefinition,
         id: profileIdOverride || normalizeText(profileDefinition?.id) || normalizeText(schemaMeta.templateProfileId) || normalizeText(meta.templateProfileId) || canonicalTemplateProfileId,
         label: profileLabelOverride || normalizeText(profileDefinition?.label) || normalizeText(schemaMeta.profileLabel) || normalizeText(meta.profileLabel) || "Canonical Scouting JSON",
+        metricDiscovery: schema?.metricDiscovery && typeof schema.metricDiscovery === "object"
+          ? JSON.parse(JSON.stringify(schema.metricDiscovery))
+          : null,
       },
       schemaVersion: normalizeText(schema.schemaId) || canonicalTemplateProfileId,
       rowCount: parsedRows.length,
@@ -307,13 +300,16 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
         templateProfileId: profileIdOverride || normalizeText(schemaMeta.templateProfileId) || normalizeText(meta.templateProfileId) || canonicalTemplateProfileId,
         translationVersion: translationVersionOverride || normalizeText(schemaMeta.translationVersion) || normalizeText(meta.translationVersion),
       },
-      schemaFields: (schema.fields || []).map((field) => ({
-        id: normalizeText(field?.id),
-        label: normalizeText(field?.label) || normalizeText(field?.id),
-        type: normalizeText(field?.type),
-        unit: normalizeText(field?.unit),
-        aggregate: normalizeText(field?.aggregate),
-      })),
+      schemaFields: schemaFieldDefinitions.map((field) => {
+        const fieldId = schemaFieldName(field);
+        const normalizedField = schemaFieldMap.get(fieldId);
+        return {
+          id: fieldId,
+          label: (typeof field === "string" ? "" : normalizeText(field?.label)) || normalizeText(normalizedField?.label) || fieldId,
+          type: (typeof field === "string" ? "" : normalizeText(field?.type)) || normalizeText(normalizedField?.type),
+          unit: (typeof field === "string" ? "" : normalizeText(field?.unit)) || normalizeText(normalizedField?.unit),
+        };
+      }),
       submissions: parsedRows,
     },
   };

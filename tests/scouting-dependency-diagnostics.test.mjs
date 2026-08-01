@@ -36,7 +36,7 @@ function loadBrowserContext(relativePaths, extras = {}) {
   return context;
 }
 
-runTest("compareScoutingFieldDefinitions reports added, removed, and type-changed fields", () => {
+runTest("compareScoutingFieldDefinitions reports added and removed fields", () => {
   const context = loadBrowserContext(["src/metric-engine.js", "src/scouting-dependency-diagnostics.js"]);
   const diff = context.ScoutingDependencyDiagnostics.compareScoutingFieldDefinitions(
     [
@@ -53,13 +53,30 @@ runTest("compareScoutingFieldDefinitions reports added, removed, and type-change
 
   assert.deepEqual(JSON.parse(JSON.stringify(diff.added.map((fieldDefinition) => fieldDefinition.id))), ["newCyclePlan"]);
   assert.deepEqual(JSON.parse(JSON.stringify(diff.removed.map((fieldDefinition) => fieldDefinition.id))), ["defenseRating"]);
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(diff.typeChanged)),
-    [{ id: "driverNote", label: "Driver Note", previousType: "string", currentType: "number" }],
-  );
+  assert.deepEqual(JSON.parse(JSON.stringify(diff.typeChanged)), []);
 });
 
-runTest("buildScoutingDependencyDiagnostics propagates broken field roots through equations filters and sort equations", () => {
+runTest("compareScoutingFieldDefinitions treats string schema field ids as committed fields", () => {
+  const context = loadBrowserContext(["src/metric-engine.js", "src/scouting-dependency-diagnostics.js"]);
+  const diff = context.ScoutingDependencyDiagnostics.compareScoutingFieldDefinitions(
+    [
+      "autoFuelPct",
+      "climbLevel",
+      "notes",
+    ],
+    [
+      { id: "autoFuelPct", label: "Auto Fuel %", type: "number" },
+      { id: "climbHeight", label: "Climb Height", type: "number" },
+      { id: "notes", label: "Notes", type: "string" },
+    ],
+  );
+
+  assert.deepEqual(JSON.parse(JSON.stringify(diff.added.map((fieldDefinition) => fieldDefinition.id))), ["climbHeight"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(diff.removed.map((fieldDefinition) => fieldDefinition.id))), ["climbLevel"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(diff.typeChanged)), []);
+});
+
+runTest("buildScoutingDependencyDiagnostics propagates removed-field roots through equations filters and sort equations", () => {
   const context = loadBrowserContext(["src/metric-engine.js", "src/scouting-dependency-diagnostics.js"]);
   const result = context.ScoutingDependencyDiagnostics.buildScoutingDependencyDiagnostics({
     previousFields: [
@@ -82,7 +99,7 @@ runTest("buildScoutingDependencyDiagnostics propagates broken field roots throug
   });
 
   assert.equal(result.diagnostics.roots.some((entry) => entry.id === "autoFuelPct" && entry.reason === "removed"), true);
-  assert.equal(result.diagnostics.roots.some((entry) => entry.id === "driverSignal" && entry.reason === "type_changed"), true);
+  assert.equal(result.diagnostics.roots.some((entry) => entry.id === "driverSignal"), false);
   assert.equal(result.diagnostics.equations.some((entry) => entry.id === "fuelScore"), true);
   assert.equal(result.diagnostics.equations.some((entry) => entry.id === "signalAndFuel"), true);
   assert.equal(result.diagnostics.filters.some((entry) => entry.id === "goodFuel"), true);
@@ -125,4 +142,32 @@ runTest("buildScoutingDependencyDiagnostics ignores built-in scouting helper fie
   assert.equal(result.diagnostics.roots.some((entry) => entry.id === "hasEntry"), false);
   assert.equal(result.diagnostics.equations.some((entry) => entry.id === "shareGate"), false);
   assert.equal(result.diagnostics.filters.some((entry) => entry.id === "hasEntry"), false);
+});
+
+runTest("buildScoutingDependencyDiagnostics treats legacy scouting-prefixed derived equation references as equation dependencies", () => {
+  const context = loadBrowserContext(["src/metric-engine.js", "src/scouting-dependency-diagnostics.js"]);
+  const result = context.ScoutingDependencyDiagnostics.buildScoutingDependencyDiagnostics({
+    previousFields: [
+      { id: "autoSpeakerMade", type: "number" },
+      { id: "autoAmpMade", type: "number" },
+      { id: "teleSpeakerMade", type: "number" },
+      { id: "teleAmpMade", type: "number" },
+    ],
+    currentFields: [
+      { id: "autoSpeakerMade", type: "number" },
+      { id: "autoAmpMade", type: "number" },
+      { id: "teleSpeakerMade", type: "number" },
+      { id: "teleAmpMade", type: "number" },
+    ],
+    equations: [
+      { id: "scoutingTotal", name: "Scouting Total", formula: "scouting.auto + scouting.speaker + scouting.amp + scouting.trap" },
+      { id: "auto", name: "Auto", formula: "average(scouting.autoSpeakerMade * 5 + scouting.autoAmpMade * 2)" },
+      { id: "speaker", name: "Speaker", formula: "average(scouting.teleSpeakerMade * 2)" },
+      { id: "amp", name: "Amp", formula: "average(scouting.teleAmpMade)" },
+      { id: "trap", name: "Trap", formula: "0" },
+    ],
+  });
+
+  assert.equal(result.diagnostics.roots.some((entry) => ["auto", "speaker", "amp", "trap"].includes(entry.id)), false);
+  assert.equal(result.diagnostics.equations.some((entry) => entry.id === "scoutingTotal"), false);
 });

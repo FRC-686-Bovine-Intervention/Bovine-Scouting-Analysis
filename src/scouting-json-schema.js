@@ -5,9 +5,34 @@ const canonicalTemplateProfileId = "canonical-json-v1";
 const requiredEntryIdentityFields = ["matchNumber", "teamNumber", "alliance"];
 const requiredEntriesMetaFields = ["format", "season", "eventKey", "entryType"];
 const requiredSchemaMetaFields = ["format"];
+const contextualEntryMetricIds = ["scoutUser", "station", "defensePlayed", "robotStatus", "notes"];
 
 function normalizeText(value) {
   return String(value || "").trim();
+}
+
+function sanitizeProfileIdentifier(value, fallback = "value") {
+  const trimmed = normalizeText(value);
+  const normalized = trimmed
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!normalized) return fallback;
+  if (/^[A-Za-z_]/.test(normalized)) return normalized;
+  return `_${normalized}`;
+}
+
+function isValidProfileIdentifier(value) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(normalizeText(value));
+}
+
+function canonicalProfileEquationName(definition, fallback = "equation") {
+  const explicitId = normalizeText(definition?.id);
+  const explicitName = normalizeText(definition?.name);
+  const explicitLabel = normalizeText(definition?.label);
+  if (isValidProfileIdentifier(explicitId)) return explicitId;
+  if (isValidProfileIdentifier(explicitName)) return explicitName;
+  if (isValidProfileIdentifier(explicitLabel)) return explicitLabel;
+  return sanitizeProfileIdentifier(explicitId || explicitName || explicitLabel, fallback);
 }
 
 function formulaFieldDefinitions(eventModel) {
@@ -37,6 +62,8 @@ function formulaFieldDefinitions(eventModel) {
 }
 
 function inferCanonicalFieldType(fieldDefinition) {
+  const fieldId = canonicalSchemaFieldName(fieldDefinition);
+  if (contextualEntryMetricIds.includes(fieldId)) return "string";
   const explicitType = normalizeText(fieldDefinition?.type).toLowerCase();
   if (explicitType) return explicitType;
   const unit = normalizeText(fieldDefinition?.unit).toLowerCase();
@@ -44,62 +71,37 @@ function inferCanonicalFieldType(fieldDefinition) {
   return "number";
 }
 
-function normalizeSchemaField(fieldDefinition) {
+function canonicalSchemaFieldName(fieldDefinition) {
+  if (typeof fieldDefinition === "string") return normalizeText(fieldDefinition);
+  return normalizeText(fieldDefinition?.name || fieldDefinition?.id || fieldDefinition?.label);
+}
+
+function normalizeSchemaField(fieldDefinition, expectedField = null) {
+  const fieldId = canonicalSchemaFieldName(fieldDefinition) || normalizeText(expectedField?.id);
   return {
-    id: normalizeText(fieldDefinition?.id),
-    label: normalizeText(fieldDefinition?.label) || normalizeText(fieldDefinition?.id),
-    type: inferCanonicalFieldType(fieldDefinition),
-    unit: normalizeText(fieldDefinition?.unit),
-    optional: fieldDefinition?.optional === true,
-    aggregate: normalizeText(fieldDefinition?.aggregate) || (inferCanonicalFieldType(fieldDefinition) === "number" ? "average" : ""),
+    id: fieldId,
+    label: normalizeText(fieldDefinition?.label) || fieldId,
+    type: inferCanonicalFieldType({ ...(expectedField || {}), ...(fieldDefinition || {}), id: fieldId }),
+    unit: normalizeText(fieldDefinition?.unit) || normalizeText(expectedField?.unit),
   };
 }
 
 function normalizeProfileEquation(definition, index = 0) {
-  const id = normalizeText(definition?.id);
-  const name = normalizeText(definition?.name || definition?.label || id);
-  if (!id || !name) return null;
+  const name = canonicalProfileEquationName(definition, `equation_${index + 1}`);
+  if (!name) return null;
   return {
-    id,
     name,
     formula: normalizeText(definition?.formula || definition?.expression),
-    unit: normalizeText(definition?.unit) || "pts",
-    description: normalizeText(definition?.description),
-    usage: normalizeText(definition?.usage),
-    sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : index,
   };
 }
 
-function normalizeProfileMigrationRecord(record, index = 0) {
-  const kind = normalizeText(record?.kind).toLowerCase();
-  const id = normalizeText(record?.id) || `field-migration-${index + 1}`;
-  if (kind === "rename") {
-    const fromFieldId = normalizeText(record?.fromFieldId || record?.from || record?.fieldId);
-    const toFieldId = normalizeText(record?.toFieldId || record?.to);
-    if (!fromFieldId || !toFieldId) return null;
-    return {
-      id,
-      kind,
-      fromFieldId,
-      toFieldId,
-      label: normalizeText(record?.label || `${fromFieldId} -> ${toFieldId}`),
-      note: normalizeText(record?.note || record?.description),
-      recordedAt: normalizeText(record?.recordedAt || record?.timestamp),
-    };
-  }
-  if (kind === "add" || kind === "remove") {
-    const fieldId = normalizeText(record?.fieldId || record?.toFieldId || record?.fromFieldId);
-    if (!fieldId) return null;
-    return {
-      id,
-      kind,
-      fieldId,
-      label: normalizeText(record?.label || fieldId),
-      note: normalizeText(record?.note || record?.description),
-      recordedAt: normalizeText(record?.recordedAt || record?.timestamp),
-    };
-  }
-  return null;
+function normalizeProfileFilter(definition, index = 0) {
+  const name = canonicalProfileEquationName(definition, `filter_${index + 1}`);
+  if (!name) return null;
+  return {
+    name,
+    formula: normalizeText(definition?.formula || definition?.expression),
+  };
 }
 
 function selectSchemaProfile(schemaSource, schemaMeta = {}) {
@@ -118,20 +120,20 @@ function selectSchemaProfile(schemaSource, schemaMeta = {}) {
 function normalizeCanonicalProfile(profile, schemaMeta = {}) {
   const profileId = normalizeText(profile?.id || profile?.profileId) || normalizeText(schemaMeta?.templateProfileId);
   const profileLabel = normalizeText(profile?.label || profile?.name) || normalizeText(schemaMeta?.profileLabel) || profileId;
-  if (!profileId && !profileLabel && !Array.isArray(profile?.equations) && !Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords)) {
+  const derivedEquations = Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : [];
+  const legacyEquations = Array.isArray(profile?.equations) ? profile.equations : [];
+  if (!profileId && !profileLabel && !derivedEquations.length && !legacyEquations.length) {
     return null;
   }
   return {
     id: profileId || canonicalTemplateProfileId,
     label: profileLabel || profileId || canonicalTemplateProfileId,
     versionKey: normalizeText(profile?.versionKey || profile?.versionId),
-    equations: (Array.isArray(profile?.equations) ? profile.equations : [])
+    derivedEquations: (derivedEquations.length ? derivedEquations : legacyEquations)
       .map((definition, index) => normalizeProfileEquation(definition, index))
       .filter(Boolean),
-    fieldMigrations: (Array.isArray(profile?.fieldMigrations || profile?.fieldMigrationRecords)
-      ? (profile.fieldMigrations || profile.fieldMigrationRecords)
-      : [])
-      .map((record, index) => normalizeProfileMigrationRecord(record, index))
+    filters: (Array.isArray(profile?.filters) ? profile.filters : [])
+      .map((definition, index) => normalizeProfileFilter(definition, index))
       .filter(Boolean),
   };
 }
@@ -140,7 +142,9 @@ function buildCanonicalSchemaForEventModel(eventModel, options = {}) {
   const schemaId = normalizeText(options.schemaId) || `${eventModel?.season || "season"}-match-v1`;
   return {
     schemaId,
-    fields: formulaFieldDefinitions(eventModel).map((fieldDefinition) => normalizeSchemaField(fieldDefinition)),
+    expectedScoutingFields: formulaFieldDefinitions(eventModel)
+      .map((fieldDefinition) => normalizeSchemaField(fieldDefinition).id)
+      .filter(Boolean),
   };
 }
 
@@ -165,6 +169,56 @@ function buildCanonicalSchemaMeta(options = {}) {
     templateProfileId: normalizeText(options.templateProfileId) || canonicalTemplateProfileId,
     profileLabel: normalizeText(options.profileLabel),
     translationVersion: normalizeText(options.translationVersion),
+  };
+}
+
+function buildCanonicalSchemaArtifact(schemaPayload, options = {}) {
+  const normalized = normalizeCanonicalPayload({}, schemaPayload);
+  const eventModel = options.eventModel || {};
+  const expectedFields = formulaFieldDefinitions(eventModel).map((fieldDefinition) => normalizeSchemaField(fieldDefinition));
+  const expectedFieldMap = new Map(expectedFields.map((fieldDefinition) => [fieldDefinition.id, fieldDefinition]));
+  const resolvedSchemaId = normalizeText(options.schemaId)
+    || normalizeText(normalized.schema?.schemaId)
+    || `${eventModel?.season || "season"}-match-v1`;
+  const profile = normalizeCanonicalProfile(
+    options.profile || normalized.profile,
+    {
+      ...normalized.schemaMeta,
+      templateProfileId: normalizeText(options.profile?.id || normalized.schemaMeta?.templateProfileId),
+      profileLabel: normalizeText(options.profile?.label || normalized.schemaMeta?.profileLabel),
+    },
+  ) || normalizeCanonicalProfile(null, normalized.schemaMeta);
+  const schemaFieldEntries = Array.isArray(normalized.schema?.expectedScoutingFields) && normalized.schema.expectedScoutingFields.length
+    ? normalized.schema.expectedScoutingFields
+    : (Array.isArray(normalized.schema?.fields) ? normalized.schema.fields : []);
+  const schema = schemaFieldEntries.length
+    ? {
+        ...normalized.schema,
+        schemaId: resolvedSchemaId,
+        expectedScoutingFields: schemaFieldEntries
+          .map((fieldDefinition) => normalizeSchemaField(fieldDefinition, expectedFieldMap.get(canonicalSchemaFieldName(fieldDefinition)) || null).id)
+          .filter(Boolean),
+      }
+    : buildCanonicalSchemaForEventModel(eventModel, { schemaId: resolvedSchemaId });
+  return {
+    meta: {
+      ...normalized.schemaMeta,
+      format: normalizeText(normalized.schemaMeta?.format) || canonicalFormatId,
+      sourceApp: normalizeText(normalized.schemaMeta?.sourceApp),
+      templateProfileId: normalizeText(profile?.id || normalized.schemaMeta?.templateProfileId) || canonicalTemplateProfileId,
+      profileLabel: normalizeText(profile?.label || normalized.schemaMeta?.profileLabel),
+      translationVersion: normalizeText(normalized.schemaMeta?.translationVersion),
+    },
+    schema,
+    profile: profile
+      ? {
+          id: profile.id,
+          label: profile.label,
+          versionKey: profile.versionKey,
+          derivedEquations: profile.derivedEquations,
+          filters: profile.filters,
+        }
+      : profile,
   };
 }
 
@@ -260,29 +314,39 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
   if (!schemaId) {
     errors.push("Canonical scouting schema JSON schema.schemaId is required.");
   }
-  if (!Array.isArray(schema.fields)) {
-    errors.push("Canonical scouting schema JSON schema.fields must be an array.");
+  const schemaFieldEntries = Array.isArray(schema.expectedScoutingFields) ? schema.expectedScoutingFields : schema.fields;
+  if (!Array.isArray(schemaFieldEntries)) {
+    errors.push("Canonical scouting schema JSON schema.expectedScoutingFields must be an array.");
   }
 
-  const expectedFields = buildCanonicalSchemaForEventModel(eventModel).fields;
+  if (Array.isArray(entries)) {
+    entries.forEach((entry, index) => {
+      contextualEntryMetricIds.forEach((fieldId) => {
+        if (Object.prototype.hasOwnProperty.call(entry || {}, fieldId)) {
+          errors.push(`Entry ${index + 1} must store ${fieldId} inside rawMetrics, not as a top-level field.`);
+        }
+      });
+    });
+  }
+
+  const expectedFields = formulaFieldDefinitions(eventModel).map((fieldDefinition) => normalizeSchemaField(fieldDefinition));
   const expectedFieldMap = new Map(expectedFields.map((field) => [field.id, field]));
   const schemaFieldMap = new Map();
 
-  if (Array.isArray(schema.fields)) {
-    schema.fields.forEach((field, index) => {
-      const fieldId = normalizeText(field?.id);
-      const fieldLabel = normalizeText(field?.label);
-      const fieldType = normalizeText(field?.type).toLowerCase();
+  if (Array.isArray(schemaFieldEntries)) {
+    schemaFieldEntries.forEach((field, index) => {
+      const fieldId = canonicalSchemaFieldName(field);
+      const expectedField = expectedFieldMap.get(fieldId) || null;
+      const normalizedField = normalizeSchemaField(field, expectedField);
+      const fieldLabel = normalizeText(normalizedField?.label);
+      const fieldType = normalizeText(normalizedField?.type).toLowerCase();
       if (!fieldId) {
-        errors.push(`Schema field ${index + 1} is missing id.`);
+        errors.push(`Schema field ${index + 1} is missing name.`);
         return;
       }
       if (schemaFieldMap.has(fieldId)) {
         errors.push(`Schema field ${fieldId} is duplicated.`);
         return;
-      }
-      if (!fieldLabel) {
-        errors.push(`Schema field ${fieldId} is missing label.`);
       }
       if (!fieldType) {
         errors.push(`Schema field ${fieldId} is missing type.`);
@@ -293,9 +357,7 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
         id: fieldId,
         label: fieldLabel || fieldId,
         type: fieldType || "string",
-        unit: normalizeText(field?.unit),
-        optional: field?.optional === true,
-        aggregate: normalizeText(field?.aggregate),
+        unit: normalizeText(normalizedField?.unit),
       });
     });
   }
@@ -316,7 +378,7 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
     schema: {
       ...schema,
       schemaId,
-      fields: Array.isArray(schema.fields) ? schema.fields : [],
+      expectedScoutingFields: Array.isArray(schemaFieldEntries) ? schemaFieldEntries : [],
     },
     profile,
     entries,
@@ -328,6 +390,7 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
 globalThis.ScoutingJsonSchema = {
   buildCanonicalEntriesMetaForEventModel,
   buildCanonicalSchemaMeta,
+  buildCanonicalSchemaArtifact,
   buildCanonicalMetaForEventModel,
   buildCanonicalSchemaForEventModel,
   canonicalFormatId,
@@ -335,6 +398,7 @@ globalThis.ScoutingJsonSchema = {
   inferCanonicalFieldType,
   normalizeCanonicalProfile,
   normalizeCanonicalPayload,
+  contextualEntryMetricIds,
   requiredEntryIdentityFields,
   validateCanonicalSchema,
 };

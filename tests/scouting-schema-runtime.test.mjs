@@ -45,10 +45,11 @@ runTest("generic metric catalog exposes provider totals and schema-driven scouti
       { id: "overallDriver", label: "Overall Driver", unit: "rating" },
     ],
     derivedMetricDefinitions: [
-      { id: "fuelContributionAvg", label: "Fuel Contribution Average", unit: "%" },
+      { name: "fuelContributionAvg", formula: "average", fields: ["autoFuelPct"] },
     ],
   });
 
+  const derivedMetric = metrics.find((metric) => metric.id === "derived:fuelContributionAvg");
   assert.equal(metrics.some((metric) => metric.id === "source:scouter:autoFuelPct"), true);
   assert.equal(metrics.some((metric) => metric.id === "source:scouter:overallDriver"), true);
   assert.equal(metrics.some((metric) => metric.id === "source:statbotics:auto"), true);
@@ -57,6 +58,8 @@ runTest("generic metric catalog exposes provider totals and schema-driven scouti
   assert.equal(metrics.some((metric) => metric.id === "derived:fuelContributionAvg"), true);
   assert.equal(metrics.some((metric) => metric.id === "derived:defenseImpact"), false);
   assert.equal(metrics.some((metric) => metric.id === "derived:consistency"), false);
+  assert.equal(derivedMetric.label, "fuelContributionAvg");
+  assert.equal(derivedMetric.unit, "%");
 });
 
 runTest("formula field definitions remain schema-driven when explicit formula fields are absent", () => {

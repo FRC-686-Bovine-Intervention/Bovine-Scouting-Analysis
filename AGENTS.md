@@ -12,6 +12,17 @@ This repo uses the default triage label vocabulary: `needs-triage`, `needs-info`
 
 This repo is configured as a single-context repo. See `docs/agents/domain.md`.
 
+### Checkout preference
+
+- Prefer doing normal ticket work in the shared `dev` checkout at `D:\FIRST\Scouting\Scouting-Analysis` so the user's existing localhost/browser session sees changes immediately.
+- Do not create or use a separate Codex worktree/session for ordinary ticket implementation unless the user explicitly asks for isolation or the task genuinely requires it.
+- When work must happen in a separate worktree, call that out clearly and tell the user that they will need to run/view that checkout separately.
+
+### Browser testing
+
+- The Codex in-app browser blocks `file:` URLs, so it cannot open this app directly from `index.html`.
+- For in-app browser checks, use the shared checkout's localhost server (or start a local HTTP server) and navigate to its `http://localhost` URL. Run the repository's Playwright scripts only in an environment where the `playwright` package is available to the project runtime.
+
 ### Live data truthfulness
 
 - Treat live external provider data and canonical scouting submissions as the source of truth.

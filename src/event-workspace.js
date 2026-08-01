@@ -68,6 +68,8 @@ function buildDefaultScoutingAttachment(eventModel) {
             sampleKey: "",
             schemaUrl: "",
             schemaPath: "",
+            schemaLinkUrl: "",
+            schemaLinkPath: "",
           },
         translatorId: "canonical-json-v1",
         profileId: "canonical-json-v1",
@@ -101,6 +103,8 @@ function buildDefaultScoutingAttachment(eventModel) {
           sampleKey: hasSample ? `${eventModel.key}:sample-sheet` : "",
           schemaUrl: "",
           schemaPath: "",
+          schemaLinkUrl: "",
+          schemaLinkPath: "",
         },
       translatorId: normalizeText(eventModel.sheet.recommendedProfileId) || "match-current-v2",
       profileId: normalizeText(eventModel.sheet.recommendedProfileId) || "match-current-v2",
@@ -124,19 +128,27 @@ function buildDefaultScoutingAttachment(eventModel) {
 function normalizeScoutingAttachment(attachment, eventModel) {
   const defaultAttachment = buildDefaultScoutingAttachment(eventModel)[0] || {};
   const attachmentId = normalizeText(attachment?.attachmentId) || normalizeText(defaultAttachment.attachmentId) || `scouting-${eventModel?.key || "event"}-default`;
+  const explicitPath = normalizeText(attachment?.location?.path);
+  const explicitUrl = normalizeText(attachment?.location?.url);
+  const baseLocationKind = normalizeText(attachment?.locationKind) || normalizeText(defaultAttachment.locationKind) || "manual";
+  const defaultUrl = normalizeText(defaultAttachment?.location?.url);
+  const locationKind = explicitPath ? "path" : baseLocationKind;
+  const explicitSampleKey = normalizeText(attachment?.location?.sampleKey);
+  const retainsEmbeddedSample = locationKind === "embedded-sample" && !explicitPath && (!explicitUrl || explicitUrl === defaultUrl);
   return {
     attachmentId,
     eventKey: normalizeText(attachment?.eventKey) || normalizeText(eventModel?.key),
     label: normalizeText(attachment?.label) || normalizeText(defaultAttachment.label) || attachmentId,
     format: normalizeText(attachment?.format) || normalizeText(defaultAttachment.format) || "legacy-sheet-url",
-    locationKind: normalizeText(attachment?.locationKind) || normalizeText(defaultAttachment.locationKind) || "manual",
+    locationKind,
       location: {
-        url: normalizeText(attachment?.location?.url)
-          || ((normalizeText(attachment?.locationKind) === "path" || normalizeText(attachment?.location?.path)) ? "" : normalizeText(defaultAttachment?.location?.url)),
-        sampleKey: normalizeText(attachment?.location?.sampleKey) || normalizeText(defaultAttachment?.location?.sampleKey),
-        path: normalizeText(attachment?.location?.path),
+        url: explicitUrl || ((locationKind === "path" || explicitPath) ? "" : normalizeText(defaultAttachment?.location?.url)),
+        sampleKey: retainsEmbeddedSample ? (explicitSampleKey || normalizeText(defaultAttachment?.location?.sampleKey)) : "",
+        path: explicitPath,
         schemaUrl: normalizeText(attachment?.location?.schemaUrl),
         schemaPath: normalizeText(attachment?.location?.schemaPath),
+        schemaLinkUrl: normalizeText(attachment?.location?.schemaLinkUrl),
+        schemaLinkPath: normalizeText(attachment?.location?.schemaLinkPath),
       },
     translatorId: normalizeText(attachment?.translatorId) || normalizeText(defaultAttachment.translatorId) || "match-current-v2",
     profileId: normalizeText(attachment?.profileId) || normalizeText(defaultAttachment.profileId) || normalizeText(attachment?.translatorId) || normalizeText(defaultAttachment.translatorId) || "match-current-v2",

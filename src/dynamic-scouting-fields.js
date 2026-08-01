@@ -31,38 +31,20 @@ function baseFormulaFieldDefinitions(eventModel) {
   return definitions;
 }
 
-function titleCaseToken(token) {
-  const normalized = normalizeText(token);
-  if (!normalized) return "";
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-}
-
-function humanizeFieldId(fieldId) {
-  const normalized = normalizeText(fieldId)
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/[_\-]+/g, " ");
-  return normalized
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(titleCaseToken)
-    .join(" ");
-}
-
 function inferFieldType(values) {
   const samples = (values || []).filter((value) => value !== null && value !== undefined && value !== "");
   if (!samples.length) return "string";
+  if (samples.every((value) => typeof value === "boolean")) return "boolean";
   const allNumeric = samples.every((value) => Number.isFinite(Number(value)));
   return allNumeric ? "number" : "string";
 }
 
 function dynamicFieldDefinition(fieldId, samples = [], schemaField = null) {
-  const type = normalizeText(schemaField?.type) || inferFieldType(samples);
+  const type = inferFieldType(samples);
   return {
     id: fieldId,
-    label: normalizeText(schemaField?.label) || humanizeFieldId(fieldId) || fieldId,
+    label: normalizeText(schemaField?.label) || fieldId,
     unit: normalizeText(schemaField?.unit) || (type === "number" ? "count" : "text"),
-    aggregate: normalizeText(schemaField?.aggregate) || (type === "number" ? "average" : ""),
-    optional: schemaField?.optional !== undefined ? Boolean(schemaField.optional) : true,
     dynamic: true,
     type,
   };
@@ -93,8 +75,17 @@ function buildDynamicScoutingFieldDefinitions({ eventModel, submissions = [], sc
   });
 
   [...sampleValuesByFieldId.keys(), ...schemaFieldById.keys()].forEach((fieldId) => {
-    if (definitionById.has(fieldId)) return;
-    definitionById.set(fieldId, dynamicFieldDefinition(fieldId, sampleValuesByFieldId.get(fieldId) || [], schemaFieldById.get(fieldId)));
+    const samples = sampleValuesByFieldId.get(fieldId) || [];
+    if (definitionById.has(fieldId)) {
+      if (samples.length) {
+        definitionById.set(fieldId, {
+          ...definitionById.get(fieldId),
+          type: inferFieldType(samples),
+        });
+      }
+      return;
+    }
+    definitionById.set(fieldId, dynamicFieldDefinition(fieldId, samples, schemaFieldById.get(fieldId)));
   });
 
   return [...definitionById.values()];
@@ -102,7 +93,6 @@ function buildDynamicScoutingFieldDefinitions({ eventModel, submissions = [], sc
 
 globalThis.DynamicScoutingFields = {
   buildDynamicScoutingFieldDefinitions,
-  humanizeFieldId,
   inferFieldType,
 };
 })();

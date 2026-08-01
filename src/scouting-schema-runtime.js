@@ -3,6 +3,30 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function sanitizeMetricIdentifier(value, fallback = "derivedMetric") {
+  const trimmed = normalizeText(value);
+  const normalized = trimmed
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!normalized) return fallback;
+  if (/^[A-Za-z_]/.test(normalized)) return normalized;
+  return `_${normalized}`;
+}
+
+function isValidMetricIdentifier(value) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(normalizeText(value));
+}
+
+function canonicalDerivedMetricName(metricDefinition, fallback = "derivedMetric") {
+  const explicitName = normalizeText(metricDefinition?.name);
+  const explicitId = normalizeText(metricDefinition?.id);
+  const explicitLabel = normalizeText(metricDefinition?.label);
+  if (isValidMetricIdentifier(explicitName)) return explicitName;
+  if (isValidMetricIdentifier(explicitId)) return explicitId;
+  if (isValidMetricIdentifier(explicitLabel)) return explicitLabel;
+  return sanitizeMetricIdentifier(explicitName || explicitId || explicitLabel, fallback);
+}
+
 const sourceLabels = {
   scouter: "Scouting",
   statbotics: "Statbotics",
@@ -16,12 +40,6 @@ function scouterMetricDefinitions(schemaOrEventModel) {
     return schemaOrEventModel.scouterMetricDefinitions;
   }
   return Array.isArray(schemaOrEventModel.scouterMetrics) ? schemaOrEventModel.scouterMetrics : [];
-}
-
-function derivedMetricDefinitions(schemaOrEventModel) {
-  if (!schemaOrEventModel) return [];
-  if (Array.isArray(schemaOrEventModel.derivedMetricDefinitions)) return schemaOrEventModel.derivedMetricDefinitions;
-  return Array.isArray(schemaOrEventModel.derivedMetrics) ? schemaOrEventModel.derivedMetrics : [];
 }
 
 function formulaFieldDefinitions(schemaOrEventModel) {
@@ -45,6 +63,72 @@ function formulaFieldDefinitions(schemaOrEventModel) {
   scouterMetricDefinitions(schemaOrEventModel).forEach(append);
   (schemaOrEventModel?.formulaFields || []).forEach(append);
   return definitions;
+}
+
+function referencedDerivedMetricFields(metricDefinition) {
+  return [
+    ...(Array.isArray(metricDefinition?.fields) ? metricDefinition.fields : []),
+    ...(Array.isArray(metricDefinition?.madeFields) ? metricDefinition.madeFields : []),
+    ...(Array.isArray(metricDefinition?.missFields) ? metricDefinition.missFields : []),
+    ...(Array.isArray(metricDefinition?.numeratorFields) ? metricDefinition.numeratorFields : []),
+    ...(Array.isArray(metricDefinition?.denominatorFields) ? metricDefinition.denominatorFields : []),
+    ...(Array.isArray(metricDefinition?.presenceFields) ? metricDefinition.presenceFields : []),
+    ...(Array.isArray(metricDefinition?.weightedFields) ? metricDefinition.weightedFields.map((entry) => entry?.field) : []),
+  ]
+    .map((fieldId) => normalizeText(fieldId))
+    .filter(Boolean);
+}
+
+function inferDerivedMetricUnit(metricDefinition, schemaOrEventModel = {}) {
+  const explicitUnit = normalizeText(metricDefinition?.unit);
+  if (explicitUnit) return explicitUnit;
+  const formula = normalizeText(metricDefinition?.formula).toLowerCase();
+  if (formula === "rate") return "%";
+  const fieldUnitById = new Map(
+    formulaFieldDefinitions(schemaOrEventModel)
+      .map((fieldDefinition) => [normalizeText(fieldDefinition?.id), normalizeText(fieldDefinition?.unit)]),
+  );
+  const referencedUnits = [...new Set(
+    referencedDerivedMetricFields(metricDefinition)
+      .map((fieldId) => fieldUnitById.get(fieldId))
+      .filter(Boolean),
+  )];
+  if (referencedUnits.length === 1) return referencedUnits[0];
+  if (formula === "average" && referencedUnits.length) return referencedUnits[0];
+  if (formula === "sum" || formula === "weighted_sum" || formula === "ratio") return referencedUnits[0] || "pts";
+  return referencedUnits[0] || "pts";
+}
+
+function normalizeDerivedMetricDefinition(metricDefinition, schemaOrEventModel = {}, index = 0) {
+  const name = canonicalDerivedMetricName(metricDefinition, `derivedMetric_${index + 1}`);
+  if (!name) return null;
+  return {
+    ...metricDefinition,
+    id: name,
+    name,
+    label: name,
+    unit: inferDerivedMetricUnit(metricDefinition, schemaOrEventModel),
+  };
+}
+
+function normalizeDerivedMetricDefinitions(schemaOrEventModel) {
+  if (!schemaOrEventModel) return [];
+  const sourceDefinitions = Array.isArray(schemaOrEventModel.derivedMetricDefinitions)
+    ? schemaOrEventModel.derivedMetricDefinitions
+    : (Array.isArray(schemaOrEventModel.derivedMetrics) ? schemaOrEventModel.derivedMetrics : []);
+  const seen = new Set();
+  return sourceDefinitions
+    .map((metricDefinition, index) => normalizeDerivedMetricDefinition(metricDefinition, schemaOrEventModel, index))
+    .filter((metricDefinition) => {
+      const metricId = normalizeText(metricDefinition?.id);
+      if (!metricId || seen.has(metricId)) return false;
+      seen.add(metricId);
+      return true;
+    });
+}
+
+function derivedMetricDefinitions(schemaOrEventModel) {
+  return normalizeDerivedMetricDefinitions(schemaOrEventModel);
 }
 
 function csvHeaderForField(fieldDefinition) {
@@ -120,6 +204,7 @@ globalThis.ScoutingSchemaRuntime = {
   derivedMetricDefinitions,
   formulaFieldDefinitions,
   metricFieldId,
+  normalizeDerivedMetricDefinitions,
   scouterMetricDefinitions,
   sourceLabels,
 };

@@ -3,8 +3,79 @@ function normalizeText(value) {
   return String(value ?? "").trim();
 }
 
+function sanitizeProfileIdentifier(value, fallback = "value") {
+  const trimmed = normalizeText(value);
+  const normalized = trimmed
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!normalized) return fallback;
+  if (/^[A-Za-z_]/.test(normalized)) return normalized;
+  return `_${normalized}`;
+}
+
+function isValidProfileIdentifier(value) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(normalizeText(value));
+}
+
+function canonicalProfileEquationName(definition, fallback = "equation") {
+  const explicitId = normalizeText(definition?.id);
+  const explicitName = normalizeText(definition?.name);
+  const explicitLabel = normalizeText(definition?.label);
+  if (isValidProfileIdentifier(explicitId)) return explicitId;
+  if (isValidProfileIdentifier(explicitName)) return explicitName;
+  if (isValidProfileIdentifier(explicitLabel)) return explicitLabel;
+  return sanitizeProfileIdentifier(explicitId || explicitName || explicitLabel, fallback);
+}
+
 function cloneJsonValue(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+const defaultMetricDiscoveryBlacklist = Object.freeze({
+  tba: Object.freeze([
+    "scoreBreakdown.adjustPoints",
+    "scoreBreakdown.rp",
+  ]),
+  statbotics: Object.freeze([
+    "country",
+    "district",
+    "event",
+    "event_name",
+    "first_event",
+    "state",
+    "status",
+    "team",
+    "team_name",
+    "time",
+    "type",
+    "week",
+    "year",
+  ]),
+});
+
+function metricDiscoveryBlacklist(schemaPayload = {}, sourceId = "") {
+  const normalizedSourceId = normalizeText(sourceId);
+  const metricDiscovery = schemaPayload?.schema?.metricDiscovery || schemaPayload?.metricDiscovery || {};
+  const schemaPatterns = Array.isArray(metricDiscovery?.blacklist?.[normalizedSourceId])
+    ? metricDiscovery.blacklist[normalizedSourceId]
+    : [];
+  return [
+    ...(defaultMetricDiscoveryBlacklist[normalizedSourceId] || []),
+    ...schemaPatterns,
+  ].map(normalizeText).filter(Boolean);
+}
+
+function metricDiscoveryGlobMatches(pattern, fieldId) {
+  const escapedPattern = normalizeText(pattern)
+    .split("*")
+    .map((segment) => segment.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&"))
+    .join(".*");
+  return new RegExp(`^${escapedPattern}$`).test(String(fieldId || ""));
+}
+
+function isProviderMetricDiscoverable(sourceId, fieldId, schemaPayload = {}) {
+  return !metricDiscoveryBlacklist(schemaPayload, sourceId)
+    .some((pattern) => metricDiscoveryGlobMatches(pattern, fieldId));
 }
 
 function normalizeFieldDefinition(fieldDefinition) {
@@ -15,45 +86,7 @@ function normalizeFieldDefinition(fieldDefinition) {
     label: normalizeText(fieldDefinition?.label || fieldId),
     type: normalizeText(fieldDefinition?.type),
     unit: normalizeText(fieldDefinition?.unit),
-    aggregate: normalizeText(fieldDefinition?.aggregate),
-    optional: fieldDefinition?.optional === true,
   };
-}
-
-function normalizeFieldMigrationRecords(records) {
-  return (Array.isArray(records) ? records : [])
-    .map((record, index) => {
-      const kind = normalizeText(record?.kind).toLowerCase();
-      const id = normalizeText(record?.id) || `field-migration-${index + 1}`;
-      if (kind === "rename") {
-        const fromFieldId = normalizeText(record?.fromFieldId || record?.from || record?.fieldId);
-        const toFieldId = normalizeText(record?.toFieldId || record?.to);
-        if (!fromFieldId || !toFieldId) return null;
-        return {
-          id,
-          kind,
-          fromFieldId,
-          toFieldId,
-          label: normalizeText(record?.label || `${fromFieldId} -> ${toFieldId}`),
-          note: normalizeText(record?.note || record?.description),
-          recordedAt: normalizeText(record?.recordedAt || record?.timestamp),
-        };
-      }
-      if (kind === "add" || kind === "remove") {
-        const fieldId = normalizeText(record?.fieldId || record?.toFieldId || record?.fromFieldId);
-        if (!fieldId) return null;
-        return {
-          id,
-          kind,
-          fieldId,
-          label: normalizeText(record?.label || fieldId),
-          note: normalizeText(record?.note || record?.description),
-          recordedAt: normalizeText(record?.recordedAt || record?.timestamp),
-        };
-      }
-      return null;
-    })
-    .filter(Boolean);
 }
 
 function stableValue(value) {
@@ -81,21 +114,23 @@ function buildProfileVersionKey(profile = {}) {
   const normalizedFields = (Array.isArray(profile?.fields) ? profile.fields : [])
     .map(normalizeFieldDefinition)
     .filter(Boolean);
-  const normalizedFieldMigrations = normalizeFieldMigrationRecords(profile?.fieldMigrations || profile?.fieldMigrationRecords);
-  const normalizedEquations = (Array.isArray(profile?.equations) ? profile.equations : [])
+  const normalizedEquations = (Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : []))
     .map((definition) => ({
-      id: normalizeText(definition?.id),
-      name: normalizeText(definition?.name),
+      name: canonicalProfileEquationName(definition),
       formula: normalizeText(definition?.formula),
-      unit: normalizeText(definition?.unit),
       usage: normalizeText(definition?.usage),
-      sourceOrder: Number.isFinite(Number(definition?.sourceOrder)) ? Number(definition.sourceOrder) : 0,
     }))
-    .filter((definition) => definition.id);
+    .filter((definition) => definition.name);
+  const normalizedFilters = (Array.isArray(profile?.filters) ? profile.filters : [])
+    .map((definition) => ({
+      name: canonicalProfileEquationName(definition, "filter"),
+      formula: normalizeText(definition?.formula),
+    }))
+    .filter((definition) => definition.name);
   const fingerprint = fnv1aHash(JSON.stringify(stableValue({
     fields: normalizedFields,
-    fieldMigrations: normalizedFieldMigrations,
     equations: normalizedEquations,
+    filters: normalizedFilters,
   })));
   return `${profileId}|${fingerprint}`;
 }
@@ -120,8 +155,11 @@ function materializeEventScopedProfileCatalog(profileCatalog = {}, eventModels =
 
 globalThis.ScoutingProfiles = {
   buildProfileVersionKey,
+  defaultMetricDiscoveryBlacklist,
+  isProviderMetricDiscoverable,
   materializeEventScopedProfileCatalog,
+  metricDiscoveryBlacklist,
+  metricDiscoveryGlobMatches,
   normalizeFieldDefinition,
-  normalizeFieldMigrationRecords,
 };
 })();

@@ -8,148 +8,29 @@
   },
   "schema": {
     "schemaId": "2026-match-v1",
-    "fields": [
-      {
-        "id": "autoFuelPct",
-        "label": "Auto Fuel %",
-        "type": "number",
-        "unit": "%",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "transitionFuelPct",
-        "label": "Transition Fuel %",
-        "type": "number",
-        "unit": "%",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "shift1FuelPct",
-        "label": "Shift 1 Fuel %",
-        "type": "number",
-        "unit": "%",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "shift2FuelPct",
-        "label": "Shift 2 Fuel %",
-        "type": "number",
-        "unit": "%",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "shift3FuelPct",
-        "label": "Shift 3 Fuel %",
-        "type": "number",
-        "unit": "%",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "shift4FuelPct",
-        "label": "Shift 4 Fuel %",
-        "type": "number",
-        "unit": "%",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "endgameFuelPct",
-        "label": "Endgame Fuel %",
-        "type": "number",
-        "unit": "%",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "overallShooter",
-        "label": "Overall Shooter",
-        "type": "number",
-        "unit": "rating",
-        "optional": true,
-        "aggregate": "average"
-      },
-      {
-        "id": "overallPasser",
-        "label": "Overall Passer",
-        "type": "number",
-        "unit": "rating",
-        "optional": true,
-        "aggregate": "average"
-      },
-      {
-        "id": "overallIntake",
-        "label": "Overall Intake",
-        "type": "number",
-        "unit": "rating",
-        "optional": true,
-        "aggregate": "average"
-      },
-      {
-        "id": "overallDriver",
-        "label": "Overall Driver",
-        "type": "number",
-        "unit": "rating",
-        "optional": true,
-        "aggregate": "average"
-      },
-      {
-        "id": "overallDefenseAvoidance",
-        "label": "Overall Defense Avoidance",
-        "type": "number",
-        "unit": "rating",
-        "optional": true,
-        "aggregate": "average"
-      },
-      {
-        "id": "overallDefense",
-        "label": "Overall Defense",
-        "type": "number",
-        "unit": "rating",
-        "optional": true,
-        "aggregate": "average"
-      },
-      {
-        "id": "noShow",
-        "label": "No Show",
-        "type": "number",
-        "unit": "count",
-        "optional": false,
-        "aggregate": "average"
-      },
-      {
-        "id": "alliance",
-        "label": "Alliance",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "startingPosition",
-        "label": "Starting Position",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      },
-      {
-        "id": "autoPrimaryRole",
-        "label": "Auto Primary Role",
-        "type": "string",
-        "unit": "text",
-        "optional": true,
-        "aggregate": ""
-      }
+    "expectedScoutingFields": [
+      "autoFuelPct",
+      "transitionFuelPct",
+      "shift1FuelPct",
+      "shift2FuelPct",
+      "shift3FuelPct",
+      "shift4FuelPct",
+      "endgameFuelPct",
+      "overallShooter",
+      "overallPasser",
+      "overallIntake",
+      "overallDriver",
+      "overallDefenseAvoidance",
+      "overallDefense",
+      "noShow",
+      "alliance",
+      "startingPosition",
+      "autoPrimaryRole"
     ]
   },
   "profile": {
     "id": "canonical-json-v1",
     "label": "Canonical JSON",
-    "equations": []
+    "derivedEquations": []
   }
 }
