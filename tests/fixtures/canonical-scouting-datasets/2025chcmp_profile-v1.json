@@ -78,6 +78,10 @@
         "formula": "average(if(scouting.climbHeight == 3, 12, if(scouting.climbHeight == 2, 6, if(scouting.climbHeight == 1, 2, 0))), scouting.climbAttempt > 0)"
       },
       {
+        "name": "avgTeleL4Made",
+        "formula": "average(scouting.teleL4Made)"
+      },
+      {
         "name": "climb",
         "formula": "average(if(scouting.climbHeight == 3, 12, if(scouting.climbHeight == 2, 6, if(scouting.climbHeight == 1, 2, 0))))"
       },
