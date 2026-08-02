@@ -1,6 +1,7 @@
 .browser-test/node_modules/
 .pnpm-store/
 .localhost-server.pid
+.firebase/
 
 functions/.env
 functions/node_modules/
