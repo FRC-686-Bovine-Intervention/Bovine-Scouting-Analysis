@@ -8150,7 +8150,8 @@ function renderAdmin() {
               <select id="recentAdminEventSelect" aria-label="Recent event selection" size="${Math.min(10, Math.max(2, recentEventKeys.length))}">
                 ${recentEventKeys.map((eventKey) => {
                   const item = eventModelByKey(eventKey);
-                  return `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.key} | ${item.season} ${escapeHtml(item.name)}</option>`;
+                  const recentEventLabel = item.season === 2026 ? item.name : `${item.season} ${item.name}`;
+                  return `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.key} | ${escapeHtml(recentEventLabel)}</option>`;
                 }).join("")}
               </select>
             </label>`
