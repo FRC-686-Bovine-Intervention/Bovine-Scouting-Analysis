@@ -25,6 +25,11 @@ jobs:
           node --check src/firebase-submissions.js
           node --check functions/index.js
           node tests/schema-persistence.test.mjs
+      - name: Deploy Firestore rules
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BOVINE_SCOUTING_ANALYSIS }}
+      - run: npx -y firebase-tools@latest deploy --only firestore:rules --project bovine-scouting-analysis
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}

@@ -318,7 +318,10 @@ function scoutingProfileLabel(profileId, fallbackLabel = "") {
 }
 
 const defaultScoutingProfileId = "match-current-v2";
-const developmentRevision = normalizeText(globalThis.__DEPLOYMENT_REVISION) || "local checkout";
+const deploymentRevision = normalizeText(globalThis.__DEPLOYMENT_REVISION) || "local checkout";
+const developmentRevision = /^[0-9a-f]{7,40}$/i.test(deploymentRevision)
+  ? deploymentRevision.toLowerCase().slice(0, 7)
+  : deploymentRevision;
 
 const initialEventKey = resolveEventKey(readStoredItem(storageKeys.activeEvent));
 const initialEvent = eventModelByKey(initialEventKey);
