@@ -41,6 +41,7 @@ function loadAppContext(options = {}) {
     addEventListener: noop,
   };
   const extraQuerySelectors = options.extraQuerySelectors || {};
+  const storedValues = new Map(Object.entries(options.storedValues || {}));
   const context = {
     globalThis: {},
     console,
@@ -58,9 +59,9 @@ function loadAppContext(options = {}) {
     URLSearchParams,
     eventCatalog,
     localStorage: {
-      getItem: () => null,
-      setItem: noop,
-      removeItem: noop,
+      getItem: (key) => storedValues.has(String(key)) ? storedValues.get(String(key)) : null,
+      setItem: (key, value) => storedValues.set(String(key), String(value)),
+      removeItem: (key) => storedValues.delete(String(key)),
     },
     document: {
       querySelector: (selector) => {
@@ -100,7 +101,7 @@ function loadAppContext(options = {}) {
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
     .replace(/bootstrapApp\(\);\s*$/, "")
-    + "\nglobalThis.__activeEventTestApi = { clearCurrentEventScoutingData, persistScoutingSubmissions, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
+    + "\nglobalThis.__activeEventTestApi = { clearCurrentEventScoutingData, persistScoutingSubmissions, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -154,6 +155,34 @@ await runTest("admin event changes are shared and members adopt the shared event
   sharedEventListener("2026chcmp");
   assert.equal(state.activeEventKey, "2026chcmp");
   assert.deepEqual(savedEventKeys, ["2024mdsev"]);
+});
+
+await runTest("event-scoped scouting input drafts survive recent-event switches before their change event", () => {
+  const eventCatalog = [
+    { key: "2024mdsev", season: 2024, name: "MDS Event", seasonLabel: "2024", teams: [{ number: 1 }], teamNumbers: [1], matches: [{ number: 1 }], dataSources: [], seedPicklists: [], seedSortEquations: [], formulaFieldDefinitions: [], sheet: {} },
+    { key: "2026chcmp", season: 2026, name: "CHCMP", seasonLabel: "2026", teams: [{ number: 1 }], teamNumbers: [1], matches: [{ number: 1 }], dataSources: [], seedPicklists: [], seedSortEquations: [], formulaFieldDefinitions: [], sheet: {} },
+  ];
+  const context = loadAppContext({ eventCatalog });
+  const state = context.__scoutingAppState;
+  const api = context.__activeEventTestApi;
+
+  state.activeEventKey = "2024mdsev";
+  context.hydrateEventState("2024mdsev");
+  api.setCurrentScoutingSourceUrl("https://example.test/2026chcmp.csv", { applyToAttachment: false, persistAttachment: true });
+  api.setCurrentScoutingSchemaSourceUrl("https://example.test/2026chcmp_profile.json", { applyToAttachment: false, persistAttachment: true });
+  api.switchActiveEvent("2026chcmp");
+  api.setCurrentScoutingSourceUrl("https://example.test/2024mdsev.csv", { applyToAttachment: false, persistAttachment: true });
+  api.setCurrentScoutingSchemaSourceUrl("https://example.test/2024mdsev_profile.json", { applyToAttachment: false, persistAttachment: true });
+  api.switchActiveEvent("2024mdsev");
+
+  assert.equal(context.currentScoutingSourceInputValue(), "https://example.test/2026chcmp.csv");
+  assert.equal(context.currentScoutingSchemaSourceInputValue(), "https://example.test/2026chcmp_profile.json");
+
+  api.setCurrentScoutingSourceUrl("https://example.test/2024mdsev.csv", { applyToAttachment: false, persistAttachment: true });
+  api.setCurrentScoutingSchemaSourceUrl("https://example.test/2024mdsev_profile.json", { applyToAttachment: false, persistAttachment: true });
+  api.switchActiveEvent("2026chcmp");
+  assert.equal(context.currentScoutingSourceInputValue(), "https://example.test/2024mdsev.csv");
+  assert.equal(context.currentScoutingSchemaSourceInputValue(), "https://example.test/2024mdsev_profile.json");
 });
 
 await runTest("members read shared submissions without writing, while admins can save, clear, and seed them", async () => {

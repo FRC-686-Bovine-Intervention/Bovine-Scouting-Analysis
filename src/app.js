@@ -657,6 +657,22 @@ function setCurrentScoutingSourceUrl(url, options = {}) {
   if (options.applyToAttachment !== false) {
     state.eventWorkspace = setEventWorkspaceScoutingSourceLocation(currentEventWorkspace(), normalizedUrl);
   }
+  if (options.persistAttachment) {
+    const attachment = currentScoutingAttachment();
+    if (attachment?.attachmentId) {
+      saveCurrentScoutingAttachmentDraft({
+        label: attachment.label,
+        format: activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+        translatorId: attachment.translatorId,
+        profileId: attachment.profileId,
+        profileLabel: attachment.profileLabel,
+        source: normalizedUrl,
+        schemaSource: currentScoutingSchemaSourceInputValue(),
+        autoLoad: attachment.autoLoad,
+      }, { render: false });
+      return;
+    }
+  }
   if (options.save) saveState();
 }
 
@@ -664,6 +680,30 @@ function setCurrentScoutingSchemaSourceUrl(url, options = {}) {
   const normalizedUrl = normalizeScoutingSourceUrl(url);
   if (options.applyToAttachment !== false) {
     state.eventWorkspace = setEventWorkspaceScoutingSchemaSourceLocation(currentEventWorkspace(), normalizedUrl);
+  }
+  if (options.persistAttachment) {
+    const attachment = currentScoutingAttachment();
+    if (attachment?.attachmentId) {
+      const source = currentScoutingSourceInputValue();
+      const format = activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent());
+      const profileId = inferredScoutingProfileIdForAttachment({
+        format,
+        source,
+        schemaSource: normalizedUrl,
+        currentProfileId: attachment.profileId,
+      });
+      saveCurrentScoutingAttachmentDraft({
+        label: attachment.label,
+        format,
+        translatorId: attachment.translatorId,
+        profileId,
+        profileLabel: scoutingProfileLabel(profileId, attachment.profileLabel),
+        source,
+        schemaSource: normalizedUrl,
+        autoLoad: attachment.autoLoad,
+      }, { render: false });
+      return;
+    }
   }
   if (options.save) saveState();
 }
@@ -9787,20 +9827,22 @@ function bindViewEvents() {
     });
   });
   document.querySelector("#importSourceUrl")?.addEventListener("input", (event) => {
-    setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: false });
+    setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: false, persistAttachment: true });
   });
   document.querySelector("#importSourceUrl")?.addEventListener("change", async (event) => {
     setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: false });
     await applyScoutingSourceInputChange({
+      forceReload: true,
       scoutingImportSource: "manual-source-change",
     });
   });
   document.querySelector("#importSchemaSourceUrl")?.addEventListener("input", (event) => {
-    setCurrentScoutingSchemaSourceUrl(event.target.value, { applyToAttachment: false });
+    setCurrentScoutingSchemaSourceUrl(event.target.value, { applyToAttachment: false, persistAttachment: true });
   });
   document.querySelector("#importSchemaSourceUrl")?.addEventListener("change", async (event) => {
     setCurrentScoutingSchemaSourceUrl(event.target.value, { applyToAttachment: false });
     await applyScoutingSchemaSourceInputChange({
+      forceReload: true,
       scoutingImportSource: "manual-schema-source-change",
     });
   });
