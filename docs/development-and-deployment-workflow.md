@@ -53,6 +53,8 @@ A preview-channel deployment can be made manually with:
 firebase hosting:channel:deploy dev
 ```
 
+The current development preview is [https://bovine-scouting-analysis--dev-jwvpwxjf.web.app/](https://bovine-scouting-analysis--dev-jwvpwxjf.web.app/). This channel URL expires on September 1, 2026; update this document whenever Firebase issues a replacement URL.
+
 The development deployment should display a visible `DEVELOPMENT` banner so it cannot be confused with the live site.
 
 Preview deployments can still use the Firebase backend resources. A separate Firebase development project is the safer long-term setup.

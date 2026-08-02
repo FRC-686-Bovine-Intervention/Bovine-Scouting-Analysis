@@ -23,6 +23,10 @@ This repo is configured as a single-context repo. See `docs/agents/domain.md`.
 - The Codex in-app browser blocks `file:` URLs, so it cannot open this app directly from `index.html`.
 - For in-app browser checks, use the shared checkout's localhost server (or start a local HTTP server) and navigate to its `http://localhost` URL. Run the repository's Playwright scripts only in an environment where the `playwright` package is available to the project runtime.
 
+### Deployment guidance
+
+- Before deploying Firebase Hosting or directing someone to a development or production deployment, read `docs/development-and-deployment-workflow.md`.
+
 ### Live data truthfulness
 
 - Treat live external provider data and canonical scouting submissions as the source of truth.
