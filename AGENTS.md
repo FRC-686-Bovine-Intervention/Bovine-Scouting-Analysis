@@ -17,6 +17,7 @@ This repo is configured as a single-context repo. See `docs/agents/domain.md`.
 - Prefer doing normal ticket work in the shared `dev` checkout at `D:\FIRST\Scouting\Bovine-Scouting-Analysis` so the user's existing localhost/browser session sees changes immediately.
 - Do not create or use a separate Codex worktree/session for ordinary ticket implementation unless the user explicitly asks for isolation or the task genuinely requires it.
 - When work must happen in a separate worktree, call that out clearly and tell the user that they will need to run/view that checkout separately.
+- After verifying and committing a focused change on `dev`, push that commit to `origin/dev` unless the user explicitly asks not to. This lets the development deployment reflect completed work without waiting for a separate push.
 
 ### Browser testing
 
