@@ -217,7 +217,6 @@ const storageKeys = {
   importSourceUrl: "frc-scouting-import-source-url",
   scoutingWindow: "frc-scouting-window",
   recentMatchCount: "frc-scouting-recent-match-count",
-  tbaAuthKey: "frc-scouting-tba-auth-key",
   statboticsBaseUrl: "frc-scouting-statbotics-base-url",
   recentEvents: "frc-scouting-recent-events",
   scoutingProfiles: "frc-scouting-scouting-profiles",
@@ -234,7 +233,6 @@ const globalStorageKeys = new Set([
   storageKeys.theme,
   storageKeys.activeEvent,
   storageKeys.menuExpanded,
-  storageKeys.tbaAuthKey,
   storageKeys.statboticsBaseUrl,
   storageKeys.recentEvents,
   storageKeys.scoutingProfiles,
@@ -250,7 +248,6 @@ const importProfileOptions = [
   { id: "match-current-v2", label: "Current Match Template" },
   { id: "match-legacy-v1", label: "Legacy Match Template" },
 ];
-const defaultTbaAuthKey = "eEFUlYooyVPeyGj1T07Z3AVTQoDHPM4MssTRD9XLDCapqhGepo1UQCj0OlL7AtqK";
 
 const navItems = [
   { view: "teams", label: "Teams", icon: "teams" },
@@ -325,10 +322,13 @@ const defaultScoutingProfileId = "match-current-v2";
 const initialEventKey = resolveEventKey(readStoredItem(storageKeys.activeEvent));
 const initialEvent = eventModelByKey(initialEventKey);
 const initialWorkspace = createEventWorkspace(initialEvent, readStoredJson(storageKeys.eventWorkspace, null, initialEventKey));
-const initialTbaAuthKey =
-  readStoredItem(storageKeys.tbaAuthKey)
-  || normalizeText(globalThis.__TBA_AUTH_KEY || globalThis.TBA_AUTH_KEY)
-  || defaultTbaAuthKey;
+const initialTbaAuthKey = "";
+try {
+  // Keys saved by older versions must not remain in browser storage after the Firestore migration.
+  localStorage.removeItem("frc-scouting-tba-auth-key");
+} catch {
+  // Storage can be unavailable in private or restricted browser contexts.
+}
 const initialStatboticsBaseUrl =
   readStoredItem(storageKeys.statboticsBaseUrl)
   || normalizeText(globalThis.__STATBOTICS_BASE_URL || globalThis.STATBOTICS_BASE_URL)
@@ -381,6 +381,8 @@ const state = {
   tbaAuthKeyDraft: initialTbaAuthKey ? maskedTbaAuthKeyValue : "",
   tbaAuthKeyMasked: Boolean(initialTbaAuthKey),
   tbaAuthKeyDirty: false,
+  tbaAuthKeyValidation: { configured: false, valid: false, status: "missing" },
+  tbaAuthKeySavePending: false,
   statboticsBaseUrl: initialStatboticsBaseUrl,
   statboticsBaseUrlDraft: initialStatboticsBaseUrl,
   statboticsBaseUrlDirty: false,
@@ -421,7 +423,6 @@ const state = {
 state.recentEventKeys = normalizeRecentEventKeys(readStoredJson(storageKeys.recentEvents, [initialEventKey]), initialEventKey);
 globalThis.__scoutingAppState = state;
 globalThis.__scoutingActiveEventKey = state.activeEventKey;
-globalThis.__TBA_AUTH_KEY = state.tbaAuthKey;
 globalThis.__STATBOTICS_BASE_URL = state.statboticsBaseUrl;
 let pendingScoutingAutoloadToken = "";
 let attemptedScoutingAutoloadToken = "";
@@ -430,6 +431,7 @@ let sourceRefreshIntervalId = null;
 let scoutingSubmissionRevision = 0;
 let scoutingSubmissionLoadSequence = 0;
 let allianceSourceScrollbarResizeObserver = null;
+let tbaAuthKeyConfigurationLoadSequence = 0;
 const scoutingPerf = globalThis.__scoutingPerf || { events: [] };
 globalThis.__scoutingPerf = scoutingPerf;
 
@@ -841,16 +843,8 @@ function nextSchemaProfilePath(currentSchemaSource = "", scoutingSource = "") {
   return buildVersionedSchemaProfilePath(normalizedScoutingSource || currentSchemaSource, 1);
 }
 
-function setTbaAuthKey(value, options = {}) {
+function setTbaAuthKey(value) {
   state.tbaAuthKey = normalizeText(value);
-  globalThis.__TBA_AUTH_KEY = state.tbaAuthKey;
-  if (options.save) {
-    if (state.tbaAuthKey) {
-      localStorage.setItem(storageKeys.tbaAuthKey, state.tbaAuthKey);
-    } else {
-      localStorage.removeItem(storageKeys.tbaAuthKey);
-    }
-  }
 }
 
 function normalizeStatboticsBaseUrl(value) {
@@ -1602,13 +1596,76 @@ function restoreTbaAuthKeyDraftIfNeeded() {
   if (input) input.value = visibleTbaAuthKeyValue();
 }
 
-function saveTbaAuthKeyDraft() {
-  if (!state.tbaAuthKeyDirty) return false;
-  setTbaAuthKey(state.tbaAuthKeyDraft, { save: true });
-  resetTbaAuthKeyDraft();
-  state.eventLookupResult = { kind: "success", message: state.tbaAuthKey ? "Saved the TBA auth key locally." : "Removed the saved TBA auth key." };
-  saveState();
+function tbaAuthKeyValidationLabel(validation = state.tbaAuthKeyValidation) {
+  if (validation.status === "checking") return "Checking configured key…";
+  if (validation.status === "valid") return "Configured key is valid.";
+  if (validation.status === "invalid") return "Configured key is invalid.";
+  if (validation.status === "unverified") return "Key is configured, but its validity could not be verified.";
+  return "No TBA auth key is configured.";
+}
+
+function clearTbaAuthKeyConfiguration() {
+  tbaAuthKeyConfigurationLoadSequence += 1;
+  setTbaAuthKey("");
+  state.tbaAuthKeyDraft = "";
+  state.tbaAuthKeyMasked = false;
+  state.tbaAuthKeyDirty = false;
+  state.tbaAuthKeyValidation = { configured: false, valid: false, status: "missing" };
+}
+
+async function refreshTbaAuthKeyConfiguration() {
+  const api = globalThis.firebaseTbaAuthKeyApi;
+  if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") return false;
+  const loadSequence = ++tbaAuthKeyConfigurationLoadSequence;
+  try {
+    const tbaAuthKey = await api.loadTbaAuthKey();
+    if (loadSequence !== tbaAuthKeyConfigurationLoadSequence || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") return false;
+    setTbaAuthKey(tbaAuthKey);
+    resetTbaAuthKeyDraft();
+    state.tbaAuthKeyValidation = tbaAuthKey
+      ? { configured: true, valid: null, status: "checking" }
+      : { configured: false, valid: false, status: "missing" };
+    renderSafely();
+    if (tbaAuthKey) state.tbaAuthKeyValidation = await api.validateTbaAuthKey(tbaAuthKey);
+    if (loadSequence !== tbaAuthKeyConfigurationLoadSequence || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") return false;
+    renderSafely();
+    return true;
+  } catch {
+    state.tbaAuthKeyValidation = { configured: Boolean(state.tbaAuthKey), valid: null, status: "unverified" };
+    renderSafely();
+    return false;
+  }
+}
+
+async function saveTbaAuthKeyDraft() {
+  if (!state.tbaAuthKeyDirty || state.tbaAuthKeySavePending) return false;
+  const api = globalThis.firebaseTbaAuthKeyApi;
+  if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") {
+    state.eventLookupResult = { kind: "error", message: "Only signed-in administrators can update the TBA auth key." };
+    render();
+    return false;
+  }
+  const loadSequence = ++tbaAuthKeyConfigurationLoadSequence;
+  state.tbaAuthKeySavePending = true;
   render();
+  try {
+    const tbaAuthKey = await api.saveTbaAuthKey(state.tbaAuthKeyDraft);
+    if (loadSequence !== tbaAuthKeyConfigurationLoadSequence || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") return false;
+    setTbaAuthKey(tbaAuthKey);
+    resetTbaAuthKeyDraft();
+    state.tbaAuthKeyValidation = tbaAuthKey
+      ? { configured: true, valid: null, status: "checking" }
+      : { configured: false, valid: false, status: "missing" };
+    state.eventLookupResult = { kind: "success", message: tbaAuthKey ? "Saved the TBA auth key." : "Removed the TBA auth key." };
+    if (tbaAuthKey) state.tbaAuthKeyValidation = await api.validateTbaAuthKey(tbaAuthKey);
+    if (loadSequence !== tbaAuthKeyConfigurationLoadSequence || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") return false;
+  } catch {
+    state.eventLookupResult = { kind: "error", message: "Unable to save the TBA auth key." };
+  } finally {
+    state.tbaAuthKeySavePending = false;
+    saveState();
+    render();
+  }
   return true;
 }
 
@@ -8056,9 +8113,9 @@ function renderAdmin() {
             </div>`
                 : ""
             }
-            <label>
-              TBA Auth Key
-              <div class="admin-actions admin-field-row">
+              <label>
+                TBA Auth Key
+                <div class="admin-actions admin-field-row">
                 <input
                   id="adminTbaAuthKeyInput"
                   class="admin-input"
@@ -8070,9 +8127,10 @@ function renderAdmin() {
                   autocapitalize="off"
                   spellcheck="false"
                 />
-                <button type="button" id="saveTbaAuthKeyButton" ${state.tbaAuthKeyDirty ? "" : "disabled"}>Save</button>
-              </div>
-            </label>
+                <button type="button" id="saveTbaAuthKeyButton" ${state.tbaAuthKeyDirty && !state.tbaAuthKeySavePending ? "" : "disabled"}>${state.tbaAuthKeySavePending ? "Saving…" : "Save"}</button>
+                </div>
+                <span class="muted" id="tbaAuthKeyValidationStatus">${escapeHtml(tbaAuthKeyValidationLabel())}</span>
+              </label>
             <label>
               Statbotics Base URL
               <div class="admin-actions admin-field-row">
@@ -9104,8 +9162,8 @@ function bindViewEvents() {
   document.querySelector("#adminTbaAuthKeyInput")?.addEventListener("blur", () => {
     restoreTbaAuthKeyDraftIfNeeded();
   });
-  document.querySelector("#saveTbaAuthKeyButton")?.addEventListener("click", () => {
-    saveTbaAuthKeyDraft();
+  document.querySelector("#saveTbaAuthKeyButton")?.addEventListener("click", async () => {
+    await saveTbaAuthKeyDraft();
   });
   document.querySelector("#adminStatboticsBaseUrlInput")?.addEventListener("input", (event) => {
     updateStatboticsBaseUrlDraft(event.target.value);
@@ -9801,9 +9859,14 @@ if (typeof globalThis.addEventListener === "function") {
     render();
     if (user) {
       startSharedActiveEventSync();
+      if (globalThis.firebaseUserRole === "admin") void refreshTbaAuthKeyConfiguration();
+      else clearTbaAuthKeyConfiguration();
       void syncSharedProfilesForEvent(state.activeEventKey);
       void syncSharedSubmissionsForEvent(state.activeEventKey);
-    } else stopSharedActiveEventSynchronization();
+    } else {
+      clearTbaAuthKeyConfiguration();
+      stopSharedActiveEventSynchronization();
+    }
     if (user && globalThis.firebaseUserRole === "admin") void refreshAllowlist();
   });
 }

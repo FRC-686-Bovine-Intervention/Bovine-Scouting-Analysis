@@ -35,6 +35,13 @@ service cloud.firestore {
         && request.resource.data.eventKey.matches('^[a-z0-9]+$')
         && request.resource.data.updatedAt is timestamp;
     }
+    function isValidTbaAuthKeyConfiguration() {
+      return request.resource.data.keys().hasOnly(['tbaAuthKey', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['tbaAuthKey', 'updatedAt'])
+        && request.resource.data.tbaAuthKey is string
+        && request.resource.data.tbaAuthKey.size() <= 256
+        && request.resource.data.updatedAt is timestamp;
+    }
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
       allow write: if isAdmin();
@@ -49,6 +56,12 @@ service cloud.firestore {
     match /appState/activeEvent {
       allow read: if isAllowed();
       allow create, update: if isAdmin() && isValidActiveEventState();
+    }
+
+    // appState/configuration contains provider credentials and is intentionally admin-only.
+    match /appState/configuration {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() && isValidTbaAuthKeyConfiguration();
     }
 
     match /events/{eventId}/profiles/{profileId} {

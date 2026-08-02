@@ -206,7 +206,7 @@ async function loadEventByCode(eventCode, options = {}) {
 
   const tbaAuthKey = resolveTbaAuthKey(options);
   if (!tbaAuthKey) {
-    throw new Error("Missing TBA auth key. Set globalThis.__TBA_AUTH_KEY before loading arbitrary events.");
+    throw new Error("Missing TBA auth key. Configure a key before loading arbitrary events.");
   }
 
   const timestamp = normalizeText(options.timestamp) || new Date().toISOString();
