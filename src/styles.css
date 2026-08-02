@@ -91,6 +91,14 @@ button.primary {
   font-size: 0.88rem;
 }
 
+.user-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
 .action-button {
   display: inline-flex;
   align-items: center;
@@ -191,6 +199,20 @@ select {
   display: grid;
   gap: 12px;
   margin-top: 22px;
+}
+
+.deployment-banner {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 1000;
+  padding: 7px 16px;
+  background: #b45309;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
 }
 
 .app-shell {

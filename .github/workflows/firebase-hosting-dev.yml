@@ -1,0 +1,29 @@
+name: Deploy Firebase Hosting development
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+
+jobs:
+  deploy_dev:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run project checks
+        run: |
+          node --check src/app.js
+          node --check src/firebase-submissions.js
+          node --check functions/index.js
+          node tests/schema-persistence.test.mjs
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BOVINE_SCOUTING_ANALYSIS }}
+          channelId: dev
+          expires: 30d
+          projectId: bovine-scouting-analysis
