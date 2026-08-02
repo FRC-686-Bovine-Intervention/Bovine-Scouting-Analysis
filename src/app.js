@@ -6017,7 +6017,7 @@ function renderDeploymentBanner() {
   const isDevelopment = !hostname || !liveHosts.has(hostname);
   if (!isDevelopment) return "";
   const label = hostname.includes("localhost") || hostname.startsWith("127.") ? "LOCAL DEVELOPMENT" : "DEVELOPMENT / PREVIEW";
-  return `<div class="deployment-banner" role="status">${label} — commit ${developmentRevision} — changes and data may not match production</div>`;
+  return `<div class="deployment-banner" role="status">${label} — commit <span class="deployment-revision">${developmentRevision}</span> — changes and data may not match production</div>`;
 }
 function render() {
   const event = currentEvent();

@@ -215,6 +215,10 @@ select {
   text-transform: uppercase;
 }
 
+.deployment-revision {
+  text-transform: lowercase;
+}
+
 .app-shell {
   min-height: 100vh;
   display: grid;
