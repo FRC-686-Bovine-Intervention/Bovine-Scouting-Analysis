@@ -3718,6 +3718,14 @@ function scoutingProfilesForEvent(eventModel = currentEvent()) {
   return ensureEventScopedScoutingProfiles(eventModel);
 }
 
+function persistSharedScoutingProfile(eventKey, profile) {
+  const api = globalThis.firebaseProfileApi;
+  if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin" || !eventKey || !profile?.id) return;
+  void api.saveEventProfile(eventKey, profile).catch((error) => {
+    console.warn(`Unable to save shared profile ${profile.id} for ${eventKey}; keeping the local profile.`, error);
+  });
+}
+
 function registerScoutingProfile(eventModel, profile) {
   const resolvedEventModel = eventModel || currentEvent();
   const eventKey = normalizeText(resolvedEventModel?.key);
@@ -3749,6 +3757,7 @@ function registerScoutingProfile(eventModel, profile) {
     ],
   })[key] || [];
   state.scoutingProfileCatalog = normalized;
+  persistSharedScoutingProfile(key, normalized[key].find((entry) => entry.id === profileId));
 }
 
 async function syncSharedProfilesForEvent(eventKey = state.activeEventKey) {
