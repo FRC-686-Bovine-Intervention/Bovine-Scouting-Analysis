@@ -89,6 +89,8 @@ function loadAppContext(options = {}) {
       createAttachmentFile: options.createAttachmentFile || (async () => ({ attachmentId: "", path: "", name: "" })),
       writeAttachmentText: options.writeAttachmentText || (async () => true),
       readAttachmentText: options.readAttachmentText || (async () => ""),
+      readAttachmentTextByPath: options.readAttachmentTextByPath || (async () => ""),
+      adoptAttachmentForPath: options.adoptAttachmentForPath || (async () => false),
       removeAttachment: options.removeAttachment || (async () => true),
       pathBasename:
         options.pathBasename
@@ -101,7 +103,7 @@ function loadAppContext(options = {}) {
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
     .replace(/bootstrapApp\(\);\s*$/, "")
-    + "\nglobalThis.__activeEventTestApi = { clearCurrentEventScoutingData, persistScoutingSubmissions, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
+    + "\nglobalThis.__activeEventTestApi = { applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, persistScoutingSubmissions, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -183,6 +185,61 @@ await runTest("event-scoped scouting input drafts survive recent-event switches 
   api.switchActiveEvent("2026chcmp");
   assert.equal(context.currentScoutingSourceInputValue(), "https://example.test/2024mdsev.csv");
   assert.equal(context.currentScoutingSchemaSourceInputValue(), "https://example.test/2024mdsev_profile.json");
+});
+
+await runTest("changing a local scouting profile uses its saved sidecar link to reattach and load the linked data file", async () => {
+  const reads = [];
+  const adopted = [];
+  const context = loadAppContext({
+    readAttachmentText: async (attachmentId) => {
+      reads.push(attachmentId);
+      if (attachmentId === "scouting-2026chcmp-default:schema-link") {
+        return JSON.stringify({ scoutingFile: "2026chcmp.json", schemaFile: "2026chcmp_profile-v2.json" });
+      }
+      if (attachmentId === "scouting-2026chcmp-default") return "{\"entries\":[]}";
+      return "";
+    },
+    readAttachmentTextByPath: async (sourcePath) => {
+      reads.push(`path:${sourcePath}`);
+      return sourcePath === "2026chcmp_profile-v2-link.json"
+        ? JSON.stringify({ scoutingFile: "2026chcmp.json", schemaFile: "2026chcmp_profile-v2.json" })
+        : "";
+    },
+    adoptAttachmentForPath: async (attachmentId, sourcePath) => {
+      adopted.push([attachmentId, sourcePath]);
+      return sourcePath === "2026chcmp.json";
+    },
+  });
+  const state = context.__scoutingAppState;
+  const eventModel = context.eventCatalog[0];
+  state.activeEventKey = eventModel.key;
+  state.eventWorkspace = context.EventWorkspace.createEventWorkspace(eventModel, {
+    sources: {
+      scouting: [{
+        attachmentId: "scouting-2026chcmp-default",
+        format: "scouting-json",
+        locationKind: "path",
+        location: {
+          path: "old-data.json",
+          schemaPath: "2026chcmp_profile-v1.json",
+          schemaLinkPath: "2026chcmp_profile-v1-link.json",
+        },
+        autoLoad: true,
+      }],
+    },
+  });
+
+  await context.__activeEventTestApi.applyScoutingSchemaSourceInputChange({
+    source: "2026chcmp_profile-v2.json",
+    forceReload: true,
+  });
+
+  assert.equal(context.currentScoutingAttachment().location.path, "2026chcmp.json");
+  assert.equal(context.currentScoutingAttachment().location.schemaPath, "2026chcmp_profile-v2.json");
+  assert.equal(context.currentScoutingAttachment().location.schemaLinkPath, "2026chcmp_profile-v2-link.json");
+  assert.deepEqual(adopted, [["scouting-2026chcmp-default", "2026chcmp.json"]]);
+  assert.ok(reads.includes("path:2026chcmp_profile-v2-link.json"));
+  assert.ok(reads.includes("scouting-2026chcmp-default"));
 });
 
 await runTest("members read shared submissions without writing, while admins can save, clear, and seed them", async () => {

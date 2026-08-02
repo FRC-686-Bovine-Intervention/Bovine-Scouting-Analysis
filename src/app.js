@@ -30,6 +30,8 @@ const pickLocalAttachmentFile = localFileAccess.pickAttachmentFile || (async () 
 const readLocalAttachmentText = localFileAccess.readAttachmentText || (async () => {
   throw new Error("Persistent local scouting files are unavailable in this browser.");
 });
+const readLocalAttachmentTextByPath = localFileAccess.readAttachmentTextByPath || (async () => "");
+const adoptLocalAttachmentForPath = localFileAccess.adoptAttachmentForPath || (async () => false);
 const writeLocalAttachmentText = localFileAccess.writeAttachmentText || (async () => {
   throw new Error("Persistent local scouting files are unavailable in this browser.");
 });
@@ -891,6 +893,30 @@ function setTbaAuthKey(value) {
   state.tbaAuthKey = normalizeText(value);
 }
 
+function parseSchemaLinkArtifactText(linkJsonText) {
+  try {
+    const link = JSON.parse(String(linkJsonText || ""));
+    const scoutingSource = normalizeScoutingSourceUrl(link?.scoutingFile);
+    const schemaSource = normalizeScoutingSourceUrl(link?.schemaFile);
+    return scoutingSource && schemaSource ? { scoutingSource, schemaSource } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveLinkedScoutingSource(schemaSource, attachment) {
+  const normalizedSchemaSource = normalizeScoutingSourceUrl(schemaSource);
+  if (!normalizedSchemaSource || /^(https?|file):\/\//i.test(normalizedSchemaSource)) return null;
+  const linkPath = buildSchemaLinkPath(normalizedSchemaSource);
+  const linkText = await readLocalAttachmentTextByPath(linkPath).catch(async () => {
+    if (!isEquivalentLocalAttachmentPath(linkPath, attachment?.location?.schemaLinkPath)) return "";
+    return readLocalAttachmentText(`${attachment?.attachmentId}:schema-link`).catch(() => "");
+  });
+  const link = parseSchemaLinkArtifactText(linkText);
+  if (!link) return null;
+  return { ...link, linkPath };
+}
+
 function normalizeStatboticsBaseUrl(value) {
   return normalizeText(value) || defaultStatboticsBaseUrl;
 }
@@ -1256,7 +1282,9 @@ function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
   if (!activeAttachment) return;
   const normalizedSource = normalizeScoutingSourceUrl(draft.source);
   const normalizedSchemaSource = normalizeScoutingSourceUrl(draft.schemaSource);
-  const normalizedSchemaLinkSource = normalizeScoutingSourceUrl(draft.schemaLinkSource);
+  const normalizedSchemaLinkSource = draft.schemaLinkSource === undefined
+    ? (normalizeText(activeAttachment.location?.schemaLinkUrl) || normalizeText(activeAttachment.location?.schemaLinkPath))
+    : normalizeScoutingSourceUrl(draft.schemaLinkSource);
   const normalizedFormat = inferredScoutingAttachmentFormat(
     normalizeText(draft.format) || activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
     normalizedSource,
@@ -1582,8 +1610,13 @@ async function applyScoutingSchemaSourceInputChange(options = {}) {
   if (nextSchemaSourceIsLocal && !isEquivalentLocalAttachmentPath(nextSchemaSource, normalizeText(attachment.location?.schemaPath))) {
     await clearLocalAttachmentFile(`${attachment.attachmentId}:schema`).catch(() => {});
   }
-  const nextSource = inferCompanionScoutingSourceFromSchemaSource(nextSchemaSource, currentScoutingSourceInputValue())
+  const linkedSource = await resolveLinkedScoutingSource(nextSchemaSource, attachment);
+  const nextSource = linkedSource?.scoutingSource
+    || inferCompanionScoutingSourceFromSchemaSource(nextSchemaSource, currentScoutingSourceInputValue())
     || currentScoutingSourceInputValue();
+  const adoptedLinkedSource = linkedSource?.scoutingSource
+    ? await adoptLocalAttachmentForPath(attachment.attachmentId, linkedSource.scoutingSource).catch(() => false)
+    : false;
   const nextFormat = inferredScoutingAttachmentFormat(
     activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
     nextSource,
@@ -1603,11 +1636,13 @@ async function applyScoutingSchemaSourceInputChange(options = {}) {
       profileLabel: scoutingProfileLabel(nextProfileId, attachment.profileLabel),
       source: nextSource,
       schemaSource: nextSchemaSource,
+      schemaLinkSource: linkedSource?.linkPath,
       autoLoad: Boolean(nextSource) || Boolean(attachment.autoLoad),
     },
     { render: false },
   );
-  if (shouldDeferInferredLocalScoutingLoad(nextSource, attachment)) {
+  if ((linkedSource?.scoutingSource && !adoptedLinkedSource)
+    || (!linkedSource?.scoutingSource && shouldDeferInferredLocalScoutingLoad(nextSource, attachment))) {
     render();
     return true;
   }

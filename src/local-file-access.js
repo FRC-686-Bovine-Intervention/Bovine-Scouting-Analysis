@@ -12,6 +12,12 @@ function normalizePathKey(value) {
   return normalizeText(value).replace(/\\/g, "/").toLowerCase();
 }
 
+function pathsMatch(left, right) {
+  const normalizedLeft = normalizePathKey(left);
+  const normalizedRight = normalizePathKey(right);
+  return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
+}
+
 function pathBasename(value) {
   const normalized = normalizePathKey(value);
   if (!normalized) return "";
@@ -148,6 +154,13 @@ function createIndexedDbKeyValueStorage(options = {}, deps = {}) {
       return withStore("readonly", (store, finish, fail) => {
         const request = store.get(key);
         request.onsuccess = () => finish(request.result || null);
+        request.onerror = () => fail(request.error);
+      });
+    },
+    getAll() {
+      return withStore("readonly", (store, finish, fail) => {
+        const request = store.getAll();
+        request.onsuccess = () => finish(request.result || []);
         request.onerror = () => fail(request.error);
       });
     },
@@ -390,6 +403,40 @@ async function readAttachmentText(attachmentId, deps = {}) {
   return withAttachmentPermission(handle, "read", deps, () => readTextFromHandleFile(handle));
 }
 
+async function findAttachmentRecordByPath(sourcePath, deps = {}) {
+  const normalizedSourcePath = normalizeText(sourcePath);
+  if (!normalizedSourcePath) return null;
+  const storage = deps.storage || createIndexedDbStorage(deps);
+  if (!storage || typeof storage.getAll !== "function") return null;
+  const storedRecords = await storage.getAll();
+  const records = (Array.isArray(storedRecords) ? storedRecords : [])
+    .map((record) => normalizeStoredAttachmentRecord(record))
+    .filter(Boolean);
+  const exactMatch = records.find((record) => pathsMatch(record.path, normalizedSourcePath));
+  if (exactMatch) return exactMatch;
+  const matchingBasename = pathBasename(normalizedSourcePath);
+  const basenameMatches = records.filter((record) => pathBasename(record.path) === matchingBasename);
+  return basenameMatches.length === 1 ? basenameMatches[0] : null;
+}
+
+async function readAttachmentTextByPath(sourcePath, deps = {}) {
+  const record = await findAttachmentRecordByPath(sourcePath, deps);
+  if (!record) throw new Error("No saved local scouting file handle exists for this path.");
+  if (record.kind === "snapshot") return String(record.text || "");
+  return withAttachmentPermission(record.handle, "read", deps, () => readTextFromHandleFile(record.handle));
+}
+
+async function adoptAttachmentForPath(attachmentId, sourcePath, deps = {}) {
+  const normalizedAttachmentId = normalizeText(attachmentId);
+  if (!normalizedAttachmentId) return false;
+  const storage = deps.storage || createIndexedDbStorage(deps);
+  if (!storage || typeof storage.set !== "function") return false;
+  const record = await findAttachmentRecordByPath(sourcePath, { ...deps, storage });
+  if (!record) return false;
+  await storage.set(normalizedAttachmentId, record);
+  return true;
+}
+
 async function writeAttachmentText(attachmentId, text, deps = {}) {
   const record = await loadAttachmentHandle(attachmentId, deps);
   if (record && typeof record === "object" && record.kind === "snapshot") {
@@ -456,6 +503,7 @@ globalThis.LocalFileAccess = {
   normalizePathKey,
   pathBasename,
   normalizeStoredAttachmentRecord,
+  pathsMatch,
   createIndexedDbStorage,
   createScoutingSubmissionStorage,
   pickAttachmentFileWithInput,
@@ -465,6 +513,8 @@ globalThis.LocalFileAccess = {
   createAttachmentFile,
   loadAttachmentHandle,
   readAttachmentText,
+  readAttachmentTextByPath,
+  adoptAttachmentForPath,
   writeAttachmentText,
   removeAttachment,
   readScoutingSubmissions,
