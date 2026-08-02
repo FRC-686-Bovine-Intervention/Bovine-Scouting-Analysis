@@ -318,6 +318,7 @@ function scoutingProfileLabel(profileId, fallbackLabel = "") {
 }
 
 const defaultScoutingProfileId = "match-current-v2";
+const developmentRevision = normalizeText(globalThis.__DEPLOYMENT_REVISION) || "local checkout";
 
 const initialEventKey = resolveEventKey(readStoredItem(storageKeys.activeEvent));
 const initialEvent = eventModelByKey(initialEventKey);
@@ -6013,7 +6014,7 @@ function renderDeploymentBanner() {
   const isDevelopment = !hostname || !liveHosts.has(hostname);
   if (!isDevelopment) return "";
   const label = hostname.includes("localhost") || hostname.startsWith("127.") ? "LOCAL DEVELOPMENT" : "DEVELOPMENT / PREVIEW";
-  return `<div class="deployment-banner" role="status">${label} — changes and data may not match production</div>`;
+  return `<div class="deployment-banner" role="status">${label} — commit ${developmentRevision} — changes and data may not match production</div>`;
 }
 function render() {
   const event = currentEvent();
@@ -6109,6 +6110,7 @@ function renderSafely() {
 function renderLogin() {
   app.innerHTML = `
     <main class="login-shell">
+      ${renderDeploymentBanner()}
       <section class="login-panel">
         <div class="brand-row">
           <div>
