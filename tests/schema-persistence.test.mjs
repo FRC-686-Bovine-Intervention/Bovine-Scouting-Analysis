@@ -100,7 +100,7 @@ function loadAppContext(options = {}) {
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
     .replace(/bootstrapApp\(\);\s*$/, "")
-    + "\nglobalThis.__activeEventTestApi = { startSharedActiveEventSync, switchActiveEvent };\n";
+    + "\nglobalThis.__activeEventTestApi = { clearCurrentEventScoutingData, persistScoutingSubmissions, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -154,6 +154,36 @@ await runTest("admin event changes are shared and members adopt the shared event
   sharedEventListener("2026chcmp");
   assert.equal(state.activeEventKey, "2026chcmp");
   assert.deepEqual(savedEventKeys, ["2024mdsev"]);
+});
+
+await runTest("members read shared submissions without writing, while admins can save, clear, and seed them", async () => {
+  const calls = { clear: 0, load: 0, save: 0 };
+  const context = loadAppContext();
+  const state = context.__scoutingAppState;
+  context.firebaseCurrentUser = { uid: "member" };
+  context.firebaseUserRole = "member";
+  context.firebaseSubmissionApi = {
+    clearEventSubmissions: async () => { calls.clear += 1; },
+    loadEventSubmissions: async () => {
+      calls.load += 1;
+      return [];
+    },
+    saveEventSubmissions: async () => { calls.save += 1; },
+  };
+
+  context.__activeEventTestApi.persistScoutingSubmissions("2026chcmp", [{ id: "member-row", eventKey: "2026chcmp" }]);
+  await context.__activeEventTestApi.syncSharedSubmissionsForEvent("2026chcmp");
+  context.__activeEventTestApi.clearCurrentEventScoutingData();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(calls, { clear: 0, load: 1, save: 0 });
+
+  context.firebaseUserRole = "admin";
+  context.__activeEventTestApi.persistScoutingSubmissions("2026chcmp", [{ id: "admin-row", eventKey: "2026chcmp" }]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  context.__activeEventTestApi.clearCurrentEventScoutingData();
+  state.scoutingSubmissions = [{ id: "seed-row", eventKey: "2026chcmp" }];
+  await context.__activeEventTestApi.syncSharedSubmissionsForEvent("2026chcmp");
+  assert.deepEqual(calls, { clear: 1, load: 2, save: 2 });
 });
 
 await runTest("renaming a derived equation updates the bound local schema json artifact for CSV-backed scouting attachments", async () => {

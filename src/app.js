@@ -3553,7 +3553,7 @@ function clearCurrentEventScoutingData() {
   Promise.resolve(clearPersistedScoutingSubmissions(eventKey)).catch((error) => {
     console.error("Unable to clear persisted scouting submissions for event.", eventKey, error);
   });
-  if (globalThis.firebaseSubmissionApi && globalThis.firebaseCurrentUser) {
+  if (globalThis.firebaseSubmissionApi && globalThis.firebaseCurrentUser && globalThis.firebaseUserRole === "admin") {
     Promise.resolve(globalThis.firebaseSubmissionApi.clearEventSubmissions(eventKey)).catch((error) => {
       console.error("Unable to clear shared scouting submissions for event.", eventKey, error);
     });
@@ -3601,7 +3601,7 @@ function persistScoutingSubmissions(eventKey = state.activeEventKey, submissions
   const snapshot = JSON.parse(JSON.stringify(Array.isArray(submissions) ? submissions : []));
   const firebaseApi = globalThis.firebaseSubmissionApi;
   const firebaseUser = globalThis.firebaseCurrentUser;
-  if (firebaseApi && firebaseUser) {
+  if (firebaseApi && firebaseUser && globalThis.firebaseUserRole === "admin") {
     firebaseApi.saveEventSubmissions(resolvedEventKey, snapshot).catch((error) => {
       console.error("Unable to persist shared scouting submissions.", resolvedEventKey, error);
     });
