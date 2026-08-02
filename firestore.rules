@@ -1,0 +1,53 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function userIsAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    function allowlistIsAdmin() {
+      return signedIn()
+        && request.auth.token.email != null
+        && exists(/databases/$(database)/documents/allowlist/$(request.auth.token.email))
+        && get(/databases/$(database)/documents/allowlist/$(request.auth.token.email)).data.role == 'admin';
+    }
+    function allowlistIsMember() {
+      return signedIn()
+        && request.auth.token.email != null
+        && exists(/databases/$(database)/documents/allowlist/$(request.auth.token.email))
+        && get(/databases/$(database)/documents/allowlist/$(request.auth.token.email)).data.role == 'member';
+    }
+    function isAdmin() {
+      return userIsAdmin() || allowlistIsAdmin();
+    }
+    function isAllowed() {
+      return isAdmin() || allowlistIsMember();
+    }
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    match /allowlist/{email} {
+      allow read: if signedIn() && (request.auth.token.email == email || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    match /events/{eventId}/profiles/{profileId} {
+      allow read: if isAllowed();
+      allow write: if isAdmin();
+    }
+
+    match /events/{eventId}/submissions/{submissionId} {
+      allow read, create, update: if isAllowed();
+      allow delete: if isAdmin();
+    }
+    match /mail/{mailId} {
+      allow create: if isAdmin();
+      allow read, update, delete: if false;
+    }
+  }
+}

@@ -1,3 +1,6 @@
 .browser-test/node_modules/
 .pnpm-store/
 .localhost-server.pid
+
+functions/.env
+functions/node_modules/
