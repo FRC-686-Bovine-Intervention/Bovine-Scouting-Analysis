@@ -1,7 +1,7 @@
 # Import Overhaul Ticket Stack
 
 ## Purpose
-This is a publish-ready ticket stack for the import overhaul described in [import-overhaul-implementation-spec.md](D:/FIRST/Scouting/Scouting-Analysis/docs/import-overhaul-implementation-spec.md).
+This is a publish-ready ticket stack for the import overhaul described in [import-overhaul-implementation-spec.md](D:/FIRST/Scouting/Bovine-Scouting-Analysis/docs/import-overhaul-implementation-spec.md).
 
 The intended issue style is tracer-bullet tickets with clear dependencies, tight scope, and explicit acceptance criteria.
 
@@ -40,7 +40,7 @@ The current app hydrates event state from a static event model plus imported sco
 - An event workspace can be created for any event key.
 - Workspace state can represent external-only events with no scouting attachment.
 - Existing sample-backed event flows still function.
-- [src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js) no longer owns the full event hydration flow directly.
+- [src/app.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/app.js) no longer owns the full event hydration flow directly.
 
 ## Ticket 2
 

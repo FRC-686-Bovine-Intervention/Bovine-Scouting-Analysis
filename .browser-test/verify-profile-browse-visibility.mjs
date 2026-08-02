@@ -15,7 +15,7 @@ async function loadPlaywright() {
 }
 
 const { chromium } = await loadPlaywright();
-const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
+const appUrl = "file:///D:/FIRST/Scouting/Bovine-Scouting-Analysis/index.html";
 const sourceProfilePath = path.resolve("tests/fixtures/canonical-scouting-datasets/2026chcmp_profile-v1.json");
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "profile-browse-visibility-"));
 const profilePath = path.join(tempDir, "2026chcmp_profile-v99.json");

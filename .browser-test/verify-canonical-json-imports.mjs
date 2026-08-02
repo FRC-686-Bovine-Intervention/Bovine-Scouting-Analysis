@@ -2,7 +2,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 
-const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
+const appUrl = "file:///D:/FIRST/Scouting/Bovine-Scouting-Analysis/index.html";
 
 const datasets = [
   {

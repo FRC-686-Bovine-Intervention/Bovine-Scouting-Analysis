@@ -33,12 +33,12 @@ This spec is implementation-facing. It is meant to guide code changes in the cur
 - replacing all local/browser storage in this phase
 
 ## Current Codebase Starting Point
-- Event catalog is currently built from local snapshots in [src/real-event-data.js](D:/FIRST/Scouting/Scouting-Analysis/src/real-event-data.js:134).
-- Sample-backed scouting hydration happens in [src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js:1239) and [src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js:1265).
-- The generic CSV/profile importer lives in [src/import-foundation.js](D:/FIRST/Scouting/Scouting-Analysis/src/import-foundation.js:433).
-- Legacy season-specific thin translators live in [src/sheet-import-adapters.js](D:/FIRST/Scouting/Scouting-Analysis/src/sheet-import-adapters.js:331).
-- Schema-signature repair logic lives in [src/scouting-import-repair.js](D:/FIRST/Scouting/Scouting-Analysis/src/scouting-import-repair.js:17).
-- Authoritative scouting aggregation and duplicate exclusion behavior live in [src/metric-engine.js](D:/FIRST/Scouting/Scouting-Analysis/src/metric-engine.js:46) and [src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js:1861).
+- Event catalog is currently built from local snapshots in [src/real-event-data.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/real-event-data.js:134).
+- Sample-backed scouting hydration happens in [src/app.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/app.js:1239) and [src/app.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/app.js:1265).
+- The generic CSV/profile importer lives in [src/import-foundation.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/import-foundation.js:433).
+- Legacy season-specific thin translators live in [src/sheet-import-adapters.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/sheet-import-adapters.js:331).
+- Schema-signature repair logic lives in [src/scouting-import-repair.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/scouting-import-repair.js:17).
+- Authoritative scouting aggregation and duplicate exclusion behavior live in [src/metric-engine.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/metric-engine.js:46) and [src/app.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/app.js:1861).
 
 ## Goals
 
@@ -228,7 +228,7 @@ translateSourceToCanonical({
 }
 ```
 
-The existing seasonal adapters in [src/sheet-import-adapters.js](D:/FIRST/Scouting/Scouting-Analysis/src/sheet-import-adapters.js:331) should evolve toward this contract.
+The existing seasonal adapters in [src/sheet-import-adapters.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/sheet-import-adapters.js:331) should evolve toward this contract.
 
 ## Event Loading Flow
 
@@ -385,15 +385,15 @@ This design is compatible with moving to a backend or local helper later if file
 - `src/source-refresh.js`
 
 ### Existing Modules To Evolve
-- [src/real-event-data.js](D:/FIRST/Scouting/Scouting-Analysis/src/real-event-data.js:134)
+- [src/real-event-data.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/real-event-data.js:134)
   Move from snapshot catalog builder toward event workspace seeding and test fixtures.
-- [src/import-foundation.js](D:/FIRST/Scouting/Scouting-Analysis/src/import-foundation.js:433)
+- [src/import-foundation.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/import-foundation.js:433)
   Expand from CSV preview/commit into canonical import validation and source-agnostic commit flow.
-- [src/sheet-import-adapters.js](D:/FIRST/Scouting/Scouting-Analysis/src/sheet-import-adapters.js:331)
+- [src/sheet-import-adapters.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/sheet-import-adapters.js:331)
   Keep as legacy translator layer only.
-- [src/scouting-import-repair.js](D:/FIRST/Scouting/Scouting-Analysis/src/scouting-import-repair.js:17)
+- [src/scouting-import-repair.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/scouting-import-repair.js:17)
   Expand into schema signature, schema diff, and refresh orchestration helpers.
-- [src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js:1265)
+- [src/app.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/app.js:1265)
   Reduce direct ownership of hydration/import logic and delegate to workspace modules.
 
 ## Migration Plan
@@ -454,7 +454,7 @@ This design is compatible with moving to a backend or local helper later if file
 ## Recommended Immediate Next Tickets
 1. Define `EventWorkspace` and workspace storage contracts.
 2. Define canonical scouting JSON schema and validators.
-3. Refactor event hydration in [src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js:1265) behind a workspace loader.
+3. Refactor event hydration in [src/app.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/app.js:1265) behind a workspace loader.
 4. Convert legacy sheet adapters into canonical translators.
 5. Add schema diff and dependency graph modules.
 6. Convert 2024, 2025, and 2026 sample data into canonical JSON fixtures.

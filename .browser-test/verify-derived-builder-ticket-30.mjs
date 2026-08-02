@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import { chromium } from "./node_modules/playwright/index.mjs";
 
-const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
-const rawSheetCsvPath = "D:/FIRST/Scouting/Scouting-Analysis/src/real-source-cache/2026chcmp-sheet.csv";
+const appUrl = "file:///D:/FIRST/Scouting/Bovine-Scouting-Analysis/index.html";
+const rawSheetCsvPath = "D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/real-source-cache/2026chcmp-sheet.csv";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);

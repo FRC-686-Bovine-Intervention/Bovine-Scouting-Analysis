@@ -14,7 +14,7 @@ async function loadPlaywright() {
 }
 
 const { chromium } = await loadPlaywright();
-const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
+const appUrl = "file:///D:/FIRST/Scouting/Bovine-Scouting-Analysis/index.html";
 const dataPath = path.resolve("tests/fixtures/canonical-scouting-datasets/2024mdsev.json");
 const profilePath = path.resolve("tests/fixtures/canonical-scouting-datasets/2024mdsev_profile-v1.json");
 

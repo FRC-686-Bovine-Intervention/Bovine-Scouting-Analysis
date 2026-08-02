@@ -1,6 +1,6 @@
 import { chromium } from "playwright";
 
-const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
+const appUrl = "file:///D:/FIRST/Scouting/Bovine-Scouting-Analysis/index.html";
 const eventKey = "2023chcmp";
 const tbaAuthKey = String(process.env.TBA_AUTH_KEY || "").trim();
 const defaultStatboticsBaseUrl = "https://api.statbotics.io/v3";

@@ -1,20 +1,20 @@
 # Season Metric Framework Checklist
 
 ## Purpose
-Turn the decisions in [adr-season-metric-framework.md](D:/FIRST/Scouting/Scouting-Analysis/docs/adr-season-metric-framework.md) into an implementation sequence we can execute incrementally without losing working app behavior.
+Turn the decisions in [adr-season-metric-framework.md](D:/FIRST/Scouting/Bovine-Scouting-Analysis/docs/adr-season-metric-framework.md) into an implementation sequence we can execute incrementally without losing working app behavior.
 
 ## Current Position
 - Season definitions now drive more than just scoring components.
 - Imports can already carry richer normalized `rawMetrics`.
 - The app can already compute some season-derived metrics from normalized scouting data.
-- Team overlay and trend shaping now live in [src/metric-engine.js](D:/FIRST/Scouting/Scouting-Analysis/src/metric-engine.js) instead of being embedded directly in [src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js).
+- Team overlay and trend shaping now live in [src/metric-engine.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/metric-engine.js) instead of being embedded directly in [src/app.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/app.js).
 - The metric engine now supports authoritative `All Matches` and `Recent N` scouting windows, with `N` configurable in the app.
 - Flagged duplicate scouting rows no longer contribute to authoritative scouting aggregates, but they still drive low-confidence review signals.
-- A focused regression harness exists in [tests/metric-engine.test.mjs](D:/FIRST/Scouting/Scouting-Analysis/tests/metric-engine.test.mjs) for core engine behavior.
+- A focused regression harness exists in [tests/metric-engine.test.mjs](D:/FIRST/Scouting/Bovine-Scouting-Analysis/tests/metric-engine.test.mjs) for core engine behavior.
 - The remaining work is mostly about structure, validation, categorical displays, and badge/config support.
 
 ## Phase 1: Stabilize The Foundation
-- [x] Extract season definitions from [src/real-event-data.js](D:/FIRST/Scouting/Scouting-Analysis/src/real-event-data.js) into a dedicated schema module.
+- [x] Extract season definitions from [src/real-event-data.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/real-event-data.js) into a dedicated schema module.
 - [ ] Separate these concerns inside season config:
   - raw field definitions
   - import aliases
@@ -23,7 +23,7 @@ Turn the decisions in [adr-season-metric-framework.md](D:/FIRST/Scouting/Scoutin
   - badge rules
 - [ ] Define one explicit TypeScript-like contract in docs for a canonical scouting submission.
 - [ ] Define one explicit contract in docs for a metric registry entry.
-- [~] Reduce duplicated helper logic between [src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js) and [src/import-foundation.js](D:/FIRST/Scouting/Scouting-Analysis/src/import-foundation.js).
+- [~] Reduce duplicated helper logic between [src/app.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/app.js) and [src/import-foundation.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/import-foundation.js).
 Shared season helpers, metric-engine logic, and raw sheet adapters are extracted, but some analysis/distribution helpers still live only in the app.
 
 ## Phase 2: Make Metric Computation More General
@@ -82,7 +82,7 @@ Shared season helpers, metric-engine logic, and raw sheet adapters are extracted
 
 ## Phase 7: Validation And Trust
 - [~] Create season validation fixtures with trusted rows and expected computed outputs.
-Core engine regression coverage exists, representative trusted fixtures now exist for 2024, 2025, and 2026 in [tests/season-metric-fixtures.json](D:/FIRST/Scouting/Scouting-Analysis/tests/season-metric-fixtures.json), and normalized real-row samples now exist in [tests/season-import-row-fixtures.json](D:/FIRST/Scouting/Scouting-Analysis/tests/season-import-row-fixtures.json), but broader season sample sets are still missing.
+Core engine regression coverage exists, representative trusted fixtures now exist for 2024, 2025, and 2026 in [tests/season-metric-fixtures.json](D:/FIRST/Scouting/Bovine-Scouting-Analysis/tests/season-metric-fixtures.json), and normalized real-row samples now exist in [tests/season-import-row-fixtures.json](D:/FIRST/Scouting/Bovine-Scouting-Analysis/tests/season-import-row-fixtures.json), but broader season sample sets are still missing.
 - [ ] Add regression tests for:
   - import normalization
   - season scoring totals
@@ -91,7 +91,7 @@ Core engine regression coverage exists, representative trusted fixtures now exis
   - confidence propagation
 - [ ] Add explicit validation cases comparing app-derived values against trusted spreadsheet outputs during migration.
 - [~] Add explicit validation cases comparing app-derived values against trusted spreadsheet outputs during migration.
-A local comparison harness now exists in [tests/spreadsheet-comparison.test.mjs](D:/FIRST/Scouting/Scouting-Analysis/tests/spreadsheet-comparison.test.mjs) with fixture-backed expected outputs plus representative `All Matches` and `Recent` checks against the exported 2025 and 2026 `TeamCalculations` tabs in [tests/fixtures](D:/FIRST/Scouting/Scouting-Analysis/tests/fixtures). The exported `Recent` windows currently align best with `N = 4`. The remaining work is to widen those representative comparisons into broader exact migration checks for columns whose denominator semantics are still unresolved, especially 2025 defense-related ratings and several 2026 role-rating averages.
+A local comparison harness now exists in [tests/spreadsheet-comparison.test.mjs](D:/FIRST/Scouting/Bovine-Scouting-Analysis/tests/spreadsheet-comparison.test.mjs) with fixture-backed expected outputs plus representative `All Matches` and `Recent` checks against the exported 2025 and 2026 `TeamCalculations` tabs in [tests/fixtures](D:/FIRST/Scouting/Bovine-Scouting-Analysis/tests/fixtures). The exported `Recent` windows currently align best with `N = 4`. The remaining work is to widen those representative comparisons into broader exact migration checks for columns whose denominator semantics are still unresolved, especially 2025 defense-related ratings and several 2026 role-rating averages.
 - [ ] Decide acceptable drift thresholds for floating-point or estimation-based metrics.
 
 ## Phase 8: External Metrics Integration

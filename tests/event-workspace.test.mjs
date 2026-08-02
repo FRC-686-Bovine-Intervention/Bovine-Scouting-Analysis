@@ -236,7 +236,7 @@ runTest("setScoutingSourceLocation treats file URLs as URL-backed JSON sources",
 
   const updatedWorkspace = context.EventWorkspace.setScoutingSourceLocation(
     workspace,
-    "file:///D:/FIRST/Scouting/Scouting-Analysis/tests/fixtures/canonical-scouting-datasets/2024mdsev.json",
+    "file:///D:/FIRST/Scouting/Bovine-Scouting-Analysis/tests/fixtures/canonical-scouting-datasets/2024mdsev.json",
   );
   const attachment = context.EventWorkspace.activeScoutingAttachment(updatedWorkspace);
   const load = context.EventWorkspace.describeActiveScoutingAttachmentLoad(updatedWorkspace, {});

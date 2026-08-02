@@ -1,6 +1,6 @@
 import { chromium } from "playwright";
 
-const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
+const appUrl = "file:///D:/FIRST/Scouting/Bovine-Scouting-Analysis/index.html";
 const edgeExecutablePath = "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
 
 async function waitForApp(page) {
