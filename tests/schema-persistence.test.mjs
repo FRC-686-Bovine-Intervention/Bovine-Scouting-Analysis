@@ -99,7 +99,8 @@ function loadAppContext(options = {}) {
 
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
-    .replace(/bootstrapApp\(\);\s*$/, "");
+    .replace(/bootstrapApp\(\);\s*$/, "")
+    + "\nglobalThis.__activeEventTestApi = { startSharedActiveEventSync, switchActiveEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -119,6 +120,41 @@ function loadAppContext(options = {}) {
   context.render = noop;
   return context;
 }
+
+await runTest("admin event changes are shared and members adopt the shared event without writing it", async () => {
+  let sharedEventListener = null;
+  const savedEventKeys = [];
+  const context = loadAppContext({
+    eventCatalog: [
+      { key: "2024mdsev", season: 2024, name: "MDS Event", seasonLabel: "2024", teams: [{ number: 1 }], teamNumbers: [1], matches: [{ number: 1 }], dataSources: [], seedPicklists: [], seedSortEquations: [], formulaFieldDefinitions: [], sheet: {} },
+      { key: "2026chcmp", season: 2026, name: "CHCMP", seasonLabel: "2026", teams: [{ number: 1 }], teamNumbers: [1], matches: [{ number: 1 }], dataSources: [], seedPicklists: [], seedSortEquations: [], formulaFieldDefinitions: [], sheet: {} },
+    ],
+  });
+  const state = context.__scoutingAppState;
+  context.firebaseCurrentUser = { uid: "admin" };
+  context.firebaseUserRole = "admin";
+  context.firebaseEventStateApi = {
+    subscribeActiveEvent: (listener) => {
+      sharedEventListener = listener;
+      return () => {};
+    },
+    saveActiveEvent: async (eventKey) => savedEventKeys.push(eventKey),
+  };
+
+  context.__activeEventTestApi.startSharedActiveEventSync();
+  sharedEventListener("2026chcmp");
+  assert.equal(state.activeEventKey, "2026chcmp");
+  assert.deepEqual(savedEventKeys, []);
+
+  context.__activeEventTestApi.switchActiveEvent("2024mdsev");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(savedEventKeys, ["2024mdsev"]);
+
+  context.firebaseUserRole = "member";
+  sharedEventListener("2026chcmp");
+  assert.equal(state.activeEventKey, "2026chcmp");
+  assert.deepEqual(savedEventKeys, ["2024mdsev"]);
+});
 
 await runTest("renaming a derived equation updates the bound local schema json artifact for CSV-backed scouting attachments", async () => {
   const fixturePath = path.resolve("tests/fixtures/canonical-scouting-datasets/2026chcmp_profile-v1.json");

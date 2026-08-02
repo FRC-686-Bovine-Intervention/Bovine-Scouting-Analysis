@@ -3718,6 +3718,39 @@ function scoutingProfilesForEvent(eventModel = currentEvent()) {
   return ensureEventScopedScoutingProfiles(eventModel);
 }
 
+let stopSharedActiveEventSync = null;
+
+function persistSharedActiveEvent(eventKey) {
+  const api = globalThis.firebaseEventStateApi;
+  if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin" || !eventKey) return;
+  void api.saveActiveEvent(eventKey).catch((error) => {
+    console.warn(`Unable to save shared active event ${eventKey}; keeping the local event.`, error);
+  });
+}
+
+function startSharedActiveEventSync() {
+  const api = globalThis.firebaseEventStateApi;
+  if (!api || !globalThis.firebaseCurrentUser) return;
+  stopSharedActiveEventSync?.();
+  stopSharedActiveEventSync = api.subscribeActiveEvent((eventKey) => {
+    const sharedEventKey = normalizeText(eventKey);
+    if (!sharedEventKey) {
+      persistSharedActiveEvent(state.activeEventKey);
+      return;
+    }
+    if (!globalEventCatalog.some((eventModel) => eventModel.key === sharedEventKey)) {
+      console.warn(`Shared active event ${sharedEventKey} is unavailable in this client; keeping ${state.activeEventKey}.`);
+      return;
+    }
+    if (sharedEventKey !== state.activeEventKey) switchActiveEvent(sharedEventKey, { persistShared: false });
+  });
+}
+
+function stopSharedActiveEventSynchronization() {
+  stopSharedActiveEventSync?.();
+  stopSharedActiveEventSync = null;
+}
+
 function persistSharedScoutingProfile(eventKey, profile) {
   const api = globalThis.firebaseProfileApi;
   if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin" || !eventKey || !profile?.id) return;
@@ -3952,6 +3985,7 @@ function switchActiveEvent(eventKey, options = {}) {
       state.importDraftSource = "";
     }
     saveState();
+    if (options.persistShared !== false) persistSharedActiveEvent(resolvedEventKey);
     if (options.rerunImportPreview) {
       state.importResult = null;
       runImportPreview();
@@ -9766,9 +9800,10 @@ if (typeof globalThis.addEventListener === "function") {
     saveState();
     render();
     if (user) {
+      startSharedActiveEventSync();
       void syncSharedProfilesForEvent(state.activeEventKey);
       void syncSharedSubmissionsForEvent(state.activeEventKey);
-    }
+    } else stopSharedActiveEventSynchronization();
     if (user && globalThis.firebaseUserRole === "admin") void refreshAllowlist();
   });
 }

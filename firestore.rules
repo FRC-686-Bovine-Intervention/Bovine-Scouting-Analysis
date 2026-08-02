@@ -26,6 +26,15 @@ service cloud.firestore {
     function isAllowed() {
       return isAdmin() || allowlistIsMember();
     }
+    function isValidActiveEventState() {
+      return request.resource.data.keys().hasOnly(['eventKey', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['eventKey', 'updatedAt'])
+        && request.resource.data.eventKey is string
+        && request.resource.data.eventKey.size() > 0
+        && request.resource.data.eventKey.size() <= 64
+        && request.resource.data.eventKey.matches('^[a-z0-9]+$')
+        && request.resource.data.updatedAt is timestamp;
+    }
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
       allow write: if isAdmin();
@@ -34,6 +43,12 @@ service cloud.firestore {
     match /allowlist/{email} {
       allow read: if signedIn() && (request.auth.token.email == email || isAdmin());
       allow write: if isAdmin();
+    }
+
+    // appState/activeEvent holds the administrator-selected event key and a server timestamp.
+    match /appState/activeEvent {
+      allow read: if isAllowed();
+      allow create, update: if isAdmin() && isValidActiveEventState();
     }
 
     match /events/{eventId}/profiles/{profileId} {
