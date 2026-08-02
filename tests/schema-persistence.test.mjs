@@ -295,14 +295,14 @@ await runTest("typing a fuller schema path for the same local file keeps the exi
   });
 
   await context.applyScoutingSchemaSourceInputChange({
-    source: "D:\\FIRST\\Scouting\\Scouting-Analysis\\2026chcmp_profile-v1.json",
+    source: "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2026chcmp_profile-v1.json",
     forceReload: true,
   });
 
   assert.deepEqual(removedAttachmentIds, []);
   assert.equal(
     context.currentScoutingAttachment().location.schemaPath,
-    "D:\\FIRST\\Scouting\\Scouting-Analysis\\2026chcmp_profile-v1.json",
+    "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2026chcmp_profile-v1.json",
   );
 });
 
@@ -351,21 +351,21 @@ await runTest("selecting a local schema path switches a sheet-backed attachment 
   state.importSourceUrl = "https://docs.google.com/spreadsheets/d/example/edit#gid=0";
 
   await context.applyScoutingSchemaSourceInputChange({
-    source: "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp_profile-v1.json",
+    source: "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2025chcmp_profile-v1.json",
     forceReload: true,
   });
 
   assert.equal(
     context.currentScoutingAttachment().location.path,
-    "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp.json",
+    "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2025chcmp.json",
   );
   assert.equal(
     context.currentScoutingAttachment().location.schemaPath,
-    "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp_profile-v1.json",
+    "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2025chcmp_profile-v1.json",
   );
   assert.equal(context.currentScoutingAttachment().locationKind, "path");
   assert.equal(context.currentScoutingAttachment().format, "scouting-json");
-  assert.equal(context.currentScoutingSourceInputValue(), "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp.json");
+  assert.equal(context.currentScoutingSourceInputValue(), "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2025chcmp.json");
   assert.equal(context.detectedScoutingSourceLabel(), "Local JSON file");
 });
 
@@ -399,8 +399,8 @@ await runTest("selecting a versioned local schema path upgrades an old local ent
         format: "scouting-json",
         locationKind: "path",
         location: {
-          path: "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp.entries.json",
-          schemaPath: "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp_profile-v1.json",
+          path: "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2025chcmp.entries.json",
+          schemaPath: "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2025chcmp_profile-v1.json",
         },
         profileId: "canonical-json-v1",
         translatorId: "canonical-json-v1",
@@ -408,24 +408,24 @@ await runTest("selecting a versioned local schema path upgrades an old local ent
       }],
     },
   });
-  state.importSourceUrl = "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp.entries.json";
+  state.importSourceUrl = "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2025chcmp.entries.json";
 
   await context.applyScoutingSchemaSourceInputChange({
-    source: "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp_profile-v1.json",
+    source: "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2025chcmp_profile-v1.json",
     forceReload: true,
   });
 
   assert.equal(
     context.currentScoutingAttachment().location.path,
-    "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp.json",
+    "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2025chcmp.json",
   );
   assert.equal(
     context.currentScoutingAttachment().location.schemaPath,
-    "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp_profile-v1.json",
+    "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2025chcmp_profile-v1.json",
   );
   assert.equal(context.currentScoutingAttachment().locationKind, "path");
   assert.equal(context.currentScoutingAttachment().format, "scouting-json");
-  assert.equal(context.currentScoutingSourceInputValue(), "D:\\FIRST\\Scouting\\Scouting-Analysis\\2025chcmp.json");
+  assert.equal(context.currentScoutingSourceInputValue(), "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2025chcmp.json");
   assert.equal(context.detectedScoutingSourceLabel(), "Local JSON file");
 });
 
@@ -435,7 +435,7 @@ await runTest("browsing for a local scouting profile immediately updates the bou
   const dataFixtureText = fs.readFileSync(dataFixturePath, "utf8");
   const schemaFixtureText = fs.readFileSync(schemaFixturePath, "utf8");
   const reads = [];
-  const pickedPath = "D:\\FIRST\\Scouting\\Scouting-Analysis\\2026chcmp_profile-v1.json";
+  const pickedPath = "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2026chcmp_profile-v1.json";
   const context = loadAppContext({
     pickAttachmentFile: async () => ({
       attachmentId: "json-attachment:schema",
@@ -462,8 +462,8 @@ await runTest("browsing for a local scouting profile immediately updates the bou
         format: "scouting-json",
         locationKind: "path",
         location: {
-          path: "D:\\FIRST\\Scouting\\Scouting-Analysis\\2026chcmp.json",
-          schemaPath: "D:\\FIRST\\Scouting\\Scouting-Analysis\\2026chcmp_profile-v1.json",
+          path: "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2026chcmp.json",
+          schemaPath: "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2026chcmp_profile-v1.json",
         },
         profileId: "canonical-json-v1",
         translatorId: "canonical-json-v1",
@@ -471,7 +471,7 @@ await runTest("browsing for a local scouting profile immediately updates the bou
       }],
     },
   });
-  state.importSourceUrl = "D:\\FIRST\\Scouting\\Scouting-Analysis\\2026chcmp.json";
+  state.importSourceUrl = "D:\\FIRST\\Scouting\\Bovine-Scouting-Analysis\\2026chcmp.json";
 
   await context.chooseLocalScoutingSchemaFile();
 

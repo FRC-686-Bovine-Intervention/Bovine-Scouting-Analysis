@@ -16,7 +16,7 @@ async function loadPlaywright() {
 
 const { chromium } = await loadPlaywright();
 
-const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
+const appUrl = "file:///D:/FIRST/Scouting/Bovine-Scouting-Analysis/index.html";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const sourceDataPath = path.join(repoRoot, "tests/fixtures/canonical-scouting-datasets/2025chcmp.json");

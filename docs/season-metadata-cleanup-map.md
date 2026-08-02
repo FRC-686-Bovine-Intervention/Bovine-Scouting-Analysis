@@ -90,7 +90,7 @@ Compatibility during migration is acceptable, but the target state should not ke
 
 ### 1. Compatibility still reads a legacy scouting seed module
 
-[src/legacy-scouting-schema-seeds.js](D:/FIRST/Scouting/Scouting-Analysis/src/legacy-scouting-schema-seeds.js:1) now holds the compatibility scouting seed bundle for `2024`, `2025`, and `2026`, while [src/season-framework.js](D:/FIRST/Scouting/Scouting-Analysis/src/season-framework.js:1) only looks it up through helper functions.
+[src/legacy-scouting-schema-seeds.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/legacy-scouting-schema-seeds.js:1) now holds the compatibility scouting seed bundle for `2024`, `2025`, and `2026`, while [src/season-framework.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/season-framework.js:1) only looks it up through helper functions.
 
 The exported season objects no longer own scouting schema directly. The remaining bundled legacy seed source still mixes several concerns:
 
@@ -103,18 +103,18 @@ This is now the main compatibility bundle that still acts like product logic ins
 
 ### 2. Event models still carry provider-season metadata, but through a narrower seam
 
-[src/event-model-builder.js](D:/FIRST/Scouting/Scouting-Analysis/src/event-model-builder.js:286) and [src/real-event-data.js](D:/FIRST/Scouting/Scouting-Analysis/src/real-event-data.js:19) still inject provider-facing season structure into every event model:
+[src/event-model-builder.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/event-model-builder.js:286) and [src/real-event-data.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/real-event-data.js:19) still inject provider-facing season structure into every event model:
 
 - `seasonLabel`
 - `breakdownMap`
 - `scoringComponents`
 - `metrics`
 
-The scouter, formula, and scouting-derived metric lists are no longer seeded by default on live/snapshot event models unless the payload already carries them, and `criteriaSources` is no longer part of runtime event construction. This layer now prefers [src/provider-season-metadata.js](D:/FIRST/Scouting/Scouting-Analysis/src/provider-season-metadata.js:1) for the narrow provider-facing season context instead of reaching straight into `SeasonFramework`, but it still pre-seeds provider season structure and a generic runtime metric catalog.
+The scouter, formula, and scouting-derived metric lists are no longer seeded by default on live/snapshot event models unless the payload already carries them, and `criteriaSources` is no longer part of runtime event construction. This layer now prefers [src/provider-season-metadata.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/provider-season-metadata.js:1) for the narrow provider-facing season context instead of reaching straight into `SeasonFramework`, but it still pre-seeds provider season structure and a generic runtime metric catalog.
 
 ### 3. Runtime scouting fields and profile selection now resolve from event/profile state
 
-[src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js:1111) now resolves current scouting fields from committed/imported schema plus saved event-scoped profiles, and current metrics/derived definitions from the active event model plus profile equations.
+[src/app.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/app.js:1111) now resolves current scouting fields from committed/imported schema plus saved event-scoped profiles, and current metrics/derived definitions from the active event model plus profile equations.
 
 That means the remaining coupling is narrower than before:
 
@@ -128,10 +128,10 @@ So the next removal target is event construction and seeded compatibility data, 
 
 These modules now prefer event-owned field definitions first, but still keep narrow fallback behavior when an event model arrives underspecified:
 
-- [src/scouting-json-schema.js](D:/FIRST/Scouting/Scouting-Analysis/src/scouting-json-schema.js:13)
-- [src/import-foundation.js](D:/FIRST/Scouting/Scouting-Analysis/src/import-foundation.js:119)
-- [src/scouting-import-repair.js](D:/FIRST/Scouting/Scouting-Analysis/src/scouting-import-repair.js:7)
-- [src/sheet-import-adapters.js](D:/FIRST/Scouting/Scouting-Analysis/src/sheet-import-adapters.js:633)
+- [src/scouting-json-schema.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/scouting-json-schema.js:13)
+- [src/import-foundation.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/import-foundation.js:119)
+- [src/scouting-import-repair.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/scouting-import-repair.js:7)
+- [src/sheet-import-adapters.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/sheet-import-adapters.js:633)
 
 Remaining effects today:
 
@@ -140,7 +140,7 @@ Remaining effects today:
 
 ### 5. Legacy sheet translation still carries hard-coded legacy-format mapping
 
-[src/sheet-import-adapters.js](D:/FIRST/Scouting/Scouting-Analysis/src/sheet-import-adapters.js:35) still contains hard-coded legacy adapter logic for older sheet formats, although selection now prefers adapter/profile identity and distinctive header matching before falling back to generic canonicalization.
+[src/sheet-import-adapters.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/sheet-import-adapters.js:35) still contains hard-coded legacy adapter logic for older sheet formats, although selection now prefers adapter/profile identity and distinctive header matching before falling back to generic canonicalization.
 
 This is useful as migration scaffolding, but it is exactly the kind of season-specific structure the app should retire.
 
@@ -166,7 +166,7 @@ Legacy season-derived-equation and season-filter storage may still be read for o
 
 ### 7. Storage migration still carries season-owned legacy keys
 
-[src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js:163) now persists:
+[src/app.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/app.js:163) now persists:
 
 - `scoutingProfiles`
 
@@ -282,7 +282,7 @@ These are the primary cleanup targets.
 
 ### Remove the remaining legacy scouting seed bundle as the owner of scouting schema
 
-The remaining legacy scouting seed bundle in [src/legacy-scouting-schema-seeds.js](D:/FIRST/Scouting/Scouting-Analysis/src/legacy-scouting-schema-seeds.js:1) should stop owning:
+The remaining legacy scouting seed bundle in [src/legacy-scouting-schema-seeds.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/legacy-scouting-schema-seeds.js:1) should stop owning:
 
 - scouting raw fields
 - formula-only scouting fields
@@ -293,7 +293,7 @@ If some external scoring metadata still needs a home, it should be split into a 
 
 ### Remove legacy adapter branches once profile coverage is good enough
 
-The remaining hard-coded legacy adapter branches in [src/sheet-import-adapters.js](D:/FIRST/Scouting/Scouting-Analysis/src/sheet-import-adapters.js:35) should eventually be reduced to profile-driven import compatibility plus thin fallback mapping.
+The remaining hard-coded legacy adapter branches in [src/sheet-import-adapters.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/sheet-import-adapters.js:35) should eventually be reduced to profile-driven import compatibility plus thin fallback mapping.
 
 ### Remove season as the selector for equations and predicates
 
@@ -316,7 +316,7 @@ The target replacement is:
 
 ### Remove season-seeded baseline scouting fields at runtime
 
-`currentScouterMetricDefinitions()` and `currentFormulaFieldDefinitions()` in [src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js:1111) should stop seeding from season definitions.
+`currentScouterMetricDefinitions()` and `currentFormulaFieldDefinitions()` in [src/app.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/app.js:1111) should stop seeding from season definitions.
 
 They should instead resolve from:
 
@@ -411,10 +411,10 @@ Exit condition:
 
 Replace season-based field seeding in:
 
-- [src/app.js](D:/FIRST/Scouting/Scouting-Analysis/src/app.js:1111)
-- [src/scouting-json-schema.js](D:/FIRST/Scouting/Scouting-Analysis/src/scouting-json-schema.js:13)
-- [src/import-foundation.js](D:/FIRST/Scouting/Scouting-Analysis/src/import-foundation.js:119)
-- [src/scouting-import-repair.js](D:/FIRST/Scouting/Scouting-Analysis/src/scouting-import-repair.js:7)
+- [src/app.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/app.js:1111)
+- [src/scouting-json-schema.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/scouting-json-schema.js:13)
+- [src/import-foundation.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/import-foundation.js:119)
+- [src/scouting-import-repair.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/scouting-import-repair.js:7)
 
 Exit condition:
 
@@ -422,7 +422,7 @@ Exit condition:
 
 ## Phase 3: Replace season translators with import profiles
 
-Refactor [src/sheet-import-adapters.js](D:/FIRST/Scouting/Scouting-Analysis/src/sheet-import-adapters.js:35) so that legacy support is driven by import-profile definitions rather than season branches.
+Refactor [src/sheet-import-adapters.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/sheet-import-adapters.js:35) so that legacy support is driven by import-profile definitions rather than season branches.
 
 Exit condition:
 

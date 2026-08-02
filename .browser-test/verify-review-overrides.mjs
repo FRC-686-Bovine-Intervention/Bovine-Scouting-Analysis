@@ -1,6 +1,6 @@
 import { chromium } from "playwright";
 
-const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
+const appUrl = "file:///D:/FIRST/Scouting/Bovine-Scouting-Analysis/index.html";
 
 function text(node) {
   return node ? node.trim().replace(/\s+/g, " ") : "";

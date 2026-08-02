@@ -4,11 +4,11 @@ import { chromium } from "./node_modules/playwright/index.mjs";
 
 const appUrl = "http://127.0.0.1:4174";
 const fixture = JSON.parse(fs.readFileSync(
-  "D:/FIRST/Scouting/Scouting-Analysis/tests/fixtures/canonical-scouting-datasets/2026chcmp.json",
+  "D:/FIRST/Scouting/Bovine-Scouting-Analysis/tests/fixtures/canonical-scouting-datasets/2026chcmp.json",
   "utf8",
 ));
 const schema = JSON.parse(fs.readFileSync(
-  "D:/FIRST/Scouting/Scouting-Analysis/tests/fixtures/canonical-scouting-datasets/2026chcmp_profile-v1.json",
+  "D:/FIRST/Scouting/Bovine-Scouting-Analysis/tests/fixtures/canonical-scouting-datasets/2026chcmp_profile-v1.json",
   "utf8",
 ));
 

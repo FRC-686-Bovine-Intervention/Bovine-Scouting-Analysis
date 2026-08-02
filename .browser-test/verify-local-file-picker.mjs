@@ -1,7 +1,7 @@
 import path from "node:path";
 import { chromium } from "playwright";
 
-const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
+const appUrl = "file:///D:/FIRST/Scouting/Bovine-Scouting-Analysis/index.html";
 const jsonFixturePath = path.resolve("tests/fixtures/canonical-scouting-datasets/2024mdsev.json");
 
 function assert(condition, message) {

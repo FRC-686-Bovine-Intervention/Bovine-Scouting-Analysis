@@ -17,7 +17,7 @@ async function loadPlaywright() {
 
 const { chromium } = await loadPlaywright();
 
-const appUrl = "file:///D:/FIRST/Scouting/Scouting-Analysis/index.html";
+const appUrl = "file:///D:/FIRST/Scouting/Bovine-Scouting-Analysis/index.html";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);

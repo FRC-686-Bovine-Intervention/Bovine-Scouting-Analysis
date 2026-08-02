@@ -413,6 +413,10 @@ const state = {
   viewHistory: [],
   adminEventCodeDraft: initialEventKey,
   adminRecentEventsOpen: false,
+  allowlistEntries: [],
+  allowlistEmailDraft: "",
+  allowlistRoleDraft: "member",
+  allowlistStatus: "",
 };
 state.recentEventKeys = normalizeRecentEventKeys(readStoredJson(storageKeys.recentEvents, [initialEventKey]), initialEventKey);
 globalThis.__scoutingAppState = state;
@@ -3549,6 +3553,11 @@ function clearCurrentEventScoutingData() {
   Promise.resolve(clearPersistedScoutingSubmissions(eventKey)).catch((error) => {
     console.error("Unable to clear persisted scouting submissions for event.", eventKey, error);
   });
+  if (globalThis.firebaseSubmissionApi && globalThis.firebaseCurrentUser) {
+    Promise.resolve(globalThis.firebaseSubmissionApi.clearEventSubmissions(eventKey)).catch((error) => {
+      console.error("Unable to clear shared scouting submissions for event.", eventKey, error);
+    });
+  }
   pushActivity(`Cleared saved scouting data for ${eventKey}.`);
   saveState();
   render();
@@ -3590,6 +3599,13 @@ function setScoutingSubmissions(values, eventModel = currentEvent()) {
 function persistScoutingSubmissions(eventKey = state.activeEventKey, submissions = state.scoutingSubmissions) {
   const resolvedEventKey = resolveEventKey(eventKey);
   const snapshot = JSON.parse(JSON.stringify(Array.isArray(submissions) ? submissions : []));
+  const firebaseApi = globalThis.firebaseSubmissionApi;
+  const firebaseUser = globalThis.firebaseCurrentUser;
+  if (firebaseApi && firebaseUser) {
+    firebaseApi.saveEventSubmissions(resolvedEventKey, snapshot).catch((error) => {
+      console.error("Unable to persist shared scouting submissions.", resolvedEventKey, error);
+    });
+  }
   const writeOperation = snapshot.length
     ? Promise.resolve(writePersistedScoutingSubmissions(resolvedEventKey, snapshot))
     : Promise.resolve(clearPersistedScoutingSubmissions(resolvedEventKey));
@@ -3702,6 +3718,14 @@ function scoutingProfilesForEvent(eventModel = currentEvent()) {
   return ensureEventScopedScoutingProfiles(eventModel);
 }
 
+function persistSharedScoutingProfile(eventKey, profile) {
+  const api = globalThis.firebaseProfileApi;
+  if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin" || !eventKey || !profile?.id) return;
+  void api.saveEventProfile(eventKey, profile).catch((error) => {
+    console.warn(`Unable to save shared profile ${profile.id} for ${eventKey}; keeping the local profile.`, error);
+  });
+}
+
 function registerScoutingProfile(eventModel, profile) {
   const resolvedEventModel = eventModel || currentEvent();
   const eventKey = normalizeText(resolvedEventModel?.key);
@@ -3733,8 +3757,30 @@ function registerScoutingProfile(eventModel, profile) {
     ],
   })[key] || [];
   state.scoutingProfileCatalog = normalized;
+  persistSharedScoutingProfile(key, normalized[key].find((entry) => entry.id === profileId));
 }
 
+async function syncSharedProfilesForEvent(eventKey = state.activeEventKey) {
+  const api = globalThis.firebaseProfileApi;
+  if (!api || !globalThis.firebaseCurrentUser || !eventKey) return false;
+  try {
+    const sharedProfiles = await api.loadEventProfiles(eventKey);
+    if (sharedProfiles.length) {
+      state.scoutingProfileCatalog = normalizeScoutingProfileCatalog({ ...state.scoutingProfileCatalog, [eventKey]: sharedProfiles });
+      saveState();
+      renderSafely();
+      return true;
+    }
+    if (globalThis.firebaseUserRole === "admin") {
+      const localProfiles = eventScopedProfiles(currentEvent());
+      await Promise.all(localProfiles.map((profile) => api.saveEventProfile(eventKey, profile)));
+      console.info(`Seeded ${localProfiles.length} profile(s) to Firestore for ${eventKey}.`);
+    }
+  } catch (error) {
+    console.warn(`Unable to sync shared profiles for ${eventKey}; keeping local profiles.`, error);
+  }
+  return false;
+}
 function backfillScoutingProfilesFromSubmissions(eventModel = currentEvent()) {
   const eventKey = normalizeText(eventModel?.key);
   if (!eventKey) return;
@@ -3758,6 +3804,31 @@ function backfillScoutingProfilesFromSubmissions(eventModel = currentEvent()) {
   });
 }
 
+async function syncSharedSubmissionsForEvent(eventKey = state.activeEventKey) {
+  const api = globalThis.firebaseSubmissionApi;
+  const user = globalThis.firebaseCurrentUser;
+  if (!api || !user) return false;
+  const resolvedEventKey = resolveEventKey(eventKey);
+  try {
+    const shared = await api.loadEventSubmissions(resolvedEventKey);
+    if (shared.length) {
+      setScoutingSubmissions(shared, currentEvent());
+      localStorage.removeItem(eventStorageKey(storageKeys.scoutingSubmissions, resolvedEventKey));
+      backfillScoutingProfilesFromSubmissions(currentEvent());
+      saveState();
+      renderSafely();
+      return true;
+    }
+    if (globalThis.firebaseUserRole === "admin" && state.scoutingSubmissions.length) {
+      await api.saveEventSubmissions(resolvedEventKey, state.scoutingSubmissions);
+      console.info(`Seeded ${state.scoutingSubmissions.length} scouting submission(s) to Firestore for ${resolvedEventKey}.`);
+      return true;
+    }
+  } catch (error) {
+    console.warn(`Unable to sync shared submissions for ${resolvedEventKey}; keeping local data.`, error);
+  }
+  return false;
+}
 function hydrateEventState(eventKey) {
   const startedAt = perfNow();
   const resolvedEventKey = resolveEventKey(eventKey);
@@ -3767,6 +3838,8 @@ function hydrateEventState(eventKey) {
   globalThis.__scoutingActiveEventKey = state.activeEventKey;
   const eventModel = currentEvent();
   ensureEventScopedScoutingProfiles(eventModel);
+  void syncSharedProfilesForEvent(resolvedEventKey);
+  void syncSharedSubmissionsForEvent(resolvedEventKey);
   state.eventWorkspace = createEventWorkspace(eventModel, readStoredJson(storageKeys.eventWorkspace, null, resolvedEventKey));
   const seededWorkspace = seedWorkspaceExternalSourceFingerprints(state.eventWorkspace, eventModel);
   const repairedWorkspaceFingerprints = seededWorkspace !== state.eventWorkspace;
@@ -4176,11 +4249,11 @@ function pickedTeams() {
 }
 
 function isAdmin() {
-  return adminUsers.includes(state.user);
+  return globalThis.firebaseUserRole === "admin" || adminUsers.includes(state.user);
 }
 
 function userLabel(user) {
-  return adminUsers.includes(user) ? `${user} (Admin)` : user;
+  return (globalThis.firebaseUserRole === "admin" && user === state.user) || adminUsers.includes(user) ? `${user} (Admin)` : user;
 }
 
 function canView(view) {
@@ -5843,6 +5916,14 @@ function setView(view, options = {}) {
   render();
 }
 
+function renderDeploymentBanner() {
+  const hostname = String(globalThis.location?.hostname || "").toLowerCase();
+  const liveHosts = new Set(["bovine-scouting-analysis.web.app", "bovine-scouting-analysis.firebaseapp.com"]);
+  const isDevelopment = !hostname || !liveHosts.has(hostname);
+  if (!isDevelopment) return "";
+  const label = hostname.includes("localhost") || hostname.startsWith("127.") ? "LOCAL DEVELOPMENT" : "DEVELOPMENT / PREVIEW";
+  return `<div class="deployment-banner" role="status">${label} — changes and data may not match production</div>`;
+}
 function render() {
   const event = currentEvent();
   if (!state.user) {
@@ -5876,6 +5957,7 @@ function render() {
 
   app.innerHTML = `
     <div class="app-shell ${state.menuExpanded ? "menu-expanded" : "menu-collapsed"}">
+      ${renderDeploymentBanner()}
       <aside class="sidebar">
         <div class="brand-row">
           <div>
@@ -5908,11 +5990,12 @@ function render() {
             </div>
             ${renderGlobalRecentMatchControl()}
             ${renderThemeToggle()}
-            <button class="action-button" id="logoutButton" title="Sign out ${state.user}" aria-label="Sign out ${state.user}">
+            <div class="user-identity" aria-label="Signed in as ${state.user}">
               ${icon("user")}
               <span>${state.user}</span>
               ${isAdmin() ? `<span class="user-role">Admin</span>` : ""}
-            </button>
+            </div>
+            <button class="action-button" id="logoutButton" type="button">Logout</button>
           </div>
         </header>
         <section class="content">${content}</section>
@@ -5944,6 +6027,8 @@ function renderLogin() {
           ${renderThemeToggle()}
         </div>
         <div class="login-actions">
+          <button class="primary" id="firebaseLoginButton" type="button">Sign in with Google</button>
+          <p class="muted" id="firebaseAuthStatus" role="status"></p>
           <label>
             Existing user
             <select id="existingUser">
@@ -5963,14 +6048,32 @@ function renderLogin() {
   `;
 
   document.querySelector("#themeToggle")?.addEventListener("click", toggleTheme);
-  document.querySelector("#loginButton").addEventListener("click", () => {
+  document.querySelector("#firebaseLoginButton")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const status = document.querySelector("#firebaseAuthStatus");
+    const authApi = globalThis.firebaseAuthApi;
+    if (!authApi) {
+      if (status) status.textContent = "Firebase sign-in is still loading. Try again in a moment.";
+      return;
+    }
+    button.disabled = true;
+    if (status) status.textContent = "Opening Google sign-in…";
+    try {
+      await authApi.signIn();
+    } catch (error) {
+      console.error("Firebase sign-in failed", error);
+      if (status) status.textContent = error?.message || "Unable to sign in with Google.";
+      button.disabled = false;
+    }
+  });
+  document.querySelector("#loginButton")?.addEventListener("click", () => {
     const selected = document.querySelector("#existingUser").value;
     if (!selected) return;
     state.user = selected;
     saveState();
     render();
   });
-  document.querySelector("#createUserButton").addEventListener("click", () => {
+  document.querySelector("#createUserButton")?.addEventListener("click", () => {
     const input = document.querySelector("#newUser");
     const user = input.value.trim();
     if (!user) return;
@@ -6069,7 +6172,10 @@ function bindShellEvents() {
     saveState();
     render();
   });
-  document.querySelector("#logoutButton").addEventListener("click", () => {
+  document.querySelector("#logoutButton").addEventListener("click", async () => {
+    if (globalThis.firebaseAuthApi && globalThis.firebaseCurrentUser) {
+      await globalThis.firebaseAuthApi.signOut();
+    }
     state.user = "";
     saveState();
     render();
@@ -6929,7 +7035,7 @@ function renderChartRow(team, selection, dist, globalMin, globalMax, eventAverag
     `Mean: ${dist.mean.toFixed(1)} ${selection.unit}`,
     `Q3: ${dist.q3.toFixed(1)} ${selection.unit}`,
     `Max: ${dist.max.toFixed(1)} ${selection.unit}`,
-  ].join("\n");
+  ].join("\\n");
   const teamScoreLabel = Number.isFinite(teamScore) ? teamScore.toFixed(1) : "Invalid";
   return `
     <div class="chart-row">
@@ -7800,6 +7906,32 @@ function renderBoardContextMenu() {
   `;
 }
 
+async function refreshAllowlist() {
+  const api = globalThis.firebaseAccessApi;
+  if (!api || !isAdmin()) return;
+  try { state.allowlistEntries = await api.listAllowlist(); state.allowlistStatus = ""; render(); }
+  catch (error) { state.allowlistStatus = `Unable to load allowlist: ${error.message}`; render(); }
+}
+async function saveAllowlistDraft() {
+  const api = globalThis.firebaseAccessApi;
+  if (!api || !isAdmin()) return;
+  try {
+    const entry = await api.saveAllowlistEntry(state.allowlistEmailDraft, state.allowlistRoleDraft);
+    await api.queueInviteEmail(entry.email, entry.role);
+    state.allowlistEmailDraft = "";
+    state.allowlistStatus = `Saved ${entry.email} and queued an invitation email.`;
+    await refreshAllowlist();
+  } catch (error) { state.allowlistStatus = error.message; render(); }
+}
+async function removeAllowlistEmail(email) {
+  const api = globalThis.firebaseAccessApi;
+  if (!api || !isAdmin() || !confirm(`Remove ${email} from the allowlist?`)) return;
+  await api.removeAllowlistEntry(email); state.allowlistStatus = `Removed ${email}.`; await refreshAllowlist();
+}
+function renderAccessManagement() {
+  if (!isAdmin()) return "";
+  return `<article class="card access-management-card"><div class="section-heading"><div><h2>User Access</h2><p class="muted">Only allowlisted Google accounts can access shared scouting data.</p></div><button type="button" id="refreshAllowlistButton">Refresh</button></div><div class="admin-actions admin-field-row"><input id="allowlistEmailInput" class="admin-input" type="email" placeholder="person@example.org" value="${escapeAttribute(state.allowlistEmailDraft)}" aria-label="Email address" /><select id="allowlistRoleSelect" aria-label="Access role"><option value="member" ${state.allowlistRoleDraft === "member" ? "selected" : ""}>Regular user</option><option value="admin" ${state.allowlistRoleDraft === "admin" ? "selected" : ""}>Administrator</option></select><button type="button" id="saveAllowlistButton">Add / Update</button></div>${state.allowlistStatus ? `<div class="issue-row">${escapeHtml(state.allowlistStatus)}</div>` : ""}<div class="data-source-list">${state.allowlistEntries.length ? state.allowlistEntries.map((entry) => `<div class="data-source-row"><div><strong>${escapeHtml(entry.email || entry.id)}</strong><span class="muted">${entry.role === "admin" ? "Administrator" : "Regular user"}</span></div><button type="button" class="removeAllowlistButton" data-email="${escapeAttribute(entry.email || entry.id)}">Remove</button></div>`).join("") : `<p class="muted">No allowlist entries loaded yet.</p>`}</div></article>`;
+}
 function renderAdmin() {
   const event = currentEvent();
   const workspace = currentEventWorkspace();
@@ -8018,6 +8150,7 @@ function renderAdmin() {
           </div>
         </article>
       </div>
+      ${renderAccessManagement()}
       <article class="card">
         <div class="section-heading">
           <div>
@@ -8894,7 +9027,11 @@ function bindViewEvents() {
     saveState();
     render();
   });
-  document.querySelector("#openRecentAdminEventsButton")?.addEventListener("click", () => {
+  document.querySelector("#refreshAllowlistButton")?.addEventListener("click", () => { void refreshAllowlist(); });
+  document.querySelector("#allowlistEmailInput")?.addEventListener("input", (event) => { state.allowlistEmailDraft = event.target.value; });
+  document.querySelector("#allowlistRoleSelect")?.addEventListener("change", (event) => { state.allowlistRoleDraft = event.target.value === "admin" ? "admin" : "member"; });
+  document.querySelector("#saveAllowlistButton")?.addEventListener("click", () => { void saveAllowlistDraft(); });
+  document.querySelectorAll(".removeAllowlistButton").forEach((button) => button.addEventListener("click", () => { void removeAllowlistEmail(button.dataset.email); }));  document.querySelector("#openRecentAdminEventsButton")?.addEventListener("click", () => {
     state.adminRecentEventsOpen = !state.adminRecentEventsOpen;
     render();
   });
@@ -9620,3 +9757,18 @@ function bindViewEvents() {
 }
 
 bootstrapApp();
+
+if (typeof globalThis.addEventListener === "function") {
+  globalThis.addEventListener("firebase-auth-state-changed", (event) => {
+    const user = event.detail?.user || null;
+    globalThis.firebaseUserRole = event.detail?.role || "member";
+    state.user = user?.email || "";
+    saveState();
+    render();
+    if (user) {
+      void syncSharedProfilesForEvent(state.activeEventKey);
+      void syncSharedSubmissionsForEvent(state.activeEventKey);
+    }
+    if (user && globalThis.firebaseUserRole === "admin") void refreshAllowlist();
+  });
+}

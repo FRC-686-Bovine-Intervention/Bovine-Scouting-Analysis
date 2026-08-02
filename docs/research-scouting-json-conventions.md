@@ -10,11 +10,11 @@
 - The Blue Alliance Developer APIs: <https://www.thebluealliance.com/apidocs>
 - Statbotics repository README: <https://github.com/avgupta456/statbotics>
 - This repo's current canonical scouting fixture and import pipeline:
-  - [tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.entries.json](D:/FIRST/Scouting/Scouting-Analysis/tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.entries.json)
-  - [tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.schema.json](D:/FIRST/Scouting/Scouting-Analysis/tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.schema.json)
-  - [src/scouting-json-schema.js](D:/FIRST/Scouting/Scouting-Analysis/src/scouting-json-schema.js)
-  - [src/scouting-json-import.js](D:/FIRST/Scouting/Scouting-Analysis/src/scouting-json-import.js)
-  - [src/import-foundation.js](D:/FIRST/Scouting/Scouting-Analysis/src/import-foundation.js)
+  - [tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.entries.json](D:/FIRST/Scouting/Bovine-Scouting-Analysis/tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.entries.json)
+  - [tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.schema.json](D:/FIRST/Scouting/Bovine-Scouting-Analysis/tests/fixtures/canonical-scouting-json/valid-2026chcmp-match.schema.json)
+  - [src/scouting-json-schema.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/scouting-json-schema.js)
+  - [src/scouting-json-import.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/scouting-json-import.js)
+  - [src/import-foundation.js](D:/FIRST/Scouting/Bovine-Scouting-Analysis/src/import-foundation.js)
 
 ## Findings
 
