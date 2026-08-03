@@ -1861,24 +1861,6 @@ async function saveFrcApiCredentials() {
   return true;
 }
 
-async function refreshCurrentSeasonTitle() {
-  const api = globalThis.firebaseFrcSeasonMetadataApi;
-  const season = Number(currentEvent()?.season || 0);
-  if (!api || !season || globalThis.firebaseUserRole !== "admin") return false;
-  try {
-    const metadata = await api.refreshSeasonMetadata(season, { username: state.frcApiUsername, authorizationKey: state.frcApiAuthorizationKey });
-    applyCachedSeasonMetadata(metadata);
-    const displayLabel = globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel?.(metadata.gameName) || metadata.gameName;
-    state.eventLookupResult = { kind: "success", message: `Updated the ${displayLabel} season title from FIRST.` };
-    render();
-    return true;
-  } catch (error) {
-    state.eventLookupResult = { kind: "error", message: error?.message || "Unable to refresh the FIRST season title." };
-    render();
-    return false;
-  }
-}
-
 function updateStatboticsBaseUrlDraft(value) {
   state.statboticsBaseUrlDraft = normalizeText(value);
   state.statboticsBaseUrlDirty = true;
@@ -8369,9 +8351,8 @@ function renderAdmin() {
                 <div class="admin-actions admin-field-row">
                   <input id="adminFrcApiAuthorizationKeyInput" class="admin-input" type="password" value="${escapeAttribute(state.frcApiAuthorizationKeyDraft)}" placeholder="FRC Events API token" aria-label="FIRST API token" autocomplete="off" autocapitalize="off" spellcheck="false" />
                   <button type="button" id="saveFrcApiCredentialsButton" ${state.frcApiCredentialsDirty && !state.frcApiCredentialsSavePending ? "" : "disabled"}>${state.frcApiCredentialsSavePending ? "Saving…" : "Save"}</button>
-                  <button type="button" id="refreshFrcSeasonTitleButton" ${state.frcApiUsername && state.frcApiAuthorizationKey && !state.frcApiCredentialsSavePending ? "" : "disabled"}>Refresh ${escapeHtml(String(event.season))} title</button>
                 </div>
-                <span class="muted">The official game title is shared without credentials. <a href="${firstSeasonAttributionUrl}" target="_blank" rel="noreferrer">Event Data provided by FIRST</a>.</span>
+                <span class="muted">The official game title refreshes automatically when you load a valid event code.</span>
               </label>
             <label>
               Statbotics Base URL
@@ -9417,9 +9398,6 @@ function bindViewEvents() {
   });
   document.querySelector("#saveFrcApiCredentialsButton")?.addEventListener("click", async () => {
     await saveFrcApiCredentials();
-  });
-  document.querySelector("#refreshFrcSeasonTitleButton")?.addEventListener("click", async () => {
-    await refreshCurrentSeasonTitle();
   });
   document.querySelector("#adminStatboticsBaseUrlInput")?.addEventListener("input", (event) => {
     updateStatboticsBaseUrlDraft(event.target.value);
