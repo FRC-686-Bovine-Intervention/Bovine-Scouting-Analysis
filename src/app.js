@@ -4326,7 +4326,20 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
       }
     }
     applyLoadedExternalSourceState(loadResult, { render: false });
-    const eventLoadWarnings = [...(loadResult.warnings || []), ...(seasonTitleWarning ? [seasonTitleWarning] : [])];
+    let sourceCacheWarning = "";
+    const sourceCacheApi = globalThis.firebaseEventSourceCacheApi;
+    if (globalThis.firebaseUserRole === "admin" && sourceCacheApi && Array.isArray(loadResult.rawSourceArtifacts)) {
+      try {
+        await sourceCacheApi.saveEventSourceCache({
+          event: currentEvent(),
+          workspace: currentEventWorkspace(),
+          artifacts: loadResult.rawSourceArtifacts,
+        });
+      } catch (error) {
+        sourceCacheWarning = error?.message || "Unable to cache raw provider source data.";
+      }
+    }
+    const eventLoadWarnings = [...(loadResult.warnings || []), ...(seasonTitleWarning ? [seasonTitleWarning] : []), ...(sourceCacheWarning ? [sourceCacheWarning] : [])];
     state.eventLookupResult = {
       kind: eventLoadWarnings.length ? "warn" : "success",
       message: eventLoadWarnings.length
@@ -5915,6 +5928,30 @@ function loadEventSheetSample(options = {}) {
   });
 }
 
+async function cacheActiveRawScoutingSource(rawText, sourceUrl, contentType, rawBytes = null) {
+  const api = globalThis.firebaseEventSourceCacheApi;
+  if (!api || globalThis.firebaseUserRole !== "admin" || (!rawBytes && !normalizeText(rawText))) return false;
+  try {
+    await api.saveEventSourceCache({
+      event: currentEvent(),
+      workspace: currentEventWorkspace(),
+      artifacts: [{
+        sourceId: "scouting-data",
+        rawText,
+        rawBytes,
+        sourceUrl,
+        contentType,
+        status: 200,
+        fetchedAt: new Date().toISOString(),
+      }],
+    });
+    return true;
+  } catch (error) {
+    console.warn("Unable to cache raw scouting source data", error);
+    return false;
+  }
+}
+
 async function loadScoutingData(options = {}) {
   const event = currentEvent();
   const attachmentLoad = describeEventWorkspaceScoutingAttachmentLoad(currentEventWorkspace(), event);
@@ -5935,16 +5972,18 @@ async function loadScoutingData(options = {}) {
   if (attachmentLoad.kind === "remote-json" || attachmentLoad.kind === "local-json") {
     try {
       markCurrentScoutingAttachmentAttempt();
-      const jsonText =
+      const jsonResponse =
         attachmentLoad.kind === "local-json"
-          ? await readLocalAttachmentText(attachment?.attachmentId)
+          ? { rawText: await readLocalAttachmentText(attachment?.attachmentId), rawBytes: null, contentType: "application/json" }
           : await (async () => {
             const response = await fetch(sourceUrl);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.text();
+            const rawBytes = new Uint8Array(await response.arrayBuffer());
+            return { rawText: new TextDecoder().decode(rawBytes), rawBytes, contentType: response.headers.get("content-type") || "application/json" };
           })();
       const schemaJsonText = await readAttachedScoutingSchemaText(attachment, attachmentLoad, sourceUrl);
-      loadPreparedScoutingJson(jsonText, {
+      await cacheActiveRawScoutingSource(jsonResponse.rawText, sourceUrl, jsonResponse.contentType, jsonResponse.rawBytes);
+      loadPreparedScoutingJson(jsonResponse.rawText, {
         ...options,
         schemaJsonText,
         importDraftSource: "attached",
@@ -5960,6 +5999,7 @@ async function loadScoutingData(options = {}) {
     try {
       markCurrentScoutingAttachmentAttempt();
       const csvText = await readLocalAttachmentText(currentScoutingAttachment()?.attachmentId);
+      await cacheActiveRawScoutingSource(csvText, sourceUrl, "text/csv");
       const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
       loadPreparedScoutingSheet(csvText, profileId, {
         ...options,
@@ -5983,7 +6023,9 @@ async function loadScoutingData(options = {}) {
     }
     const response = await fetch(requestUrl);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const csvText = await response.text();
+    const rawBytes = new Uint8Array(await response.arrayBuffer());
+    const csvText = new TextDecoder().decode(rawBytes);
+    await cacheActiveRawScoutingSource(csvText, requestUrl, response.headers.get("content-type") || "text/csv", rawBytes);
     const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
     loadPreparedScoutingSheet(csvText, profileId, {
       ...options,
