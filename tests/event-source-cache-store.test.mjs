@@ -47,3 +47,40 @@ await assert.rejects(
   /event key and source id/,
 );
 console.log("PASS rebuilds the active Firestore source artifact and rejects unavailable identifiers");
+
+const offlineReader = createEventSourceCacheStore({
+  db: {},
+  firestore: {
+    doc: (...path) => ({ path }), collection: (...path) => ({ path }), setDoc: async () => {}, writeBatch: () => {}, serverTimestamp: () => "server-timestamp",
+    getDoc: async () => { throw new Error("offline"); }, getDocs: async () => { throw new Error("offline"); },
+    getDocFromCache: async (reference) => reference.path.join("/").endsWith("sourceCache/tba-event")
+      ? { exists: () => true, data: () => ({ activeVersion: "fnv1a-da644783-13" }) }
+      : { exists: () => true, data: () => artifact.manifest },
+    getDocsFromCache: async () => ({ docs: artifact.chunks.map((chunk) => ({ data: () => chunk })) }),
+  },
+});
+assert.equal((await offlineReader.loadEventSourceCache({ eventKey: "2027test", sourceId: "tba-event" })).rawText, "{\"year\":2027}");
+console.log("PASS rebuilds a previously read raw event source after an offline failure");
+
+const catalogStore = createEventSourceCacheStore({
+  db: {},
+  firestore: {
+    doc: (...path) => ({ path }), collection: (...path) => ({ path }), setDoc: async () => {}, writeBatch: () => {}, serverTimestamp: () => "server-timestamp",
+    getDocs: async () => ({ metadata: { fromCache: true }, docs: [{ data: () => ({ key: "2025chcmp", season: 2025, name: "Championship", seasonLabel: "Reefscape" }) }] }),
+  },
+});
+const catalog = await catalogStore.listCachedEvents();
+assert.deepEqual(JSON.parse(JSON.stringify(catalog)), { fromCache: true, events: [{ key: "2025chcmp", season: 2025, name: "Championship", seasonLabel: "Reefscape" }] });
+console.log("PASS lists shared cached events from the persistent Firestore browser cache");
+
+const offlineCatalogStore = createEventSourceCacheStore({
+  db: {},
+  firestore: {
+    doc: (...path) => ({ path }), collection: (...path) => ({ path }), setDoc: async () => {}, writeBatch: () => {}, serverTimestamp: () => "server-timestamp",
+    getDocs: async () => { throw new Error("network unavailable"); },
+    getDocsFromCache: async () => ({ docs: [{ data: () => ({ key: "2025offline", season: 2025, name: "Offline Championship", seasonLabel: "Reefscape" }) }] }),
+  },
+});
+const offlineCatalog = await offlineCatalogStore.listCachedEvents();
+assert.deepEqual(JSON.parse(JSON.stringify(offlineCatalog)), { fromCache: true, events: [{ key: "2025offline", season: 2025, name: "Offline Championship", seasonLabel: "Reefscape" }] });
+console.log("PASS reopens the previously read event catalog from local cache after an offline failure");

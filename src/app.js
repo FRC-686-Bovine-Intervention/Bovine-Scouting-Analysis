@@ -326,7 +326,8 @@ const developmentRevision = /^[0-9a-f]{7,40}$/i.test(deploymentRevision)
   ? deploymentRevision.toLowerCase().slice(0, 7)
   : deploymentRevision;
 
-const initialEventKey = resolveEventKey(readStoredItem(storageKeys.activeEvent));
+const storedActiveEventKey = normalizeText(readStoredItem(storageKeys.activeEvent)).toLowerCase();
+const initialEventKey = resolveEventKey(storedActiveEventKey);
 const initialEvent = eventModelByKey(initialEventKey);
 const initialWorkspace = createEventWorkspace(initialEvent, readStoredJson(storageKeys.eventWorkspace, null, initialEventKey));
 const initialTbaAuthKey = "";
@@ -423,6 +424,10 @@ const state = {
   eventWorkspace: null,
   eventLookupPending: false,
   eventLookupResult: null,
+  sharedCachedEvents: [],
+  sharedCacheStatus: "",
+  pendingSharedActiveEventKey: storedActiveEventKey,
+  pendingSharedRecentEventKeys: readStoredJson(storageKeys.recentEvents, []),
   builderGridScroll: {
     derivedBuilder: { shellLeft: 0, columnTops: {} },
   },
@@ -532,7 +537,7 @@ function normalizeRecentEventKeys(values, fallback = state?.activeEventKey || in
   (Array.isArray(values) ? values : []).forEach((value) => {
     const eventKey = normalizeText(value);
     if (!eventKey || seen.has(eventKey)) return;
-    if (!globalEventCatalog.some((eventModel) => eventModel?.key === eventKey)) return;
+    if (!globalEventCatalog.some((eventModel) => eventModel?.key === eventKey) && !sharedCachedEventByKey(eventKey)) return;
     seen.add(eventKey);
     normalized.push(eventKey);
   });
@@ -1526,6 +1531,9 @@ async function applyRecentAdminEventSelection(value) {
   const nextEventKey = normalizeText(value);
   if (!nextEventKey) return false;
   state.adminRecentEventsOpen = false;
+  if (sharedCachedEventByKey(nextEventKey) && !globalEventCatalog.some((eventModel) => eventModel?.key === nextEventKey)) {
+    return openSharedCachedEvent(nextEventKey, { activeView: "admin" });
+  }
   return switchActiveEvent(nextEventKey, { activeView: "admin" });
 }
 
@@ -3993,6 +4001,87 @@ function scoutingProfilesForEvent(eventModel = currentEvent()) {
 
 let stopSharedActiveEventSync = null;
 
+function sharedCachedEventByKey(eventKey) {
+  const normalizedEventKey = normalizeText(eventKey).toLowerCase();
+  return state.sharedCachedEvents.find((event) => event.key === normalizedEventKey) || null;
+}
+
+async function refreshSharedCachedEventCatalog(options = {}) {
+  const api = globalThis.firebaseEventSourceCacheApi;
+  if (!api || !globalThis.firebaseCurrentUser) return [];
+  try {
+    const result = await api.listCachedEvents();
+    state.sharedCachedEvents = Array.isArray(result?.events) ? result.events : [];
+    state.recentEventKeys = normalizeRecentEventKeys([
+      ...(Array.isArray(state.pendingSharedRecentEventKeys) ? state.pendingSharedRecentEventKeys : []),
+      ...state.recentEventKeys,
+    ], state.activeEventKey);
+    state.pendingSharedRecentEventKeys = [];
+    const persistentCacheMessage = globalThis.firebaseServices?.persistenceStatus?.message || "";
+    state.sharedCacheStatus = `${result?.fromCache ? "Showing cached shared events while offline. " : "Shared event catalog is current. "}${persistentCacheMessage}`.trim();
+  } catch (error) {
+    state.sharedCacheStatus = `Shared event catalog is unavailable. ${error?.message || "Check your connection."}`;
+  }
+  if (options.render !== false) render();
+  return state.sharedCachedEvents;
+}
+
+async function loadCachedScoutingData(eventKey, api) {
+  try {
+    const cached = await api.loadEventSourceCache({ eventKey, sourceId: "scouting-data" });
+    const rawText = cached.rawText ?? new TextDecoder().decode(cached.rawBytes);
+    const contentType = normalizeText(cached.manifest?.contentType).toLowerCase();
+    if (contentType.includes("json") || /^[\[{]/.test(rawText.trim())) {
+      loadPreparedScoutingJson(rawText, { importDraftSource: "shared-cache" });
+    } else {
+      loadPreparedScoutingSheet(rawText, eventWorkspaceProfileId(currentEventWorkspace()) || "", { importDraftSource: "shared-cache" });
+    }
+    return true;
+  } catch (error) {
+    if (!/No cached source is available/i.test(error?.message || "")) console.warn("Unable to load cached scouting data", error);
+    return false;
+  }
+}
+
+async function openSharedCachedEvent(eventKey, options = {}) {
+  const cachedEvent = sharedCachedEventByKey(eventKey);
+  const api = globalThis.firebaseEventSourceCacheApi;
+  const cachedEventLoader = globalThis.CachedEventLoader;
+  if (!cachedEvent || !api || !cachedEventLoader?.rebuildCachedEvent) return false;
+  state.eventLookupPending = true;
+  state.eventLookupResult = { kind: "info", message: `Opening ${cachedEvent.key} from the shared cache...` };
+  render();
+  try {
+    const result = await cachedEventLoader.rebuildCachedEvent({
+      event: cachedEvent,
+      loadSource: (sourceId) => api.loadEventSourceCache({ eventKey: cachedEvent.key, sourceId }),
+    });
+    const registeredEvent = registerEventModel({
+      ...result.eventModel,
+      name: cachedEvent.name || result.eventModel.name,
+      season: cachedEvent.season || result.eventModel.season,
+      seasonLabel: cachedEvent.seasonLabel || result.eventModel.seasonLabel,
+      catalogSource: "shared-cache",
+    });
+    switchActiveEvent(registeredEvent.key, { activeView: options.activeView || state.activeView, persistShared: false, preserveImportDraft: true });
+    applyLoadedExternalSourceState({ ...result, eventModel: registeredEvent }, { render: false });
+    await loadCachedScoutingData(registeredEvent.key, api);
+    state.eventLookupResult = {
+      kind: result.warnings.length || result.cacheFreshness === "stale" ? "warn" : "success",
+      message: `${registeredEvent.key} opened from the shared Firestore cache (${result.cacheFreshness}).${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`,
+    };
+    render();
+    return true;
+  } catch (error) {
+    state.eventLookupResult = { kind: "error", message: `Unable to open cached ${normalizeText(eventKey)}. ${error?.message || ""}`.trim() };
+    render();
+    return false;
+  } finally {
+    state.eventLookupPending = false;
+    render();
+  }
+}
+
 function persistSharedActiveEvent(eventKey) {
   const api = globalThis.firebaseEventStateApi;
   if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin" || !eventKey) return;
@@ -4012,7 +4101,8 @@ function startSharedActiveEventSync() {
       return;
     }
     if (!globalEventCatalog.some((eventModel) => eventModel.key === sharedEventKey)) {
-      console.warn(`Shared active event ${sharedEventKey} is unavailable in this client; keeping ${state.activeEventKey}.`);
+      if (sharedCachedEventByKey(sharedEventKey)) void openSharedCachedEvent(sharedEventKey, { activeView: state.activeView });
+      else console.warn(`Shared active event ${sharedEventKey} is unavailable in this client; keeping ${state.activeEventKey}.`);
       return;
     }
     if (sharedEventKey !== state.activeEventKey) switchActiveEvent(sharedEventKey, { persistShared: false });
@@ -6349,10 +6439,17 @@ function render() {
             <h1>${viewTitle(state.activeView)}</h1>
           </div>
           <div class="split-row">
-            <div class="event-select" aria-label="Active event">
+            <label class="event-select" aria-label="Active event">
               <span class="muted">Active Event</span>
-              <strong>${event.season} ${event.name}</strong>
-            </div>
+              <select id="sharedCachedEventSelect" ${state.eventLookupPending ? "disabled" : ""}>
+                ${[...new Map([
+                  [event.key, { key: event.key, season: event.season, name: event.name, seasonLabel: event.seasonLabel }],
+                  ...state.sharedCachedEvents.map((cachedEvent) => [cachedEvent.key, cachedEvent]),
+                ]).values()].map((choice) => `<option value="${escapeAttribute(choice.key)}" ${choice.key === event.key ? "selected" : ""}>${escapeHtml(`${choice.key} | ${choice.season} ${choice.name}`)}</option>`).join("")}
+              </select>
+              ${state.sharedCacheStatus ? `<span class="muted">${escapeHtml(state.sharedCacheStatus)}</span>` : ""}
+              ${state.eventLookupResult ? `<span class="muted">${escapeHtml(state.eventLookupResult.message)}</span>` : ""}
+            </label>
             ${renderGlobalRecentMatchControl()}
             ${renderThemeToggle()}
             <div class="user-identity" aria-label="Signed in as ${state.user}">
@@ -8344,7 +8441,7 @@ function renderAdmin() {
               Recent Events
               <select id="recentAdminEventSelect" aria-label="Recent event selection" size="${Math.min(10, Math.max(2, recentEventKeys.length))}">
                 ${recentEventKeys.map((eventKey) => {
-                  const item = eventModelByKey(eventKey);
+                  const item = sharedCachedEventByKey(eventKey) || eventModelByKey(eventKey);
                   const recentEventLabel = item.season === 2026 ? item.name : `${item.season} ${item.name}`;
                   return `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.key} | ${escapeHtml(recentEventLabel)}</option>`;
                 }).join("")}
@@ -9454,6 +9551,11 @@ function bindViewEvents() {
   document.querySelector("#saveTbaAuthKeyButton")?.addEventListener("click", async () => {
     await saveTbaAuthKeyDraft();
   });
+  document.querySelector("#sharedCachedEventSelect")?.addEventListener("change", (event) => {
+    const eventKey = normalizeText(event.target.value);
+    if (eventKey === state.activeEventKey) return;
+    void openSharedCachedEvent(eventKey);
+  });
   document.querySelector("#adminFrcApiUsernameInput")?.addEventListener("input", (event) => {
     updateFrcApiCredentialsDraft("username", event.target.value);
     document.querySelector("#saveFrcApiCredentialsButton")?.removeAttribute("disabled");
@@ -10160,7 +10262,15 @@ if (typeof globalThis.addEventListener === "function") {
     saveState();
     render();
     if (user) {
-      startSharedActiveEventSync();
+      void refreshSharedCachedEventCatalog({ render: false }).then(async () => {
+        const pendingEventKey = state.pendingSharedActiveEventKey;
+        state.pendingSharedActiveEventKey = "";
+        if (sharedCachedEventByKey(pendingEventKey) && !globalEventCatalog.some((eventModel) => eventModel?.key === pendingEventKey)) {
+          await openSharedCachedEvent(pendingEventKey, { activeView: state.activeView });
+        }
+        startSharedActiveEventSync();
+        render();
+      });
       if (globalThis.firebaseUserRole === "admin") void refreshTbaAuthKeyConfiguration();
       else clearTbaAuthKeyConfiguration();
       if (globalThis.firebaseUserRole === "admin") void refreshFrcApiCredentials();
@@ -10174,6 +10284,8 @@ if (typeof globalThis.addEventListener === "function") {
       clearFrcApiCredentials();
       clearSeasonMetadataSubscriptions();
       stopSharedActiveEventSynchronization();
+      state.sharedCachedEvents = [];
+      state.sharedCacheStatus = "";
     }
     if (user && globalThis.firebaseUserRole === "admin") void refreshAllowlist();
   });

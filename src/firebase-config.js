@@ -8,7 +8,7 @@ import {
   getAuth,
   GoogleAuthProvider,
 } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-auth.js";
-import { getFirestore } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-firestore.js";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-firestore.js";
 
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
@@ -25,10 +25,23 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 // const analytics = getAnalytics(app);
+let db;
+let persistenceStatus;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  });
+  persistenceStatus = { enabled: true, message: "Shared event data remains in this browser for offline reopening. Use only a trusted device; signing out does not clear this browser cache." };
+} catch (error) {
+  db = getFirestore(app);
+  persistenceStatus = { enabled: false, message: "Persistent offline event cache is unavailable in this browser." };
+  console.warn("Firestore persistent cache is unavailable; using memory-only cache.", error);
+}
 
 globalThis.firebaseServices = {
   app,
   auth: getAuth(app),
-  db: getFirestore(app),
+  db,
   googleProvider: new GoogleAuthProvider(),
+  persistenceStatus,
 };

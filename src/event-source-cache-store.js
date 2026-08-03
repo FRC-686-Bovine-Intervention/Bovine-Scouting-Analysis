@@ -30,21 +30,56 @@
     const sourceDocument = (eventKey, sourceId) => firestore.doc(eventDocument(eventKey), "sourceCache", normalizeText(sourceId));
     const versionDocument = (eventKey, sourceId, versionId) => firestore.doc(sourceDocument(eventKey, sourceId), "versions", versionId);
     const chunkCollection = (eventKey, sourceId, versionId) => firestore.collection(versionDocument(eventKey, sourceId, versionId), "chunks");
+    async function readDocument(reference) {
+      try { return await firestore.getDoc(reference); }
+      catch (error) {
+        if (!firestore.getDocFromCache) throw error;
+        return firestore.getDocFromCache(reference);
+      }
+    }
+    async function readCollection(reference) {
+      try { return await firestore.getDocs(reference); }
+      catch (error) {
+        if (!firestore.getDocsFromCache) throw error;
+        return firestore.getDocsFromCache(reference);
+      }
+    }
+
+    async function listCachedEvents() {
+      if (!firestore.getDocs) throw new Error("Firestore reads are required to list cached events.");
+      const eventsCollection = firestore.collection(db, "events");
+      let snapshot;
+      let fromCache = false;
+      try {
+        snapshot = await firestore.getDocs(eventsCollection);
+        fromCache = Boolean(snapshot?.metadata?.fromCache);
+      } catch (error) {
+        if (!firestore.getDocsFromCache) throw error;
+        snapshot = await firestore.getDocsFromCache(eventsCollection);
+        fromCache = true;
+      }
+      const events = (snapshot?.docs || []).map((eventSnapshot) => eventSnapshot.data()).map((event) => ({
+        key: normalizeEventKey(event?.key), season: Number(event?.season) || 0,
+        name: normalizeText(event?.name), seasonLabel: normalizeText(event?.seasonLabel),
+      })).filter((event) => event.key && event.season && event.name)
+        .sort((left, right) => right.season - left.season || left.name.localeCompare(right.name));
+      return { fromCache, events };
+    }
 
     async function loadEventSourceCache({ eventKey, sourceId } = {}) {
       if (!firestore.getDoc || !firestore.getDocs) throw new Error("Firestore reads are required to load cached source data.");
       const normalizedEventKey = normalizeEventKey(eventKey);
       const normalizedSourceId = normalizeText(sourceId);
       if (!normalizedEventKey || !normalizedSourceId) throw new Error("An event key and source id are required to load cached source data.");
-      const pointerSnapshot = await firestore.getDoc(sourceDocument(normalizedEventKey, normalizedSourceId));
+      const pointerSnapshot = await readDocument(sourceDocument(normalizedEventKey, normalizedSourceId));
       if (!pointerSnapshot?.exists?.()) throw new Error("No cached source is available for this event.");
       const pointer = pointerSnapshot.data();
       const versionId = normalizeText(pointer?.activeVersion);
       if (!versionId) throw new Error("The cached source has no active version.");
-      const manifestSnapshot = await firestore.getDoc(versionDocument(normalizedEventKey, normalizedSourceId, versionId));
+      const manifestSnapshot = await readDocument(versionDocument(normalizedEventKey, normalizedSourceId, versionId));
       if (!manifestSnapshot?.exists?.()) throw new Error("The cached source manifest is unavailable.");
       const manifest = manifestSnapshot.data();
-      const chunkSnapshot = await firestore.getDocs(chunkCollection(normalizedEventKey, normalizedSourceId, versionId));
+      const chunkSnapshot = await readCollection(chunkCollection(normalizedEventKey, normalizedSourceId, versionId));
       const chunks = (chunkSnapshot?.docs || []).map((chunk) => chunk.data());
       const raw = reconstructArtifact(manifest, chunks);
       return raw instanceof Uint8Array ? { manifest, rawBytes: raw } : { manifest, rawText: raw };
@@ -83,7 +118,7 @@
       }
     }
 
-    return { saveEventSourceCache, loadEventSourceCache };
+    return { saveEventSourceCache, loadEventSourceCache, listCachedEvents };
   }
 
   globalScope.EventSourceCacheStore = { createEventSourceCacheStore };
