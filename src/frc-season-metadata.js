@@ -70,6 +70,7 @@
         season: normalizedSeason,
         gameName,
         source: normalizeText(data.source),
+        fetchedAt: data.fetchedAt?.toDate?.().toISOString?.() || normalizeText(data.fetchedAt),
       };
     }
 
@@ -79,7 +80,7 @@
       return firestore.onSnapshot(seasonMetadataDocument(normalizedSeason), (snapshot) => {
         const data = snapshot.exists() ? snapshot.data() || {} : {};
         const gameName = normalizeText(data.gameName);
-        listener(gameName ? { season: normalizedSeason, gameName, source: normalizeText(data.source) } : null);
+        listener(gameName ? { season: normalizedSeason, gameName, source: normalizeText(data.source), fetchedAt: data.fetchedAt?.toDate?.().toISOString?.() || normalizeText(data.fetchedAt) } : null);
       });
     }
 

@@ -396,6 +396,7 @@ const state = {
   frcApiAuthorizationKeyDraft: "",
   frcApiCredentialsDirty: false,
   frcApiCredentialsSavePending: false,
+  seasonMetadata: {},
   statboticsBaseUrl: initialStatboticsBaseUrl,
   statboticsBaseUrlDraft: initialStatboticsBaseUrl,
   statboticsBaseUrlDirty: false,
@@ -913,6 +914,13 @@ function applyCachedSeasonMetadata(metadata) {
     changed = true;
   });
   return changed;
+}
+
+function rememberSeasonMetadata(metadata) {
+  const season = Number(metadata?.season || 0);
+  if (!season) return false;
+  state.seasonMetadata[String(season)] = metadata;
+  return applyCachedSeasonMetadata(metadata);
 }
 
 function parseSchemaLinkArtifactText(linkJsonText) {
@@ -1791,7 +1799,7 @@ async function refreshSharedSeasonMetadata() {
   if (!api || !globalThis.firebaseCurrentUser) return false;
   const seasons = [...new Set(globalEventCatalog.map((eventModel) => Number(eventModel?.season)).filter(Boolean))];
   const results = await Promise.all(seasons.map((season) => api.loadSeasonMetadata(season).catch(() => null)));
-  const changed = results.some((metadata) => applyCachedSeasonMetadata(metadata));
+  const changed = results.some((metadata) => rememberSeasonMetadata(metadata));
   if (changed) renderSafely();
   return changed;
 }
@@ -1802,7 +1810,7 @@ function subscribeSharedSeasonMetadata() {
   [...new Set(globalEventCatalog.map((eventModel) => Number(eventModel?.season)).filter(Boolean))].forEach((season) => {
     if (seasonMetadataUnsubscribers.has(season)) return;
     seasonMetadataUnsubscribers.set(season, api.subscribeSeasonMetadata(season, (metadata) => {
-      if (applyCachedSeasonMetadata(metadata)) renderSafely();
+      if (rememberSeasonMetadata(metadata)) renderSafely();
     }));
   });
 }
@@ -2065,6 +2073,21 @@ function currentDataSources() {
     { label: "Matches", value: importedMatchCount() },
     { label: "Teams", value: importedTeamCount() },
   ].filter((stat) => stat.value > 0);
+  const seasonMetadata = state.seasonMetadata[String(event.season)] || null;
+  const firstSource = {
+    sourceId: "first",
+    name: "FIRST",
+    status: seasonMetadata?.gameName ? "ready" : "stale",
+    freshness: seasonMetadata?.gameName ? "fresh" : "unknown",
+    notes: seasonMetadata?.gameName
+      ? `Official season title: ${globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel?.(seasonMetadata.gameName) || seasonMetadata.gameName}. Event Data provided by FIRST.`
+      : "Official season title has not been cached yet. It refreshes when an administrator loads a valid event code.",
+    kind: "first",
+    detectedLabel: "",
+    nextPollAt: seasonMetadata?.fetchedAt ? `Updated ${formatTimestamp(seasonMetadata.fetchedAt)}` : "Refresh: event load",
+    pollingEnabled: false,
+    attributionUrl: firstSeasonAttributionUrl,
+  };
   return [
     {
       sourceId: "scouting",
@@ -2079,6 +2102,7 @@ function currentDataSources() {
       pollingEnabled: activeAttachment?.pollingEnabled !== false,
     },
     ...externalSources,
+    firstSource,
   ];
 }
 
@@ -4296,7 +4320,7 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
           username: state.frcApiUsername,
           authorizationKey: state.frcApiAuthorizationKey,
         });
-        applyCachedSeasonMetadata(metadata);
+        rememberSeasonMetadata(metadata);
       } catch (error) {
         seasonTitleWarning = error?.message || "Unable to refresh the official FIRST season title.";
       }
@@ -6271,7 +6295,6 @@ function render() {
           <span class="muted">${event.season} ${event.seasonLabel}</span>
           <strong>${event.name}</strong>
           <span class="muted">${Math.max(event.matchesComplete, importedMatchCount())} matches imported</span>
-          <a class="muted" href="${firstSeasonAttributionUrl}" target="_blank" rel="noreferrer">Event Data provided by FIRST</a>
         </div>
         <nav class="nav-list">
           ${visibleNavItems().map((item) => navButton(item)).join("")}
@@ -8397,6 +8420,7 @@ function renderAdmin() {
                 <div>
                   <strong>${source.name}</strong>
                   <span class="muted">${source.notes}</span>
+                  ${source.attributionUrl ? `<a class="muted" href="${escapeAttribute(source.attributionUrl)}" target="_blank" rel="noreferrer">FIRST API information</a>` : ""}
                   ${source.detectedLabel ? `<span class="muted">Detected type: ${escapeHtml(source.detectedLabel)}</span>` : ""}
                   ${
                     Array.isArray(source.stats) && source.stats.length

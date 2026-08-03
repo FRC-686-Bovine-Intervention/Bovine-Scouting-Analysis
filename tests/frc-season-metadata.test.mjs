@@ -82,6 +82,7 @@ await runTest("reads the shared non-secret season label and reports provider fai
     season: 2025,
     gameName: "REEFSCAPE",
     source: "first-events-api",
+    fetchedAt: "",
   });
   const { api: failedApi } = createApi({ response: { ok: false, status: 401 } });
   await assert.rejects(() => failedApi.refreshSeasonMetadata(2026, { username: "user", authorizationKey: "key" }), /401/);
