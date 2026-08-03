@@ -4306,11 +4306,25 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
       activeView: options.activeView || "admin",
       preserveImportDraft: true,
     });
+    let seasonTitleWarning = "";
+    const seasonMetadataApi = globalThis.firebaseFrcSeasonMetadataApi;
+    if (globalThis.firebaseUserRole === "admin" && state.frcApiUsername && state.frcApiAuthorizationKey && seasonMetadataApi) {
+      try {
+        const metadata = await seasonMetadataApi.refreshSeasonMetadata(registeredEvent.season, {
+          username: state.frcApiUsername,
+          authorizationKey: state.frcApiAuthorizationKey,
+        });
+        applyCachedSeasonMetadata(metadata);
+      } catch (error) {
+        seasonTitleWarning = error?.message || "Unable to refresh the official FIRST season title.";
+      }
+    }
     applyLoadedExternalSourceState(loadResult, { render: false });
+    const eventLoadWarnings = [...(loadResult.warnings || []), ...(seasonTitleWarning ? [seasonTitleWarning] : [])];
     state.eventLookupResult = {
-      kind: loadResult.warnings?.length ? "warn" : "success",
-      message: loadResult.warnings?.length
-        ? `${registeredEvent.key} loaded with warnings. ${loadResult.warnings.join(" ")}`
+      kind: eventLoadWarnings.length ? "warn" : "success",
+      message: eventLoadWarnings.length
+        ? `${registeredEvent.key} loaded with warnings. ${eventLoadWarnings.join(" ")}`
         : `${registeredEvent.key} loaded from external providers.`,
     };
     saveState();
