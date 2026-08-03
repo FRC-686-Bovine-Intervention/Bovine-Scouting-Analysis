@@ -47,6 +47,7 @@ await runTest("updates the configuration document without returning the key in s
   assert.equal(await api.saveTbaAuthKey(" next-key "), "next-key");
   assert.deepEqual(calls[0][0].path.slice(1), ["appState", "configuration"]);
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0][1])), { tbaAuthKey: "next-key", updatedAt: "server-timestamp" });
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0][2])), { merge: true });
 });
 
 await runTest("validates configured TBA keys without exposing their value", async () => {

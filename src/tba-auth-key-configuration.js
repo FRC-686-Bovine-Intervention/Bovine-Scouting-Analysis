@@ -27,7 +27,7 @@
       await firestore.setDoc(configurationDocument(), {
         tbaAuthKey,
         updatedAt: firestore.serverTimestamp(),
-      });
+      }, { merge: true });
       return tbaAuthKey;
     }
 

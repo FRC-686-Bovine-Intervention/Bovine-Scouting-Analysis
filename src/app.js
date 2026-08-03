@@ -272,6 +272,7 @@ const protectedEpaSortId = "sort-epa";
 const defaultColumnSortDirection = "desc";
 const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
 const maskedTbaAuthKeyValue = "............";
+const firstSeasonAttributionUrl = "https://frc-events.firstinspires.org/services/api";
 const defaultStatboticsBaseUrl = "https://api-statbotics.iterativerefinement.com/v3";
 
 function readBootstrapStoredJson(key, fallback) {
@@ -389,6 +390,12 @@ const state = {
   tbaAuthKeyDirty: false,
   tbaAuthKeyValidation: { configured: false, valid: false, status: "missing" },
   tbaAuthKeySavePending: false,
+  frcApiUsername: "",
+  frcApiAuthorizationKey: "",
+  frcApiUsernameDraft: "",
+  frcApiAuthorizationKeyDraft: "",
+  frcApiCredentialsDirty: false,
+  frcApiCredentialsSavePending: false,
   statboticsBaseUrl: initialStatboticsBaseUrl,
   statboticsBaseUrlDraft: initialStatboticsBaseUrl,
   statboticsBaseUrlDirty: false,
@@ -438,6 +445,8 @@ let scoutingSubmissionRevision = 0;
 let scoutingSubmissionLoadSequence = 0;
 let allianceSourceScrollbarResizeObserver = null;
 let tbaAuthKeyConfigurationLoadSequence = 0;
+let frcSeasonMetadataLoadSequence = 0;
+const seasonMetadataUnsubscribers = new Map();
 const scoutingPerf = globalThis.__scoutingPerf || { events: [] };
 globalThis.__scoutingPerf = scoutingPerf;
 
@@ -891,6 +900,19 @@ function nextSchemaProfilePath(currentSchemaSource = "", scoutingSource = "") {
 
 function setTbaAuthKey(value) {
   state.tbaAuthKey = normalizeText(value);
+}
+
+function applyCachedSeasonMetadata(metadata) {
+  const season = Number(metadata?.season || 0);
+  const displayLabel = normalizeText(globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel?.(metadata?.gameName) || metadata?.gameName);
+  if (!season || !displayLabel) return false;
+  let changed = false;
+  globalEventCatalog.forEach((eventModel, index) => {
+    if (Number(eventModel?.season) !== season || eventModel.seasonLabel === displayLabel) return;
+    globalEventCatalog[index] = { ...eventModel, seasonLabel: displayLabel };
+    changed = true;
+  });
+  return changed;
 }
 
 function parseSchemaLinkArtifactText(linkJsonText) {
@@ -1746,6 +1768,115 @@ async function saveTbaAuthKeyDraft() {
     render();
   }
   return true;
+}
+
+function updateFrcApiCredentialsDraft(field, value) {
+  if (field === "username") state.frcApiUsernameDraft = normalizeText(value);
+  if (field === "authorizationKey") state.frcApiAuthorizationKeyDraft = normalizeText(value);
+  state.frcApiCredentialsDirty = true;
+}
+
+function clearFrcApiCredentials() {
+  frcSeasonMetadataLoadSequence += 1;
+  state.frcApiUsername = "";
+  state.frcApiAuthorizationKey = "";
+  state.frcApiUsernameDraft = "";
+  state.frcApiAuthorizationKeyDraft = "";
+  state.frcApiCredentialsDirty = false;
+  state.frcApiCredentialsSavePending = false;
+}
+
+async function refreshSharedSeasonMetadata() {
+  const api = globalThis.firebaseFrcSeasonMetadataApi;
+  if (!api || !globalThis.firebaseCurrentUser) return false;
+  const seasons = [...new Set(globalEventCatalog.map((eventModel) => Number(eventModel?.season)).filter(Boolean))];
+  const results = await Promise.all(seasons.map((season) => api.loadSeasonMetadata(season).catch(() => null)));
+  const changed = results.some((metadata) => applyCachedSeasonMetadata(metadata));
+  if (changed) renderSafely();
+  return changed;
+}
+
+function subscribeSharedSeasonMetadata() {
+  const api = globalThis.firebaseFrcSeasonMetadataApi;
+  if (!api?.subscribeSeasonMetadata || !globalThis.firebaseCurrentUser) return;
+  [...new Set(globalEventCatalog.map((eventModel) => Number(eventModel?.season)).filter(Boolean))].forEach((season) => {
+    if (seasonMetadataUnsubscribers.has(season)) return;
+    seasonMetadataUnsubscribers.set(season, api.subscribeSeasonMetadata(season, (metadata) => {
+      if (applyCachedSeasonMetadata(metadata)) renderSafely();
+    }));
+  });
+}
+
+function clearSeasonMetadataSubscriptions() {
+  seasonMetadataUnsubscribers.forEach((unsubscribe) => unsubscribe());
+  seasonMetadataUnsubscribers.clear();
+}
+
+async function refreshFrcApiCredentials() {
+  const api = globalThis.firebaseFrcSeasonMetadataApi;
+  if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") return false;
+  const loadSequence = ++frcSeasonMetadataLoadSequence;
+  try {
+    const credentials = await api.loadCredentials();
+    if (loadSequence !== frcSeasonMetadataLoadSequence || globalThis.firebaseUserRole !== "admin") return false;
+    state.frcApiUsername = credentials.username;
+    state.frcApiAuthorizationKey = credentials.authorizationKey;
+    state.frcApiUsernameDraft = credentials.username;
+    state.frcApiAuthorizationKeyDraft = credentials.authorizationKey;
+    state.frcApiCredentialsDirty = false;
+    renderSafely();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function saveFrcApiCredentials() {
+  if (!state.frcApiCredentialsDirty || state.frcApiCredentialsSavePending) return false;
+  const api = globalThis.firebaseFrcSeasonMetadataApi;
+  if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") {
+    state.eventLookupResult = { kind: "error", message: "Only signed-in administrators can update FIRST API credentials." };
+    render();
+    return false;
+  }
+  state.frcApiCredentialsSavePending = true;
+  render();
+  try {
+    const draftCredentials = { username: state.frcApiUsernameDraft, authorizationKey: state.frcApiAuthorizationKeyDraft };
+    const validation = await api.validateCredentials(draftCredentials, Number(currentEvent()?.season || 2020));
+    if (validation.configured && validation.valid !== true) {
+      throw new Error(validation.status === "invalid" ? "FIRST API credentials were rejected." : "FIRST API credentials could not be verified.");
+    }
+    const credentials = await api.saveCredentials(draftCredentials);
+    state.frcApiUsername = credentials.username;
+    state.frcApiAuthorizationKey = credentials.authorizationKey;
+    state.frcApiCredentialsDirty = false;
+    state.eventLookupResult = { kind: "success", message: credentials.username && credentials.authorizationKey ? "Saved FIRST API credentials." : "Removed FIRST API credentials." };
+  } catch {
+    state.eventLookupResult = { kind: "error", message: "Unable to save FIRST API credentials." };
+  } finally {
+    state.frcApiCredentialsSavePending = false;
+    render();
+  }
+  return true;
+}
+
+async function refreshCurrentSeasonTitle() {
+  const api = globalThis.firebaseFrcSeasonMetadataApi;
+  const season = Number(currentEvent()?.season || 0);
+  if (!api || !season || globalThis.firebaseUserRole !== "admin") return false;
+  try {
+    const metadata = await api.refreshSeasonMetadata(season, { username: state.frcApiUsername, authorizationKey: state.frcApiAuthorizationKey });
+    applyCachedSeasonMetadata(metadata);
+    const displayLabel = globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel?.(metadata.gameName) || metadata.gameName;
+    state.eventLookupResult = { kind: "success", message: `Updated the ${displayLabel} season title from FIRST.` };
+    render();
+    return true;
+  } catch (error) {
+    state.eventLookupResult = { kind: "error", message: error?.message || "Unable to refresh the FIRST season title." };
+    render();
+    return false;
+  }
 }
 
 function updateStatboticsBaseUrlDraft(value) {
@@ -4169,6 +4300,8 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
       statboticsBaseUrl: state.statboticsBaseUrl,
     });
     const registeredEvent = registerEventModel(loadResult.eventModel);
+    await refreshSharedSeasonMetadata();
+    subscribeSharedSeasonMetadata();
     switchActiveEvent(registeredEvent.key, {
       activeView: options.activeView || "admin",
       preserveImportDraft: true,
@@ -6142,6 +6275,7 @@ function render() {
           <span class="muted">${event.season} ${event.seasonLabel}</span>
           <strong>${event.name}</strong>
           <span class="muted">${Math.max(event.matchesComplete, importedMatchCount())} matches imported</span>
+          <a class="muted" href="${firstSeasonAttributionUrl}" target="_blank" rel="noreferrer">Event Data provided by FIRST</a>
         </div>
         <nav class="nav-list">
           ${visibleNavItems().map((item) => navButton(item)).join("")}
@@ -8212,6 +8346,19 @@ function renderAdmin() {
                 </div>
                 <span class="muted" id="tbaAuthKeyValidationStatus">${escapeHtml(tbaAuthKeyValidationLabel())}</span>
               </label>
+              <label>
+                FIRST API Username
+                <input id="adminFrcApiUsernameInput" class="admin-input" type="text" value="${escapeAttribute(state.frcApiUsernameDraft)}" placeholder="FRC Events API username" aria-label="FIRST API username" autocomplete="off" autocapitalize="off" spellcheck="false" />
+              </label>
+              <label>
+                FIRST API Token
+                <div class="admin-actions admin-field-row">
+                  <input id="adminFrcApiAuthorizationKeyInput" class="admin-input" type="password" value="${escapeAttribute(state.frcApiAuthorizationKeyDraft)}" placeholder="FRC Events API token" aria-label="FIRST API token" autocomplete="off" autocapitalize="off" spellcheck="false" />
+                  <button type="button" id="saveFrcApiCredentialsButton" ${state.frcApiCredentialsDirty && !state.frcApiCredentialsSavePending ? "" : "disabled"}>${state.frcApiCredentialsSavePending ? "Saving…" : "Save"}</button>
+                  <button type="button" id="refreshFrcSeasonTitleButton" ${state.frcApiUsername && state.frcApiAuthorizationKey && !state.frcApiCredentialsSavePending ? "" : "disabled"}>Refresh ${escapeHtml(String(event.season))} title</button>
+                </div>
+                <span class="muted">The official game title is shared without credentials. <a href="${firstSeasonAttributionUrl}" target="_blank" rel="noreferrer">Event Data provided by FIRST</a>.</span>
+              </label>
             <label>
               Statbotics Base URL
               <div class="admin-actions admin-field-row">
@@ -9246,6 +9393,20 @@ function bindViewEvents() {
   document.querySelector("#saveTbaAuthKeyButton")?.addEventListener("click", async () => {
     await saveTbaAuthKeyDraft();
   });
+  document.querySelector("#adminFrcApiUsernameInput")?.addEventListener("input", (event) => {
+    updateFrcApiCredentialsDraft("username", event.target.value);
+    document.querySelector("#saveFrcApiCredentialsButton")?.removeAttribute("disabled");
+  });
+  document.querySelector("#adminFrcApiAuthorizationKeyInput")?.addEventListener("input", (event) => {
+    updateFrcApiCredentialsDraft("authorizationKey", event.target.value);
+    document.querySelector("#saveFrcApiCredentialsButton")?.removeAttribute("disabled");
+  });
+  document.querySelector("#saveFrcApiCredentialsButton")?.addEventListener("click", async () => {
+    await saveFrcApiCredentials();
+  });
+  document.querySelector("#refreshFrcSeasonTitleButton")?.addEventListener("click", async () => {
+    await refreshCurrentSeasonTitle();
+  });
   document.querySelector("#adminStatboticsBaseUrlInput")?.addEventListener("input", (event) => {
     updateStatboticsBaseUrlDraft(event.target.value);
     document.querySelector("#saveStatboticsBaseUrlButton")?.removeAttribute("disabled");
@@ -9944,10 +10105,16 @@ if (typeof globalThis.addEventListener === "function") {
       startSharedActiveEventSync();
       if (globalThis.firebaseUserRole === "admin") void refreshTbaAuthKeyConfiguration();
       else clearTbaAuthKeyConfiguration();
+      if (globalThis.firebaseUserRole === "admin") void refreshFrcApiCredentials();
+      else clearFrcApiCredentials();
+      void refreshSharedSeasonMetadata();
+      subscribeSharedSeasonMetadata();
       void syncSharedProfilesForEvent(state.activeEventKey);
       void syncSharedSubmissionsForEvent(state.activeEventKey);
     } else {
       clearTbaAuthKeyConfiguration();
+      clearFrcApiCredentials();
+      clearSeasonMetadataSubscriptions();
       stopSharedActiveEventSynchronization();
     }
     if (user && globalThis.firebaseUserRole === "admin") void refreshAllowlist();

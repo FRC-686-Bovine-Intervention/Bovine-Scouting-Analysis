@@ -2,6 +2,9 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Assumed data model additions for issue #76:
+    // appState/configuration stores optional bounded provider credentials plus updatedAt.
+    // seasonMetadata/{season} stores the non-secret FIRST game title cache.
     function signedIn() { return request.auth != null; }
     function userIsAdmin() {
       return signedIn()
@@ -35,12 +38,28 @@ service cloud.firestore {
         && request.resource.data.eventKey.matches('^[a-z0-9]+$')
         && request.resource.data.updatedAt is timestamp;
     }
-    function isValidTbaAuthKeyConfiguration() {
-      return request.resource.data.keys().hasOnly(['tbaAuthKey', 'updatedAt'])
-        && request.resource.data.keys().hasAll(['tbaAuthKey', 'updatedAt'])
-        && request.resource.data.tbaAuthKey is string
-        && request.resource.data.tbaAuthKey.size() <= 256
+    function isValidProviderConfiguration() {
+      return request.resource.data.keys().hasOnly(['tbaAuthKey', 'frcApiUsername', 'frcApiAuthorizationKey', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['updatedAt'])
+        && (!('tbaAuthKey' in request.resource.data)
+          || (request.resource.data.tbaAuthKey is string && request.resource.data.tbaAuthKey.size() <= 256))
+        && (!('frcApiUsername' in request.resource.data)
+          || (request.resource.data.frcApiUsername is string && request.resource.data.frcApiUsername.size() <= 256))
+        && (!('frcApiAuthorizationKey' in request.resource.data)
+          || (request.resource.data.frcApiAuthorizationKey is string && request.resource.data.frcApiAuthorizationKey.size() <= 256))
         && request.resource.data.updatedAt is timestamp;
+    }
+    function isValidSeasonMetadata() {
+      return request.resource.data.keys().hasOnly(['season', 'gameName', 'source', 'fetchedAt'])
+        && request.resource.data.keys().hasAll(['season', 'gameName', 'source', 'fetchedAt'])
+        && request.resource.data.season is number
+        && request.resource.data.season >= 1992
+        && request.resource.data.season <= 9999
+        && request.resource.data.gameName is string
+        && request.resource.data.gameName.size() > 0
+        && request.resource.data.gameName.size() <= 128
+        && request.resource.data.source == 'first-events-api'
+        && request.resource.data.fetchedAt is timestamp;
     }
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
@@ -61,7 +80,16 @@ service cloud.firestore {
     // appState/configuration contains provider credentials and is intentionally admin-only.
     match /appState/configuration {
       allow read: if isAdmin();
-      allow create, update: if isAdmin() && isValidTbaAuthKeyConfiguration();
+      allow create, update: if isAdmin() && isValidProviderConfiguration();
+    }
+
+    // The official game title is intentionally separate from provider credentials.
+    match /seasonMetadata/{season} {
+      allow read: if isAllowed();
+      allow create, update: if isAdmin()
+        && season.matches('^[0-9]{4}$')
+        && season == string(request.resource.data.season)
+        && isValidSeasonMetadata();
     }
 
     match /events/{eventId}/profiles/{profileId} {
