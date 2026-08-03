@@ -166,7 +166,7 @@ runTest("real event data does not invent fallback events when no real snapshots 
   assert.deepEqual(JSON.parse(JSON.stringify(context.eventCatalog || [])), []);
 });
 
-runTest("real event data merges framework season metadata when provider season metadata is empty", () => {
+runTest("real event data leaves the game title absent when official season metadata is unavailable", () => {
   const context = loadBrowserContext([
     "src/provider-season-metadata.js",
     "src/scouting-schema-runtime.js",
@@ -194,7 +194,7 @@ runTest("real event data merges framework season metadata when provider season m
 
   const [eventModel] = context.eventCatalog;
   assert.equal(eventModel.season, 2024);
-  assert.equal(eventModel.seasonLabel, "Crescendo");
+  assert.equal(eventModel.seasonLabel, "");
   assert.deepEqual(JSON.parse(JSON.stringify(eventModel.scoringComponents || [])), []);
   assert.equal("breakdownMap" in eventModel, false);
   assert.deepEqual(JSON.parse(JSON.stringify(context.SeasonFramework.formulaFieldDefinitions(eventModel))), []);

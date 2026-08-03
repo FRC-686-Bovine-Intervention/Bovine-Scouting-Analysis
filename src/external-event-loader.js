@@ -8,7 +8,7 @@ const buildEventModelFromProviderBundle =
     key: bundle.key,
     season: bundle.year,
     name: bundle.tbaEvent?.name || bundle.key,
-    seasonLabel: String(bundle.year || ""),
+    seasonLabel: "",
     matches: [],
     matchesComplete: 0,
     teams: [],

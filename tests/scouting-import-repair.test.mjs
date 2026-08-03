@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { legacyGameDefinitions } from "./fixtures/legacy-game-definitions.mjs";
 
 function runTest(name, fn) {
   try {
@@ -15,7 +16,7 @@ function runTest(name, fn) {
 
 function loadBrowserContext(relativePaths, extras = {}) {
   const context = {
-    globalThis: {},
+    globalThis: {}, LegacyGameDefinitions: legacyGameDefinitions,
     console,
     Set,
     Map,
@@ -38,7 +39,7 @@ function loadBrowserContext(relativePaths, extras = {}) {
 
 runTest("sample-backed legacy submissions are marked for refresh when schema metadata is missing", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-import-repair.js"]);
-  const season = context.SeasonFramework.gameDefinitions[2025];
+  const season = context.LegacyGameDefinitions[2025];
   const eventModel = {
     key: "2025chcmp",
     season: 2025,
@@ -130,7 +131,7 @@ runTest("stampScoutingSubmissionMetadata preserves string-only schema field ids"
 
 runTest("stamped submissions do not refresh when the current schema matches", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-import-repair.js"]);
-  const season = context.SeasonFramework.gameDefinitions[2025];
+  const season = context.LegacyGameDefinitions[2025];
   const eventModel = {
     key: "2025chcmp",
     season: 2025,
@@ -156,7 +157,7 @@ runTest("stamped submissions do not refresh when the current schema matches", ()
 
 runTest("sample-backed 2026 submissions refresh when newly added formula fields are missing", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-import-repair.js"]);
-  const season = context.SeasonFramework.gameDefinitions[2026];
+  const season = context.LegacyGameDefinitions[2026];
   const eventModel = {
     key: "2026chcmp",
     season: 2026,
@@ -198,7 +199,7 @@ runTest("sample-backed 2026 submissions refresh when newly added formula fields 
 
 runTest("stamped submissions can use explicit schema fields instead of season-seeded defaults", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-import-repair.js"]);
-  const season = context.SeasonFramework.gameDefinitions[2026];
+  const season = context.LegacyGameDefinitions[2026];
   const eventModel = {
     key: "2026chcmp",
     season: 2026,
@@ -315,7 +316,7 @@ runTest("repairLegacySubmissionRawMetrics backfills climbAttempt from climbLevel
 
 runTest("sample-backed submissions refresh when the thin translation version changes", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/sheet-import-adapters.js", "src/scouting-import-repair.js"]);
-  const season = context.SeasonFramework.gameDefinitions[2026];
+  const season = context.LegacyGameDefinitions[2026];
   const eventModel = {
     key: "2026chcmp",
     season: 2026,

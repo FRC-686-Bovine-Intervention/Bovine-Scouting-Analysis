@@ -921,6 +921,11 @@ function applyCachedSeasonMetadata(metadata) {
   return changed;
 }
 
+function officialSeasonLabel(season) {
+  const metadata = state.seasonMetadata[String(season)] || null;
+  return normalizeText(globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel?.(metadata?.gameName) || metadata?.gameName);
+}
+
 function rememberSeasonMetadata(metadata) {
   const season = Number(metadata?.season || 0);
   if (!season) return false;
@@ -4060,7 +4065,7 @@ async function openSharedCachedEvent(eventKey, options = {}) {
       ...result.eventModel,
       name: cachedEvent.name || result.eventModel.name,
       season: cachedEvent.season || result.eventModel.season,
-      seasonLabel: cachedEvent.seasonLabel || result.eventModel.seasonLabel,
+      seasonLabel: officialSeasonLabel(cachedEvent.season || result.eventModel.season),
       catalogSource: "shared-cache",
     });
     switchActiveEvent(registeredEvent.key, { activeView: options.activeView || state.activeView, persistShared: false, preserveImportDraft: true });
@@ -5550,7 +5555,7 @@ function derivedMetricScopeSummary() {
   return {
     seasonKey: String(currentEvent().season),
     profileKey: currentProfileMetricScopeKey(),
-    gameDefinitions: derivedMetricConfigScopeDefinitions("season", String(currentEvent().season)),
+    seasonDefinitions: derivedMetricConfigScopeDefinitions("season", String(currentEvent().season)),
     profileDefinitions: derivedMetricConfigScopeDefinitions("profile", currentProfileMetricScopeKey()),
   };
 }

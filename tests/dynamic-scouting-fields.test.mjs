@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { legacyGameDefinitions } from "./fixtures/legacy-game-definitions.mjs";
 
 function runTest(name, fn) {
   try {
@@ -15,7 +16,7 @@ function runTest(name, fn) {
 
 function loadBrowserContext(relativePaths, extras = {}) {
   const context = {
-    globalThis: {},
+    globalThis: {}, LegacyGameDefinitions: legacyGameDefinitions,
     console,
     Set,
     Map,
@@ -38,7 +39,7 @@ function loadBrowserContext(relativePaths, extras = {}) {
 
 runTest("dynamic scouting fields merge imported raw metric ids into seeded field definitions", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/dynamic-scouting-fields.js"]);
-  const season = context.SeasonFramework.gameDefinitions[2026];
+  const season = context.LegacyGameDefinitions[2026];
   const eventModel = {
     ...season,
     season: 2026,
@@ -67,7 +68,7 @@ runTest("dynamic scouting fields merge imported raw metric ids into seeded field
 
 runTest("dynamic scouting fields infer numeric imported fields and omit removed ones when they disappear", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/dynamic-scouting-fields.js"]);
-  const season = context.SeasonFramework.gameDefinitions[2025];
+  const season = context.LegacyGameDefinitions[2025];
   const eventModel = {
     ...season,
     season: 2025,
@@ -102,7 +103,7 @@ runTest("dynamic scouting fields infer numeric imported fields and omit removed 
 
 runTest("dynamic scouting fields surface preview schema fields before submissions are committed", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/dynamic-scouting-fields.js"]);
-  const season = context.SeasonFramework.gameDefinitions[2026];
+  const season = context.LegacyGameDefinitions[2026];
   const eventModel = {
     ...season,
     season: 2026,

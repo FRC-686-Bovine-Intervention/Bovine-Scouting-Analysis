@@ -349,7 +349,7 @@ await runTest("loadEventByCode falls back to a generic season shell for unknown 
   });
 
   assert.equal(result.eventModel.season, 2023);
-  assert.equal(result.eventModel.seasonLabel, "2023 Season");
+  assert.equal(result.eventModel.seasonLabel, "");
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.scoringComponents || [])), []);
   assert.equal(result.eventModel.teams[0].sources.tba.components["record.wins"], undefined);
   assert.equal(result.eventModel.teams[0].sources.statbotics.components["epa.total_points"], 55.5);

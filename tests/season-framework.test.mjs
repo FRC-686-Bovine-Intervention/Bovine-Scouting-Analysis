@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { legacyGameDefinitions } from "./fixtures/legacy-game-definitions.mjs";
 
 function runTest(name, fn) {
   try {
@@ -42,7 +43,7 @@ const seasonFramework = loadBrowserScripts(["src/legacy-scouting-schema-seeds.js
 const legacyScoutingSchemaSeeds = loadLegacyScoutingSchemaSeeds();
 
 runTest("season metrics expose pRidge as a total-only source", () => {
-  const season = seasonFramework.gameDefinitions[2026];
+const season = legacyGameDefinitions[2026];
   const metrics = seasonFramework.buildMetrics(season);
   const criteriaSources = seasonFramework.buildCriteriaSources(season);
 
@@ -54,7 +55,7 @@ runTest("season metrics expose pRidge as a total-only source", () => {
 });
 
 runTest("season metrics do not inject legacy derived metrics that no longer exist", () => {
-  const season = seasonFramework.gameDefinitions[2026];
+const season = legacyGameDefinitions[2026];
   const metrics = seasonFramework.buildMetrics(season);
   const criteriaSources = seasonFramework.buildCriteriaSources(season);
   const derivedMetric = metrics.find((metric) => metric.id === "derived:fuelContributionAvg");
@@ -72,7 +73,7 @@ runTest("season metrics do not inject legacy derived metrics that no longer exis
 });
 
 runTest("season metrics expose Statbotics under its provider name", () => {
-  const season = seasonFramework.gameDefinitions[2024];
+const season = legacyGameDefinitions[2024];
   const metrics = seasonFramework.buildMetrics(season);
   const criteriaSources = seasonFramework.buildCriteriaSources(season);
 
@@ -84,7 +85,7 @@ runTest("season metrics expose Statbotics under its provider name", () => {
 });
 
 runTest("season metrics do not expose OPR as a separate source", () => {
-  const season = seasonFramework.gameDefinitions[2024];
+const season = legacyGameDefinitions[2024];
   const metrics = seasonFramework.buildMetrics(season);
   const criteriaSources = seasonFramework.buildCriteriaSources(season);
 
@@ -93,9 +94,9 @@ runTest("season metrics do not expose OPR as a separate source", () => {
 });
 
 runTest("formula field definitions include scoring components for derived equations", () => {
-  const season2024 = seasonFramework.gameDefinitions[2024];
-  const season2025 = seasonFramework.gameDefinitions[2025];
-  const season2026 = seasonFramework.gameDefinitions[2026];
+const season2024 = legacyGameDefinitions[2024];
+const season2025 = legacyGameDefinitions[2025];
+const season2026 = legacyGameDefinitions[2026];
 
   assert.equal(
     seasonFramework.formulaFieldDefinitions(season2024).some((fieldDefinition) => fieldDefinition.id === "speaker"),
@@ -111,8 +112,8 @@ runTest("formula field definitions include scoring components for derived equati
   );
 });
 
-runTest("gameDefinitions exposes provider metadata without owning scouting schema fields", () => {
-  const season2026 = seasonFramework.gameDefinitions[2026];
+runTest("legacy fixture metadata does not own scouting schema fields", () => {
+  const season2026 = legacyGameDefinitions[2026];
   const legacyDerivedMetric = legacyScoutingSchemaSeeds["2026"].derivedMetrics[0];
 
   assert.equal(season2026.season, 2026);

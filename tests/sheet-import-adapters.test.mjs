@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { legacyGameDefinitions } from "./fixtures/legacy-game-definitions.mjs";
 
 function runTest(name, fn) {
   try {
@@ -15,7 +16,7 @@ function runTest(name, fn) {
 
 function loadBrowserContext(relativePaths, extras = {}) {
   const context = {
-    globalThis: {},
+    globalThis: {}, LegacyGameDefinitions: legacyGameDefinitions,
     console,
     Set,
     Map,
@@ -38,7 +39,7 @@ function loadBrowserContext(relativePaths, extras = {}) {
 
 runTest("translateEventSheetToCanonical emits canonical dataset metadata and entries for 2026 sheets", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
-  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
+  const season2026 = context.LegacyGameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,
@@ -74,7 +75,7 @@ runTest("translateEventSheetToCanonical emits canonical dataset metadata and ent
 
 runTest("translateEventSheetToCanonical preserves extra legacy sheet columns as canonical raw metrics", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
-  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
+  const season2026 = context.LegacyGameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,
@@ -103,7 +104,7 @@ runTest("translateEventSheetToCanonical preserves extra legacy sheet columns as 
 
 runTest("translateEventSheetToCanonical can match a legacy adapter by headers even when season differs", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
-  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
+  const season2026 = context.LegacyGameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2027,
@@ -127,7 +128,7 @@ runTest("translateEventSheetToCanonical can match a legacy adapter by headers ev
 
 runTest("legacy scoring-component backfill follows the matched adapter instead of event season", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
-  const season2025 = context.SeasonFramework.gameDefinitions["2025"];
+  const season2025 = context.LegacyGameDefinitions["2025"];
   const eventModel = {
     ...season2025,
     season: 2027,
@@ -152,7 +153,7 @@ runTest("legacy scoring-component backfill follows the matched adapter instead o
 
 runTest("translateEventSheetToCanonical falls back to generic canonical sheet conversion for unmapped headers", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
-  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
+  const season2026 = context.LegacyGameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2027,
@@ -177,7 +178,7 @@ runTest("translateEventSheetToCanonical falls back to generic canonical sheet co
 
 runTest("translateEventSheetToCanonical can emit split entries and schema artifacts", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js", "src/sheet-import-adapters.js"]);
-  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
+  const season2026 = context.LegacyGameDefinitions["2026"];
   const eventModel = {
     ...season2026,
     season: 2026,

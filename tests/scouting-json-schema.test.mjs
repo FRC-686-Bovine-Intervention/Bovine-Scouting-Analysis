@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { legacyGameDefinitions } from "./fixtures/legacy-game-definitions.mjs";
 
 function runTest(name, fn) {
   try {
@@ -15,7 +16,7 @@ function runTest(name, fn) {
 
 function loadBrowserContext(relativePaths, extras = {}) {
   const context = {
-    globalThis: {},
+    globalThis: {}, LegacyGameDefinitions: legacyGameDefinitions,
     console,
     Set,
     Map,
@@ -37,7 +38,7 @@ function loadBrowserContext(relativePaths, extras = {}) {
 }
 
 function buildEventModel(context) {
-  const season2026 = context.SeasonFramework.gameDefinitions["2026"];
+  const season2026 = context.LegacyGameDefinitions["2026"];
   return {
     ...season2026,
     season: 2026,
@@ -128,7 +129,7 @@ runTest("validateCanonicalSchema accepts split entries and schema artifacts", ()
 
 runTest("validateCanonicalSchema infers contextual rawMetrics fields as string-backed when schema ids are bare strings", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
-  const season2025 = context.SeasonFramework.gameDefinitions["2025"];
+  const season2025 = context.LegacyGameDefinitions["2025"];
   const eventModel = {
     ...season2025,
     season: 2025,

@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { legacyGameDefinitions } from "./fixtures/legacy-game-definitions.mjs";
 
 function loadBrowserScripts(relativePaths, exportName) {
   const context = {
-    globalThis: {},
+    globalThis: {}, LegacyGameDefinitions: legacyGameDefinitions,
     console,
     Set,
     Map,
@@ -48,7 +49,7 @@ const fixtures = JSON.parse(fs.readFileSync(path.resolve("tests/season-metric-fi
 
 fixtures.forEach((fixture) => {
   runTest(`season ${fixture.season} trusted fixture`, () => {
-    const season = seasonFramework.gameDefinitions[fixture.season];
+    const season = legacyGameDefinitions[fixture.season];
     assert.ok(season, `Season ${fixture.season} should exist`);
 
     const baseTeam = {

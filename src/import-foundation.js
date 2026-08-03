@@ -433,7 +433,6 @@ function assessDuplicateSubmissions(existingSubmissions, incomingSubmissions) {
 function validateSeasonPackage(eventModel) {
   const missing = [];
   if (!eventModel?.season) missing.push("season");
-  if (!eventModel?.seasonLabel) missing.push("seasonLabel");
   if (!Array.isArray(scouterMetricDefinitions(eventModel)) || !scouterMetricDefinitions(eventModel).length) missing.push("scouterMetricDefinitions");
   return {
     valid: missing.length === 0,
