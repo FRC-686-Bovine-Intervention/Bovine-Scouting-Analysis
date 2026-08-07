@@ -1,4 +1,4 @@
-# FRC Scouting Analysis Tool Review Plan
+# Bovine Scouting Analysis Tool Review Plan
 
 ## Summary
 Build a responsive, browser-first scouting analysis app for FRC event strategy. The app supports multiple simultaneous users, uses an internal database as the source of truth, and focuses v1 on one active event at a time: team analysis, event-wide comparison, matchup planning, picklists, alliance selection, and data quality review.
