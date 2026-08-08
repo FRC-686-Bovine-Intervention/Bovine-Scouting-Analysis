@@ -13,6 +13,7 @@ function sectionBetween(startMarker, endMarker) {
 
 const quality = sectionBetween("function renderQuality()", "function renderSortBuilder()");
 const eventControl = sectionBetween("function renderAdminEventControl()", "function renderAdminDataQuality()");
+const eventCodeHandler = sectionBetween("async function applyAdminEventCodeDraft", "async function applyScoutingSourceInputChange");
 const dataQuality = sectionBetween("function renderAdminDataQuality()", "function renderAdminUserControl()");
 const userControl = sectionBetween("function renderAdminUserControl()", "function renderFlags(flags)");
 
@@ -29,6 +30,7 @@ assert.match(eventControl, /Secondary/);
 assert.doesNotMatch(eventControl, /adminStatboticsBaseUrlInput/);
 assert.doesNotMatch(eventControl, /saveStatboticsBaseUrlButton/);
 assert.doesNotMatch(eventControl, /toggleAllSourcePollingButton|Pause Polling|Resume Polling/);
+assert.match(eventCodeHandler, /refreshCurrentExternalSourcesImmediately/);
 assert.match(eventControl, /Activity Log/);
 assert.match(eventControl, /renderRawSourceCacheViewer\(\)/);
 assert.match(eventControl, /data-view="adminDataQuality"/);

@@ -1300,6 +1300,11 @@ async function refreshAllDataSources() {
   }
 }
 
+async function refreshCurrentExternalSourcesImmediately() {
+  if (currentEvent()?.catalogSource === "dynamic-external") return;
+  await Promise.all(["tba", "statbotics", "pridge"].map((sourceId) => refreshDataSource(sourceId)));
+}
+
 function setCurrentScoutingAttachment(attachmentId) {
   state.eventWorkspace = setActiveEventWorkspaceScoutingAttachment(currentEventWorkspace(), attachmentId);
   state.importSourceUrl = activeEventWorkspaceScoutingAttachmentSourceValue(state.eventWorkspace, currentEvent());
@@ -1587,7 +1592,9 @@ async function applyAdminEventCodeDraft(value, options = {}) {
   }
   state.adminEventCodeDraft = normalizedEventCode;
   if (globalEventCatalog.some((eventModel) => eventModel?.key === normalizedEventCode)) {
-    return switchActiveEvent(normalizedEventCode, { activeView: "adminEventControl" });
+    const switched = switchActiveEvent(normalizedEventCode, { activeView: "adminEventControl" });
+    if (switched) void refreshCurrentExternalSourcesImmediately();
+    return switched;
   }
   return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl" });
 }
