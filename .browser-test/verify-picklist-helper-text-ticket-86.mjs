@@ -21,7 +21,7 @@ try {
     "Drag: reorder teams",
     "↑↓: change team selection",
     "Shift + ↑↓: Move team",
-    "Right-click: Access Pairwise Mode.",
+    "Right-click: Access Pairwise Mode",
   ].join("\n"));
 
   await page.locator("[data-current-picklist]").click({ button: "right" });
@@ -33,7 +33,7 @@ try {
     "↑↓: change team selection",
     "Shift + ↑↓: Compare to team above, move team",
     "Ctrl + ↑↓: Compare to team below, move team",
-    "Gray highlights: suggested teams to revisit.",
+    "Gray highlights: suggested teams to revisit",
   ].join("\n"));
 } finally {
   await browser.close();
