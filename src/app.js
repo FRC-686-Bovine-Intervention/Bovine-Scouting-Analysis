@@ -1534,7 +1534,7 @@ async function applyRecentAdminEventSelection(value) {
   const nextEventKey = normalizeText(value);
   if (!nextEventKey) return false;
   state.adminRecentEventsOpen = false;
-  if (sharedCachedEventByKey(nextEventKey) && !globalEventCatalog.some((eventModel) => eventModel?.key === nextEventKey)) {
+  if (sharedCachedEventByKey(nextEventKey)) {
     return openSharedCachedEvent(nextEventKey, { activeView: "adminEventControl", persistShared: true });
   }
   return switchActiveEvent(nextEventKey, { activeView: "adminEventControl" });

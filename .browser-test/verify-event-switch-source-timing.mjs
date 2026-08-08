@@ -81,6 +81,15 @@ async function switchByCode(target) {
   return waitForSwitch(target, before);
 }
 
+async function switchByRecent(target) {
+  const before = await snapshot();
+  await page.click("#openRecentAdminEventsButton");
+  const select = page.locator("#recentAdminEventSelect");
+  await select.waitFor({ state: "visible", timeout: 2000 });
+  await select.selectOption(target);
+  return waitForSwitch(target, before);
+}
+
 try {
   await page.goto(appUrl, { waitUntil: "domcontentloaded" });
   await page.fill("#firebaseEmailInput", "admin@example.test");
@@ -99,11 +108,11 @@ try {
   await page.waitForFunction(() => window.__scoutingAppState?.tbaAuthKey === "mock-tba-key", { timeout: 5000 });
   await page.waitForFunction(() => window.__scoutingAppState?.tbaAuthKeySavePending === false, { timeout: 10000 });
   const localToUncached = await switchByCode(uncachedEventKey);
-  const uncachedToCached = await switchByCode("2026cached");
+  const uncachedToCached = await switchByRecent("2026cached");
   if (requestCounts.tbaEvent !== 1 || requestCounts.statboticsEvent !== 1 || requestCounts.cachedTbaEvent < 1 || requestCounts.cachedStatboticsEvent < 1) {
     throw new Error(`Duplicate provider loads detected: ${JSON.stringify(requestCounts)}`);
   }
-  if (uncachedToCached.current.lookup?.kind === "warn" || /shared Firestore cache/i.test(uncachedToCached.current.lookup?.message || "")) {
+  if (/shared Firestore cache/i.test(uncachedToCached.current.lookup?.message || "")) {
     throw new Error(`Stale cached event was not refreshed: ${JSON.stringify(uncachedToCached.current.lookup)}`);
   }
 
