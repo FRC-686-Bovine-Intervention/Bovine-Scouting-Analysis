@@ -25,16 +25,50 @@ function encodeValue(value) {
   return { stringValue: String(value ?? "") };
 }
 const timestamp = { __firestoreTimestamp: new Date().toISOString() };
-async function writeDocument(path, values) {
+async function writeFields(path, fields) {
   await jsonRequest(`${firestoreBaseUrl}/v1/projects/${projectId}/databases/(default)/documents/${path}`, {
     method: "PATCH", headers: { authorization: "Bearer owner", "content-type": "application/json" },
-    body: JSON.stringify({ fields: { ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, encodeValue(value)])), updatedAt: encodeValue(timestamp) } }),
+    body: JSON.stringify({ fields }),
   });
+}
+async function writeDocument(path, values) {
+  await writeFields(path, { ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, encodeValue(value)])), updatedAt: encodeValue(timestamp) });
+}
+
+function fingerprint(text) {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv1a:${(hash >>> 0).toString(16)}:${text.length}`;
+}
+
+async function writeSourceArtifact(eventKey, sourceId, payload) {
+  const rawText = `${JSON.stringify(payload)}\n`;
+  const sourceFingerprint = fingerprint(rawText);
+  const versionId = sourceFingerprint.replace(/[^a-z0-9]/gi, "-");
+  const manifest = {
+    sourceId, sourceUrl: `https://local.emulator/${sourceId}`, contentType: "application/json", encoding: "text", status: 200,
+    fetchedAt: new Date().toISOString(), fingerprint: sourceFingerprint, byteLength: new TextEncoder().encode(rawText).length, chunkCount: 1,
+  };
+  await writeFields(`events/${eventKey}/sourceCache/${sourceId}/versions/${versionId}`, {
+    ...Object.fromEntries(Object.entries(manifest).map(([key, value]) => [key, encodeValue(value)])), cachedAt: encodeValue(timestamp),
+  });
+  await writeFields(`events/${eventKey}/sourceCache/${sourceId}/versions/${versionId}/chunks/000000`, { index: encodeValue(0), text: encodeValue(rawText) });
+  await writeFields(`events/${eventKey}/sourceCache/${sourceId}`, { sourceId: encodeValue(sourceId), activeVersion: encodeValue(versionId), cachedAt: encodeValue(timestamp) });
 }
 
 await writeDocument(`users/${authResponse.localId}`, { role: "admin", email });
 await writeDocument(`allowlist/${encodeURIComponent(email)}`, { role: "admin", email });
 await writeDocument("events/2026local", { key: "2026local", season: 2026, name: "Local Emulator Event", seasonLabel: "2026 Local", workspace: { source: "emulator-seed" }, cachedAt: timestamp });
+await writeSourceArtifact("2026local", "tba-event", { key: "2026local", year: 2026, name: "Local Emulator Event", short_name: "Local Emulator Event" });
+await writeSourceArtifact("2026local", "tba-teams", [{ key: "frc9999", team_number: 9999, nickname: "Local Team" }]);
+await writeSourceArtifact("2026local", "tba-matches", []);
+await writeSourceArtifact("2026local", "tba-rankings", {});
+await writeSourceArtifact("2026local", "tba-oprs", {});
+await writeSourceArtifact("2026local", "statbotics-event", { event: "2026local", year: 2026, name: "Local Emulator Event" });
+await writeSourceArtifact("2026local", "statbotics-team-events", []);
 await writeDocument("appState/activeEvent", { eventKey: "2026local" });
 await writeDocument("events/2026local/submissions/sample-match-1", { matchKey: "qm1", teamNumber: 9999, scoutName: "Local Scout", autoScore: 3, teleopScore: 7, notes: "Representative emulator scouting submission" });
 console.log(`Seeded Firebase Emulator admin ${email}, event 2026local, and representative scouting data.`);
