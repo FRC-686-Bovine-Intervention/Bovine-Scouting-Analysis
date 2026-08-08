@@ -66,6 +66,26 @@
       return { fromCache, events };
     }
 
+    async function listEventSourceCacheSources({ eventKey } = {}) {
+      if (!firestore.getDocs) throw new Error("Firestore reads are required to list cached source artifacts.");
+      const normalizedEventKey = normalizeEventKey(eventKey);
+      if (!normalizedEventKey) throw new Error("An event key is required to list cached source artifacts.");
+      let snapshot;
+      let fromCache = false;
+      try {
+        snapshot = await firestore.getDocs(firestore.collection(eventDocument(normalizedEventKey), "sourceCache"));
+        fromCache = Boolean(snapshot?.metadata?.fromCache);
+      } catch (error) {
+        if (!firestore.getDocsFromCache) throw error;
+        snapshot = await firestore.getDocsFromCache(firestore.collection(eventDocument(normalizedEventKey), "sourceCache"));
+        fromCache = true;
+      }
+      const sources = (snapshot?.docs || []).map((sourceSnapshot) => sourceSnapshot.data()).map((source) => ({
+        sourceId: normalizeText(source?.sourceId),
+      })).filter((source) => source.sourceId).sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+      return { fromCache, sources };
+    }
+
     async function loadEventSourceCache({ eventKey, sourceId } = {}) {
       if (!firestore.getDoc || !firestore.getDocs) throw new Error("Firestore reads are required to load cached source data.");
       const normalizedEventKey = normalizeEventKey(eventKey);
@@ -118,7 +138,7 @@
       }
     }
 
-    return { saveEventSourceCache, loadEventSourceCache, listCachedEvents };
+    return { saveEventSourceCache, loadEventSourceCache, listCachedEvents, listEventSourceCacheSources };
   }
 
   globalScope.EventSourceCacheStore = { createEventSourceCacheStore };

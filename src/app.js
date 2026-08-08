@@ -426,6 +426,12 @@ const state = {
   eventLookupResult: null,
   sharedCachedEvents: [],
   sharedCacheStatus: "",
+  rawSourceCacheEventKey: "",
+  rawSourceCacheSources: [],
+  rawSourceCacheSourceId: "",
+  rawSourceCacheArtifact: null,
+  rawSourceCacheStatus: "",
+  rawSourceCacheLoading: false,
   pendingSharedActiveEventKey: storedActiveEventKey,
   pendingSharedRecentEventKeys: readStoredJson(storageKeys.recentEvents, []),
   builderGridScroll: {
@@ -4053,6 +4059,105 @@ async function refreshSharedCachedEventCatalog(options = {}) {
   }
   if (options.render !== false) render();
   return state.sharedCachedEvents;
+}
+
+function rawSourceText(artifact = state.rawSourceCacheArtifact) {
+  if (!artifact) return "";
+  if (typeof artifact.rawText === "string") return artifact.rawText;
+  if (artifact.rawBytes instanceof Uint8Array) return new TextDecoder().decode(artifact.rawBytes);
+  return "";
+}
+
+function rawSourceDisplayText(artifact = state.rawSourceCacheArtifact) {
+  const rawText = rawSourceText(artifact);
+  const contentType = normalizeText(artifact?.manifest?.contentType).toLowerCase();
+  if (contentType.includes("json") || /^[\[{]/.test(rawText.trim())) {
+    try { return JSON.stringify(JSON.parse(rawText), null, 2); } catch { return rawText; }
+  }
+  return rawText;
+}
+
+async function selectRawSourceCacheEvent(eventKey) {
+  if (!isAdmin()) return;
+  const api = globalThis.firebaseEventSourceCacheApi;
+  state.rawSourceCacheEventKey = normalizeText(eventKey).toLowerCase();
+  state.rawSourceCacheSources = [];
+  state.rawSourceCacheSourceId = "";
+  state.rawSourceCacheArtifact = null;
+  if (!state.rawSourceCacheEventKey) { render(); return; }
+  if (!api?.listEventSourceCacheSources) {
+    state.rawSourceCacheStatus = "Cached source artifact listing is unavailable.";
+    render();
+    return;
+  }
+  state.rawSourceCacheLoading = true;
+  state.rawSourceCacheStatus = "Loading cached source artifacts...";
+  render();
+  try {
+    const result = await api.listEventSourceCacheSources({ eventKey: state.rawSourceCacheEventKey });
+    state.rawSourceCacheSources = Array.isArray(result?.sources) ? result.sources : [];
+    state.rawSourceCacheStatus = state.rawSourceCacheSources.length
+      ? `${result?.fromCache ? "Showing locally cached artifacts." : "Cached source artifacts are current."}`
+      : "No cached source artifacts are available for this event.";
+  } catch (error) {
+    state.rawSourceCacheStatus = `Cached source artifacts are unavailable. ${error?.message || "Check your connection."}`;
+  } finally {
+    state.rawSourceCacheLoading = false;
+    render();
+  }
+}
+
+async function selectRawSourceCacheArtifact(sourceId) {
+  if (!isAdmin()) return;
+  const api = globalThis.firebaseEventSourceCacheApi;
+  state.rawSourceCacheSourceId = normalizeText(sourceId);
+  state.rawSourceCacheArtifact = null;
+  if (!state.rawSourceCacheSourceId || !state.rawSourceCacheEventKey) { render(); return; }
+  state.rawSourceCacheLoading = true;
+  state.rawSourceCacheStatus = `Reconstructing ${state.rawSourceCacheSourceId} from cached chunks...`;
+  render();
+  try {
+    const artifact = await api?.loadEventSourceCache?.({ eventKey: state.rawSourceCacheEventKey, sourceId: state.rawSourceCacheSourceId });
+    if (!artifact?.manifest || (typeof artifact.rawText !== "string" && !(artifact.rawBytes instanceof Uint8Array))) throw new Error("The cache reader returned no reconstructed payload.");
+    state.rawSourceCacheArtifact = artifact;
+    state.rawSourceCacheStatus = "Reconstructed from the persisted cache artifact.";
+  } catch (error) {
+    state.rawSourceCacheStatus = `Cached artifact is unavailable, incomplete, or corrupt. ${error?.message || ""}`.trim();
+  } finally {
+    state.rawSourceCacheLoading = false;
+    render();
+  }
+}
+
+function rawSourceBlob(artifact = state.rawSourceCacheArtifact) {
+  if (!artifact) return null;
+  const type = normalizeText(artifact.manifest?.contentType) || "application/octet-stream";
+  return new Blob([artifact.rawBytes instanceof Uint8Array ? artifact.rawBytes : artifact.rawText], { type });
+}
+
+async function copyRawSourceCacheArtifact() {
+  const artifact = state.rawSourceCacheArtifact;
+  if (!artifact) return;
+  try {
+    if (artifact.rawBytes instanceof Uint8Array && globalThis.ClipboardItem && navigator.clipboard?.write) {
+      await navigator.clipboard.write([new ClipboardItem({ [normalizeText(artifact.manifest?.contentType) || "application/octet-stream"]: rawSourceBlob(artifact) })]);
+    } else if (artifact.rawBytes instanceof Uint8Array) throw new Error("Byte-preserving binary clipboard access is unavailable; use Download Raw.");
+    else if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(rawSourceText(artifact));
+    else throw new Error("Clipboard access is unavailable in this browser.");
+    state.rawSourceCacheStatus = "Copied reconstructed raw payload without formatting changes.";
+  } catch (error) { state.rawSourceCacheStatus = `Unable to copy raw payload. ${error?.message || ""}`.trim(); }
+  render();
+}
+
+function downloadRawSourceCacheArtifact() {
+  const artifact = state.rawSourceCacheArtifact;
+  const blob = rawSourceBlob(artifact);
+  if (!blob) return;
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${state.rawSourceCacheEventKey}-${artifact.manifest?.sourceId || "source"}`;
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
 
 async function loadCachedScoutingData(eventKey, api) {
@@ -8489,6 +8594,27 @@ function renderAccessManagement() {
   if (!isAdmin()) return "";
   return `<article class="card access-management-card"><div class="section-heading"><div><h2>User Access</h2><p class="muted">Only allowlisted Google accounts can access shared scouting data.</p></div><button type="button" id="refreshAllowlistButton">Refresh</button></div><div class="admin-actions admin-field-row"><input id="allowlistEmailInput" class="admin-input" type="email" placeholder="person@example.org" value="${escapeAttribute(state.allowlistEmailDraft)}" aria-label="Email address" /><select id="allowlistRoleSelect" aria-label="Access role"><option value="member" ${state.allowlistRoleDraft === "member" ? "selected" : ""}>Regular user</option><option value="admin" ${state.allowlistRoleDraft === "admin" ? "selected" : ""}>Administrator</option></select><button type="button" id="saveAllowlistButton">Add / Update</button></div>${state.allowlistStatus ? `<div class="issue-row">${escapeHtml(state.allowlistStatus)}</div>` : ""}<div class="data-source-list">${state.allowlistEntries.length ? state.allowlistEntries.map((entry) => `<div class="data-source-row"><div><strong>${escapeHtml(entry.email || entry.id)}</strong><span class="muted">${entry.role === "admin" ? "Administrator" : "Regular user"}</span></div><button type="button" class="removeAllowlistButton" data-email="${escapeAttribute(entry.email || entry.id)}">Remove</button></div>`).join("") : `<p class="muted">No allowlist entries loaded yet.</p>`}</div></article>`;
 }
+function renderRawSourceCacheViewer() {
+  if (!isAdmin()) return "";
+  const artifact = state.rawSourceCacheArtifact;
+  const manifest = artifact?.manifest || null;
+  const events = state.sharedCachedEvents;
+  const metadata = manifest ? [
+    ["Provider / source", manifest.sourceId], ["Source URL", manifest.sourceUrl || "Not recorded"], ["Retrieved", manifest.fetchedAt || "Not recorded"],
+    ["Content type", manifest.contentType || "Not recorded"], ["HTTP status", manifest.status ?? "Not recorded"], ["Fingerprint", manifest.fingerprint || "Not recorded"],
+    ["Size", `${manifest.byteLength ?? "Unknown"} bytes`], ["Chunks", manifest.chunkCount ?? "Unknown"],
+  ] : [];
+  return `<article class="card raw-source-cache-viewer">
+    <div class="section-heading"><div><h2>Raw Source Cache</h2><p class="muted">Administrator debugging view. Rendering never changes the persisted payload.</p></div></div>
+    <div class="admin-form-grid">
+      <label>Cached Event<select id="rawSourceCacheEventSelect" aria-label="Cached event for raw source viewer" ${state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a shared cached event</option>${events.map((event) => `<option value="${escapeAttribute(event.key)}" ${event.key === state.rawSourceCacheEventKey ? "selected" : ""}>${escapeHtml(`${event.key} | ${event.name}`)}</option>`).join("")}</select></label>
+      <label>Source Artifact<select id="rawSourceCacheSourceSelect" aria-label="Cached source artifact" ${!state.rawSourceCacheEventKey || state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a source artifact</option>${state.rawSourceCacheSources.map((source) => `<option value="${escapeAttribute(source.sourceId)}" ${source.sourceId === state.rawSourceCacheSourceId ? "selected" : ""}>${escapeHtml(source.sourceId)}</option>`).join("")}</select></label>
+      ${state.rawSourceCacheStatus ? `<div class="issue-row ${artifact ? "" : state.rawSourceCacheSourceId ? "danger" : ""}">${escapeHtml(state.rawSourceCacheStatus)}</div>` : ""}
+      ${metadata.length ? `<div class="attachment-metadata-grid">${metadata.map(([label, value]) => `<div><strong>${escapeHtml(label)}</strong><span class="muted">${escapeHtml(String(value))}</span></div>`).join("")}</div>` : ""}
+      ${artifact ? `<div class="admin-actions"><button type="button" id="copyRawSourceCacheButton">Copy Raw</button><button type="button" id="downloadRawSourceCacheButton">Download Raw</button></div><label>Readable Preview<textarea id="rawSourceCachePreview" class="admin-textarea" readonly spellcheck="false">${escapeHtml(rawSourceDisplayText(artifact))}</textarea></label>` : ""}
+    </div>
+  </article>`;
+}
 function renderAdmin() {
   const event = currentEvent();
   const workspace = currentEventWorkspace();
@@ -8674,6 +8800,7 @@ function renderAdmin() {
           </div>
         </article>
       </div>
+      ${renderRawSourceCacheViewer()}
       <div class="grid cols-2">
         <article class="card">
           <h2>Schema Diagnostics</h2>
@@ -9621,6 +9748,10 @@ function bindViewEvents() {
     event.preventDefault();
     await applyRecentAdminEventSelection(event.target.value);
   });
+  document.querySelector("#rawSourceCacheEventSelect")?.addEventListener("change", (event) => { void selectRawSourceCacheEvent(event.target.value); });
+  document.querySelector("#rawSourceCacheSourceSelect")?.addEventListener("change", (event) => { void selectRawSourceCacheArtifact(event.target.value); });
+  document.querySelector("#copyRawSourceCacheButton")?.addEventListener("click", () => { void copyRawSourceCacheArtifact(); });
+  document.querySelector("#downloadRawSourceCacheButton")?.addEventListener("click", downloadRawSourceCacheArtifact);
   document.querySelector("#adminEventCodeInput")?.addEventListener("input", (event) => {
     state.adminEventCodeDraft = normalizeText(event.target.value).toLowerCase();
   });

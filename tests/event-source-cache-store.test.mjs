@@ -73,6 +73,22 @@ const catalog = await catalogStore.listCachedEvents();
 assert.deepEqual(JSON.parse(JSON.stringify(catalog)), { fromCache: true, events: [{ key: "2025chcmp", season: 2025, name: "Championship", seasonLabel: "Reefscape" }] });
 console.log("PASS lists shared cached events from the persistent Firestore browser cache");
 
+const sourceCatalogStore = createEventSourceCacheStore({
+  db: {},
+  firestore: {
+    collection: (...path) => ({ path }), doc: (...path) => ({ path }), setDoc: async () => {}, writeBatch: () => ({}), serverTimestamp: () => "server-time",
+    getDocs: async (reference) => ({ metadata: { fromCache: false }, docs: [
+      { data: () => ({ sourceId: "tba-event", activeVersion: "version-a" }) },
+      { data: () => ({ sourceId: "scouting-data", activeVersion: "version-b" }) },
+    ] }),
+  },
+});
+assert.deepEqual(JSON.parse(JSON.stringify(await sourceCatalogStore.listEventSourceCacheSources({ eventKey: "2025CHCMP" }))), {
+  fromCache: false,
+  sources: [{ sourceId: "scouting-data" }, { sourceId: "tba-event" }],
+});
+console.log("PASS lists cached source artifacts for an event without reading payload chunks");
+
 const offlineCatalogStore = createEventSourceCacheStore({
   db: {},
   firestore: {
