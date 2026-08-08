@@ -4191,7 +4191,23 @@ async function openSharedCachedEvent(eventKey, options = {}) {
   state.eventLookupPending = true;
   state.eventLookupResult = { kind: "info", message: `Opening ${cachedEvent.key} from the shared cache...` };
   render();
+  let liveRefreshWarning = "";
   try {
+    if (options.refreshStale !== false && state.tbaAuthKey && cachedEventLoader.cacheFreshness) {
+      try {
+        const cachedTbaEvent = await api.loadEventSourceCache({ eventKey: cachedEvent.key, sourceId: "tba-event" });
+        if (cachedEventLoader.cacheFreshness(cachedTbaEvent?.manifest) === "stale") {
+          const refreshed = await loadArbitraryEventCode(cachedEvent.key, {
+            activeView: options.activeView || state.activeView,
+            allowDuplicate: true,
+          });
+          if (refreshed) return true;
+          liveRefreshWarning = state.eventLookupResult?.message || `Unable to refresh ${cachedEvent.key} from external providers.`;
+        }
+      } catch (error) {
+        liveRefreshWarning = error?.message || `Unable to check the cached ${cachedEvent.key} freshness.`;
+      }
+    }
     const result = await cachedEventLoader.rebuildCachedEvent({
       event: cachedEvent,
       loadSource: (sourceId) => api.loadEventSourceCache({ eventKey: cachedEvent.key, sourceId }),
@@ -4212,7 +4228,7 @@ async function openSharedCachedEvent(eventKey, options = {}) {
     await loadCachedScoutingData(registeredEvent.key, api);
     state.eventLookupResult = {
       kind: result.warnings.length || result.cacheFreshness === "stale" ? "warn" : "success",
-      message: `${registeredEvent.key} opened from the shared Firestore cache (${result.cacheFreshness}).${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`,
+      message: `${registeredEvent.key} opened from the shared Firestore cache (${result.cacheFreshness}).${liveRefreshWarning ? ` Live refresh failed: ${liveRefreshWarning}` : ""}${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`,
     };
     render();
     return true;
@@ -4549,7 +4565,7 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     render();
     return false;
   }
-  if (state.eventLookupPending && state.adminEventCodeDraft === normalizedEventCode) return false;
+  if (!options.allowDuplicate && state.eventLookupPending && state.adminEventCodeDraft === normalizedEventCode) return false;
   state.eventLookupPending = true;
   state.eventLookupResult = { kind: "info", message: `Loading ${normalizedEventCode} from external providers...` };
   render();
