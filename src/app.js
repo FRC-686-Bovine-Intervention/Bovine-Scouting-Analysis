@@ -6567,7 +6567,6 @@ function render() {
   app.innerHTML = `
     ${renderDeploymentBanner()}
     <div class="app-shell ${state.menuExpanded ? "menu-expanded" : "menu-collapsed"}">
-      ${renderDeploymentBanner()}
       <aside class="sidebar">
         <div class="brand-row">
           <div>
