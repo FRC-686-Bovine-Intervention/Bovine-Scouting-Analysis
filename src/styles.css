@@ -54,6 +54,12 @@ body {
     sans-serif;
 }
 
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
 button,
 input,
 select {
@@ -151,7 +157,8 @@ select {
 }
 
 .login-shell {
-  min-height: 100vh;
+  min-height: 0;
+  flex: 1;
   display: grid;
   place-items: center;
   padding: 24px;
@@ -220,7 +227,8 @@ select {
 }
 
 .app-shell {
-  min-height: 100vh;
+  min-height: 0;
+  flex: 1;
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
 }
@@ -232,7 +240,7 @@ select {
 .sidebar {
   position: sticky;
   top: 0;
-  height: 100vh;
+  height: 100%;
   border-right: 1px solid var(--line);
   background: var(--panel);
   padding: 18px;
