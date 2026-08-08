@@ -1852,7 +1852,12 @@ function clearFrcApiCredentials() {
 async function refreshSharedSeasonMetadata() {
   const api = globalThis.firebaseFrcSeasonMetadataApi;
   if (!api || !globalThis.firebaseCurrentUser) return false;
-  const seasons = [...new Set(globalEventCatalog.map((eventModel) => Number(eventModel?.season)).filter(Boolean))];
+  const knownEvents = [
+    ...globalEventCatalog,
+    ...(Array.isArray(state.sharedCachedEvents) ? state.sharedCachedEvents : []),
+    currentEvent(),
+  ];
+  const seasons = [...new Set(knownEvents.map((eventModel) => Number(eventModel?.season)).filter(Boolean))];
   const results = await Promise.all(seasons.map((season) => api.loadSeasonMetadata(season).catch(() => null)));
   const changed = results.some((metadata) => rememberSeasonMetadata(metadata));
   if (changed) renderSafely();
@@ -1862,7 +1867,12 @@ async function refreshSharedSeasonMetadata() {
 function subscribeSharedSeasonMetadata() {
   const api = globalThis.firebaseFrcSeasonMetadataApi;
   if (!api?.subscribeSeasonMetadata || !globalThis.firebaseCurrentUser) return;
-  [...new Set(globalEventCatalog.map((eventModel) => Number(eventModel?.season)).filter(Boolean))].forEach((season) => {
+  const knownEvents = [
+    ...globalEventCatalog,
+    ...(Array.isArray(state.sharedCachedEvents) ? state.sharedCachedEvents : []),
+    currentEvent(),
+  ];
+  [...new Set(knownEvents.map((eventModel) => Number(eventModel?.season)).filter(Boolean))].forEach((season) => {
     if (seasonMetadataUnsubscribers.has(season)) return;
     seasonMetadataUnsubscribers.set(season, api.subscribeSeasonMetadata(season, (metadata) => {
       if (rememberSeasonMetadata(metadata)) renderSafely();
@@ -10569,6 +10579,8 @@ if (typeof globalThis.addEventListener === "function") {
     render();
     if (user) {
       void refreshSharedCachedEventCatalog({ render: false }).then(async () => {
+        await refreshSharedSeasonMetadata();
+        subscribeSharedSeasonMetadata();
         await restoreSharedCachedActiveEvent();
         startSharedActiveEventSync();
         render();
