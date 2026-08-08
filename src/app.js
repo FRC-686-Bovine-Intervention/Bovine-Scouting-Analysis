@@ -4575,6 +4575,8 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
       statboticsBaseUrl: state.statboticsBaseUrl,
     });
     const registeredEvent = registerEventModel(loadResult.eventModel);
+    await refreshSharedSeasonMetadata();
+    subscribeSharedSeasonMetadata();
     switchActiveEvent(registeredEvent.key, {
       activeView: options.activeView || "adminEventControl",
       render: false,
@@ -8872,6 +8874,7 @@ function renderAdminEventControl() {
           </div>
         </article>
       </div>
+      ${renderRawSourceCacheViewer()}
       <div class="grid cols-2">
         <article class="card">
           <div class="section-heading">
