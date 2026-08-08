@@ -48,7 +48,13 @@ function resolveStatboticsBaseUrl(options = {}) {
   return normalizeText(options.statboticsBaseUrl)
     || normalizeText(globalThis.__STATBOTICS_BASE_URL)
     || normalizeText(globalThis.STATBOTICS_BASE_URL)
-    || "https://api.statbotics.io/v3";
+    || "https://www.statbotics.io/api/v3";
+}
+
+function resolveStatboticsFallbackBaseUrl(options = {}) {
+  return normalizeText(options.statboticsFallbackBaseUrl)
+    || normalizeText(globalThis.__STATBOTICS_FALLBACK_BASE_URL)
+    || "https://statbotics.iterativerefinement.com/v3";
 }
 
 function formatProviderError(provider, error) {
@@ -114,6 +120,32 @@ async function fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode,
       requestUrl: queryUrl,
       fallbackUsed: true,
     };
+  }
+}
+
+async function fetchStatboticsBundle(statboticsBaseUrl, normalizedEventCode, options = {}) {
+  const [event, teamEvents] = await Promise.all([
+    fetchJson(`${statboticsBaseUrl}/event/${normalizedEventCode}`, options),
+    fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode, options),
+  ]);
+  return { event, teamEvents, baseUrl: statboticsBaseUrl };
+}
+
+async function loadStatboticsBundle(primaryBaseUrl, fallbackBaseUrl, normalizedEventCode, options = {}) {
+  try {
+    return { ok: true, value: await fetchStatboticsBundle(primaryBaseUrl, normalizedEventCode, options), fallbackUsed: false };
+  } catch (primaryError) {
+    if (fallbackBaseUrl === primaryBaseUrl) return { ok: false, error: primaryError, baseUrl: primaryBaseUrl };
+    try {
+      return {
+        ok: true,
+        value: await fetchStatboticsBundle(fallbackBaseUrl, normalizedEventCode, options),
+        fallbackUsed: true,
+        primaryError,
+      };
+    } catch (fallbackError) {
+      return { ok: false, error: fallbackError, baseUrl: fallbackBaseUrl, primaryError };
+    }
   }
 }
 
@@ -227,20 +259,27 @@ async function loadEventByCode(eventCode, options = {}) {
   const timestamp = normalizeText(options.timestamp) || new Date().toISOString();
   const tbaBaseUrl = normalizeText(options.tbaBaseUrl) || "https://www.thebluealliance.com/api/v3";
   const statboticsBaseUrl = resolveStatboticsBaseUrl(options);
+  const statboticsFallbackBaseUrl = resolveStatboticsFallbackBaseUrl(options);
   const tbaHeaders = {
     Accept: "application/json",
     "X-TBA-Auth-Key": tbaAuthKey,
   };
 
-  const [tbaEventResult, tbaTeamsResult, tbaMatchesResult, tbaRankingsResult, tbaTeamStatsResult, statboticsEventResult, statboticsTeamEventsResult] = await Promise.all([
+  const [tbaEventResult, tbaTeamsResult, tbaMatchesResult, tbaRankingsResult, tbaTeamStatsResult, statboticsResult] = await Promise.all([
     settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}`, { ...options, headers: tbaHeaders })),
     settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/teams`, { ...options, headers: tbaHeaders })),
     settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/matches`, { ...options, headers: tbaHeaders })),
     settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/rankings`, { ...options, headers: tbaHeaders })),
     settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/oprs`, { ...options, headers: tbaHeaders })),
-    settle(fetchJson(`${statboticsBaseUrl}/event/${normalizedEventCode}`, options)),
-    settle(fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode, options)),
+    loadStatboticsBundle(statboticsBaseUrl, statboticsFallbackBaseUrl, normalizedEventCode, options),
   ]);
+
+  const statboticsEventResult = statboticsResult.ok
+    ? { ok: true, value: statboticsResult.value.event }
+    : { ok: false, error: statboticsResult.error };
+  const statboticsTeamEventsResult = statboticsResult.ok
+    ? { ok: true, value: statboticsResult.value.teamEvents }
+    : { ok: false, error: statboticsResult.error };
 
   if (!tbaEventResult.ok) throw new Error(formatProviderError("The Blue Alliance event lookup failed", tbaEventResult.error));
   if (!tbaTeamsResult.ok) throw new Error(formatProviderError("The Blue Alliance team lookup failed", tbaTeamsResult.error));
@@ -283,11 +322,14 @@ async function loadEventByCode(eventCode, options = {}) {
     const statboticsTeamEventsNote = statboticsTeamEventsResult.value?.fallbackUsed
       ? " Loaded team-event rows through the query-form team_events endpoint because the legacy event route returned 404."
       : "";
+    const statboticsHostNote = statboticsResult.fallbackUsed
+      ? ` Primary Statbotics site failed; loaded from the secondary fallback ${statboticsResult.value.baseUrl}.`
+      : ` Loaded from the primary Statbotics site ${statboticsResult.value.baseUrl}.`;
     sourceStates.statbotics = buildReadySourceState("statbotics", eventModel, timestamp, {
-      notes: `Loaded from the Statbotics live API.${statboticsTeamEventsNote}`,
+      notes: `${statboticsHostNote}${statboticsTeamEventsNote}`,
     });
   } else {
-    const statboticsError = !statboticsEventResult.ok ? statboticsEventResult.error : statboticsTeamEventsResult.error;
+    const statboticsError = statboticsResult.error || (!statboticsEventResult.ok ? statboticsEventResult.error : statboticsTeamEventsResult.error);
     const message = formatProviderError("Statbotics", statboticsError);
     warnings.push(message);
     sourceStates.statbotics = buildFailedSourceState("statbotics", timestamp, {

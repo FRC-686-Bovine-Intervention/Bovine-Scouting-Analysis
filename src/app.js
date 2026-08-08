@@ -271,7 +271,7 @@ const defaultColumnSortDirection = "desc";
 const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
 const maskedTbaAuthKeyValue = "............";
 const firstSeasonAttributionUrl = "https://frc-events.firstinspires.org/services/api";
-const defaultStatboticsBaseUrl = "https://api-statbotics.iterativerefinement.com/v3";
+const defaultStatboticsBaseUrl = "https://www.statbotics.io/api/v3";
 
 function readBootstrapStoredJson(key, fallback) {
   try {
@@ -8837,7 +8837,7 @@ function renderAdminEventControl() {
                 />
                 <button type="button" id="saveStatboticsBaseUrlButton" ${state.statboticsBaseUrlDirty ? "" : "disabled"}>Save</button>
               </div>
-              <span class="muted">Using a temporary default mirror right now. The original official Statbotics API is <code>https://api.statbotics.io/v3</code>.</span>
+              <span class="muted">Uses the official Statbotics site first, with <code>https://statbotics.iterativerefinement.com/v3</code> as a fallback if the primary site fails.</span>
             </label>
             <div class="admin-actions">
               <button type="button" id="clearCurrentEventScoutingDataButton">Clear Saved Scouting Data</button>
