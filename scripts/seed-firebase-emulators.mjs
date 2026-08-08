@@ -63,8 +63,19 @@ await writeDocument(`users/${authResponse.localId}`, { role: "admin", email });
 await writeDocument(`allowlist/${encodeURIComponent(email)}`, { role: "admin", email });
 await writeDocument("events/2026local", { key: "2026local", season: 2026, name: "Local Emulator Event", seasonLabel: "2026 Local", workspace: { source: "emulator-seed" }, cachedAt: timestamp });
 await writeSourceArtifact("2026local", "tba-event", { key: "2026local", year: 2026, name: "Local Emulator Event", short_name: "Local Emulator Event" });
-await writeSourceArtifact("2026local", "tba-teams", [{ key: "frc9999", team_number: 9999, nickname: "Local Team" }]);
-await writeSourceArtifact("2026local", "tba-matches", []);
+await writeSourceArtifact("2026local", "tba-teams", [
+  { key: "frc9999", team_number: 9999, nickname: "Local Team" },
+  { key: "frc686", team_number: 686, nickname: "Bovine" },
+  { key: "frc1719", team_number: 1719, nickname: "Bovine Partner" },
+  { key: "frc346", team_number: 346, nickname: "Local Blue 1" },
+  { key: "frc3939", team_number: 3939, nickname: "Local Blue 2" },
+  { key: "frc9998", team_number: 9998, nickname: "Local Blue 3" },
+]);
+await writeSourceArtifact("2026local", "tba-matches", [{
+  comp_level: "qm", match_number: 1, set_number: 1,
+  alliances: { red: { team_keys: ["frc9999", "frc686", "frc1719"], score: 0 }, blue: { team_keys: ["frc346", "frc3939", "frc9998"], score: 0 } },
+  winning_alliance: "",
+}]);
 await writeSourceArtifact("2026local", "tba-rankings", {});
 await writeSourceArtifact("2026local", "tba-oprs", {});
 await writeSourceArtifact("2026local", "statbotics-event", { event: "2026local", year: 2026, name: "Local Emulator Event" });
