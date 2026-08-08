@@ -6619,7 +6619,7 @@ function renderNoEventLoaded() {
       <section class="login-panel">
         <div class="brand-row">
           <div>
-            <p class="eyebrow">FRC Event Strategy</p>
+            <p class="eyebrow">Bovine Scouting Analysis</p>
             <h1>No event loaded</h1>
           </div>
           ${renderThemeToggle()}
