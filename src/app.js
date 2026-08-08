@@ -387,6 +387,7 @@ const state = {
   frcApiAuthorizationKey: "",
   frcApiUsernameDraft: "",
   frcApiAuthorizationKeyDraft: "",
+  frcApiCredentialsValidation: { configured: false, valid: false, status: "missing" },
   frcApiCredentialsDirty: false,
   frcApiCredentialsSavePending: false,
   seasonMetadata: {},
@@ -1717,12 +1718,22 @@ function restoreTbaAuthKeyDraftIfNeeded() {
   if (input) input.value = visibleTbaAuthKeyValue();
 }
 
-function tbaAuthKeyValidationLabel(validation = state.tbaAuthKeyValidation) {
-  if (validation.status === "checking") return "Checking configured key…";
-  if (validation.status === "valid") return "Configured key is valid.";
-  if (validation.status === "invalid") return "Configured key is invalid.";
-  if (validation.status === "unverified") return "Key is configured, but its validity could not be verified.";
-  return "No TBA auth key is configured.";
+function authFailureMessage(provider, validation) {
+  if (validation?.status === "invalid") return `${provider} authentication failed: credentials are invalid.`;
+  if (validation?.status === "missing") return `${provider} authentication is not configured.`;
+  return "";
+}
+
+function markTbaAuthFailure(error) {
+  if (/The Blue Alliance.*(?:401|403|auth)/i.test(String(error?.message || error))) {
+    state.tbaAuthKeyValidation = { configured: Boolean(state.tbaAuthKey), valid: false, status: "invalid" };
+  }
+}
+
+function markFrcApiAuthFailure(error) {
+  if (/FIRST API.*(?:401|403|auth|invalid)/i.test(String(error?.message || error))) {
+    state.frcApiCredentialsValidation = { configured: true, valid: false, status: "invalid" };
+  }
 }
 
 function clearTbaAuthKeyConfiguration() {
@@ -1802,6 +1813,7 @@ function clearFrcApiCredentials() {
   state.frcApiAuthorizationKey = "";
   state.frcApiUsernameDraft = "";
   state.frcApiAuthorizationKeyDraft = "";
+  state.frcApiCredentialsValidation = { configured: false, valid: false, status: "missing" };
   state.frcApiCredentialsDirty = false;
   state.frcApiCredentialsSavePending = false;
 }
@@ -1853,6 +1865,9 @@ async function refreshFrcApiCredentials() {
     state.frcApiAuthorizationKey = credentials.authorizationKey;
     state.frcApiUsernameDraft = credentials.username;
     state.frcApiAuthorizationKeyDraft = credentials.authorizationKey;
+    state.frcApiCredentialsValidation = credentials.username && credentials.authorizationKey
+      ? { configured: true, valid: null, status: "unverified" }
+      : { configured: false, valid: false, status: "missing" };
     state.frcApiCredentialsDirty = false;
     renderSafely();
     return true;
@@ -1874,6 +1889,7 @@ async function saveFrcApiCredentials() {
   try {
     const draftCredentials = { username: state.frcApiUsernameDraft, authorizationKey: state.frcApiAuthorizationKeyDraft };
     const validation = await api.validateCredentials(draftCredentials, Number(currentEvent()?.season || 2020));
+    state.frcApiCredentialsValidation = validation;
     if (validation.configured && validation.valid !== true) {
       throw new Error(validation.status === "invalid" ? "FIRST API credentials were rejected." : "FIRST API credentials could not be verified.");
     }
@@ -1883,6 +1899,9 @@ async function saveFrcApiCredentials() {
     state.frcApiCredentialsDirty = false;
     state.eventLookupResult = { kind: "success", message: credentials.username && credentials.authorizationKey ? "Saved FIRST API credentials." : "Removed FIRST API credentials." };
   } catch {
+    if (state.frcApiCredentialsValidation.status !== "invalid") {
+      state.frcApiCredentialsValidation = { configured: Boolean(state.frcApiUsernameDraft && state.frcApiAuthorizationKeyDraft), valid: null, status: "unverified" };
+    }
     state.eventLookupResult = { kind: "error", message: "Unable to save FIRST API credentials." };
   } finally {
     state.frcApiCredentialsSavePending = false;
@@ -2044,16 +2063,19 @@ function currentDataSources() {
     const sourceState = workspace.sources?.[definition.sourceId] || {};
     const policy = defaultRefreshPolicyForSource({ kind: "external", sourceId: definition.sourceId });
     const dataSourceNote = (event.dataSources || []).find((source) => String(source.name || "").includes(definition.label)) || {};
+    const authFailure = definition.sourceId === "tba"
+      ? authFailureMessage("TBA", state.tbaAuthKeyValidation)
+      : "";
     return {
       sourceId: definition.sourceId,
       name: definition.label,
-      status: visibleStatusForSource(
+      status: authFailure ? "error" : visibleStatusForSource(
         { ...sourceState, status: sourceState.status || dataSourceNote.status || "ready" },
         policy,
         now,
       ),
       freshness: freshnessForSource(sourceState, policy, now),
-      notes: sourceState.error || sourceState.provenance?.notes || dataSourceNote.notes || "",
+      notes: authFailure || sourceState.error || sourceState.provenance?.notes || dataSourceNote.notes || "",
       kind: "external",
       detectedLabel: "",
       nextPollAt: sourceState.nextPollAt ? formatTimeOnly(sourceState.nextPollAt) : "Pending",
@@ -2068,14 +2090,15 @@ function currentDataSources() {
     { label: "Teams", value: importedTeamCount() },
   ].filter((stat) => stat.value > 0);
   const seasonMetadata = state.seasonMetadata[String(event.season)] || null;
+  const firstAuthFailure = authFailureMessage("FIRST API", state.frcApiCredentialsValidation);
   const firstSource = {
     sourceId: "first",
     name: "FIRST",
-    status: seasonMetadata?.gameName ? "ready" : "stale",
+    status: firstAuthFailure ? "error" : seasonMetadata?.gameName ? "ready" : "stale",
     freshness: seasonMetadata?.gameName ? "fresh" : "unknown",
-    notes: seasonMetadata?.gameName
+    notes: firstAuthFailure || (seasonMetadata?.gameName
       ? `Official season title: ${globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel?.(seasonMetadata.gameName) || seasonMetadata.gameName}. Event Data provided by FIRST.`
-      : "Official season title has not been cached yet. It refreshes when an administrator loads a valid event code.",
+      : "Official season title has not been cached yet."),
     kind: "first",
     detectedLabel: "",
     nextPollAt: seasonMetadata?.fetchedAt ? `Updated ${formatTimestamp(seasonMetadata.fetchedAt)}` : "Refresh: event load",
@@ -4531,8 +4554,10 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
           username: state.frcApiUsername,
           authorizationKey: state.frcApiAuthorizationKey,
         });
+        state.frcApiCredentialsValidation = { configured: true, valid: true, status: "valid" };
         rememberSeasonMetadata(metadata);
       } catch (error) {
+        markFrcApiAuthFailure(error);
         seasonTitleWarning = error?.message || "Unable to refresh the official FIRST season title.";
       }
     }
@@ -4561,6 +4586,8 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     render();
     return true;
   } catch (error) {
+    markTbaAuthFailure(error);
+    markFrcApiAuthFailure(error);
     state.eventLookupResult = {
       kind: "error",
       message: error?.message || "Unable to load that event code right now.",
@@ -8745,20 +8772,18 @@ function renderAdminEventControl() {
                 />
                 <button type="button" id="saveTbaAuthKeyButton" ${state.tbaAuthKeyDirty && !state.tbaAuthKeySavePending ? "" : "disabled"}>${state.tbaAuthKeySavePending ? "Saving…" : "Save"}</button>
                 </div>
-                <span class="muted" id="tbaAuthKeyValidationStatus">${escapeHtml(tbaAuthKeyValidationLabel())}</span>
               </label>
-              <label>
-                FIRST API Username
-                <input id="adminFrcApiUsernameInput" class="admin-input" type="text" value="${escapeAttribute(state.frcApiUsernameDraft)}" placeholder="FRC Events API username" aria-label="FIRST API username" autocomplete="off" autocapitalize="off" spellcheck="false" />
-              </label>
-              <label>
-                FIRST API Token
-                <div class="admin-actions admin-field-row">
+              <div class="admin-credentials-row">
+                <label>
+                  FIRST API Username
+                  <input id="adminFrcApiUsernameInput" class="admin-input" type="text" value="${escapeAttribute(state.frcApiUsernameDraft)}" placeholder="FRC Events API username" aria-label="FIRST API username" autocomplete="off" autocapitalize="off" spellcheck="false" />
+                </label>
+                <label>
+                  FIRST API Token
                   <input id="adminFrcApiAuthorizationKeyInput" class="admin-input" type="password" value="${escapeAttribute(state.frcApiAuthorizationKeyDraft)}" placeholder="FRC Events API token" aria-label="FIRST API token" autocomplete="off" autocapitalize="off" spellcheck="false" />
-                  <button type="button" id="saveFrcApiCredentialsButton" ${state.frcApiCredentialsDirty && !state.frcApiCredentialsSavePending ? "" : "disabled"}>${state.frcApiCredentialsSavePending ? "Saving…" : "Save"}</button>
-                </div>
-                <span class="muted">The official game title refreshes automatically when you load a valid event code.</span>
-              </label>
+                </label>
+                <button type="button" id="saveFrcApiCredentialsButton" ${state.frcApiCredentialsDirty && !state.frcApiCredentialsSavePending ? "" : "disabled"}>${state.frcApiCredentialsSavePending ? "Saving…" : "Save"}</button>
+              </div>
             <div>
               <div class="field-label">Statbotics API Sources</div>
               <ul class="source-list">

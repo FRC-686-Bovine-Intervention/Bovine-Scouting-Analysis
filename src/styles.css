@@ -461,6 +461,13 @@ select {
   min-width: 0;
 }
 
+.admin-credentials-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
 .checkbox-row {
   display: flex;
   align-items: center;
@@ -2124,6 +2131,10 @@ button.pill {
   }
 
   .data-source-row {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-credentials-row {
     grid-template-columns: 1fr;
   }
 
