@@ -8,7 +8,9 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $pidFile = Join-Path $repoRoot ".localhost-server.$Port.pid"
+$emulatorPidFile = Join-Path $repoRoot ".firebase-emulators.pid"
 $pythonCommand = Get-Command python -ErrorAction Stop
+$firebaseCommand = Get-Command firebase -ErrorAction Stop
 
 if (Test-Path -LiteralPath $pidFile) {
   $existingPid = Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -30,4 +32,15 @@ $process = Start-Process `
   -PassThru
 
 Set-Content -LiteralPath $pidFile -Value $process.Id
+if (-not (Test-Path -LiteralPath $emulatorPidFile)) {
+  $emulatorProcess = Start-Process -FilePath $firebaseCommand.Source -ArgumentList "emulators", "start", "--only", "auth,firestore", "--project", "bovine-scouting-analysis" -WorkingDirectory $repoRoot -WindowStyle Hidden -PassThru
+  Set-Content -LiteralPath $emulatorPidFile -Value $emulatorProcess.Id
+  $seeded = $false
+  for ($attempt = 0; $attempt -lt 20 -and -not $seeded; $attempt++) {
+    Start-Sleep -Milliseconds 500
+    & node (Join-Path $repoRoot "scripts\seed-firebase-emulators.mjs") 2>$null
+    $seeded = ($LASTEXITCODE -eq 0)
+  }
+  if (-not $seeded) { throw "Firebase emulators did not become ready. Localhost startup stopped before allowing app use." }
+}
 Write-Output "Started localhost server for $repoRoot at http://$HostAddress`:$Port/index.html (PID $($process.Id))."

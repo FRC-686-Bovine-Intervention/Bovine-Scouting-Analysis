@@ -6675,6 +6675,7 @@ function renderSafely() {
 }
 
 function renderLogin() {
+  const localFirebase = globalThis.firebaseAuthApi?.isEmulator;
   app.innerHTML = `
     ${renderDeploymentBanner()}
     <main class="login-shell">
@@ -6686,7 +6687,13 @@ function renderLogin() {
           ${renderThemeToggle()}
         </div>
         <div class="login-actions">
-          <button class="primary" id="firebaseLoginButton" type="button">Sign in with Google</button>
+          ${localFirebase ? `
+            <label for="firebaseEmailInput">Local admin email</label>
+            <input id="firebaseEmailInput" type="email" value="admin@example.test" autocomplete="username">
+            <label for="firebasePasswordInput">Local admin password</label>
+            <input id="firebasePasswordInput" type="password" value="local-admin-password" autocomplete="current-password">
+            <button class="primary" id="firebaseLoginButton" type="button">Sign in to Firebase Emulator</button>
+          ` : '<button class="primary" id="firebaseLoginButton" type="button">Sign in with Google</button>'}
           <p class="muted" id="firebaseAuthStatus" role="status"></p>
         </div>
       </section>
@@ -6703,12 +6710,15 @@ function renderLogin() {
       return;
     }
     button.disabled = true;
-    if (status) status.textContent = "Opening Google sign-in…";
+    if (status) status.textContent = localFirebase ? "Signing in to the local emulator…" : "Opening Google sign-in…";
     try {
-      await authApi.signIn();
+      await authApi.signIn(localFirebase ? {
+        email: document.querySelector("#firebaseEmailInput")?.value,
+        password: document.querySelector("#firebasePasswordInput")?.value,
+      } : undefined);
     } catch (error) {
       console.error("Firebase sign-in failed", error);
-      if (status) status.textContent = error?.message || "Unable to sign in with Google.";
+      if (status) status.textContent = error?.message || (localFirebase ? "Unable to sign in to the Firebase Emulator." : "Unable to sign in with Google.");
       button.disabled = false;
     }
   });

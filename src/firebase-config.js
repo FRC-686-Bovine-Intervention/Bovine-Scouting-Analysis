@@ -7,8 +7,10 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.0/fireba
 import {
   getAuth,
   GoogleAuthProvider,
+  connectAuthEmulator,
 } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-auth.js";
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-firestore.js";
+import { connectFirestoreEmulator, getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-firestore.js";
+import { assertFirebaseConfiguration, resolveFirebaseEnvironment } from "./firebase-environment.mjs";
 
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
@@ -23,6 +25,8 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
+assertFirebaseConfiguration(firebaseConfig);
+const firebaseEnvironment = resolveFirebaseEnvironment(globalThis.location?.hostname, { auth: { host: "127.0.0.1", port: 9099 }, firestore: { host: "127.0.0.1", port: 8080 } });
 const app = initializeApp(firebaseConfig);
 // const analytics = getAnalytics(app);
 let db;
@@ -38,10 +42,17 @@ try {
   console.warn("Firestore persistent cache is unavailable; using memory-only cache.", error);
 }
 
+const auth = getAuth(app);
+if (firebaseEnvironment.mode === "emulator") {
+  connectAuthEmulator(auth, `http://${firebaseEnvironment.auth.host}:${firebaseEnvironment.auth.port}`, { disableWarnings: true });
+  connectFirestoreEmulator(db, firebaseEnvironment.firestore.host, firebaseEnvironment.firestore.port);
+}
+
 globalThis.firebaseServices = {
   app,
-  auth: getAuth(app),
+  auth,
   db,
   googleProvider: new GoogleAuthProvider(),
+  environment: firebaseEnvironment,
   persistenceStatus,
 };
