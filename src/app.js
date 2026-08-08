@@ -4549,6 +4549,7 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     render();
     return false;
   }
+  if (state.eventLookupPending && state.adminEventCodeDraft === normalizedEventCode) return false;
   state.eventLookupPending = true;
   state.eventLookupResult = { kind: "info", message: `Loading ${normalizedEventCode} from external providers...` };
   render();

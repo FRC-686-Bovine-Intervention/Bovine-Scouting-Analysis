@@ -17,6 +17,7 @@ const tbaEvent = { key: uncachedEventKey, year: 2026, name: "Mock Uncached Event
 const tbaTeams = [{ key: "frc9999", team_number: 9999, nickname: "Mock Team" }];
 const statboticsEvent = { event: uncachedEventKey, year: 2026, name: "Mock Uncached Event" };
 const statboticsTeamEvents = [];
+const requestCounts = { tbaEvent: 0, statboticsEvent: 0 };
 
 const browser = await chromium.launch({ headless: true, executablePath: fs.existsSync(executablePath) ? executablePath : undefined });
 const context = await browser.newContext();
@@ -28,14 +29,14 @@ await page.route("**/*", async (route) => {
   let body;
   if (url.hostname === "www.thebluealliance.com") {
     if (url.pathname.endsWith("/status")) body = { current_datetime: "2026-08-08T00:00:00Z" };
-    else if (url.pathname.endsWith(`/event/${uncachedEventKey}`)) body = tbaEvent;
+    else if (url.pathname.endsWith(`/event/${uncachedEventKey}`)) { requestCounts.tbaEvent += 1; body = tbaEvent; }
     else if (url.pathname.endsWith("/teams")) body = tbaTeams;
     else if (url.pathname.endsWith("/matches")) body = [];
     else if (url.pathname.endsWith("/rankings")) body = {};
     else if (url.pathname.endsWith("/oprs")) body = {};
   } else if (url.hostname === "api.statbotics.io" || url.hostname === "api-statbotics.iterativerefinement.com") {
     if (url.pathname.includes("/team_events/")) body = statboticsTeamEvents;
-    else if (url.pathname.endsWith(`/event/${uncachedEventKey}`)) body = statboticsEvent;
+    else if (url.pathname.endsWith(`/event/${uncachedEventKey}`)) { requestCounts.statboticsEvent += 1; body = statboticsEvent; }
   }
   if (body === undefined) return route.continue();
   await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
@@ -95,10 +96,14 @@ try {
   await page.waitForFunction(() => window.__scoutingAppState?.tbaAuthKeySavePending === false, { timeout: 10000 });
   const localToUncached = await switchByCode(uncachedEventKey);
   const uncachedToCached = await switchByCode("2026cached");
+  if (requestCounts.tbaEvent !== 1 || requestCounts.statboticsEvent !== 1) {
+    throw new Error(`Duplicate provider loads detected: ${JSON.stringify(requestCounts)}`);
+  }
 
   console.log(JSON.stringify({
     pass: true,
     cutoffMs: 30000,
+    requestCounts,
     transitions: [cachedToLocal, localToCached, localToUncached, uncachedToCached],
   }, null, 2));
 } finally {
