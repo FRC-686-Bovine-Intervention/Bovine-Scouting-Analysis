@@ -219,7 +219,6 @@ const storageKeys = {
   importSourceUrl: "frc-scouting-import-source-url",
   scoutingWindow: "frc-scouting-window",
   recentMatchCount: "frc-scouting-recent-match-count",
-  statboticsBaseUrl: "frc-scouting-statbotics-base-url",
   recentEvents: "frc-scouting-recent-events",
   scoutingProfiles: "frc-scouting-scouting-profiles",
   seasonProfiles: "frc-scouting-season-profiles",
@@ -233,7 +232,6 @@ const globalStorageKeys = new Set([
   storageKeys.theme,
   storageKeys.activeEvent,
   storageKeys.menuExpanded,
-  storageKeys.statboticsBaseUrl,
   storageKeys.recentEvents,
   storageKeys.scoutingProfiles,
   storageKeys.seasonProfiles,
@@ -337,10 +335,7 @@ try {
 } catch {
   // Storage can be unavailable in private or restricted browser contexts.
 }
-const initialStatboticsBaseUrl = normalizeStatboticsBaseUrl(
-  readStoredItem(storageKeys.statboticsBaseUrl)
-  || normalizeText(globalThis.__STATBOTICS_BASE_URL || globalThis.STATBOTICS_BASE_URL),
-);
+const initialStatboticsBaseUrl = defaultStatboticsBaseUrl;
 const initialLegacyDerivedEquationCatalog = normalizeSeasonDerivedEquationCatalog(
   readStoredJson(storageKeys.seasonDerivedEquations, {}),
 );
@@ -398,8 +393,6 @@ const state = {
   frcApiCredentialsSavePending: false,
   seasonMetadata: {},
   statboticsBaseUrl: initialStatboticsBaseUrl,
-  statboticsBaseUrlDraft: initialStatboticsBaseUrl,
-  statboticsBaseUrlDirty: false,
   importResult: null,
   scoutingWindow: readStoredItem(storageKeys.scoutingWindow) || "all",
   recentMatchCount: Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount) || 12)),
@@ -997,26 +990,6 @@ async function resolveLinkedScoutingSource(schemaSource, attachment) {
   const link = parseSchemaLinkArtifactText(linkText);
   if (!link) return null;
   return { ...link, linkPath };
-}
-
-function normalizeStatboticsBaseUrl(value) {
-  const normalized = normalizeText(value).replace(/\/$/, "");
-  if (!normalized || normalized === "https://www.statbotics.io/api/v3" || normalized === "https://statbotics.iterativerefinement.com/v3") {
-    return defaultStatboticsBaseUrl;
-  }
-  return normalized;
-}
-
-function setStatboticsBaseUrl(value, options = {}) {
-  state.statboticsBaseUrl = normalizeStatboticsBaseUrl(value);
-  globalThis.__STATBOTICS_BASE_URL = state.statboticsBaseUrl;
-  if (options.save) {
-    if (state.statboticsBaseUrl === defaultStatboticsBaseUrl) {
-      localStorage.removeItem(storageKeys.statboticsBaseUrl);
-    } else {
-      localStorage.setItem(storageKeys.statboticsBaseUrl, state.statboticsBaseUrl);
-    }
-  }
 }
 
 function buildScoutingSourceFingerprint(text) {
@@ -1935,34 +1908,6 @@ async function saveFrcApiCredentials() {
     state.frcApiCredentialsSavePending = false;
     render();
   }
-  return true;
-}
-
-function updateStatboticsBaseUrlDraft(value) {
-  state.statboticsBaseUrlDraft = normalizeText(value);
-  state.statboticsBaseUrlDirty = true;
-}
-
-function restoreStatboticsBaseUrlDraftIfNeeded() {
-  if (state.statboticsBaseUrlDirty) return;
-  state.statboticsBaseUrlDraft = state.statboticsBaseUrl;
-  const input = document.querySelector("#adminStatboticsBaseUrlInput");
-  if (input) input.value = state.statboticsBaseUrlDraft;
-}
-
-function saveStatboticsBaseUrlDraft() {
-  if (!state.statboticsBaseUrlDirty) return false;
-  setStatboticsBaseUrl(state.statboticsBaseUrlDraft, { save: true });
-  state.statboticsBaseUrlDraft = state.statboticsBaseUrl;
-  state.statboticsBaseUrlDirty = false;
-  state.eventLookupResult = {
-    kind: "success",
-    message: state.statboticsBaseUrl === defaultStatboticsBaseUrl
-      ? `Using the default Statbotics base URL (${defaultStatboticsBaseUrl}).`
-      : `Saved Statbotics base URL ${state.statboticsBaseUrl}.`,
-  };
-  saveState();
-  render();
   return true;
 }
 
@@ -8835,24 +8780,13 @@ function renderAdminEventControl() {
                 </div>
                 <span class="muted">The official game title refreshes automatically when you load a valid event code.</span>
               </label>
-            <label>
-              Statbotics Base URL
-              <div class="admin-actions admin-field-row">
-                <input
-                  id="adminStatboticsBaseUrlInput"
-                  class="admin-input"
-                  type="text"
-                  value="${escapeAttribute(state.statboticsBaseUrlDraft)}"
-                  placeholder="${escapeAttribute(defaultStatboticsBaseUrl)}"
-                  aria-label="Statbotics base URL"
-                  autocomplete="off"
-                  autocapitalize="off"
-                  spellcheck="false"
-                />
-                <button type="button" id="saveStatboticsBaseUrlButton" ${state.statboticsBaseUrlDirty ? "" : "disabled"}>Save</button>
-              </div>
-              <span class="muted">Uses <code>https://api.statbotics.io/v3</code> first, with <code>https://api-statbotics.iterativerefinement.com/v3</code> as a fallback. Team-event data automatically uses the query-form endpoint when the legacy route is unavailable.</span>
-            </label>
+            <div>
+              <div class="field-label">Statbotics API Sources</div>
+              <ul class="source-list">
+                <li><span class="muted">Primary</span> <a href="https://api.statbotics.io/v3" target="_blank" rel="noopener noreferrer"><code>https://api.statbotics.io/v3</code></a></li>
+                <li><span class="muted">Secondary</span> <a href="https://api-statbotics.iterativerefinement.com/v3" target="_blank" rel="noopener noreferrer"><code>https://api-statbotics.iterativerefinement.com/v3</code></a></li>
+              </ul>
+            </div>
             <div class="admin-actions">
               <button type="button" id="clearCurrentEventScoutingDataButton">Clear Saved Scouting Data</button>
             </div>
@@ -9886,16 +9820,6 @@ function bindViewEvents() {
   });
   document.querySelector("#saveFrcApiCredentialsButton")?.addEventListener("click", async () => {
     await saveFrcApiCredentials();
-  });
-  document.querySelector("#adminStatboticsBaseUrlInput")?.addEventListener("input", (event) => {
-    updateStatboticsBaseUrlDraft(event.target.value);
-    document.querySelector("#saveStatboticsBaseUrlButton")?.removeAttribute("disabled");
-  });
-  document.querySelector("#adminStatboticsBaseUrlInput")?.addEventListener("blur", () => {
-    restoreStatboticsBaseUrlDraftIfNeeded();
-  });
-  document.querySelector("#saveStatboticsBaseUrlButton")?.addEventListener("click", () => {
-    saveStatboticsBaseUrlDraft();
   });
   document.querySelector("#chooseLocalScoutingFileButton")?.addEventListener("click", async () => {
     await chooseLocalScoutingAttachmentFile();
