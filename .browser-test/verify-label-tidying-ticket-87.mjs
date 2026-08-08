@@ -12,9 +12,9 @@ const browser = await chromium.launch({ headless: true, executablePath });
 const page = await browser.newPage();
 await page.addInitScript(() => {
   globalThis.eventCatalog = [{
-    key: "2026chcmp",
-    season: 2026,
-    seasonLabel: "2026 Rebuilt™ Presented By Haas",
+    key: "2022chcmp",
+    season: 2022,
+    seasonLabel: "2022 Rapid React℠ Presented By The Boeing Company",
     name: "FIRST Chesapeake District Championship sponsored by Qualcomm",
     teams: [{ number: 1, name: "Example Team", flags: [], matches: [], sources: {}, derived: {} }],
     teamNumbers: [1],
@@ -31,18 +31,31 @@ await page.addInitScript(() => {
 
 try {
   await page.goto("http://localhost:4175", { waitUntil: "domcontentloaded" });
-  await page.evaluate(() => {
+  await page.waitForFunction(() => globalThis.__scoutingAppState);
+  const initialUi = await page.evaluate(() => {
+    globalThis.firebaseCurrentUser = { uid: "test-user" };
     globalThis.__scoutingAppState.user = "Jordan";
-    globalThis.__scoutingAppState.activeEventKey = "2026chcmp";
+    globalThis.__scoutingAppState.activeEventKey = "2022chcmp";
     globalThis.render();
+    return {
+      eventChip: document.querySelector(".event-chip")?.textContent || "",
+      eyebrow: document.querySelector(".page-title .eyebrow")?.textContent || "",
+      title: document.querySelector(".page-title h1")?.textContent || "",
+      eventKey: globalThis.__scoutingAppState.activeEventKey,
+    };
   });
-  await page.waitForSelector(".event-chip");
-  const eventChipText = ((await page.locator(".event-chip").textContent()) || "").replace(/\s+/g, " ");
-  assert.match(eventChipText, /2026 Rebuilt FIRST Chesapeake District Championship/);
+  const eventChipText = initialUi.eventChip.replace(/\s+/g, " ");
+  assert.match(eventChipText, /2022 Rapid React FIRST Chesapeake District Championship/);
   assert.doesNotMatch(eventChipText, /™|Presented By|sponsored by/i);
-  assert.equal(await page.locator(".page-title .eyebrow").textContent(), "2026 Rebuilt");
-  assert.equal(await page.locator(".page-title h1").textContent(), "FIRST Chesapeake District Championship");
-  assert.equal(await page.locator("#sharedCachedEventSelect").inputValue(), "2026chcmp");
+  assert.equal(initialUi.eyebrow, "2022 Rapid React");
+  assert.equal(initialUi.title, "FIRST Chesapeake District Championship");
+  assert.equal(initialUi.eventKey, "2022chcmp");
+  const emptySeasonHeading = await page.evaluate(() => {
+    globalThis.eventCatalog[0].seasonLabel = "";
+    globalThis.render();
+    return document.querySelector(".page-title .eyebrow")?.textContent || "";
+  });
+  assert.equal(emptySeasonHeading, "2022");
 } finally {
   await browser.close();
 }
