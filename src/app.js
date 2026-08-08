@@ -3645,9 +3645,14 @@ function formulaAstPrecedence(ast) {
 function canonicalFormulaCall(ast) {
   const normalizedName = String(ast?.callee || "").trim().toLowerCase();
   const args = Array.isArray(ast?.args) ? ast.args : [];
-  if (normalizedName === "teamaverage") return { name: "average", args };
-  if (normalizedName === "teamsum") return { name: "sum", args };
-  if (normalizedName === "teamcount") return { name: "count", args };
+  const teamAliasMap = {
+    teamaverage: "average",
+    teamsum: "sum",
+    teamcount: "count",
+    teammin: "min",
+    teammax: "max",
+  };
+  if (teamAliasMap[normalizedName]) return { name: teamAliasMap[normalizedName], args };
   if (["groupaverage", "groupsum", "groupcount"].includes(normalizedName) && args.length >= 2 && args[1]?.type === "call") {
     const scopeName = String(args[1].callee || "").trim().toLowerCase();
     const scopedNameMap = {
@@ -9027,6 +9032,11 @@ function formulaAutocompleteCandidates(token) {
     "count",
     "min",
     "max",
+    "teamAverage",
+    "teamSum",
+    "teamCount",
+    "teamMin",
+    "teamMax",
     "matchAverage",
     "matchSum",
     "matchCount",
@@ -9070,11 +9080,11 @@ function builtInFunctionGroups() {
       label: "Common",
       expandedByDefault: true,
       entries: sortEntries([
-        { name: "average(series, filter?)", description: "Average a match-level series over this team's recent matches, optionally filtered." },
-        { name: "count(series, filter?)", description: "Count present nonblank nonzero entries in a match-level series, optionally filtered." },
-        { name: "min(series, filter?)", description: "Return the lowest numeric value in this team's recent match-level series, optionally filtered." },
-        { name: "max(series, filter?)", description: "Return the highest numeric value in this team's recent match-level series, optionally filtered." },
-        { name: "sum(series, filter?)", description: "Sum a match-level series over this team's recent matches, optionally filtered." },
+        { name: "average(series, filter?)", description: "Alias for teamAverage: average a match-level series over this team's recent matches, optionally filtered." },
+        { name: "count(series, filter?)", description: "Alias for teamCount: count present nonblank nonzero entries in a match-level series, optionally filtered." },
+        { name: "min(series, filter?)", description: "Alias for teamMin: return the lowest numeric value in this team's recent match-level series, optionally filtered." },
+        { name: "max(series, filter?)", description: "Alias for teamMax: return the highest numeric value in this team's recent match-level series, optionally filtered." },
+        { name: "sum(series, filter?)", description: "Alias for teamSum: sum a match-level series over this team's recent matches, optionally filtered." },
       ]),
     },
     {
