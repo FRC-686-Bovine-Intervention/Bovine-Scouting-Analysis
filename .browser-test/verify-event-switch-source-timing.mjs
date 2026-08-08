@@ -86,6 +86,7 @@ try {
   await page.waitForSelector("#adminEventCodeInput", { state: "visible", timeout: 10000 });
   await page.waitForFunction(() => window.__scoutingAppState?.sharedCachedEvents?.some((event) => event.key === "2026cached"), { timeout: 10000 });
 
+  if ((await snapshot()).activeEventKey === "2026cached") await switchByCode("2026local");
   const cachedToLocal = await switchByCode("2026cached");
   const localToCached = await switchByCode("2026local");
   await page.fill("#adminTbaAuthKeyInput", "mock-tba-key");

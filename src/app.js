@@ -4516,7 +4516,7 @@ function switchActiveEvent(eventKey, options = {}) {
       runImportPreview();
       return true;
     }
-    renderSafely();
+    if (options.render !== false) renderSafely();
     maybeAutoloadScoutingAttachment();
     recordScoutingPerf("switchActiveEvent.total", startedAt, {
       fromEventKey: previousEventKey,
@@ -4562,8 +4562,10 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     subscribeSharedSeasonMetadata();
     switchActiveEvent(registeredEvent.key, {
       activeView: options.activeView || "adminEventControl",
+      render: false,
       preserveImportDraft: true,
     });
+    applyLoadedExternalSourceState(loadResult, { render: true });
     let seasonTitleWarning = "";
     const seasonMetadataApi = globalThis.firebaseFrcSeasonMetadataApi;
     if (globalThis.firebaseUserRole === "admin" && state.frcApiUsername && state.frcApiAuthorizationKey && seasonMetadataApi) {
@@ -4579,7 +4581,6 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
         seasonTitleWarning = error?.message || "Unable to refresh the official FIRST season title.";
       }
     }
-    applyLoadedExternalSourceState(loadResult, { render: false });
     let sourceCacheWarning = "";
     const sourceCacheApi = globalThis.firebaseEventSourceCacheApi;
     if (globalThis.firebaseUserRole === "admin" && sourceCacheApi && Array.isArray(loadResult.rawSourceArtifacts)) {
