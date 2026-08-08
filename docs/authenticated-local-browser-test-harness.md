@@ -11,7 +11,7 @@ From the repository root in PowerShell:
 node .browser-test/authenticated-local-harness.mjs
 ```
 
-The Firebase CLI requires a Java runtime for the Auth and Firestore emulators. If startup reports that it cannot spawn `java -version`, install Java and make `java.exe` available on `PATH` before retrying.
+The Firebase CLI requires a Java runtime for the Auth and Firestore emulators. The startup script checks `PATH` first and also discovers a JDK under `C:\Program Files\Eclipse Adoptium`. If Java is installed elsewhere, set `JAVA_HOME` and prepend its `bin` directory to `PATH` before retrying.
 
 The startup script serves the checkout at `http://localhost:4173`, starts the Auth emulator on port `9099` and Firestore emulator on port `8080`, then runs `scripts/seed-firebase-emulators.mjs`. The seed creates:
 
@@ -19,7 +19,18 @@ The startup script serves the checkout at `http://localhost:4173`, starts the Au
 - an admin role in `users/{uid}` and `allowlist/admin%40example.test`;
 - the `2026local` event and representative cached provider/scouting data.
 
-To run the pieces manually, start `firebase emulators:start --only auth,firestore --project bovine-scouting-analysis`, run `node scripts/seed-firebase-emulators.mjs`, and serve the repository root on port 4173.
+To run the pieces manually, use this PowerShell flow:
+
+```powershell
+$taskJavaHome = "C:\Program Files\Eclipse Adoptium\jdk-21.0.12.8-hotspot"
+$env:JAVA_HOME = $taskJavaHome
+$env:Path = "$taskJavaHome\bin;$env:Path"
+firebase emulators:start --only auth,firestore --project bovine-scouting-analysis
+```
+
+In a second terminal, run `node scripts/seed-firebase-emulators.mjs` and serve the repository root on port 4173. The seed script is safe to rerun; it signs in if the local admin already exists and refreshes the emulator documents.
+
+If `.firebase-emulators.pid` is stale, remove that PID file and rerun `scripts/start-localhost.ps1`; the script validates the recorded process before reusing it. Do not use this flow against production Firebase projects: the credentials and documents are intentionally local-only.
 
 ## Useful overrides
 
