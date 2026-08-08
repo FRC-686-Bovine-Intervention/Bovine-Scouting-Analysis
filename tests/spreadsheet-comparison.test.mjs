@@ -68,7 +68,7 @@ const browserContext = loadBrowserContext([
   "src/legacy-scouting-schema-seeds.js",
   "src/season-framework.js",
   "src/metric-engine.js",
-  "src/real-event-snapshots.js",
+  "tests/fixtures/real-event-snapshots.js",
   "src/real-event-data.js",
   "src/scouting-source-utils.js",
   "src/scouting-json-schema.js",

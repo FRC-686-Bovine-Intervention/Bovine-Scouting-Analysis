@@ -74,7 +74,7 @@ const context = loadBrowserContext([
   "src/scouting-json-schema.js",
   "src/scouting-json-import.js",
   "src/event-model-builder.js",
-  "src/real-event-snapshots.js",
+    "tests/fixtures/real-event-snapshots.js",
   "src/real-event-data.js",
   "src/import-foundation.js",
   "src/sheet-import-adapters.js",

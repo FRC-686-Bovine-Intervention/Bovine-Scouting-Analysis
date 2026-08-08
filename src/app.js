@@ -328,7 +328,7 @@ const developmentRevision = /^[0-9a-f]{7,40}$/i.test(deploymentRevision)
 
 const storedActiveEventKey = normalizeText(readStoredItem(storageKeys.activeEvent)).toLowerCase();
 const initialEventKey = resolveEventKey(storedActiveEventKey);
-const initialEvent = eventModelByKey(initialEventKey);
+const initialEvent = eventModelByKey(initialEventKey) || emptyEventModel(initialEventKey);
 const initialWorkspace = createEventWorkspace(initialEvent, readStoredJson(storageKeys.eventWorkspace, null, initialEventKey));
 const initialTbaAuthKey = "";
 try {
@@ -357,8 +357,8 @@ const state = {
   activeAnalysisFilterId: "",
   teamDetailMetric: "",
   picklistCompareMetric: "",
-  selectedTeam: initialEvent.teams[0].number,
-  selectedMatch: initialEvent.matches[0].number,
+  selectedTeam: initialEvent.teams[0]?.number || 0,
+  selectedMatch: initialEvent.matches[0]?.number || 0,
   menuExpanded: readStoredItem(storageKeys.menuExpanded) === "true",
   picklists: [],
   sortEquations: [],
@@ -479,6 +479,12 @@ function recordScoutingPerf(label, startedAt, details = {}) {
 function bootstrapApp() {
   const startedAt = perfNow();
   try {
+    if (!eventModelByKey(state.activeEventKey)) {
+      document.documentElement.dataset.theme = state.theme;
+      renderSafely();
+      recordScoutingPerf("bootstrap.emptyCatalog", startedAt, { eventKey: state.activeEventKey });
+      return;
+    }
     const hydrateStartedAt = perfNow();
     hydrateEventState(state.activeEventKey);
     recordScoutingPerf("bootstrap.hydrateEventState", hydrateStartedAt, { eventKey: state.activeEventKey });
@@ -509,7 +515,8 @@ function bootstrapApp() {
 
 function eventModelByKey(key) {
   const eventIndex = globalEventCatalog.findIndex((eventModel) => eventModel.key === key);
-  const resolvedIndex = eventIndex >= 0 ? eventIndex : 0;
+  if (eventIndex < 0) return null;
+  const resolvedIndex = eventIndex;
   const eventModel = globalEventCatalog[resolvedIndex];
   const hydrateEventModel = realEventDataApi.hydrateEventModel || ((value) => value);
   const hydratedEventModel = hydrateEventModel(eventModel);
@@ -520,11 +527,28 @@ function eventModelByKey(key) {
 }
 
 function resolveEventKey(value) {
-  return eventModelByKey(value).key;
+  const normalizedValue = String(value || "").trim().toLowerCase();
+  return eventModelByKey(normalizedValue)?.key || normalizedValue || globalEventCatalog[0]?.key || "";
+}
+
+function emptyEventModel(key = "") {
+  return {
+    key,
+    season: 0,
+    seasonLabel: "",
+    name: "",
+    teams: [],
+    matches: [],
+    matchesComplete: 0,
+    dataSources: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+  };
 }
 
 function currentEvent() {
-  return eventModelByKey(state?.activeEventKey || initialEventKey);
+  return eventModelByKey(state?.activeEventKey || initialEventKey) || emptyEventModel(state?.activeEventKey || initialEventKey);
 }
 
 function normalizeText(value) {
@@ -4087,6 +4111,13 @@ async function openSharedCachedEvent(eventKey, options = {}) {
   }
 }
 
+async function restoreSharedCachedActiveEvent() {
+  const eventKey = normalizeText(state.pendingSharedActiveEventKey || state.activeEventKey);
+  state.pendingSharedActiveEventKey = "";
+  if (!eventKey || globalEventCatalog.some((eventModel) => eventModel?.key === eventKey) || !sharedCachedEventByKey(eventKey)) return false;
+  return openSharedCachedEvent(eventKey, { activeView: state.activeView });
+}
+
 function persistSharedActiveEvent(eventKey) {
   const api = globalThis.firebaseEventStateApi;
   if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin" || !eventKey) return;
@@ -6390,6 +6421,10 @@ function render() {
     renderLogin();
     return;
   }
+  if (!eventModelByKey(state.activeEventKey)) {
+    renderNoEventLoaded();
+    return;
+  }
   if (!canView(state.activeView)) {
     state.activeView = "teams";
     saveState();
@@ -6471,6 +6506,60 @@ function render() {
   `;
 
   bindShellEvents();
+}
+
+function renderNoEventLoaded() {
+  const sharedEvents = state.sharedCachedEvents || [];
+  app.innerHTML = `
+    <main class="login-shell">
+      ${renderDeploymentBanner()}
+      <section class="login-panel">
+        <div class="brand-row">
+          <div>
+            <p class="eyebrow">FRC Event Strategy</p>
+            <h1>No event loaded</h1>
+          </div>
+          ${renderThemeToggle()}
+        </div>
+        <p class="muted">Choose an event previously cached in Firestore, or have an administrator load an event code.</p>
+        <label>
+          Shared cached event
+          <select id="sharedCachedEventSelect" ${sharedEvents.length && !state.eventLookupPending ? "" : "disabled"}>
+            <option value="">${sharedEvents.length ? "Select an event" : "No shared cached events available"}</option>
+            ${sharedEvents.map((event) => `<option value="${escapeAttribute(event.key)}">${escapeHtml(`${event.key} | ${event.season} ${event.name}`)}</option>`).join("")}
+          </select>
+        </label>
+        ${isAdmin() ? `<label>Event Code<input id="adminEventCodeInput" value="${escapeAttribute(state.adminEventCodeDraft)}" placeholder="2026miket" autocomplete="off" /></label>` : ""}
+        ${state.sharedCacheStatus ? `<p class="muted">${escapeHtml(state.sharedCacheStatus)}</p>` : ""}
+        ${state.eventLookupResult ? `<p class="muted">${escapeHtml(state.eventLookupResult.message)}</p>` : ""}
+        <p class="muted">Signed in as ${escapeHtml(state.user)}</p>
+        <button class="action-button" id="logoutButton" type="button">Logout</button>
+      </section>
+    </main>
+  `;
+  bindNoEventScreenEvents();
+}
+
+function bindNoEventScreenEvents() {
+  document.querySelector("#themeToggle")?.addEventListener("click", toggleTheme);
+  document.querySelector("#logoutButton")?.addEventListener("click", async () => {
+    if (globalThis.firebaseAuthApi && globalThis.firebaseCurrentUser) await globalThis.firebaseAuthApi.signOut();
+    state.user = "";
+    saveState();
+    render();
+  });
+  document.querySelector("#sharedCachedEventSelect")?.addEventListener("change", (event) => {
+    const eventKey = normalizeText(event.target.value);
+    if (eventKey) void openSharedCachedEvent(eventKey);
+  });
+  document.querySelector("#adminEventCodeInput")?.addEventListener("change", async (event) => {
+    await applyAdminEventCodeDraft(event.target.value);
+  });
+  document.querySelector("#adminEventCodeInput")?.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    await applyAdminEventCodeDraft(event.target.value);
+  });
 }
 
 function renderSafely() {
@@ -10268,11 +10357,7 @@ if (typeof globalThis.addEventListener === "function") {
     render();
     if (user) {
       void refreshSharedCachedEventCatalog({ render: false }).then(async () => {
-        const pendingEventKey = state.pendingSharedActiveEventKey;
-        state.pendingSharedActiveEventKey = "";
-        if (sharedCachedEventByKey(pendingEventKey) && !globalEventCatalog.some((eventModel) => eventModel?.key === pendingEventKey)) {
-          await openSharedCachedEvent(pendingEventKey, { activeView: state.activeView });
-        }
+        await restoreSharedCachedActiveEvent();
         startSharedActiveEventSync();
         render();
       });

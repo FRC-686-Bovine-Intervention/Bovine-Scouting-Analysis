@@ -18,7 +18,7 @@ function loadAppContext(options = {}) {
   const noop = () => {};
   const workspaceRoot = path.resolve(".");
   const schemaFields = Array.isArray(options.schemaFields) ? options.schemaFields : [];
-  const eventCatalog = Array.isArray(options.eventCatalog) && options.eventCatalog.length
+  const eventCatalog = Object.hasOwn(options, "eventCatalog")
     ? options.eventCatalog
     : [{
       key: "2026chcmp",
@@ -102,8 +102,8 @@ function loadAppContext(options = {}) {
 
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
-    .replace(/bootstrapApp\(\);\s*$/, "")
-    + "\nglobalThis.__activeEventTestApi = { applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, persistScoutingSubmissions, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
+    .replace(/\nbootstrapApp\(\);\s*/, "\n")
+    + "\nglobalThis.__activeEventTestApi = { applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, persistScoutingSubmissions, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -120,9 +120,68 @@ function loadAppContext(options = {}) {
     vm.runInNewContext(source, context, { filename: path.join(workspaceRoot, relativePath) });
   });
   vm.runInNewContext(appSource, context, { filename: path.join(workspaceRoot, "src/app.js") });
+  context.__renderForTest = context.render;
   context.render = noop;
   return context;
 }
+
+await runTest("a clean catalog exposes only shared cached events instead of a packaged fallback", () => {
+  const context = loadAppContext({
+    eventCatalog: [],
+    storedValues: { "frc-scouting-active-event": "2025cache" },
+  });
+  context.__scoutingAppState.user = "member@example.com";
+  context.__scoutingAppState.sharedCachedEvents = [{
+    key: "2025cache",
+    season: 2025,
+    name: "Cached Championship",
+    seasonLabel: "Reefscape",
+  }];
+
+  context.__renderForTest();
+
+  assert.match(context.document.querySelector("#app").innerHTML, /No event loaded/i);
+  assert.match(context.document.querySelector("#app").innerHTML, /2025cache \| 2025 Cached Championship/i);
+  assert.doesNotMatch(context.document.querySelector("#app").innerHTML, /2026chcmp/i);
+});
+
+await runTest("a persisted shared cached event restores without a packaged catalog entry", async () => {
+  const context = loadAppContext({ eventCatalog: [] });
+  const cachedEvent = { key: "2025cache", season: 2025, name: "Cached Championship", seasonLabel: "Reefscape" };
+  context.__scoutingAppState.activeEventKey = cachedEvent.key;
+  context.__scoutingAppState.sharedCachedEvents = [cachedEvent];
+  context.firebaseEventSourceCacheApi = {
+    loadEventSourceCache: async () => {
+      throw new Error("No cached source is available for this event.");
+    },
+  };
+  context.CachedEventLoader = {
+    rebuildCachedEvent: async () => ({
+      eventModel: {
+        ...cachedEvent,
+        seasonLabel: "",
+        teams: [{ number: 1, name: "Cached Team", flags: [], matches: [], sources: {}, derived: {} }],
+        teamNumbers: [1],
+        matches: [{ number: 1, red: [1], blue: [], redScore: 0, blueScore: 0, winningAlliance: "", scoreBreakdown: null }],
+        matchesComplete: 1,
+        scoringComponents: [],
+        metrics: [],
+        seedPicklists: [],
+        seedSortEquations: [],
+        formulaFieldDefinitions: [],
+        dataSources: [],
+      },
+      sourceStates: {},
+      warnings: [],
+      cacheFreshness: "fresh",
+    }),
+  };
+
+  assert.equal(await context.__activeEventTestApi.restoreSharedCachedActiveEvent(), true);
+  assert.equal(context.__scoutingAppState.activeEventKey, cachedEvent.key);
+  assert.equal(context.eventCatalog.length, 1);
+  assert.equal(context.eventCatalog[0].catalogSource, "shared-cache");
+});
 
 await runTest("admin event changes are shared and members adopt the shared event without writing it", async () => {
   let sharedEventListener = null;

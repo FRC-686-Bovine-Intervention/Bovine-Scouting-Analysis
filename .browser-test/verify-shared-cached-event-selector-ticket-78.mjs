@@ -16,6 +16,7 @@ try {
   await page.locator("#loginButton").click();
   await page.waitForSelector("#sharedCachedEventSelect");
   await page.evaluate(() => {
+    if ((globalThis.eventCatalog || []).length) throw new Error("The production page still shipped packaged events.");
     globalThis.__scoutingAppState.sharedCachedEvents = [{ key: "2025chcmp", season: 2025, name: "Championship", seasonLabel: "Reefscape" }];
     globalThis.__scoutingAppState.sharedCacheStatus = "Showing cached shared events while offline. Shared event data remains in this browser for offline reopening. Use only a trusted device; signing out does not clear this browser cache.";
     globalThis.__ticket78LoadedSources = [];
@@ -28,7 +29,22 @@ try {
     };
     globalThis.CachedEventLoader = {
       rebuildCachedEvent: async () => ({
-        eventModel: { ...globalThis.eventCatalog.find((event) => event.key === "2025chcmp") },
+        eventModel: {
+          key: "2025chcmp",
+          season: 2025,
+          name: "Championship",
+          seasonLabel: "",
+          teams: [{ number: 1, name: "Cached Team", flags: [], matches: [], sources: {}, derived: {} }],
+          teamNumbers: [1],
+          matches: [{ number: 1, red: [1], blue: [], redScore: 0, blueScore: 0, winningAlliance: "", scoreBreakdown: null }],
+          matchesComplete: 1,
+          scoringComponents: [],
+          metrics: [],
+          seedPicklists: [],
+          seedSortEquations: [],
+          formulaFieldDefinitions: [],
+          dataSources: [],
+        },
         sourceStates: { tba: { status: "ready", freshness: "stale", notes: "Loaded from cache." } },
         warnings: [], cacheFreshness: "stale",
       }),
