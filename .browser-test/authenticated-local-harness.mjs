@@ -57,6 +57,59 @@ function assertAuthorization(condition, message) {
   if (!condition) throw new HarnessError("AUTHORIZATION_FAILED", message);
 }
 
+async function verifyDerivedFunctionHelp(page) {
+  const menu = page.locator(".formula-function-menu");
+  const button = page.locator("#formulaFunctionHelpButton");
+  const popover = page.locator(".formula-function-popover");
+  const bridge = await menu.evaluate((element) => {
+    const style = getComputedStyle(element, "::after");
+    return { height: style.height };
+  });
+
+  await button.hover();
+  await waitForSelector(page, ".formula-function-popover", {
+    code: "DERIVED_HELP_UNAVAILABLE",
+    message: "The real Derived Equation Builder did not open its function help popover on pointer entry.",
+  });
+  const before = await popover.evaluate((element) => ({
+    scrollTop: element.scrollTop,
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+  }));
+  if (before.scrollHeight <= before.clientHeight) {
+    throw new HarnessError("DERIVED_HELP_NOT_SCROLLABLE", "The real function help popover did not have scrollable content.");
+  }
+
+  const popoverBox = await popover.boundingBox();
+  if (!popoverBox) throw new HarnessError("DERIVED_HELP_UNAVAILABLE", "The real function help popover had no visible bounding box.");
+  await page.mouse.move(popoverBox.x + 12, popoverBox.y + 2);
+  await page.waitForTimeout(150);
+  const afterPointerEntry = await popover.isVisible();
+  await popover.evaluate((element) => {
+    element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 12);
+  });
+  const afterScroll = await popover.evaluate((element) => element.scrollTop);
+
+  await button.focus();
+  const focusVisible = await popover.isVisible();
+  const focusedId = await page.evaluate(() => document.activeElement?.id);
+  if (bridge.height !== "6px" || !afterPointerEntry || afterScroll <= 0 || !focusVisible || focusedId !== "formulaFunctionHelpButton") {
+    throw new HarnessError("DERIVED_HELP_REGRESSION", `Function help interaction regression: ${JSON.stringify({ bridge, before, afterPointerEntry, afterScroll, focusVisible, focusedId })}`);
+  }
+
+  const helpPage = page.waitForEvent("popup");
+  await button.click();
+  const help = await helpPage;
+  await help.waitForLoadState("load");
+  const helpText = await help.locator("body").textContent();
+  await help.close();
+  if (!String(helpText || "").includes("Formula Functions")) {
+    throw new HarnessError("DERIVED_HELP_CLICK_FAILED", `Clicking f(x) did not open the full built-in function help page. Popup text: ${String(helpText || "").replace(/\s+/g, " ").slice(0, 300)}`);
+  }
+
+  return { bridge, before, afterPointerEntry, afterScroll, focusVisible, focusedId, clickHelp: true };
+}
+
 await requireService(
   "Firebase Auth emulator",
   endpoint(authHost, `/emulator/v1/projects/${projectId}/config`),
@@ -116,6 +169,7 @@ try {
     code: "DERIVED_BUILDER_UNAVAILABLE",
     message: "Derived Equation Builder navigation was present, but its real page did not render.",
   });
+  const derivedFunctionHelp = await verifyDerivedFunctionHelp(page);
 
   if (pageErrors.length) throw new HarnessError("PAGE_ERROR", `The authenticated app emitted browser errors: ${pageErrors.join(" | ")}`);
   console.log(JSON.stringify({
@@ -124,6 +178,7 @@ try {
     email,
     pages: ["main", "admin", "derivedBuilder"],
     adminPageReached,
+    derivedFunctionHelp,
   }, null, 2));
 } finally {
   await browser.close();

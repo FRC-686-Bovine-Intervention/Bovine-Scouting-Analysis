@@ -25,4 +25,4 @@ To run the pieces manually, start `firebase emulators:start --only auth,firestor
 
 The harness accepts `SCOUTING_APP_URL`, `FIREBASE_LOCAL_ADMIN_EMAIL`, `FIREBASE_LOCAL_ADMIN_PASSWORD`, `FIREBASE_AUTH_EMULATOR_HOST`, `FIRESTORE_EMULATOR_HOST`, `FIREBASE_PROJECT_ID`, and `PLAYWRIGHT_EXECUTABLE_PATH` environment variables.
 
-Failures are prefixed with an actionable code: `EMULATOR_UNAVAILABLE`, `APP_UNAVAILABLE`, `AUTHENTICATION_FAILED`, `AUTHORIZATION_FAILED`, `ADMIN_PAGE_UNAVAILABLE`, or `DERIVED_BUILDER_UNAVAILABLE`. The message includes the failing service, rendered status/body text when available, and the local command or role document to check.
+Failures are prefixed with an actionable code: `EMULATOR_UNAVAILABLE`, `APP_UNAVAILABLE`, `AUTHENTICATION_FAILED`, `AUTHORIZATION_FAILED`, `ADMIN_PAGE_UNAVAILABLE`, `DERIVED_BUILDER_UNAVAILABLE`, `DERIVED_HELP_UNAVAILABLE`, `DERIVED_HELP_NOT_SCROLLABLE`, `DERIVED_HELP_REGRESSION`, or `DERIVED_HELP_CLICK_FAILED`. The message includes the failing service, rendered status/body text when available, and the local command or role document to check.
