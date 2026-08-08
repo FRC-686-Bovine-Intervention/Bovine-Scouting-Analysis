@@ -7901,7 +7901,7 @@ function renderPicklistBuilder() {
         <div class="section-heading">
           <div>
             <h2>${picklist.name}</h2>
-            <p class="muted">${pairwise ? "Pairwise mode: hold Shift to compare above, Ctrl to compare below, or both for both. Use an arrow key while holding either to move; release both to accept. Gray teams are suggested next." : "Drag to reorder, or use arrow keys with Shift for one-slot moves."}</p>
+            <p class="muted">${pairwise ? "Pairwise mode<br>&#8593&#8595: change team selection<br>Shift + &#8593&#8595: Compare to team above, move team<br>Ctrl + &#8593&#8595: Compare to team below, move team<br>Gray highlights: suggested teams to revisit." : "Drag: reorder teams<br>&#8593&#8595: change team selection<br>Shift + &#8593&#8595: Move team<br>Right-click: Access Pairwise Mode."}</p>
           </div>
           ${pairwise ? `<div class="button-row"><button type="button" data-pairwise-save>Save</button><button type="button" data-pairwise-cancel>Cancel</button></div>` : ""}
         </div>
@@ -7914,7 +7914,7 @@ function renderPicklistBuilder() {
         <div class="section-heading">
           <div>
             <h2>Comparison Grid</h2>
-            <p class="muted">Pick ranked metrics or saved picklists to compare side by side.</p>
+            <p class="muted">Select up to four metrics for side-by-side comparison.</p>
           </div>
         </div>
         <div class="builder-grid-columns">
