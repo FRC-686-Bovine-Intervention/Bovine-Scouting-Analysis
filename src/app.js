@@ -17,6 +17,8 @@ const metricEngine = globalThis.MetricEngine || {};
 const sheetImportAdapters = globalThis.SheetImportAdapters || {};
 const scoutingImportRepair = globalThis.ScoutingImportRepair || {};
 const eventWorkspaceApi = globalThis.EventWorkspace || {};
+const toDisplayEventLabel = globalThis.FrcSeasonMetadata?.toDisplayEventLabel || ((value) => normalizeText(value));
+const toDisplaySeasonLabel = globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel || ((value) => normalizeText(value));
 const commitScoutingImport = importFoundation.commitScoutingImport;
 const buildSampleCsv = importFoundation.buildSampleCsv;
 const previewScoutingImport = importFoundation.previewScoutingImport;
@@ -191,8 +193,6 @@ const isErrorFormulaResult = metricEngine.isErrorResult || ((result) => result?.
 const isSeriesFormulaResult = metricEngine.isSeriesResult || ((result) => result?.kind === "series");
 
 const storageKeys = {
-  user: "frc-scouting-user",
-  users: "frc-scouting-users",
   theme: "frc-scouting-theme",
   activeEvent: "frc-scouting-active-event",
   activeView: "frc-scouting-view",
@@ -230,8 +230,6 @@ const storageKeys = {
 };
 
 const globalStorageKeys = new Set([
-  storageKeys.user,
-  storageKeys.users,
   storageKeys.theme,
   storageKeys.activeEvent,
   storageKeys.menuExpanded,
@@ -243,8 +241,6 @@ const globalStorageKeys = new Set([
   storageKeys.seasonFilters,
   storageKeys.dynamicEvents,
 ]);
-const seedUsers = ["Avery", "Jordan", "Morgan"];
-const adminUsers = ["Avery"];
 const importProfileOptions = [
   { id: "", label: "Auto-detect profile" },
   { id: "match-current-v2", label: "Current Match Template" },
@@ -332,7 +328,9 @@ const initialEvent = eventModelByKey(initialEventKey) || emptyEventModel(initial
 const initialWorkspace = createEventWorkspace(initialEvent, readStoredJson(storageKeys.eventWorkspace, null, initialEventKey));
 const initialTbaAuthKey = "";
 try {
-  // Keys saved by older versions must not remain in browser storage after the Firestore migration.
+  // Authentication and keys saved by older versions must not remain in browser storage after the Firebase migration.
+  localStorage.removeItem("frc-scouting-user");
+  localStorage.removeItem("frc-scouting-users");
   localStorage.removeItem("frc-scouting-tba-auth-key");
 } catch {
   // Storage can be unavailable in private or restricted browser contexts.
@@ -349,8 +347,7 @@ const initialLegacyFilterCatalog = normalizeLegacyFilterCatalog(
 );
 const state = {
   activeEventKey: initialEventKey,
-  user: readStoredItem(storageKeys.user) || "",
-  users: readStoredJson(storageKeys.users, seedUsers),
+  user: "",
   theme: readStoredItem(storageKeys.theme) || "light",
   activeView: "teams",
   metric: "",
@@ -956,6 +953,19 @@ function officialSeasonLabel(season) {
   return normalizeText(globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel?.(metadata?.gameName) || metadata?.gameName);
 }
 
+function displayEventName(event) {
+  return toDisplayEventLabel(event?.name);
+}
+
+function displaySeasonName(event) {
+  return toDisplaySeasonLabel(event?.seasonLabel);
+}
+
+function displaySeasonHeading(event) {
+  const seasonLabel = displaySeasonName(event);
+  return new RegExp(`^${event?.season}\\b`).test(seasonLabel) ? seasonLabel : `${event?.season || ""} ${seasonLabel}`.trim();
+}
+
 function rememberSeasonMetadata(metadata) {
   const season = Number(metadata?.season || 0);
   if (!season) return false;
@@ -1299,9 +1309,9 @@ async function refreshDataSource(sourceId, options = {}) {
     },
   });
   if (didChange) {
-    pushActivity(`Updated ${label} from the local snapshot for ${event.name}.`);
+    pushActivity(`Updated ${label} from the local snapshot for ${displayEventName(event)}.`);
   } else if (trigger === "manual") {
-    pushActivity(`Checked ${label} for ${event.name}. No changes detected.`);
+    pushActivity(`Checked ${label} for ${displayEventName(event)}. No changes detected.`);
   }
   saveState();
   render();
@@ -1408,7 +1418,7 @@ function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
 
 function addScoutingAttachmentDraft() {
   const event = currentEvent();
-  const defaultLabel = `${event.name} Attachment ${currentEventWorkspace().sources?.scouting?.length || 1}`;
+  const defaultLabel = `${displayEventName(event)} Attachment ${currentEventWorkspace().sources?.scouting?.length || 1}`;
   state.eventWorkspace = upsertEventWorkspaceScoutingAttachment(
     currentEventWorkspace(),
     {
@@ -3812,8 +3822,6 @@ function restoreBuilderListScroll(view = state.activeView) {
 }
 
 function saveState() {
-  localStorage.setItem(eventStorageKey(storageKeys.users), JSON.stringify(state.users));
-  localStorage.setItem(eventStorageKey(storageKeys.user), state.user);
   localStorage.setItem(eventStorageKey(storageKeys.theme), state.theme);
   localStorage.setItem(eventStorageKey(storageKeys.activeEvent), state.activeEventKey);
   localStorage.setItem(eventStorageKey(storageKeys.recentEvents), JSON.stringify(normalizeRecentEventKeys(state.recentEventKeys, state.activeEventKey)));
@@ -4816,11 +4824,7 @@ function pickedTeams() {
 }
 
 function isAdmin() {
-  return globalThis.firebaseUserRole === "admin" || adminUsers.includes(state.user);
-}
-
-function userLabel(user) {
-  return (globalThis.firebaseUserRole === "admin" && user === state.user) || adminUsers.includes(user) ? `${user} (Admin)` : user;
+  return globalThis.firebaseUserRole === "admin";
 }
 
 function canView(view) {
@@ -6569,8 +6573,8 @@ function render() {
           </button>
         </div>
         <div class="event-chip">
-          <span class="muted">${event.season} ${event.seasonLabel}</span>
-          <strong>${event.name}</strong>
+          <span class="muted">${escapeHtml(displaySeasonHeading(event))}</span>
+          <strong>${escapeHtml(displayEventName(event))}</strong>
           <span class="muted">${Math.max(event.matchesComplete, importedMatchCount())} matches imported</span>
         </div>
         <nav class="nav-list">
@@ -6580,8 +6584,8 @@ function render() {
       <main class="main">
         <header class="topbar">
           <div class="page-title">
-            <p class="eyebrow">${escapeHtml(`${event.season} ${event.seasonLabel}`.trim())}</p>
-            <h1>${escapeHtml(event.name)}</h1>
+            <p class="eyebrow">${escapeHtml(displaySeasonHeading(event))}</p>
+            <h1>${escapeHtml(displayEventName(event))}</h1>
           </div>
           <div class="split-row">
             <label class="event-select" aria-label="Active event">
@@ -6590,7 +6594,7 @@ function render() {
                 ${[...new Map([
                   [event.key, { key: event.key, season: event.season, name: event.name, seasonLabel: event.seasonLabel }],
                   ...state.sharedCachedEvents.map((cachedEvent) => [cachedEvent.key, cachedEvent]),
-                ]).values()].map((choice) => `<option value="${escapeAttribute(choice.key)}" ${choice.key === event.key ? "selected" : ""}>${escapeHtml(`${choice.key} | ${choice.season} ${choice.name}`)}</option>`).join("")}
+                ]).values()].map((choice) => `<option value="${escapeAttribute(choice.key)}" ${choice.key === event.key ? "selected" : ""}>${escapeHtml(`${choice.key} | ${choice.season} ${displayEventName(choice)}`)}</option>`).join("")}
               </select>
               ${state.eventLookupResult ? `<span class="muted">${escapeHtml(state.eventLookupResult.message)}</span>` : ""}
             </label>
@@ -6630,7 +6634,7 @@ function renderNoEventLoaded() {
           Shared cached event
           <select id="sharedCachedEventSelect" ${sharedEvents.length && !state.eventLookupPending ? "" : "disabled"}>
             <option value="">${sharedEvents.length ? "Select an event" : "No shared cached events available"}</option>
-            ${sharedEvents.map((event) => `<option value="${escapeAttribute(event.key)}">${escapeHtml(`${event.key} | ${event.season} ${event.name}`)}</option>`).join("")}
+            ${sharedEvents.map((event) => `<option value="${escapeAttribute(event.key)}">${escapeHtml(`${event.key} | ${event.season} ${displayEventName(event)}`)}</option>`).join("")}
           </select>
         </label>
         ${isAdmin() ? `<label>Event Code<input id="adminEventCodeInput" value="${escapeAttribute(state.adminEventCodeDraft)}" placeholder="2026miket" autocomplete="off" /></label>` : ""}
@@ -6682,27 +6686,13 @@ function renderLogin() {
       <section class="login-panel">
         <div class="brand-row">
           <div>
-            <p class="eyebrow">FRC Event Strategy</p>
-            <h1>Scouting Analysis</h1>
+            <h1>Bovine Scouting Analysis</h1>
           </div>
           ${renderThemeToggle()}
         </div>
         <div class="login-actions">
           <button class="primary" id="firebaseLoginButton" type="button">Sign in with Google</button>
           <p class="muted" id="firebaseAuthStatus" role="status"></p>
-          <label>
-            Existing user
-            <select id="existingUser">
-              <option value="">Select user</option>
-              ${state.users.map((user) => `<option value="${user}">${userLabel(user)}</option>`).join("")}
-            </select>
-          </label>
-          <button class="primary" id="loginButton">Continue</button>
-          <label>
-            New user
-            <input id="newUser" placeholder="Name" autocomplete="off" />
-          </label>
-          <button id="createUserButton">Create user</button>
         </div>
       </section>
     </main>
@@ -6726,22 +6716,6 @@ function renderLogin() {
       if (status) status.textContent = error?.message || "Unable to sign in with Google.";
       button.disabled = false;
     }
-  });
-  document.querySelector("#loginButton")?.addEventListener("click", () => {
-    const selected = document.querySelector("#existingUser").value;
-    if (!selected) return;
-    state.user = selected;
-    saveState();
-    render();
-  });
-  document.querySelector("#createUserButton")?.addEventListener("click", () => {
-    const input = document.querySelector("#newUser");
-    const user = input.value.trim();
-    if (!user) return;
-    if (!state.users.includes(user)) state.users.push(user);
-    state.user = user;
-    saveState();
-    render();
   });
 }
 
@@ -8018,7 +7992,7 @@ function renderPicklistBuilder() {
         <div class="section-heading">
           <div>
             <h2>Comparison Grid</h2>
-            <p class="muted">Select up to four metrics for side-by-side comparison.</p>
+            <p class="muted">Select up to four metrics for side-by-side comparison</p>
           </div>
         </div>
         <div class="builder-grid-columns">
@@ -8606,7 +8580,7 @@ function renderRawSourceCacheViewer() {
   return `<article class="card raw-source-cache-viewer">
     <div class="section-heading"><div><h2>Raw Source Cache</h2><p class="muted">Administrator debugging view. Rendering never changes the persisted payload.</p></div></div>
     <div class="admin-form-grid">
-      <label>Cached Event<select id="rawSourceCacheEventSelect" aria-label="Cached event for raw source viewer" ${state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a shared cached event</option>${events.map((event) => `<option value="${escapeAttribute(event.key)}" ${event.key === state.rawSourceCacheEventKey ? "selected" : ""}>${escapeHtml(`${event.key} | ${event.name}`)}</option>`).join("")}</select></label>
+      <label>Cached Event<select id="rawSourceCacheEventSelect" aria-label="Cached event for raw source viewer" ${state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a shared cached event</option>${events.map((event) => `<option value="${escapeAttribute(event.key)}" ${event.key === state.rawSourceCacheEventKey ? "selected" : ""}>${escapeHtml(`${event.key} | ${displayEventName(event)}`)}</option>`).join("")}</select></label>
       <label>Source Artifact<select id="rawSourceCacheSourceSelect" aria-label="Cached source artifact" ${!state.rawSourceCacheEventKey || state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a source artifact</option>${state.rawSourceCacheSources.map((source) => `<option value="${escapeAttribute(source.sourceId)}" ${source.sourceId === state.rawSourceCacheSourceId ? "selected" : ""}>${escapeHtml(source.sourceId)}</option>`).join("")}</select></label>
       ${state.rawSourceCacheStatus ? `<div class="issue-row ${artifact ? "" : state.rawSourceCacheSourceId ? "danger" : ""}">${escapeHtml(state.rawSourceCacheStatus)}</div>` : ""}
       ${metadata.length ? `<div class="attachment-metadata-grid">${metadata.map(([label, value]) => `<div><strong>${escapeHtml(label)}</strong><span class="muted">${escapeHtml(String(value))}</span></div>`).join("")}</div>` : ""}
@@ -8843,7 +8817,7 @@ function renderAdmin() {
                 `,
                     )
                     .join("")
-                : `<div class="empty-state">No activity has been recorded for ${event.name} yet.</div>`
+                : `<div class="empty-state">No activity has been recorded for ${escapeHtml(displayEventName(event))} yet.</div>`
             }
           </div>
         </article>

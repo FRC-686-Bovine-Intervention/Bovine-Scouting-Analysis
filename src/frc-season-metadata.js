@@ -13,10 +13,22 @@
     return Number.isInteger(season) && season >= 1992 && season <= 9999 ? season : 0;
   }
 
-  function toDisplaySeasonLabel(value) {
+  function removeProviderLabelDecoration(value) {
     return normalizeText(value)
+      .replace(/[\u00ae\u2120\u2122]/g, "")
+      .replace(/\s+(?:present(?:ed|d)|sponsored)\s+by\b.*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function toDisplaySeasonLabel(value) {
+    return removeProviderLabelDecoration(value)
       .toLowerCase()
       .replace(/(^|[\s-])([^\s-])/g, (_match, prefix, letter) => `${prefix}${letter.toUpperCase()}`);
+  }
+
+  function toDisplayEventLabel(value) {
+    return removeProviderLabelDecoration(value);
   }
 
   function encodeBasicCredentials(username, authorizationKey) {
@@ -133,6 +145,7 @@
     seasonMetadataCollection,
     apiBaseUrl,
     normalizeSeason,
+    toDisplayEventLabel,
     toDisplaySeasonLabel,
     createFrcSeasonMetadataApi,
   };

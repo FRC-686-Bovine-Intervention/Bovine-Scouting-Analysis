@@ -7,7 +7,7 @@ const context = { globalThis: { btoa: (value) => `encoded:${value}` } };
 vm.createContext(context);
 vm.runInContext(source, context);
 
-const { createFrcSeasonMetadataApi, toDisplaySeasonLabel } = context.globalThis.FrcSeasonMetadata;
+const { createFrcSeasonMetadataApi, toDisplayEventLabel, toDisplaySeasonLabel } = context.globalThis.FrcSeasonMetadata;
 
 async function runTest(name, callback) {
   try {
@@ -41,7 +41,14 @@ function createApi({ configuration = {}, metadata = {}, response, rejectRequest 
 await runTest("normalizes official game titles for display", () => {
   assert.equal(toDisplaySeasonLabel("FIRST AGE"), "First Age");
   assert.equal(toDisplaySeasonLabel("  REBUILT  "), "Rebuilt");
+  assert.equal(toDisplaySeasonLabel("2026 Rebuilt™ Presented By Haas"), "2026 Rebuilt");
+  assert.equal(toDisplaySeasonLabel("2022 Rapid React℠ Presented By The Boeing Company"), "2022 Rapid React");
   assert.equal(toDisplaySeasonLabel(""), "");
+});
+
+await runTest("removes provider sponsorship decoration from event labels without changing identity", () => {
+  assert.equal(toDisplayEventLabel("2026 FIRST Chesapeake District Championship presentd by C-CAM"), "2026 FIRST Chesapeake District Championship");
+  assert.equal(toDisplayEventLabel("FIRST Chesapeake District Championship sponsored by Qualcomm"), "FIRST Chesapeake District Championship");
 });
 
 await runTest("keeps FIRST credentials in the admin configuration document", async () => {
