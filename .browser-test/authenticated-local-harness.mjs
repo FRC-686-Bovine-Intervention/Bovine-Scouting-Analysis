@@ -155,8 +155,12 @@ try {
     code: "MAIN_PAGE_UNAVAILABLE",
     message: "Authentication succeeded, but the main Teams page did not render.",
   });
-  assertAuthorization(await page.locator('[data-view="admin"]').count() > 0, "Authentication succeeded, but Admin navigation is missing. Confirm the seeded users/<uid> or allowlist/<email> document has role=admin.");
-  await page.click('[data-view="admin"]');
+  await waitForSelector(page, '[data-view="adminEventControl"]', {
+    code: "ADMIN_ROLE_UNAVAILABLE",
+    message: "Authentication succeeded, but the admin role/navigation did not arrive after the Firebase role lookup. Confirm the seeded users/<uid> or allowlist/<email> document has role=admin.",
+  });
+  assertAuthorization(await page.locator('[data-view="adminEventControl"]').count() > 0, "Authentication succeeded, but Admin navigation is missing after the role lookup.");
+  await page.click('[data-view="adminEventControl"]');
   await waitForSelector(page, "#adminEventCodeInput", {
     code: "ADMIN_PAGE_UNAVAILABLE",
     message: "Admin navigation was present, but the Admin page did not render its admin-only event control. Confirm the signed-in user has role=admin.",
