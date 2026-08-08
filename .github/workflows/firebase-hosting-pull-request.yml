@@ -16,6 +16,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Stamp deployment revision
+        run: |
+          printf 'globalThis.__DEPLOYMENT_REVISION = "%s";\n' "$GITHUB_SHA" > src/deployment-revision.js
+          sed -i "s/__DEPLOYMENT_REVISION__/$GITHUB_SHA/g" index.html
       - name: Run project checks
         run: |
           node --check src/app.js

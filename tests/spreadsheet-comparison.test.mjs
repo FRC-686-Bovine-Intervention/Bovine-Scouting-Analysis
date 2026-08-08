@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { legacyGameDefinitions } from "./fixtures/legacy-game-definitions.mjs";
 
 function loadBrowserContext(relativePaths) {
   const context = {
-    globalThis: {},
+    globalThis: {}, LegacyGameDefinitions: legacyGameDefinitions,
     console,
     Set,
     Map,
@@ -67,7 +68,7 @@ const browserContext = loadBrowserContext([
   "src/legacy-scouting-schema-seeds.js",
   "src/season-framework.js",
   "src/metric-engine.js",
-  "src/real-event-snapshots.js",
+  "tests/fixtures/real-event-snapshots.js",
   "src/real-event-data.js",
   "src/scouting-source-utils.js",
   "src/scouting-json-schema.js",
@@ -85,7 +86,7 @@ const fixtures = JSON.parse(fs.readFileSync(path.resolve("tests/spreadsheet-comp
 
 fixtures.forEach((fixture) => {
   runTest(`${fixture.name} (${fixture.provenance}${fixture.sheetTab ? ` / ${fixture.sheetTab}` : ""})`, () => {
-    const season = seasonFramework.gameDefinitions[fixture.season];
+    const season = legacyGameDefinitions[fixture.season];
     assert.ok(season, `Season ${fixture.season} should exist`);
 
     const overlay = metricEngine.buildTeamScoutingOverlay(
@@ -196,7 +197,7 @@ fixtures.forEach((fixture) => {
 ].forEach((fixture) => {
   runTest(fixture.name, () => {
     const eventModel = eventCatalog.find((event) => event.key === fixture.eventKey);
-    const seasonDefinition = seasonFramework.gameDefinitions[fixture.season];
+    const seasonDefinition = legacyGameDefinitions[fixture.season];
     assert.ok(eventModel, `Event ${fixture.eventKey} should exist`);
     assert.equal(eventModel.season, fixture.season);
 

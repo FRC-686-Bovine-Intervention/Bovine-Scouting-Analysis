@@ -4,11 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FRC Scouting Analysis</title>
-    <link rel="stylesheet" href="src/styles.css" />
+    <script>
+      (() => {
+        const hostname = String(location.hostname || "").toLowerCase();
+        const liveHosts = new Set(["bovine-scouting-analysis.web.app", "bovine-scouting-analysis.firebaseapp.com"]);
+        if (!hostname || !liveHosts.has(hostname)) document.title = `(Dev) ${document.title}`;
+      })();
+    </script>
+    <link rel="stylesheet" href="src/styles.css?revision=__DEPLOYMENT_REVISION__" />
   </head>
   <body>
     <div id="app"></div>
-    <script defer src="src/real-event-snapshots.js"></script>
     <script defer src="src/legacy-scouting-schema-seeds.js"></script>
     <script defer src="src/provider-season-metadata.js"></script>
     <script defer src="src/scouting-schema-runtime.js"></script>
@@ -16,11 +22,16 @@
     <script defer src="src/prior-ridge.js"></script>
     <script defer src="src/event-model-builder.js"></script>
     <script defer src="src/metric-engine.js"></script>
-    <script defer src="src/real-event-data.js"></script>
     <script defer src="src/import-foundation.js"></script>
     <script defer src="src/sheet-import-adapters.js"></script>
     <script defer src="src/external-source-snapshots.js"></script>
+    <script defer src="src/event-source-cache.js"></script>
+    <script defer src="src/event-source-cache-store.js"></script>
     <script defer src="src/external-event-loader.js"></script>
+    <script defer src="src/cached-event-loader.js"></script>
+    <script defer src="src/tba-auth-key-configuration.js"></script>
+    <script defer src="src/frc-season-metadata.js"></script>
+    <script defer src="src/deployment-revision.js?revision=__DEPLOYMENT_REVISION__"></script>
     <script defer src="src/local-file-access.js"></script>
     <script defer src="src/scouting-source-utils.js"></script>
     <script defer src="src/scouting-profiles.js"></script>
@@ -33,8 +44,12 @@
     <script defer src="src/scouting-import-repair.js"></script>
     <script defer src="src/event-workspace.js"></script>
     <script defer src="src/pairwise-picklist.js"></script>
-    <script defer src="src/app.js"></script>
+    <script defer src="src/app.js?revision=__DEPLOYMENT_REVISION__"></script>
     <script type="module" src="src/firebase-config.js"></script>
+    <script type="module" src="src/firebase-event-state.js"></script>
+    <script type="module" src="src/firebase-event-source-cache.js"></script>
+    <script type="module" src="src/firebase-tba-auth-key.js"></script>
+    <script type="module" src="src/firebase-frc-season-metadata.js"></script>
     <script type="module" src="src/firebase-auth.js"></script>
     <script type="module" src="src/firebase-profiles.js"></script>
     <script type="module" src="src/firebase-submissions.js"></script>

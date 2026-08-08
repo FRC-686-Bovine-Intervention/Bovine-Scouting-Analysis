@@ -8,7 +8,7 @@ const buildEventModelFromProviderBundle =
     key: bundle.key,
     season: bundle.year,
     name: bundle.tbaEvent?.name || bundle.key,
-    seasonLabel: String(bundle.year || ""),
+    seasonLabel: "",
     matches: [],
     matchesComplete: 0,
     teams: [],
@@ -72,7 +72,22 @@ async function fetchJson(url, options = {}) {
     error.url = url;
     throw error;
   }
-  return response.json();
+  const rawBytes = typeof response.arrayBuffer === "function" ? new Uint8Array(await response.arrayBuffer()) : null;
+  const rawText = rawBytes ? new TextDecoder().decode(rawBytes) : JSON.stringify(await response.json());
+  try {
+    return {
+      payload: JSON.parse(rawText),
+      rawText,
+      rawBytes,
+      requestUrl: url,
+      contentType: response.headers?.get?.("content-type") || "application/json",
+      status: Number(response.status) || 200,
+    };
+  } catch {
+    const error = new Error("Response was not valid JSON.");
+    error.url = url;
+    throw error;
+  }
 }
 
 async function settle(promise) {
@@ -87,7 +102,7 @@ async function fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode,
   const legacyUrl = `${statboticsBaseUrl}/team_events/event/${normalizedEventCode}`;
   try {
     return {
-      payload: await fetchJson(legacyUrl, options),
+      ...await fetchJson(legacyUrl, options),
       requestUrl: legacyUrl,
       fallbackUsed: false,
     };
@@ -95,7 +110,7 @@ async function fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode,
     if (!isNotFoundError(error)) throw error;
     const queryUrl = `${statboticsBaseUrl}/team_events?event=${encodeURIComponent(normalizedEventCode)}`;
     return {
-      payload: await fetchJson(queryUrl, options),
+      ...await fetchJson(queryUrl, options),
       requestUrl: queryUrl,
       fallbackUsed: true,
     };
@@ -206,7 +221,7 @@ async function loadEventByCode(eventCode, options = {}) {
 
   const tbaAuthKey = resolveTbaAuthKey(options);
   if (!tbaAuthKey) {
-    throw new Error("Missing TBA auth key. Set globalThis.__TBA_AUTH_KEY before loading arbitrary events.");
+    throw new Error("Missing TBA auth key. Configure a key before loading arbitrary events.");
   }
 
   const timestamp = normalizeText(options.timestamp) || new Date().toISOString();
@@ -231,18 +246,18 @@ async function loadEventByCode(eventCode, options = {}) {
   if (!tbaTeamsResult.ok) throw new Error(formatProviderError("The Blue Alliance team lookup failed", tbaTeamsResult.error));
   if (!tbaMatchesResult.ok) throw new Error(formatProviderError("The Blue Alliance match lookup failed", tbaMatchesResult.error));
 
-  const eventYear = Number(tbaEventResult.value?.year || statboticsEventResult.value?.year || 0);
+  const eventYear = Number(tbaEventResult.value?.payload?.year || statboticsEventResult.value?.payload?.year || 0);
   const eventModel = buildEventModelFromProviderBundle({
     key: normalizedEventCode,
     year: eventYear,
     importProfileId: "",
     sheet: null,
-    tbaEvent: tbaEventResult.value || {},
-    tbaTeams: Array.isArray(tbaTeamsResult.value) ? tbaTeamsResult.value : [],
-    tbaMatches: Array.isArray(tbaMatchesResult.value) ? tbaMatchesResult.value : [],
-    tbaRankings: tbaRankingsResult.ok ? (tbaRankingsResult.value || {}) : {},
-    tbaTeamStats: tbaTeamStatsResult.ok ? (tbaTeamStatsResult.value || {}) : {},
-    statboticsEvent: statboticsEventResult.ok ? (statboticsEventResult.value || {}) : {},
+    tbaEvent: tbaEventResult.value?.payload || {},
+    tbaTeams: Array.isArray(tbaTeamsResult.value?.payload) ? tbaTeamsResult.value.payload : [],
+    tbaMatches: Array.isArray(tbaMatchesResult.value?.payload) ? tbaMatchesResult.value.payload : [],
+    tbaRankings: tbaRankingsResult.ok ? (tbaRankingsResult.value?.payload || {}) : {},
+    tbaTeamStats: tbaTeamStatsResult.ok ? (tbaTeamStatsResult.value?.payload || {}) : {},
+    statboticsEvent: statboticsEventResult.ok ? (statboticsEventResult.value?.payload || {}) : {},
     statboticsTeamEvents: statboticsTeamEventsResult.ok ? (statboticsTeamEventsResult.value?.payload || []) : [],
     catalogSource: "dynamic-external",
   });
@@ -324,6 +339,17 @@ async function loadEventByCode(eventCode, options = {}) {
     eventModel,
     sourceStates,
     warnings,
+    rawSourceArtifacts: [
+      ["tba-event", tbaEventResult], ["tba-teams", tbaTeamsResult], ["tba-matches", tbaMatchesResult], ["tba-rankings", tbaRankingsResult], ["tba-oprs", tbaTeamStatsResult], ["statbotics-event", statboticsEventResult], ["statbotics-team-events", statboticsTeamEventsResult],
+    ].filter(([, result]) => result.ok).map(([sourceId, result]) => ({
+      sourceId,
+      rawText: result.value.rawText,
+      rawBytes: result.value.rawBytes,
+      sourceUrl: result.value.requestUrl,
+      contentType: result.value.contentType,
+      status: result.value.status,
+      fetchedAt: timestamp,
+    })),
   };
 }
 

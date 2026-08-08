@@ -1,12 +1,7 @@
 (function () {
 const eventModelBuilder = globalThis.EventModelBuilder || {};
 const seasonFramework = globalThis.SeasonFramework || {};
-const providerSeasonMetadata = globalThis.ProviderSeasonMetadata || {};
 const scoutingSchemaRuntime = globalThis.ScoutingSchemaRuntime || {};
-const seasonMetadataByYear = {
-  ...(seasonFramework.gameDefinitions || {}),
-  ...(providerSeasonMetadata.seasons || {}),
-};
 const buildMetricCatalog =
   scoutingSchemaRuntime.buildMetricCatalog
   || seasonFramework.buildMetrics
@@ -22,7 +17,6 @@ function parseJson(text, fallback) {
 
 function minimalEventModelFromSnapshot(snapshot) {
   const season = Number(snapshot?.season || snapshot?.year || 0);
-  const seasonDefinition = seasonMetadataByYear[season] || {};
   const explicitScouterMetricDefinitions = Array.isArray(snapshot?.scouterMetricDefinitions) ? snapshot.scouterMetricDefinitions : [];
   const explicitFormulaFieldDefinitions = Array.isArray(snapshot?.formulaFieldDefinitions) ? snapshot.formulaFieldDefinitions : [];
   const explicitDerivedMetricDefinitions = Array.isArray(snapshot?.derivedMetricDefinitions) ? snapshot.derivedMetricDefinitions : [];
@@ -50,7 +44,7 @@ function minimalEventModelFromSnapshot(snapshot) {
     key: snapshot?.key || "",
     name: tbaEvent?.name || snapshot?.key || "",
     season,
-    seasonLabel: seasonDefinition.label || (season ? `${season} Season` : ""),
+    seasonLabel: "",
     scoringComponents: [],
     scoringMatrixPresets: eventSchema.scoringMatrixPresets || [],
     scouterMetricDefinitions: explicitScouterMetricDefinitions,

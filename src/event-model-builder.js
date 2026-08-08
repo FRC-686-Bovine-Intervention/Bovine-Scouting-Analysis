@@ -1,12 +1,7 @@
 (function () {
 const seasonFramework = globalThis.SeasonFramework || {};
-const providerSeasonMetadata = globalThis.ProviderSeasonMetadata || {};
 const scoutingSchemaRuntime = globalThis.ScoutingSchemaRuntime || {};
 const priorRidge = globalThis.PriorRidge || {};
-const seasonMetadataByYear = {
-  ...(seasonFramework.gameDefinitions || {}),
-  ...(providerSeasonMetadata.seasons || {}),
-};
 const buildMetricCatalog =
   scoutingSchemaRuntime.buildMetricCatalog
   || seasonFramework.buildMetrics
@@ -195,9 +190,6 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, tbaComponents) {
 }
 
 function buildEventModelFromPayloads(payload) {
-  const season = seasonMetadataByYear[payload.year] || {
-    label: `${payload.year} Season`,
-  };
   const explicitScouterMetricDefinitions = Array.isArray(payload?.scouterMetricDefinitions) ? payload.scouterMetricDefinitions : [];
   const explicitFormulaFieldDefinitions = Array.isArray(payload?.formulaFieldDefinitions) ? payload.formulaFieldDefinitions : [];
   const explicitDerivedMetricDefinitions = Array.isArray(payload?.derivedMetricDefinitions) ? payload.derivedMetricDefinitions : [];
@@ -255,7 +247,7 @@ function buildEventModelFromPayloads(payload) {
     key: payload.key,
     name: payload.tbaEvent?.name || payload.statboticsEvent?.name || payload.key,
     season: payload.year,
-    seasonLabel: season.label,
+    seasonLabel: "",
     matchesComplete: matches.length,
     matches,
     scoringComponents: [],

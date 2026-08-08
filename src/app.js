@@ -17,6 +17,8 @@ const metricEngine = globalThis.MetricEngine || {};
 const sheetImportAdapters = globalThis.SheetImportAdapters || {};
 const scoutingImportRepair = globalThis.ScoutingImportRepair || {};
 const eventWorkspaceApi = globalThis.EventWorkspace || {};
+const toDisplayEventLabel = globalThis.FrcSeasonMetadata?.toDisplayEventLabel || ((value) => normalizeText(value));
+const toDisplaySeasonLabel = globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel || ((value) => normalizeText(value));
 const commitScoutingImport = importFoundation.commitScoutingImport;
 const buildSampleCsv = importFoundation.buildSampleCsv;
 const previewScoutingImport = importFoundation.previewScoutingImport;
@@ -30,6 +32,8 @@ const pickLocalAttachmentFile = localFileAccess.pickAttachmentFile || (async () 
 const readLocalAttachmentText = localFileAccess.readAttachmentText || (async () => {
   throw new Error("Persistent local scouting files are unavailable in this browser.");
 });
+const readLocalAttachmentTextByPath = localFileAccess.readAttachmentTextByPath || (async () => "");
+const adoptLocalAttachmentForPath = localFileAccess.adoptAttachmentForPath || (async () => false);
 const writeLocalAttachmentText = localFileAccess.writeAttachmentText || (async () => {
   throw new Error("Persistent local scouting files are unavailable in this browser.");
 });
@@ -189,8 +193,6 @@ const isErrorFormulaResult = metricEngine.isErrorResult || ((result) => result?.
 const isSeriesFormulaResult = metricEngine.isSeriesResult || ((result) => result?.kind === "series");
 
 const storageKeys = {
-  user: "frc-scouting-user",
-  users: "frc-scouting-users",
   theme: "frc-scouting-theme",
   activeEvent: "frc-scouting-active-event",
   activeView: "frc-scouting-view",
@@ -217,7 +219,6 @@ const storageKeys = {
   importSourceUrl: "frc-scouting-import-source-url",
   scoutingWindow: "frc-scouting-window",
   recentMatchCount: "frc-scouting-recent-match-count",
-  tbaAuthKey: "frc-scouting-tba-auth-key",
   statboticsBaseUrl: "frc-scouting-statbotics-base-url",
   recentEvents: "frc-scouting-recent-events",
   scoutingProfiles: "frc-scouting-scouting-profiles",
@@ -229,12 +230,9 @@ const storageKeys = {
 };
 
 const globalStorageKeys = new Set([
-  storageKeys.user,
-  storageKeys.users,
   storageKeys.theme,
   storageKeys.activeEvent,
   storageKeys.menuExpanded,
-  storageKeys.tbaAuthKey,
   storageKeys.statboticsBaseUrl,
   storageKeys.recentEvents,
   storageKeys.scoutingProfiles,
@@ -243,14 +241,11 @@ const globalStorageKeys = new Set([
   storageKeys.seasonFilters,
   storageKeys.dynamicEvents,
 ]);
-const seedUsers = ["Avery", "Jordan", "Morgan"];
-const adminUsers = ["Avery"];
 const importProfileOptions = [
   { id: "", label: "Auto-detect profile" },
   { id: "match-current-v2", label: "Current Match Template" },
   { id: "match-legacy-v1", label: "Legacy Match Template" },
 ];
-const defaultTbaAuthKey = "eEFUlYooyVPeyGj1T07Z3AVTQoDHPM4MssTRD9XLDCapqhGepo1UQCj0OlL7AtqK";
 
 const navItems = [
   { view: "teams", label: "Teams", icon: "teams" },
@@ -273,6 +268,7 @@ const protectedEpaSortId = "sort-epa";
 const defaultColumnSortDirection = "desc";
 const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
 const maskedTbaAuthKeyValue = "............";
+const firstSeasonAttributionUrl = "https://frc-events.firstinspires.org/services/api";
 const defaultStatboticsBaseUrl = "https://api-statbotics.iterativerefinement.com/v3";
 
 function readBootstrapStoredJson(key, fallback) {
@@ -321,14 +317,24 @@ function scoutingProfileLabel(profileId, fallbackLabel = "") {
 }
 
 const defaultScoutingProfileId = "match-current-v2";
+const deploymentRevision = normalizeText(globalThis.__DEPLOYMENT_REVISION) || "local checkout";
+const developmentRevision = /^[0-9a-f]{7,40}$/i.test(deploymentRevision)
+  ? deploymentRevision.toLowerCase().slice(0, 7)
+  : deploymentRevision;
 
-const initialEventKey = resolveEventKey(readStoredItem(storageKeys.activeEvent));
-const initialEvent = eventModelByKey(initialEventKey);
+const storedActiveEventKey = normalizeText(readStoredItem(storageKeys.activeEvent)).toLowerCase();
+const initialEventKey = resolveEventKey(storedActiveEventKey);
+const initialEvent = eventModelByKey(initialEventKey) || emptyEventModel(initialEventKey);
 const initialWorkspace = createEventWorkspace(initialEvent, readStoredJson(storageKeys.eventWorkspace, null, initialEventKey));
-const initialTbaAuthKey =
-  readStoredItem(storageKeys.tbaAuthKey)
-  || normalizeText(globalThis.__TBA_AUTH_KEY || globalThis.TBA_AUTH_KEY)
-  || defaultTbaAuthKey;
+const initialTbaAuthKey = "";
+try {
+  // Authentication and keys saved by older versions must not remain in browser storage after the Firebase migration.
+  localStorage.removeItem("frc-scouting-user");
+  localStorage.removeItem("frc-scouting-users");
+  localStorage.removeItem("frc-scouting-tba-auth-key");
+} catch {
+  // Storage can be unavailable in private or restricted browser contexts.
+}
 const initialStatboticsBaseUrl =
   readStoredItem(storageKeys.statboticsBaseUrl)
   || normalizeText(globalThis.__STATBOTICS_BASE_URL || globalThis.STATBOTICS_BASE_URL)
@@ -341,16 +347,15 @@ const initialLegacyFilterCatalog = normalizeLegacyFilterCatalog(
 );
 const state = {
   activeEventKey: initialEventKey,
-  user: readStoredItem(storageKeys.user) || "",
-  users: readStoredJson(storageKeys.users, seedUsers),
+  user: "",
   theme: readStoredItem(storageKeys.theme) || "light",
   activeView: "teams",
   metric: "",
   activeAnalysisFilterId: "",
   teamDetailMetric: "",
   picklistCompareMetric: "",
-  selectedTeam: initialEvent.teams[0].number,
-  selectedMatch: initialEvent.matches[0].number,
+  selectedTeam: initialEvent.teams[0]?.number || 0,
+  selectedMatch: initialEvent.matches[0]?.number || 0,
   menuExpanded: readStoredItem(storageKeys.menuExpanded) === "true",
   picklists: [],
   sortEquations: [],
@@ -381,6 +386,15 @@ const state = {
   tbaAuthKeyDraft: initialTbaAuthKey ? maskedTbaAuthKeyValue : "",
   tbaAuthKeyMasked: Boolean(initialTbaAuthKey),
   tbaAuthKeyDirty: false,
+  tbaAuthKeyValidation: { configured: false, valid: false, status: "missing" },
+  tbaAuthKeySavePending: false,
+  frcApiUsername: "",
+  frcApiAuthorizationKey: "",
+  frcApiUsernameDraft: "",
+  frcApiAuthorizationKeyDraft: "",
+  frcApiCredentialsDirty: false,
+  frcApiCredentialsSavePending: false,
+  seasonMetadata: {},
   statboticsBaseUrl: initialStatboticsBaseUrl,
   statboticsBaseUrlDraft: initialStatboticsBaseUrl,
   statboticsBaseUrlDirty: false,
@@ -407,6 +421,16 @@ const state = {
   eventWorkspace: null,
   eventLookupPending: false,
   eventLookupResult: null,
+  sharedCachedEvents: [],
+  sharedCacheStatus: "",
+  rawSourceCacheEventKey: "",
+  rawSourceCacheSources: [],
+  rawSourceCacheSourceId: "",
+  rawSourceCacheArtifact: null,
+  rawSourceCacheStatus: "",
+  rawSourceCacheLoading: false,
+  pendingSharedActiveEventKey: storedActiveEventKey,
+  pendingSharedRecentEventKeys: readStoredJson(storageKeys.recentEvents, []),
   builderGridScroll: {
     derivedBuilder: { shellLeft: 0, columnTops: {} },
   },
@@ -421,7 +445,6 @@ const state = {
 state.recentEventKeys = normalizeRecentEventKeys(readStoredJson(storageKeys.recentEvents, [initialEventKey]), initialEventKey);
 globalThis.__scoutingAppState = state;
 globalThis.__scoutingActiveEventKey = state.activeEventKey;
-globalThis.__TBA_AUTH_KEY = state.tbaAuthKey;
 globalThis.__STATBOTICS_BASE_URL = state.statboticsBaseUrl;
 let pendingScoutingAutoloadToken = "";
 let attemptedScoutingAutoloadToken = "";
@@ -430,6 +453,9 @@ let sourceRefreshIntervalId = null;
 let scoutingSubmissionRevision = 0;
 let scoutingSubmissionLoadSequence = 0;
 let allianceSourceScrollbarResizeObserver = null;
+let tbaAuthKeyConfigurationLoadSequence = 0;
+let frcSeasonMetadataLoadSequence = 0;
+const seasonMetadataUnsubscribers = new Map();
 const scoutingPerf = globalThis.__scoutingPerf || { events: [] };
 globalThis.__scoutingPerf = scoutingPerf;
 
@@ -456,6 +482,12 @@ function recordScoutingPerf(label, startedAt, details = {}) {
 function bootstrapApp() {
   const startedAt = perfNow();
   try {
+    if (!eventModelByKey(state.activeEventKey)) {
+      document.documentElement.dataset.theme = state.theme;
+      renderSafely();
+      recordScoutingPerf("bootstrap.emptyCatalog", startedAt, { eventKey: state.activeEventKey });
+      return;
+    }
     const hydrateStartedAt = perfNow();
     hydrateEventState(state.activeEventKey);
     recordScoutingPerf("bootstrap.hydrateEventState", hydrateStartedAt, { eventKey: state.activeEventKey });
@@ -486,7 +518,8 @@ function bootstrapApp() {
 
 function eventModelByKey(key) {
   const eventIndex = globalEventCatalog.findIndex((eventModel) => eventModel.key === key);
-  const resolvedIndex = eventIndex >= 0 ? eventIndex : 0;
+  if (eventIndex < 0) return null;
+  const resolvedIndex = eventIndex;
   const eventModel = globalEventCatalog[resolvedIndex];
   const hydrateEventModel = realEventDataApi.hydrateEventModel || ((value) => value);
   const hydratedEventModel = hydrateEventModel(eventModel);
@@ -497,11 +530,28 @@ function eventModelByKey(key) {
 }
 
 function resolveEventKey(value) {
-  return eventModelByKey(value).key;
+  const normalizedValue = String(value || "").trim().toLowerCase();
+  return eventModelByKey(normalizedValue)?.key || normalizedValue || globalEventCatalog[0]?.key || "";
+}
+
+function emptyEventModel(key = "") {
+  return {
+    key,
+    season: 0,
+    seasonLabel: "",
+    name: "",
+    teams: [],
+    matches: [],
+    matchesComplete: 0,
+    dataSources: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+  };
 }
 
 function currentEvent() {
-  return eventModelByKey(state?.activeEventKey || initialEventKey);
+  return eventModelByKey(state?.activeEventKey || initialEventKey) || emptyEventModel(state?.activeEventKey || initialEventKey);
 }
 
 function normalizeText(value) {
@@ -514,7 +564,7 @@ function normalizeRecentEventKeys(values, fallback = state?.activeEventKey || in
   (Array.isArray(values) ? values : []).forEach((value) => {
     const eventKey = normalizeText(value);
     if (!eventKey || seen.has(eventKey)) return;
-    if (!globalEventCatalog.some((eventModel) => eventModel?.key === eventKey)) return;
+    if (!globalEventCatalog.some((eventModel) => eventModel?.key === eventKey) && !sharedCachedEventByKey(eventKey)) return;
     seen.add(eventKey);
     normalized.push(eventKey);
   });
@@ -651,6 +701,22 @@ function setCurrentScoutingSourceUrl(url, options = {}) {
   if (options.applyToAttachment !== false) {
     state.eventWorkspace = setEventWorkspaceScoutingSourceLocation(currentEventWorkspace(), normalizedUrl);
   }
+  if (options.persistAttachment) {
+    const attachment = currentScoutingAttachment();
+    if (attachment?.attachmentId) {
+      saveCurrentScoutingAttachmentDraft({
+        label: attachment.label,
+        format: activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
+        translatorId: attachment.translatorId,
+        profileId: attachment.profileId,
+        profileLabel: attachment.profileLabel,
+        source: normalizedUrl,
+        schemaSource: currentScoutingSchemaSourceInputValue(),
+        autoLoad: attachment.autoLoad,
+      }, { render: false });
+      return;
+    }
+  }
   if (options.save) saveState();
 }
 
@@ -658,6 +724,30 @@ function setCurrentScoutingSchemaSourceUrl(url, options = {}) {
   const normalizedUrl = normalizeScoutingSourceUrl(url);
   if (options.applyToAttachment !== false) {
     state.eventWorkspace = setEventWorkspaceScoutingSchemaSourceLocation(currentEventWorkspace(), normalizedUrl);
+  }
+  if (options.persistAttachment) {
+    const attachment = currentScoutingAttachment();
+    if (attachment?.attachmentId) {
+      const source = currentScoutingSourceInputValue();
+      const format = activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent());
+      const profileId = inferredScoutingProfileIdForAttachment({
+        format,
+        source,
+        schemaSource: normalizedUrl,
+        currentProfileId: attachment.profileId,
+      });
+      saveCurrentScoutingAttachmentDraft({
+        label: attachment.label,
+        format,
+        translatorId: attachment.translatorId,
+        profileId,
+        profileLabel: scoutingProfileLabel(profileId, attachment.profileLabel),
+        source,
+        schemaSource: normalizedUrl,
+        autoLoad: attachment.autoLoad,
+      }, { render: false });
+      return;
+    }
   }
   if (options.save) saveState();
 }
@@ -841,16 +931,70 @@ function nextSchemaProfilePath(currentSchemaSource = "", scoutingSource = "") {
   return buildVersionedSchemaProfilePath(normalizedScoutingSource || currentSchemaSource, 1);
 }
 
-function setTbaAuthKey(value, options = {}) {
+function setTbaAuthKey(value) {
   state.tbaAuthKey = normalizeText(value);
-  globalThis.__TBA_AUTH_KEY = state.tbaAuthKey;
-  if (options.save) {
-    if (state.tbaAuthKey) {
-      localStorage.setItem(storageKeys.tbaAuthKey, state.tbaAuthKey);
-    } else {
-      localStorage.removeItem(storageKeys.tbaAuthKey);
-    }
+}
+
+function applyCachedSeasonMetadata(metadata) {
+  const season = Number(metadata?.season || 0);
+  const displayLabel = normalizeText(globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel?.(metadata?.gameName) || metadata?.gameName);
+  if (!season || !displayLabel) return false;
+  let changed = false;
+  globalEventCatalog.forEach((eventModel, index) => {
+    if (Number(eventModel?.season) !== season || eventModel.seasonLabel === displayLabel) return;
+    globalEventCatalog[index] = { ...eventModel, seasonLabel: displayLabel };
+    changed = true;
+  });
+  return changed;
+}
+
+function officialSeasonLabel(season) {
+  const metadata = state.seasonMetadata[String(season)] || null;
+  return normalizeText(globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel?.(metadata?.gameName) || metadata?.gameName);
+}
+
+function displayEventName(event) {
+  return toDisplayEventLabel(event?.name);
+}
+
+function displaySeasonName(event) {
+  return toDisplaySeasonLabel(event?.seasonLabel);
+}
+
+function displaySeasonHeading(event) {
+  const seasonLabel = displaySeasonName(event);
+  return new RegExp(`^${event?.season}\\b`).test(seasonLabel) ? seasonLabel : `${event?.season || ""} ${seasonLabel}`.trim();
+}
+
+function rememberSeasonMetadata(metadata) {
+  const season = Number(metadata?.season || 0);
+  if (!season) return false;
+  state.seasonMetadata[String(season)] = metadata;
+  return applyCachedSeasonMetadata(metadata);
+}
+
+function parseSchemaLinkArtifactText(linkJsonText) {
+  try {
+    const link = JSON.parse(String(linkJsonText || ""));
+    const scoutingSource = normalizeScoutingSourceUrl(link?.scoutingFile);
+    const schemaSource = normalizeScoutingSourceUrl(link?.schemaFile);
+    return scoutingSource && schemaSource ? { scoutingSource, schemaSource } : null;
+  } catch {
+    return null;
   }
+}
+
+async function resolveLinkedScoutingSource(schemaSource, attachment) {
+  const normalizedSchemaSource = normalizeScoutingSourceUrl(schemaSource);
+  if (!normalizedSchemaSource || /^(https?|file):\/\//i.test(normalizedSchemaSource)) return null;
+  const linkPath = buildSchemaLinkPath(normalizedSchemaSource);
+  const linkText = await readLocalAttachmentTextByPath(linkPath).catch(async () => {
+    if (!isEquivalentLocalAttachmentPath(linkPath, attachment?.location?.schemaLinkPath)) return "";
+    return readLocalAttachmentText(`${attachment?.attachmentId}:schema-link`).catch(() => "");
+  });
+  const link = parseSchemaLinkArtifactText(linkText);
+  if (!link) return null;
+  return { ...link, linkPath };
 }
 
 function normalizeStatboticsBaseUrl(value) {
@@ -1165,9 +1309,9 @@ async function refreshDataSource(sourceId, options = {}) {
     },
   });
   if (didChange) {
-    pushActivity(`Updated ${label} from the local snapshot for ${event.name}.`);
+    pushActivity(`Updated ${label} from the local snapshot for ${displayEventName(event)}.`);
   } else if (trigger === "manual") {
-    pushActivity(`Checked ${label} for ${event.name}. No changes detected.`);
+    pushActivity(`Checked ${label} for ${displayEventName(event)}. No changes detected.`);
   }
   saveState();
   render();
@@ -1218,7 +1362,9 @@ function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
   if (!activeAttachment) return;
   const normalizedSource = normalizeScoutingSourceUrl(draft.source);
   const normalizedSchemaSource = normalizeScoutingSourceUrl(draft.schemaSource);
-  const normalizedSchemaLinkSource = normalizeScoutingSourceUrl(draft.schemaLinkSource);
+  const normalizedSchemaLinkSource = draft.schemaLinkSource === undefined
+    ? (normalizeText(activeAttachment.location?.schemaLinkUrl) || normalizeText(activeAttachment.location?.schemaLinkPath))
+    : normalizeScoutingSourceUrl(draft.schemaLinkSource);
   const normalizedFormat = inferredScoutingAttachmentFormat(
     normalizeText(draft.format) || activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
     normalizedSource,
@@ -1272,7 +1418,7 @@ function saveCurrentScoutingAttachmentDraft(draft, options = {}) {
 
 function addScoutingAttachmentDraft() {
   const event = currentEvent();
-  const defaultLabel = `${event.name} Attachment ${currentEventWorkspace().sources?.scouting?.length || 1}`;
+  const defaultLabel = `${displayEventName(event)} Attachment ${currentEventWorkspace().sources?.scouting?.length || 1}`;
   state.eventWorkspace = upsertEventWorkspaceScoutingAttachment(
     currentEventWorkspace(),
     {
@@ -1430,6 +1576,9 @@ async function applyRecentAdminEventSelection(value) {
   const nextEventKey = normalizeText(value);
   if (!nextEventKey) return false;
   state.adminRecentEventsOpen = false;
+  if (sharedCachedEventByKey(nextEventKey) && !globalEventCatalog.some((eventModel) => eventModel?.key === nextEventKey)) {
+    return openSharedCachedEvent(nextEventKey, { activeView: "admin" });
+  }
   return switchActiveEvent(nextEventKey, { activeView: "admin" });
 }
 
@@ -1544,8 +1693,13 @@ async function applyScoutingSchemaSourceInputChange(options = {}) {
   if (nextSchemaSourceIsLocal && !isEquivalentLocalAttachmentPath(nextSchemaSource, normalizeText(attachment.location?.schemaPath))) {
     await clearLocalAttachmentFile(`${attachment.attachmentId}:schema`).catch(() => {});
   }
-  const nextSource = inferCompanionScoutingSourceFromSchemaSource(nextSchemaSource, currentScoutingSourceInputValue())
+  const linkedSource = await resolveLinkedScoutingSource(nextSchemaSource, attachment);
+  const nextSource = linkedSource?.scoutingSource
+    || inferCompanionScoutingSourceFromSchemaSource(nextSchemaSource, currentScoutingSourceInputValue())
     || currentScoutingSourceInputValue();
+  const adoptedLinkedSource = linkedSource?.scoutingSource
+    ? await adoptLocalAttachmentForPath(attachment.attachmentId, linkedSource.scoutingSource).catch(() => false)
+    : false;
   const nextFormat = inferredScoutingAttachmentFormat(
     activeEventWorkspaceScoutingAttachmentFormat(currentEventWorkspace(), currentEvent()),
     nextSource,
@@ -1565,11 +1719,13 @@ async function applyScoutingSchemaSourceInputChange(options = {}) {
       profileLabel: scoutingProfileLabel(nextProfileId, attachment.profileLabel),
       source: nextSource,
       schemaSource: nextSchemaSource,
+      schemaLinkSource: linkedSource?.linkPath,
       autoLoad: Boolean(nextSource) || Boolean(attachment.autoLoad),
     },
     { render: false },
   );
-  if (shouldDeferInferredLocalScoutingLoad(nextSource, attachment)) {
+  if ((linkedSource?.scoutingSource && !adoptedLinkedSource)
+    || (!linkedSource?.scoutingSource && shouldDeferInferredLocalScoutingLoad(nextSource, attachment))) {
     render();
     return true;
   }
@@ -1602,13 +1758,167 @@ function restoreTbaAuthKeyDraftIfNeeded() {
   if (input) input.value = visibleTbaAuthKeyValue();
 }
 
-function saveTbaAuthKeyDraft() {
-  if (!state.tbaAuthKeyDirty) return false;
-  setTbaAuthKey(state.tbaAuthKeyDraft, { save: true });
-  resetTbaAuthKeyDraft();
-  state.eventLookupResult = { kind: "success", message: state.tbaAuthKey ? "Saved the TBA auth key locally." : "Removed the saved TBA auth key." };
-  saveState();
+function tbaAuthKeyValidationLabel(validation = state.tbaAuthKeyValidation) {
+  if (validation.status === "checking") return "Checking configured key…";
+  if (validation.status === "valid") return "Configured key is valid.";
+  if (validation.status === "invalid") return "Configured key is invalid.";
+  if (validation.status === "unverified") return "Key is configured, but its validity could not be verified.";
+  return "No TBA auth key is configured.";
+}
+
+function clearTbaAuthKeyConfiguration() {
+  tbaAuthKeyConfigurationLoadSequence += 1;
+  setTbaAuthKey("");
+  state.tbaAuthKeyDraft = "";
+  state.tbaAuthKeyMasked = false;
+  state.tbaAuthKeyDirty = false;
+  state.tbaAuthKeyValidation = { configured: false, valid: false, status: "missing" };
+}
+
+async function refreshTbaAuthKeyConfiguration() {
+  const api = globalThis.firebaseTbaAuthKeyApi;
+  if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") return false;
+  const loadSequence = ++tbaAuthKeyConfigurationLoadSequence;
+  try {
+    const tbaAuthKey = await api.loadTbaAuthKey();
+    if (loadSequence !== tbaAuthKeyConfigurationLoadSequence || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") return false;
+    setTbaAuthKey(tbaAuthKey);
+    resetTbaAuthKeyDraft();
+    state.tbaAuthKeyValidation = tbaAuthKey
+      ? { configured: true, valid: null, status: "checking" }
+      : { configured: false, valid: false, status: "missing" };
+    renderSafely();
+    if (tbaAuthKey) state.tbaAuthKeyValidation = await api.validateTbaAuthKey(tbaAuthKey);
+    if (loadSequence !== tbaAuthKeyConfigurationLoadSequence || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") return false;
+    renderSafely();
+    return true;
+  } catch {
+    state.tbaAuthKeyValidation = { configured: Boolean(state.tbaAuthKey), valid: null, status: "unverified" };
+    renderSafely();
+    return false;
+  }
+}
+
+async function saveTbaAuthKeyDraft() {
+  if (!state.tbaAuthKeyDirty || state.tbaAuthKeySavePending) return false;
+  const api = globalThis.firebaseTbaAuthKeyApi;
+  if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") {
+    state.eventLookupResult = { kind: "error", message: "Only signed-in administrators can update the TBA auth key." };
+    render();
+    return false;
+  }
+  const loadSequence = ++tbaAuthKeyConfigurationLoadSequence;
+  state.tbaAuthKeySavePending = true;
   render();
+  try {
+    const tbaAuthKey = await api.saveTbaAuthKey(state.tbaAuthKeyDraft);
+    if (loadSequence !== tbaAuthKeyConfigurationLoadSequence || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") return false;
+    setTbaAuthKey(tbaAuthKey);
+    resetTbaAuthKeyDraft();
+    state.tbaAuthKeyValidation = tbaAuthKey
+      ? { configured: true, valid: null, status: "checking" }
+      : { configured: false, valid: false, status: "missing" };
+    state.eventLookupResult = { kind: "success", message: tbaAuthKey ? "Saved the TBA auth key." : "Removed the TBA auth key." };
+    if (tbaAuthKey) state.tbaAuthKeyValidation = await api.validateTbaAuthKey(tbaAuthKey);
+    if (loadSequence !== tbaAuthKeyConfigurationLoadSequence || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") return false;
+  } catch {
+    state.eventLookupResult = { kind: "error", message: "Unable to save the TBA auth key." };
+  } finally {
+    state.tbaAuthKeySavePending = false;
+    saveState();
+    render();
+  }
+  return true;
+}
+
+function updateFrcApiCredentialsDraft(field, value) {
+  if (field === "username") state.frcApiUsernameDraft = normalizeText(value);
+  if (field === "authorizationKey") state.frcApiAuthorizationKeyDraft = normalizeText(value);
+  state.frcApiCredentialsDirty = true;
+}
+
+function clearFrcApiCredentials() {
+  frcSeasonMetadataLoadSequence += 1;
+  state.frcApiUsername = "";
+  state.frcApiAuthorizationKey = "";
+  state.frcApiUsernameDraft = "";
+  state.frcApiAuthorizationKeyDraft = "";
+  state.frcApiCredentialsDirty = false;
+  state.frcApiCredentialsSavePending = false;
+}
+
+async function refreshSharedSeasonMetadata() {
+  const api = globalThis.firebaseFrcSeasonMetadataApi;
+  if (!api || !globalThis.firebaseCurrentUser) return false;
+  const seasons = [...new Set(globalEventCatalog.map((eventModel) => Number(eventModel?.season)).filter(Boolean))];
+  const results = await Promise.all(seasons.map((season) => api.loadSeasonMetadata(season).catch(() => null)));
+  const changed = results.some((metadata) => rememberSeasonMetadata(metadata));
+  if (changed) renderSafely();
+  return changed;
+}
+
+function subscribeSharedSeasonMetadata() {
+  const api = globalThis.firebaseFrcSeasonMetadataApi;
+  if (!api?.subscribeSeasonMetadata || !globalThis.firebaseCurrentUser) return;
+  [...new Set(globalEventCatalog.map((eventModel) => Number(eventModel?.season)).filter(Boolean))].forEach((season) => {
+    if (seasonMetadataUnsubscribers.has(season)) return;
+    seasonMetadataUnsubscribers.set(season, api.subscribeSeasonMetadata(season, (metadata) => {
+      if (rememberSeasonMetadata(metadata)) renderSafely();
+    }));
+  });
+}
+
+function clearSeasonMetadataSubscriptions() {
+  seasonMetadataUnsubscribers.forEach((unsubscribe) => unsubscribe());
+  seasonMetadataUnsubscribers.clear();
+}
+
+async function refreshFrcApiCredentials() {
+  const api = globalThis.firebaseFrcSeasonMetadataApi;
+  if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") return false;
+  const loadSequence = ++frcSeasonMetadataLoadSequence;
+  try {
+    const credentials = await api.loadCredentials();
+    if (loadSequence !== frcSeasonMetadataLoadSequence || globalThis.firebaseUserRole !== "admin") return false;
+    state.frcApiUsername = credentials.username;
+    state.frcApiAuthorizationKey = credentials.authorizationKey;
+    state.frcApiUsernameDraft = credentials.username;
+    state.frcApiAuthorizationKeyDraft = credentials.authorizationKey;
+    state.frcApiCredentialsDirty = false;
+    renderSafely();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function saveFrcApiCredentials() {
+  if (!state.frcApiCredentialsDirty || state.frcApiCredentialsSavePending) return false;
+  const api = globalThis.firebaseFrcSeasonMetadataApi;
+  if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin") {
+    state.eventLookupResult = { kind: "error", message: "Only signed-in administrators can update FIRST API credentials." };
+    render();
+    return false;
+  }
+  state.frcApiCredentialsSavePending = true;
+  render();
+  try {
+    const draftCredentials = { username: state.frcApiUsernameDraft, authorizationKey: state.frcApiAuthorizationKeyDraft };
+    const validation = await api.validateCredentials(draftCredentials, Number(currentEvent()?.season || 2020));
+    if (validation.configured && validation.valid !== true) {
+      throw new Error(validation.status === "invalid" ? "FIRST API credentials were rejected." : "FIRST API credentials could not be verified.");
+    }
+    const credentials = await api.saveCredentials(draftCredentials);
+    state.frcApiUsername = credentials.username;
+    state.frcApiAuthorizationKey = credentials.authorizationKey;
+    state.frcApiCredentialsDirty = false;
+    state.eventLookupResult = { kind: "success", message: credentials.username && credentials.authorizationKey ? "Saved FIRST API credentials." : "Removed FIRST API credentials." };
+  } catch {
+    state.eventLookupResult = { kind: "error", message: "Unable to save FIRST API credentials." };
+  } finally {
+    state.frcApiCredentialsSavePending = false;
+    render();
+  }
   return true;
 }
 
@@ -1816,6 +2126,21 @@ function currentDataSources() {
     { label: "Matches", value: importedMatchCount() },
     { label: "Teams", value: importedTeamCount() },
   ].filter((stat) => stat.value > 0);
+  const seasonMetadata = state.seasonMetadata[String(event.season)] || null;
+  const firstSource = {
+    sourceId: "first",
+    name: "FIRST",
+    status: seasonMetadata?.gameName ? "ready" : "stale",
+    freshness: seasonMetadata?.gameName ? "fresh" : "unknown",
+    notes: seasonMetadata?.gameName
+      ? `Official season title: ${globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel?.(seasonMetadata.gameName) || seasonMetadata.gameName}. Event Data provided by FIRST.`
+      : "Official season title has not been cached yet. It refreshes when an administrator loads a valid event code.",
+    kind: "first",
+    detectedLabel: "",
+    nextPollAt: seasonMetadata?.fetchedAt ? `Updated ${formatTimestamp(seasonMetadata.fetchedAt)}` : "Refresh: event load",
+    pollingEnabled: false,
+    attributionUrl: firstSeasonAttributionUrl,
+  };
   return [
     {
       sourceId: "scouting",
@@ -1830,6 +2155,7 @@ function currentDataSources() {
       pollingEnabled: activeAttachment?.pollingEnabled !== false,
     },
     ...externalSources,
+    firstSource,
   ];
 }
 
@@ -3319,9 +3645,14 @@ function formulaAstPrecedence(ast) {
 function canonicalFormulaCall(ast) {
   const normalizedName = String(ast?.callee || "").trim().toLowerCase();
   const args = Array.isArray(ast?.args) ? ast.args : [];
-  if (normalizedName === "teamaverage") return { name: "average", args };
-  if (normalizedName === "teamsum") return { name: "sum", args };
-  if (normalizedName === "teamcount") return { name: "count", args };
+  const teamAliasMap = {
+    teamaverage: "average",
+    teamsum: "sum",
+    teamcount: "count",
+    teammin: "min",
+    teammax: "max",
+  };
+  if (teamAliasMap[normalizedName]) return { name: teamAliasMap[normalizedName], args };
   if (["groupaverage", "groupsum", "groupcount"].includes(normalizedName) && args.length >= 2 && args[1]?.type === "call") {
     const scopeName = String(args[1].callee || "").trim().toLowerCase();
     const scopedNameMap = {
@@ -3496,8 +3827,6 @@ function restoreBuilderListScroll(view = state.activeView) {
 }
 
 function saveState() {
-  localStorage.setItem(eventStorageKey(storageKeys.users), JSON.stringify(state.users));
-  localStorage.setItem(eventStorageKey(storageKeys.user), state.user);
   localStorage.setItem(eventStorageKey(storageKeys.theme), state.theme);
   localStorage.setItem(eventStorageKey(storageKeys.activeEvent), state.activeEventKey);
   localStorage.setItem(eventStorageKey(storageKeys.recentEvents), JSON.stringify(normalizeRecentEventKeys(state.recentEventKeys, state.activeEventKey)));
@@ -3553,7 +3882,7 @@ function clearCurrentEventScoutingData() {
   Promise.resolve(clearPersistedScoutingSubmissions(eventKey)).catch((error) => {
     console.error("Unable to clear persisted scouting submissions for event.", eventKey, error);
   });
-  if (globalThis.firebaseSubmissionApi && globalThis.firebaseCurrentUser) {
+  if (globalThis.firebaseSubmissionApi && globalThis.firebaseCurrentUser && globalThis.firebaseUserRole === "admin") {
     Promise.resolve(globalThis.firebaseSubmissionApi.clearEventSubmissions(eventKey)).catch((error) => {
       console.error("Unable to clear shared scouting submissions for event.", eventKey, error);
     });
@@ -3601,7 +3930,7 @@ function persistScoutingSubmissions(eventKey = state.activeEventKey, submissions
   const snapshot = JSON.parse(JSON.stringify(Array.isArray(submissions) ? submissions : []));
   const firebaseApi = globalThis.firebaseSubmissionApi;
   const firebaseUser = globalThis.firebaseCurrentUser;
-  if (firebaseApi && firebaseUser) {
+  if (firebaseApi && firebaseUser && globalThis.firebaseUserRole === "admin") {
     firebaseApi.saveEventSubmissions(resolvedEventKey, snapshot).catch((error) => {
       console.error("Unable to persist shared scouting submissions.", resolvedEventKey, error);
     });
@@ -3716,6 +4045,227 @@ function ensureEventScopedScoutingProfiles(eventModel = currentEvent()) {
 
 function scoutingProfilesForEvent(eventModel = currentEvent()) {
   return ensureEventScopedScoutingProfiles(eventModel);
+}
+
+let stopSharedActiveEventSync = null;
+
+function sharedCachedEventByKey(eventKey) {
+  const normalizedEventKey = normalizeText(eventKey).toLowerCase();
+  return state.sharedCachedEvents.find((event) => event.key === normalizedEventKey) || null;
+}
+
+async function refreshSharedCachedEventCatalog(options = {}) {
+  const api = globalThis.firebaseEventSourceCacheApi;
+  if (!api || !globalThis.firebaseCurrentUser) return [];
+  try {
+    const result = await api.listCachedEvents();
+    state.sharedCachedEvents = Array.isArray(result?.events) ? result.events : [];
+    state.recentEventKeys = normalizeRecentEventKeys([
+      ...(Array.isArray(state.pendingSharedRecentEventKeys) ? state.pendingSharedRecentEventKeys : []),
+      ...state.recentEventKeys,
+    ], state.activeEventKey);
+    state.pendingSharedRecentEventKeys = [];
+    const persistentCacheMessage = globalThis.firebaseServices?.persistenceStatus?.message || "";
+    state.sharedCacheStatus = `${result?.fromCache ? "Showing cached shared events while offline. " : "Shared event catalog is current. "}${persistentCacheMessage}`.trim();
+  } catch (error) {
+    state.sharedCacheStatus = `Shared event catalog is unavailable. ${error?.message || "Check your connection."}`;
+  }
+  if (options.render !== false) render();
+  return state.sharedCachedEvents;
+}
+
+function rawSourceText(artifact = state.rawSourceCacheArtifact) {
+  if (!artifact) return "";
+  if (typeof artifact.rawText === "string") return artifact.rawText;
+  if (artifact.rawBytes instanceof Uint8Array) return new TextDecoder().decode(artifact.rawBytes);
+  return "";
+}
+
+function rawSourceDisplayText(artifact = state.rawSourceCacheArtifact) {
+  const rawText = rawSourceText(artifact);
+  const contentType = normalizeText(artifact?.manifest?.contentType).toLowerCase();
+  if (contentType.includes("json") || /^[\[{]/.test(rawText.trim())) {
+    try { return JSON.stringify(JSON.parse(rawText), null, 2); } catch { return rawText; }
+  }
+  return rawText;
+}
+
+async function selectRawSourceCacheEvent(eventKey) {
+  if (!isAdmin()) return;
+  const api = globalThis.firebaseEventSourceCacheApi;
+  state.rawSourceCacheEventKey = normalizeText(eventKey).toLowerCase();
+  state.rawSourceCacheSources = [];
+  state.rawSourceCacheSourceId = "";
+  state.rawSourceCacheArtifact = null;
+  if (!state.rawSourceCacheEventKey) { render(); return; }
+  if (!api?.listEventSourceCacheSources) {
+    state.rawSourceCacheStatus = "Cached source artifact listing is unavailable.";
+    render();
+    return;
+  }
+  state.rawSourceCacheLoading = true;
+  state.rawSourceCacheStatus = "Loading cached source artifacts...";
+  render();
+  try {
+    const result = await api.listEventSourceCacheSources({ eventKey: state.rawSourceCacheEventKey });
+    state.rawSourceCacheSources = Array.isArray(result?.sources) ? result.sources : [];
+    state.rawSourceCacheStatus = state.rawSourceCacheSources.length
+      ? `${result?.fromCache ? "Showing locally cached artifacts." : "Cached source artifacts are current."}`
+      : "No cached source artifacts are available for this event.";
+  } catch (error) {
+    state.rawSourceCacheStatus = `Cached source artifacts are unavailable. ${error?.message || "Check your connection."}`;
+  } finally {
+    state.rawSourceCacheLoading = false;
+    render();
+  }
+}
+
+async function selectRawSourceCacheArtifact(sourceId) {
+  if (!isAdmin()) return;
+  const api = globalThis.firebaseEventSourceCacheApi;
+  state.rawSourceCacheSourceId = normalizeText(sourceId);
+  state.rawSourceCacheArtifact = null;
+  if (!state.rawSourceCacheSourceId || !state.rawSourceCacheEventKey) { render(); return; }
+  state.rawSourceCacheLoading = true;
+  state.rawSourceCacheStatus = `Reconstructing ${state.rawSourceCacheSourceId} from cached chunks...`;
+  render();
+  try {
+    const artifact = await api?.loadEventSourceCache?.({ eventKey: state.rawSourceCacheEventKey, sourceId: state.rawSourceCacheSourceId });
+    if (!artifact?.manifest || (typeof artifact.rawText !== "string" && !(artifact.rawBytes instanceof Uint8Array))) throw new Error("The cache reader returned no reconstructed payload.");
+    state.rawSourceCacheArtifact = artifact;
+    state.rawSourceCacheStatus = "Reconstructed from the persisted cache artifact.";
+  } catch (error) {
+    state.rawSourceCacheStatus = `Cached artifact is unavailable, incomplete, or corrupt. ${error?.message || ""}`.trim();
+  } finally {
+    state.rawSourceCacheLoading = false;
+    render();
+  }
+}
+
+function rawSourceBlob(artifact = state.rawSourceCacheArtifact) {
+  if (!artifact) return null;
+  const type = normalizeText(artifact.manifest?.contentType) || "application/octet-stream";
+  return new Blob([artifact.rawBytes instanceof Uint8Array ? artifact.rawBytes : artifact.rawText], { type });
+}
+
+async function copyRawSourceCacheArtifact() {
+  const artifact = state.rawSourceCacheArtifact;
+  if (!artifact) return;
+  try {
+    if (artifact.rawBytes instanceof Uint8Array && globalThis.ClipboardItem && navigator.clipboard?.write) {
+      await navigator.clipboard.write([new ClipboardItem({ [normalizeText(artifact.manifest?.contentType) || "application/octet-stream"]: rawSourceBlob(artifact) })]);
+    } else if (artifact.rawBytes instanceof Uint8Array) throw new Error("Byte-preserving binary clipboard access is unavailable; use Download Raw.");
+    else if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(rawSourceText(artifact));
+    else throw new Error("Clipboard access is unavailable in this browser.");
+    state.rawSourceCacheStatus = "Copied reconstructed raw payload without formatting changes.";
+  } catch (error) { state.rawSourceCacheStatus = `Unable to copy raw payload. ${error?.message || ""}`.trim(); }
+  render();
+}
+
+function downloadRawSourceCacheArtifact() {
+  const artifact = state.rawSourceCacheArtifact;
+  const blob = rawSourceBlob(artifact);
+  if (!blob) return;
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${state.rawSourceCacheEventKey}-${artifact.manifest?.sourceId || "source"}`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+async function loadCachedScoutingData(eventKey, api) {
+  try {
+    const cached = await api.loadEventSourceCache({ eventKey, sourceId: "scouting-data" });
+    const rawText = cached.rawText ?? new TextDecoder().decode(cached.rawBytes);
+    const contentType = normalizeText(cached.manifest?.contentType).toLowerCase();
+    if (contentType.includes("json") || /^[\[{]/.test(rawText.trim())) {
+      loadPreparedScoutingJson(rawText, { importDraftSource: "shared-cache" });
+    } else {
+      loadPreparedScoutingSheet(rawText, eventWorkspaceProfileId(currentEventWorkspace()) || "", { importDraftSource: "shared-cache" });
+    }
+    return true;
+  } catch (error) {
+    if (!/No cached source is available/i.test(error?.message || "")) console.warn("Unable to load cached scouting data", error);
+    return false;
+  }
+}
+
+async function openSharedCachedEvent(eventKey, options = {}) {
+  const cachedEvent = sharedCachedEventByKey(eventKey);
+  const api = globalThis.firebaseEventSourceCacheApi;
+  const cachedEventLoader = globalThis.CachedEventLoader;
+  if (!cachedEvent || !api || !cachedEventLoader?.rebuildCachedEvent) return false;
+  state.eventLookupPending = true;
+  state.eventLookupResult = { kind: "info", message: `Opening ${cachedEvent.key} from the shared cache...` };
+  render();
+  try {
+    const result = await cachedEventLoader.rebuildCachedEvent({
+      event: cachedEvent,
+      loadSource: (sourceId) => api.loadEventSourceCache({ eventKey: cachedEvent.key, sourceId }),
+    });
+    const registeredEvent = registerEventModel({
+      ...result.eventModel,
+      name: cachedEvent.name || result.eventModel.name,
+      season: cachedEvent.season || result.eventModel.season,
+      seasonLabel: officialSeasonLabel(cachedEvent.season || result.eventModel.season) || cachedEvent.seasonLabel || result.eventModel.seasonLabel,
+      catalogSource: "shared-cache",
+    });
+    switchActiveEvent(registeredEvent.key, { activeView: options.activeView || state.activeView, persistShared: false, preserveImportDraft: true });
+    applyLoadedExternalSourceState({ ...result, eventModel: registeredEvent }, { render: false });
+    await loadCachedScoutingData(registeredEvent.key, api);
+    state.eventLookupResult = {
+      kind: result.warnings.length || result.cacheFreshness === "stale" ? "warn" : "success",
+      message: `${registeredEvent.key} opened from the shared Firestore cache (${result.cacheFreshness}).${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`,
+    };
+    render();
+    return true;
+  } catch (error) {
+    state.eventLookupResult = { kind: "error", message: `Unable to open cached ${normalizeText(eventKey)}. ${error?.message || ""}`.trim() };
+    render();
+    return false;
+  } finally {
+    state.eventLookupPending = false;
+    render();
+  }
+}
+
+async function restoreSharedCachedActiveEvent() {
+  const eventKey = normalizeText(state.pendingSharedActiveEventKey || state.activeEventKey);
+  state.pendingSharedActiveEventKey = "";
+  if (!eventKey || globalEventCatalog.some((eventModel) => eventModel?.key === eventKey) || !sharedCachedEventByKey(eventKey)) return false;
+  return openSharedCachedEvent(eventKey, { activeView: state.activeView });
+}
+
+function persistSharedActiveEvent(eventKey) {
+  const api = globalThis.firebaseEventStateApi;
+  if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin" || !eventKey) return;
+  void api.saveActiveEvent(eventKey).catch((error) => {
+    console.warn(`Unable to save shared active event ${eventKey}; keeping the local event.`, error);
+  });
+}
+
+function startSharedActiveEventSync() {
+  const api = globalThis.firebaseEventStateApi;
+  if (!api || !globalThis.firebaseCurrentUser) return;
+  stopSharedActiveEventSync?.();
+  stopSharedActiveEventSync = api.subscribeActiveEvent((eventKey) => {
+    const sharedEventKey = normalizeText(eventKey);
+    if (!sharedEventKey) {
+      persistSharedActiveEvent(state.activeEventKey);
+      return;
+    }
+    if (!globalEventCatalog.some((eventModel) => eventModel.key === sharedEventKey)) {
+      if (sharedCachedEventByKey(sharedEventKey)) void openSharedCachedEvent(sharedEventKey, { activeView: state.activeView });
+      else console.warn(`Shared active event ${sharedEventKey} is unavailable in this client; keeping ${state.activeEventKey}.`);
+      return;
+    }
+    if (sharedEventKey !== state.activeEventKey) switchActiveEvent(sharedEventKey, { persistShared: false });
+  });
+}
+
+function stopSharedActiveEventSynchronization() {
+  stopSharedActiveEventSync?.();
+  stopSharedActiveEventSync = null;
 }
 
 function persistSharedScoutingProfile(eventKey, profile) {
@@ -3952,6 +4502,7 @@ function switchActiveEvent(eventKey, options = {}) {
       state.importDraftSource = "";
     }
     saveState();
+    if (options.persistShared !== false) persistSharedActiveEvent(resolvedEventKey);
     if (options.rerunImportPreview) {
       state.importResult = null;
       runImportPreview();
@@ -3999,15 +4550,44 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
       statboticsBaseUrl: state.statboticsBaseUrl,
     });
     const registeredEvent = registerEventModel(loadResult.eventModel);
+    await refreshSharedSeasonMetadata();
+    subscribeSharedSeasonMetadata();
     switchActiveEvent(registeredEvent.key, {
       activeView: options.activeView || "admin",
       preserveImportDraft: true,
     });
+    let seasonTitleWarning = "";
+    const seasonMetadataApi = globalThis.firebaseFrcSeasonMetadataApi;
+    if (globalThis.firebaseUserRole === "admin" && state.frcApiUsername && state.frcApiAuthorizationKey && seasonMetadataApi) {
+      try {
+        const metadata = await seasonMetadataApi.refreshSeasonMetadata(registeredEvent.season, {
+          username: state.frcApiUsername,
+          authorizationKey: state.frcApiAuthorizationKey,
+        });
+        rememberSeasonMetadata(metadata);
+      } catch (error) {
+        seasonTitleWarning = error?.message || "Unable to refresh the official FIRST season title.";
+      }
+    }
     applyLoadedExternalSourceState(loadResult, { render: false });
+    let sourceCacheWarning = "";
+    const sourceCacheApi = globalThis.firebaseEventSourceCacheApi;
+    if (globalThis.firebaseUserRole === "admin" && sourceCacheApi && Array.isArray(loadResult.rawSourceArtifacts)) {
+      try {
+        await sourceCacheApi.saveEventSourceCache({
+          event: currentEvent(),
+          workspace: currentEventWorkspace(),
+          artifacts: loadResult.rawSourceArtifacts,
+        });
+      } catch (error) {
+        sourceCacheWarning = error?.message || "Unable to cache raw provider source data.";
+      }
+    }
+    const eventLoadWarnings = [...(loadResult.warnings || []), ...(seasonTitleWarning ? [seasonTitleWarning] : []), ...(sourceCacheWarning ? [sourceCacheWarning] : [])];
     state.eventLookupResult = {
-      kind: loadResult.warnings?.length ? "warn" : "success",
-      message: loadResult.warnings?.length
-        ? `${registeredEvent.key} loaded with warnings. ${loadResult.warnings.join(" ")}`
+      kind: eventLoadWarnings.length ? "warn" : "success",
+      message: eventLoadWarnings.length
+        ? `${registeredEvent.key} loaded with warnings. ${eventLoadWarnings.join(" ")}`
         : `${registeredEvent.key} loaded from external providers.`,
     };
     saveState();
@@ -4249,11 +4829,7 @@ function pickedTeams() {
 }
 
 function isAdmin() {
-  return globalThis.firebaseUserRole === "admin" || adminUsers.includes(state.user);
-}
-
-function userLabel(user) {
-  return (globalThis.firebaseUserRole === "admin" && user === state.user) || adminUsers.includes(user) ? `${user} (Admin)` : user;
+  return globalThis.firebaseUserRole === "admin";
 }
 
 function canView(view) {
@@ -5124,7 +5700,7 @@ function derivedMetricScopeSummary() {
   return {
     seasonKey: String(currentEvent().season),
     profileKey: currentProfileMetricScopeKey(),
-    gameDefinitions: derivedMetricConfigScopeDefinitions("season", String(currentEvent().season)),
+    seasonDefinitions: derivedMetricConfigScopeDefinitions("season", String(currentEvent().season)),
     profileDefinitions: derivedMetricConfigScopeDefinitions("profile", currentProfileMetricScopeKey()),
   };
 }
@@ -5592,6 +6168,30 @@ function loadEventSheetSample(options = {}) {
   });
 }
 
+async function cacheActiveRawScoutingSource(rawText, sourceUrl, contentType, rawBytes = null) {
+  const api = globalThis.firebaseEventSourceCacheApi;
+  if (!api || globalThis.firebaseUserRole !== "admin" || (!rawBytes && !normalizeText(rawText))) return false;
+  try {
+    await api.saveEventSourceCache({
+      event: currentEvent(),
+      workspace: currentEventWorkspace(),
+      artifacts: [{
+        sourceId: "scouting-data",
+        rawText,
+        rawBytes,
+        sourceUrl,
+        contentType,
+        status: 200,
+        fetchedAt: new Date().toISOString(),
+      }],
+    });
+    return true;
+  } catch (error) {
+    console.warn("Unable to cache raw scouting source data", error);
+    return false;
+  }
+}
+
 async function loadScoutingData(options = {}) {
   const event = currentEvent();
   const attachmentLoad = describeEventWorkspaceScoutingAttachmentLoad(currentEventWorkspace(), event);
@@ -5612,16 +6212,18 @@ async function loadScoutingData(options = {}) {
   if (attachmentLoad.kind === "remote-json" || attachmentLoad.kind === "local-json") {
     try {
       markCurrentScoutingAttachmentAttempt();
-      const jsonText =
+      const jsonResponse =
         attachmentLoad.kind === "local-json"
-          ? await readLocalAttachmentText(attachment?.attachmentId)
+          ? { rawText: await readLocalAttachmentText(attachment?.attachmentId), rawBytes: null, contentType: "application/json" }
           : await (async () => {
             const response = await fetch(sourceUrl);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.text();
+            const rawBytes = new Uint8Array(await response.arrayBuffer());
+            return { rawText: new TextDecoder().decode(rawBytes), rawBytes, contentType: response.headers.get("content-type") || "application/json" };
           })();
       const schemaJsonText = await readAttachedScoutingSchemaText(attachment, attachmentLoad, sourceUrl);
-      loadPreparedScoutingJson(jsonText, {
+      await cacheActiveRawScoutingSource(jsonResponse.rawText, sourceUrl, jsonResponse.contentType, jsonResponse.rawBytes);
+      loadPreparedScoutingJson(jsonResponse.rawText, {
         ...options,
         schemaJsonText,
         importDraftSource: "attached",
@@ -5637,6 +6239,7 @@ async function loadScoutingData(options = {}) {
     try {
       markCurrentScoutingAttachmentAttempt();
       const csvText = await readLocalAttachmentText(currentScoutingAttachment()?.attachmentId);
+      await cacheActiveRawScoutingSource(csvText, sourceUrl, "text/csv");
       const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
       loadPreparedScoutingSheet(csvText, profileId, {
         ...options,
@@ -5660,7 +6263,9 @@ async function loadScoutingData(options = {}) {
     }
     const response = await fetch(requestUrl);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const csvText = await response.text();
+    const rawBytes = new Uint8Array(await response.arrayBuffer());
+    const csvText = new TextDecoder().decode(rawBytes);
+    await cacheActiveRawScoutingSource(csvText, requestUrl, response.headers.get("content-type") || "text/csv", rawBytes);
     const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
     loadPreparedScoutingSheet(csvText, profileId, {
       ...options,
@@ -5922,12 +6527,16 @@ function renderDeploymentBanner() {
   const isDevelopment = !hostname || !liveHosts.has(hostname);
   if (!isDevelopment) return "";
   const label = hostname.includes("localhost") || hostname.startsWith("127.") ? "LOCAL DEVELOPMENT" : "DEVELOPMENT / PREVIEW";
-  return `<div class="deployment-banner" role="status">${label} — changes and data may not match production</div>`;
+  return `<div class="deployment-banner" role="status">${label} — commit <span class="deployment-revision" style="text-transform: lowercase">${developmentRevision}</span> — changes and data may not match production</div>`;
 }
 function render() {
   const event = currentEvent();
   if (!state.user) {
     renderLogin();
+    return;
+  }
+  if (!eventModelByKey(state.activeEventKey)) {
+    renderNoEventLoaded();
     return;
   }
   if (!canView(state.activeView)) {
@@ -5956,6 +6565,7 @@ function render() {
   }
 
   app.innerHTML = `
+    ${renderDeploymentBanner()}
     <div class="app-shell ${state.menuExpanded ? "menu-expanded" : "menu-collapsed"}">
       ${renderDeploymentBanner()}
       <aside class="sidebar">
@@ -5969,8 +6579,8 @@ function render() {
           </button>
         </div>
         <div class="event-chip">
-          <span class="muted">${event.season} ${event.seasonLabel}</span>
-          <strong>${event.name}</strong>
+          <span class="muted">${escapeHtml(displaySeasonHeading(event))}</span>
+          <strong>${escapeHtml(displayEventName(event))}</strong>
           <span class="muted">${Math.max(event.matchesComplete, importedMatchCount())} matches imported</span>
         </div>
         <nav class="nav-list">
@@ -5980,14 +6590,10 @@ function render() {
       <main class="main">
         <header class="topbar">
           <div class="page-title">
-            <p class="eyebrow">${event.key}</p>
-            <h1>${viewTitle(state.activeView)}</h1>
+            <p class="eyebrow">${escapeHtml(displaySeasonHeading(event))}</p>
+            <h1>${escapeHtml(displayEventName(event))}</h1>
           </div>
           <div class="split-row">
-            <div class="event-select" aria-label="Active event">
-              <span class="muted">Active Event</span>
-              <strong>${event.season} ${event.name}</strong>
-            </div>
             ${renderGlobalRecentMatchControl()}
             ${renderThemeToggle()}
             <div class="user-identity" aria-label="Signed in as ${state.user}">
@@ -6006,6 +6612,60 @@ function render() {
   bindShellEvents();
 }
 
+function renderNoEventLoaded() {
+  const sharedEvents = state.sharedCachedEvents || [];
+  app.innerHTML = `
+    ${renderDeploymentBanner()}
+    <main class="login-shell">
+      <section class="login-panel">
+        <div class="brand-row">
+          <div>
+            <p class="eyebrow">FRC Event Strategy</p>
+            <h1>No event loaded</h1>
+          </div>
+          ${renderThemeToggle()}
+        </div>
+        <p class="muted">Choose an event previously cached in Firestore, or have an administrator load an event code.</p>
+        <label>
+          Shared cached event
+          <select id="sharedCachedEventSelect" ${sharedEvents.length && !state.eventLookupPending ? "" : "disabled"}>
+            <option value="">${sharedEvents.length ? "Select an event" : "No shared cached events available"}</option>
+            ${sharedEvents.map((event) => `<option value="${escapeAttribute(event.key)}">${escapeHtml(`${event.key} | ${event.season} ${displayEventName(event)}`)}</option>`).join("")}
+          </select>
+        </label>
+        ${isAdmin() ? `<label>Event Code<input id="adminEventCodeInput" value="${escapeAttribute(state.adminEventCodeDraft)}" placeholder="2026miket" autocomplete="off" /></label>` : ""}
+        ${state.sharedCacheStatus ? `<p class="muted">${escapeHtml(state.sharedCacheStatus)}</p>` : ""}
+        ${state.eventLookupResult ? `<p class="muted">${escapeHtml(state.eventLookupResult.message)}</p>` : ""}
+        <p class="muted">Signed in as ${escapeHtml(state.user)}</p>
+        <button class="action-button" id="logoutButton" type="button">Logout</button>
+      </section>
+    </main>
+  `;
+  bindNoEventScreenEvents();
+}
+
+function bindNoEventScreenEvents() {
+  document.querySelector("#themeToggle")?.addEventListener("click", toggleTheme);
+  document.querySelector("#logoutButton")?.addEventListener("click", async () => {
+    if (globalThis.firebaseAuthApi && globalThis.firebaseCurrentUser) await globalThis.firebaseAuthApi.signOut();
+    state.user = "";
+    saveState();
+    render();
+  });
+  document.querySelector("#sharedCachedEventSelect")?.addEventListener("change", (event) => {
+    const eventKey = normalizeText(event.target.value);
+    if (eventKey) void openSharedCachedEvent(eventKey);
+  });
+  document.querySelector("#adminEventCodeInput")?.addEventListener("change", async (event) => {
+    await applyAdminEventCodeDraft(event.target.value);
+  });
+  document.querySelector("#adminEventCodeInput")?.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    await applyAdminEventCodeDraft(event.target.value);
+  });
+}
+
 function renderSafely() {
   try {
     render();
@@ -6017,31 +6677,18 @@ function renderSafely() {
 
 function renderLogin() {
   app.innerHTML = `
+    ${renderDeploymentBanner()}
     <main class="login-shell">
       <section class="login-panel">
         <div class="brand-row">
           <div>
-            <p class="eyebrow">FRC Event Strategy</p>
-            <h1>Scouting Analysis</h1>
+            <h1>Bovine Scouting Analysis</h1>
           </div>
           ${renderThemeToggle()}
         </div>
         <div class="login-actions">
           <button class="primary" id="firebaseLoginButton" type="button">Sign in with Google</button>
           <p class="muted" id="firebaseAuthStatus" role="status"></p>
-          <label>
-            Existing user
-            <select id="existingUser">
-              <option value="">Select user</option>
-              ${state.users.map((user) => `<option value="${user}">${userLabel(user)}</option>`).join("")}
-            </select>
-          </label>
-          <button class="primary" id="loginButton">Continue</button>
-          <label>
-            New user
-            <input id="newUser" placeholder="Name" autocomplete="off" />
-          </label>
-          <button id="createUserButton">Create user</button>
         </div>
       </section>
     </main>
@@ -6065,22 +6712,6 @@ function renderLogin() {
       if (status) status.textContent = error?.message || "Unable to sign in with Google.";
       button.disabled = false;
     }
-  });
-  document.querySelector("#loginButton")?.addEventListener("click", () => {
-    const selected = document.querySelector("#existingUser").value;
-    if (!selected) return;
-    state.user = selected;
-    saveState();
-    render();
-  });
-  document.querySelector("#createUserButton")?.addEventListener("click", () => {
-    const input = document.querySelector("#newUser");
-    const user = input.value.trim();
-    if (!user) return;
-    if (!state.users.includes(user)) state.users.push(user);
-    state.user = user;
-    saveState();
-    render();
   });
 }
 
@@ -6353,7 +6984,7 @@ function renderTeams() {
       <div>
         <h2>Event Teams</h2>
       </div>
-      <span class="muted">${currentTeams().length} teams at ${currentEvent().name}</span>
+      <span class="muted">${currentTeams().length} teams at ${escapeHtml(displayEventName(currentEvent()))}</span>
     </div>
     <div class="team-grid" style="margin-top: 14px;">
       ${currentTeams()
@@ -7344,7 +7975,7 @@ function renderPicklistBuilder() {
         <div class="section-heading">
           <div>
             <h2>${picklist.name}</h2>
-            <p class="muted">${pairwise ? "Pairwise mode: hold Shift to compare above, Ctrl to compare below, or both for both. Use an arrow key while holding either to move; release both to accept. Gray teams are suggested next." : "Drag to reorder, or use arrow keys with Shift for one-slot moves."}</p>
+            <p class="muted">${pairwise ? "Pairwise mode<br>&#8593&#8595: change team selection<br>Shift + &#8593&#8595: Compare to team above, move team<br>Ctrl + &#8593&#8595: Compare to team below, move team<br>Gray highlights: suggested teams to revisit" : "Drag: reorder teams<br>&#8593&#8595: change team selection<br>Shift + &#8593&#8595: Move team<br>Right-click: Access Pairwise Mode"}</p>
           </div>
           ${pairwise ? `<div class="button-row"><button type="button" data-pairwise-save>Save</button><button type="button" data-pairwise-cancel>Cancel</button></div>` : ""}
         </div>
@@ -7357,7 +7988,7 @@ function renderPicklistBuilder() {
         <div class="section-heading">
           <div>
             <h2>Comparison Grid</h2>
-            <p class="muted">Pick ranked metrics or saved picklists to compare side by side.</p>
+            <p class="muted">Select up to four metrics for side-by-side comparison</p>
           </div>
         </div>
         <div class="builder-grid-columns">
@@ -7932,6 +8563,27 @@ function renderAccessManagement() {
   if (!isAdmin()) return "";
   return `<article class="card access-management-card"><div class="section-heading"><div><h2>User Access</h2><p class="muted">Only allowlisted Google accounts can access shared scouting data.</p></div><button type="button" id="refreshAllowlistButton">Refresh</button></div><div class="admin-actions admin-field-row"><input id="allowlistEmailInput" class="admin-input" type="email" placeholder="person@example.org" value="${escapeAttribute(state.allowlistEmailDraft)}" aria-label="Email address" /><select id="allowlistRoleSelect" aria-label="Access role"><option value="member" ${state.allowlistRoleDraft === "member" ? "selected" : ""}>Regular user</option><option value="admin" ${state.allowlistRoleDraft === "admin" ? "selected" : ""}>Administrator</option></select><button type="button" id="saveAllowlistButton">Add / Update</button></div>${state.allowlistStatus ? `<div class="issue-row">${escapeHtml(state.allowlistStatus)}</div>` : ""}<div class="data-source-list">${state.allowlistEntries.length ? state.allowlistEntries.map((entry) => `<div class="data-source-row"><div><strong>${escapeHtml(entry.email || entry.id)}</strong><span class="muted">${entry.role === "admin" ? "Administrator" : "Regular user"}</span></div><button type="button" class="removeAllowlistButton" data-email="${escapeAttribute(entry.email || entry.id)}">Remove</button></div>`).join("") : `<p class="muted">No allowlist entries loaded yet.</p>`}</div></article>`;
 }
+function renderRawSourceCacheViewer() {
+  if (!isAdmin()) return "";
+  const artifact = state.rawSourceCacheArtifact;
+  const manifest = artifact?.manifest || null;
+  const events = state.sharedCachedEvents;
+  const metadata = manifest ? [
+    ["Provider / source", manifest.sourceId], ["Source URL", manifest.sourceUrl || "Not recorded"], ["Retrieved", manifest.fetchedAt || "Not recorded"],
+    ["Content type", manifest.contentType || "Not recorded"], ["HTTP status", manifest.status ?? "Not recorded"], ["Fingerprint", manifest.fingerprint || "Not recorded"],
+    ["Size", `${manifest.byteLength ?? "Unknown"} bytes`], ["Chunks", manifest.chunkCount ?? "Unknown"],
+  ] : [];
+  return `<article class="card raw-source-cache-viewer">
+    <div class="section-heading"><div><h2>Raw Source Cache</h2><p class="muted">Administrator debugging view. Rendering never changes the persisted payload.</p></div></div>
+    <div class="admin-form-grid">
+      <label>Cached Event<select id="rawSourceCacheEventSelect" aria-label="Cached event for raw source viewer" ${state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a shared cached event</option>${events.map((event) => `<option value="${escapeAttribute(event.key)}" ${event.key === state.rawSourceCacheEventKey ? "selected" : ""}>${escapeHtml(`${event.key} | ${displayEventName(event)}`)}</option>`).join("")}</select></label>
+      <label>Source Artifact<select id="rawSourceCacheSourceSelect" aria-label="Cached source artifact" ${!state.rawSourceCacheEventKey || state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a source artifact</option>${state.rawSourceCacheSources.map((source) => `<option value="${escapeAttribute(source.sourceId)}" ${source.sourceId === state.rawSourceCacheSourceId ? "selected" : ""}>${escapeHtml(source.sourceId)}</option>`).join("")}</select></label>
+      ${state.rawSourceCacheStatus ? `<div class="issue-row ${artifact ? "" : state.rawSourceCacheSourceId ? "danger" : ""}">${escapeHtml(state.rawSourceCacheStatus)}</div>` : ""}
+      ${metadata.length ? `<div class="attachment-metadata-grid">${metadata.map(([label, value]) => `<div><strong>${escapeHtml(label)}</strong><span class="muted">${escapeHtml(String(value))}</span></div>`).join("")}</div>` : ""}
+      ${artifact ? `<div class="admin-actions"><button type="button" id="copyRawSourceCacheButton">Copy Raw</button><button type="button" id="downloadRawSourceCacheButton">Download Raw</button></div><label>Readable Preview<textarea id="rawSourceCachePreview" class="admin-textarea" readonly spellcheck="false">${escapeHtml(rawSourceDisplayText(artifact))}</textarea></label>` : ""}
+    </div>
+  </article>`;
+}
 function renderAdmin() {
   const event = currentEvent();
   const workspace = currentEventWorkspace();
@@ -7978,8 +8630,10 @@ function renderAdmin() {
               Recent Events
               <select id="recentAdminEventSelect" aria-label="Recent event selection" size="${Math.min(10, Math.max(2, recentEventKeys.length))}">
                 ${recentEventKeys.map((eventKey) => {
-                  const item = eventModelByKey(eventKey);
-                  return `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.key} | ${item.season} ${escapeHtml(item.name)}</option>`;
+                  const item = sharedCachedEventByKey(eventKey) || eventModelByKey(eventKey);
+                  const recentEventName = displayEventName(item);
+                  const recentEventLabel = item.season === 2026 ? recentEventName : `${item.season} ${recentEventName}`;
+                  return `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.key} | ${escapeHtml(recentEventLabel)}</option>`;
                 }).join("")}
               </select>
             </label>`
@@ -8022,9 +8676,9 @@ function renderAdmin() {
             </div>`
                 : ""
             }
-            <label>
-              TBA Auth Key
-              <div class="admin-actions admin-field-row">
+              <label>
+                TBA Auth Key
+                <div class="admin-actions admin-field-row">
                 <input
                   id="adminTbaAuthKeyInput"
                   class="admin-input"
@@ -8036,9 +8690,22 @@ function renderAdmin() {
                   autocapitalize="off"
                   spellcheck="false"
                 />
-                <button type="button" id="saveTbaAuthKeyButton" ${state.tbaAuthKeyDirty ? "" : "disabled"}>Save</button>
-              </div>
-            </label>
+                <button type="button" id="saveTbaAuthKeyButton" ${state.tbaAuthKeyDirty && !state.tbaAuthKeySavePending ? "" : "disabled"}>${state.tbaAuthKeySavePending ? "Saving…" : "Save"}</button>
+                </div>
+                <span class="muted" id="tbaAuthKeyValidationStatus">${escapeHtml(tbaAuthKeyValidationLabel())}</span>
+              </label>
+              <label>
+                FIRST API Username
+                <input id="adminFrcApiUsernameInput" class="admin-input" type="text" value="${escapeAttribute(state.frcApiUsernameDraft)}" placeholder="FRC Events API username" aria-label="FIRST API username" autocomplete="off" autocapitalize="off" spellcheck="false" />
+              </label>
+              <label>
+                FIRST API Token
+                <div class="admin-actions admin-field-row">
+                  <input id="adminFrcApiAuthorizationKeyInput" class="admin-input" type="password" value="${escapeAttribute(state.frcApiAuthorizationKeyDraft)}" placeholder="FRC Events API token" aria-label="FIRST API token" autocomplete="off" autocapitalize="off" spellcheck="false" />
+                  <button type="button" id="saveFrcApiCredentialsButton" ${state.frcApiCredentialsDirty && !state.frcApiCredentialsSavePending ? "" : "disabled"}>${state.frcApiCredentialsSavePending ? "Saving…" : "Save"}</button>
+                </div>
+                <span class="muted">The official game title refreshes automatically when you load a valid event code.</span>
+              </label>
             <label>
               Statbotics Base URL
               <div class="admin-actions admin-field-row">
@@ -8082,6 +8749,7 @@ function renderAdmin() {
                 <div>
                   <strong>${source.name}</strong>
                   <span class="muted">${source.notes}</span>
+                  ${source.attributionUrl ? `<a class="muted" href="${escapeAttribute(source.attributionUrl)}" target="_blank" rel="noreferrer">FIRST API information</a>` : ""}
                   ${source.detectedLabel ? `<span class="muted">Detected type: ${escapeHtml(source.detectedLabel)}</span>` : ""}
                   ${
                     Array.isArray(source.stats) && source.stats.length
@@ -8102,6 +8770,7 @@ function renderAdmin() {
           </div>
         </article>
       </div>
+      ${renderRawSourceCacheViewer()}
       <div class="grid cols-2">
         <article class="card">
           <h2>Schema Diagnostics</h2>
@@ -8145,7 +8814,7 @@ function renderAdmin() {
                 `,
                     )
                     .join("")
-                : `<div class="empty-state">No activity has been recorded for ${event.name} yet.</div>`
+                : `<div class="empty-state">No activity has been recorded for ${escapeHtml(displayEventName(event))} yet.</div>`
             }
           </div>
         </article>
@@ -8364,6 +9033,11 @@ function formulaAutocompleteCandidates(token) {
     "count",
     "min",
     "max",
+    "teamAverage",
+    "teamSum",
+    "teamCount",
+    "teamMin",
+    "teamMax",
     "matchAverage",
     "matchSum",
     "matchCount",
@@ -8407,11 +9081,11 @@ function builtInFunctionGroups() {
       label: "Common",
       expandedByDefault: true,
       entries: sortEntries([
-        { name: "average(series, filter?)", description: "Average a match-level series over this team's recent matches, optionally filtered." },
-        { name: "count(series, filter?)", description: "Count present nonblank nonzero entries in a match-level series, optionally filtered." },
-        { name: "min(series, filter?)", description: "Return the lowest numeric value in this team's recent match-level series, optionally filtered." },
-        { name: "max(series, filter?)", description: "Return the highest numeric value in this team's recent match-level series, optionally filtered." },
-        { name: "sum(series, filter?)", description: "Sum a match-level series over this team's recent matches, optionally filtered." },
+        { name: "average(series, filter?)", description: "Alias for teamAverage: average a match-level series over this team's recent matches, optionally filtered." },
+        { name: "count(series, filter?)", description: "Alias for teamCount: count present nonblank nonzero entries in a match-level series, optionally filtered." },
+        { name: "min(series, filter?)", description: "Alias for teamMin: return the lowest numeric value in this team's recent match-level series, optionally filtered." },
+        { name: "max(series, filter?)", description: "Alias for teamMax: return the highest numeric value in this team's recent match-level series, optionally filtered." },
+        { name: "sum(series, filter?)", description: "Alias for teamSum: sum a match-level series over this team's recent matches, optionally filtered." },
       ]),
     },
     {
@@ -8489,7 +9163,7 @@ function renderHoverFormulaFunctionEntries() {
         <summary class="formula-function-group-summary">${escapeHtml(group.label)}</summary>
         <div class="formula-function-group-list">
           ${group.entries
-            .map((entry) => `<div class="formula-function-item formula-function-item-compact"><strong>${escapeHtml(entry.name)}</strong></div>`)
+            .map((entry) => `<div class="formula-function-item formula-function-item-compact"><strong>${escapeHtml(entry.name)}</strong><span>${escapeHtml(entry.description)}</span></div>`)
             .join("")}
         </div>
       </details>
@@ -9049,6 +9723,10 @@ function bindViewEvents() {
     event.preventDefault();
     await applyRecentAdminEventSelection(event.target.value);
   });
+  document.querySelector("#rawSourceCacheEventSelect")?.addEventListener("change", (event) => { void selectRawSourceCacheEvent(event.target.value); });
+  document.querySelector("#rawSourceCacheSourceSelect")?.addEventListener("change", (event) => { void selectRawSourceCacheArtifact(event.target.value); });
+  document.querySelector("#copyRawSourceCacheButton")?.addEventListener("click", () => { void copyRawSourceCacheArtifact(); });
+  document.querySelector("#downloadRawSourceCacheButton")?.addEventListener("click", downloadRawSourceCacheArtifact);
   document.querySelector("#adminEventCodeInput")?.addEventListener("input", (event) => {
     state.adminEventCodeDraft = normalizeText(event.target.value).toLowerCase();
   });
@@ -9070,8 +9748,24 @@ function bindViewEvents() {
   document.querySelector("#adminTbaAuthKeyInput")?.addEventListener("blur", () => {
     restoreTbaAuthKeyDraftIfNeeded();
   });
-  document.querySelector("#saveTbaAuthKeyButton")?.addEventListener("click", () => {
-    saveTbaAuthKeyDraft();
+  document.querySelector("#saveTbaAuthKeyButton")?.addEventListener("click", async () => {
+    await saveTbaAuthKeyDraft();
+  });
+  document.querySelector("#sharedCachedEventSelect")?.addEventListener("change", (event) => {
+    const eventKey = normalizeText(event.target.value);
+    if (eventKey === state.activeEventKey) return;
+    void openSharedCachedEvent(eventKey);
+  });
+  document.querySelector("#adminFrcApiUsernameInput")?.addEventListener("input", (event) => {
+    updateFrcApiCredentialsDraft("username", event.target.value);
+    document.querySelector("#saveFrcApiCredentialsButton")?.removeAttribute("disabled");
+  });
+  document.querySelector("#adminFrcApiAuthorizationKeyInput")?.addEventListener("input", (event) => {
+    updateFrcApiCredentialsDraft("authorizationKey", event.target.value);
+    document.querySelector("#saveFrcApiCredentialsButton")?.removeAttribute("disabled");
+  });
+  document.querySelector("#saveFrcApiCredentialsButton")?.addEventListener("click", async () => {
+    await saveFrcApiCredentials();
   });
   document.querySelector("#adminStatboticsBaseUrlInput")?.addEventListener("input", (event) => {
     updateStatboticsBaseUrlDraft(event.target.value);
@@ -9690,20 +10384,22 @@ function bindViewEvents() {
     });
   });
   document.querySelector("#importSourceUrl")?.addEventListener("input", (event) => {
-    setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: false });
+    setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: false, persistAttachment: true });
   });
   document.querySelector("#importSourceUrl")?.addEventListener("change", async (event) => {
     setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: false });
     await applyScoutingSourceInputChange({
+      forceReload: true,
       scoutingImportSource: "manual-source-change",
     });
   });
   document.querySelector("#importSchemaSourceUrl")?.addEventListener("input", (event) => {
-    setCurrentScoutingSchemaSourceUrl(event.target.value, { applyToAttachment: false });
+    setCurrentScoutingSchemaSourceUrl(event.target.value, { applyToAttachment: false, persistAttachment: true });
   });
   document.querySelector("#importSchemaSourceUrl")?.addEventListener("change", async (event) => {
     setCurrentScoutingSchemaSourceUrl(event.target.value, { applyToAttachment: false });
     await applyScoutingSchemaSourceInputChange({
+      forceReload: true,
       scoutingImportSource: "manual-schema-source-change",
     });
   });
@@ -9766,8 +10462,26 @@ if (typeof globalThis.addEventListener === "function") {
     saveState();
     render();
     if (user) {
+      void refreshSharedCachedEventCatalog({ render: false }).then(async () => {
+        await restoreSharedCachedActiveEvent();
+        startSharedActiveEventSync();
+        render();
+      });
+      if (globalThis.firebaseUserRole === "admin") void refreshTbaAuthKeyConfiguration();
+      else clearTbaAuthKeyConfiguration();
+      if (globalThis.firebaseUserRole === "admin") void refreshFrcApiCredentials();
+      else clearFrcApiCredentials();
+      void refreshSharedSeasonMetadata();
+      subscribeSharedSeasonMetadata();
       void syncSharedProfilesForEvent(state.activeEventKey);
       void syncSharedSubmissionsForEvent(state.activeEventKey);
+    } else {
+      clearTbaAuthKeyConfiguration();
+      clearFrcApiCredentials();
+      clearSeasonMetadataSubscriptions();
+      stopSharedActiveEventSynchronization();
+      state.sharedCachedEvents = [];
+      state.sharedCacheStatus = "";
     }
     if (user && globalThis.firebaseUserRole === "admin") void refreshAllowlist();
   });

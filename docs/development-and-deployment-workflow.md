@@ -7,7 +7,7 @@ This project uses a simple two-branch workflow designed for a solo developer.
 - `dev` is the daily development and testing branch.
 - `main` is the stable production branch.
 
-Feature branches are optional. For small changes, work directly on `dev` and make focused commits when practical. A commit does not need to be perfect; it should simply represent a reasonably understandable unit of work.
+Feature branches are optional. For small changes, work directly on `dev` and make focused commits when practical. A commit does not need to be perfect; it should simply represent a reasonably understandable unit of work. After verifying and committing a focused `dev` change, push it to `origin/dev` unless the user explicitly asks not to, so the development deployment can pick it up promptly.
 
 Production changes should be promoted from `dev` to `main` deliberately, preferably through a pull request so the release has a visible checkpoint.
 

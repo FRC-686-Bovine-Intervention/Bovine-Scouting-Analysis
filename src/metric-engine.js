@@ -991,10 +991,10 @@ function evaluateFormulaAst(ast, options = {}) {
         evaluateOptionalFilter(ast.args[1] || null),
       );
     }
-    if (["min", "max"].includes(normalizedName)) {
+    if (["min", "max", "teammin", "teammax"].includes(normalizedName)) {
       if (ast.args.length < 1 || ast.args.length > 2) return errorResult(`${normalizedName} requires one series argument and an optional filter.`);
       return extremeSeriesValues(
-        normalizedName,
+        normalizedName.replace(/^team/, ""),
         evaluateFormulaAst(ast.args[0], options),
         recentEntryCount,
         evaluateOptionalFilter(ast.args[1] || null),

@@ -202,9 +202,9 @@ select {
 }
 
 .deployment-banner {
-  position: fixed;
-  inset: 0 0 auto;
-  z-index: 1000;
+  position: static;
+  width: 100%;
+  box-sizing: border-box;
   padding: 7px 16px;
   background: #b45309;
   color: #fff;
@@ -213,6 +213,10 @@ select {
   letter-spacing: 0.08em;
   text-align: center;
   text-transform: uppercase;
+}
+
+.deployment-revision {
+  text-transform: lowercase;
 }
 
 .app-shell {

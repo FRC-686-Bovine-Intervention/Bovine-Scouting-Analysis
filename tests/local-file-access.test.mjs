@@ -47,6 +47,9 @@ function createMemoryStorage() {
       store.set(key, value);
       return value;
     },
+    async getAll() {
+      return [...store.values()];
+    },
     async delete(key) {
       store.delete(key);
       return true;
@@ -299,6 +302,29 @@ async function main() {
       () => context.LocalFileAccess.readAttachmentText("missing-attachment", { storage }),
       /No saved local scouting file handle exists/i,
     );
+  });
+
+  await runTest("adoptAttachmentForPath reuses a saved local file record for a linked attachment", async () => {
+    const storage = createMemoryStorage();
+    const context = loadBrowserContext(["src/local-file-access.js"]);
+    await storage.set("saved-data", {
+      kind: "snapshot",
+      path: "C:\\scouting\\2026chcmp.json",
+      name: "2026chcmp.json",
+      text: "{\"entries\":[]}",
+    });
+
+    assert.equal(await context.LocalFileAccess.adoptAttachmentForPath("active-attachment", "2026chcmp.json", { storage }), true);
+    assert.equal(await context.LocalFileAccess.readAttachmentText("active-attachment", { storage }), "{\"entries\":[]}");
+  });
+
+  await runTest("adoptAttachmentForPath refuses an ambiguous basename match", async () => {
+    const storage = createMemoryStorage();
+    const context = loadBrowserContext(["src/local-file-access.js"]);
+    await storage.set("first-data", { kind: "snapshot", path: "C:\\one\\scouting.json", name: "scouting.json", text: "first" });
+    await storage.set("second-data", { kind: "snapshot", path: "C:\\two\\scouting.json", name: "scouting.json", text: "second" });
+
+    assert.equal(await context.LocalFileAccess.adoptAttachmentForPath("active-attachment", "scouting.json", { storage }), false);
   });
 
   await runTest("writeAttachmentText updates a stored snapshot attachment", async () => {

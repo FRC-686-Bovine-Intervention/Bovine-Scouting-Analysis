@@ -18,7 +18,7 @@ function loadAppContext(options = {}) {
   const noop = () => {};
   const workspaceRoot = path.resolve(".");
   const schemaFields = Array.isArray(options.schemaFields) ? options.schemaFields : [];
-  const eventCatalog = Array.isArray(options.eventCatalog) && options.eventCatalog.length
+  const eventCatalog = Object.hasOwn(options, "eventCatalog")
     ? options.eventCatalog
     : [{
       key: "2026chcmp",
@@ -41,6 +41,7 @@ function loadAppContext(options = {}) {
     addEventListener: noop,
   };
   const extraQuerySelectors = options.extraQuerySelectors || {};
+  const storedValues = new Map(Object.entries(options.storedValues || {}));
   const context = {
     globalThis: {},
     console,
@@ -58,9 +59,9 @@ function loadAppContext(options = {}) {
     URLSearchParams,
     eventCatalog,
     localStorage: {
-      getItem: () => null,
-      setItem: noop,
-      removeItem: noop,
+      getItem: (key) => storedValues.has(String(key)) ? storedValues.get(String(key)) : null,
+      setItem: (key, value) => storedValues.set(String(key), String(value)),
+      removeItem: (key) => storedValues.delete(String(key)),
     },
     document: {
       querySelector: (selector) => {
@@ -88,6 +89,8 @@ function loadAppContext(options = {}) {
       createAttachmentFile: options.createAttachmentFile || (async () => ({ attachmentId: "", path: "", name: "" })),
       writeAttachmentText: options.writeAttachmentText || (async () => true),
       readAttachmentText: options.readAttachmentText || (async () => ""),
+      readAttachmentTextByPath: options.readAttachmentTextByPath || (async () => ""),
+      adoptAttachmentForPath: options.adoptAttachmentForPath || (async () => false),
       removeAttachment: options.removeAttachment || (async () => true),
       pathBasename:
         options.pathBasename
@@ -99,7 +102,8 @@ function loadAppContext(options = {}) {
 
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
-    .replace(/bootstrapApp\(\);\s*$/, "");
+    .replace(/\nbootstrapApp\(\);\s*/, "\n")
+    + "\nglobalThis.__activeEventTestApi = { applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, persistScoutingSubmissions, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -116,9 +120,216 @@ function loadAppContext(options = {}) {
     vm.runInNewContext(source, context, { filename: path.join(workspaceRoot, relativePath) });
   });
   vm.runInNewContext(appSource, context, { filename: path.join(workspaceRoot, "src/app.js") });
+  context.__renderForTest = context.render;
   context.render = noop;
   return context;
 }
+
+await runTest("a clean catalog exposes only shared cached events instead of a packaged fallback", () => {
+  const context = loadAppContext({
+    eventCatalog: [],
+    storedValues: { "frc-scouting-active-event": "2025cache" },
+  });
+  context.__scoutingAppState.user = "member@example.com";
+  context.__scoutingAppState.sharedCachedEvents = [{
+    key: "2025cache",
+    season: 2025,
+    name: "Cached Championship",
+    seasonLabel: "Reefscape",
+  }];
+
+  context.__renderForTest();
+
+  assert.match(context.document.querySelector("#app").innerHTML, /No event loaded/i);
+  assert.match(context.document.querySelector("#app").innerHTML, /2025cache \| 2025 Cached Championship/i);
+  assert.doesNotMatch(context.document.querySelector("#app").innerHTML, /2026chcmp/i);
+});
+
+await runTest("a persisted shared cached event restores without a packaged catalog entry", async () => {
+  const context = loadAppContext({ eventCatalog: [] });
+  const cachedEvent = { key: "2025cache", season: 2025, name: "Cached Championship", seasonLabel: "Reefscape" };
+  context.__scoutingAppState.activeEventKey = cachedEvent.key;
+  context.__scoutingAppState.sharedCachedEvents = [cachedEvent];
+  context.firebaseEventSourceCacheApi = {
+    loadEventSourceCache: async () => {
+      throw new Error("No cached source is available for this event.");
+    },
+  };
+  context.CachedEventLoader = {
+    rebuildCachedEvent: async () => ({
+      eventModel: {
+        ...cachedEvent,
+        seasonLabel: "",
+        teams: [{ number: 1, name: "Cached Team", flags: [], matches: [], sources: {}, derived: {} }],
+        teamNumbers: [1],
+        matches: [{ number: 1, red: [1], blue: [], redScore: 0, blueScore: 0, winningAlliance: "", scoreBreakdown: null }],
+        matchesComplete: 1,
+        scoringComponents: [],
+        metrics: [],
+        seedPicklists: [],
+        seedSortEquations: [],
+        formulaFieldDefinitions: [],
+        dataSources: [],
+      },
+      sourceStates: {},
+      warnings: [],
+      cacheFreshness: "fresh",
+    }),
+  };
+
+  assert.equal(await context.__activeEventTestApi.restoreSharedCachedActiveEvent(), true);
+  assert.equal(context.__scoutingAppState.activeEventKey, cachedEvent.key);
+  assert.equal(context.eventCatalog.length, 1);
+  assert.equal(context.eventCatalog[0].catalogSource, "shared-cache");
+});
+
+await runTest("admin event changes are shared and members adopt the shared event without writing it", async () => {
+  let sharedEventListener = null;
+  const savedEventKeys = [];
+  const context = loadAppContext({
+    eventCatalog: [
+      { key: "2024mdsev", season: 2024, name: "MDS Event", seasonLabel: "2024", teams: [{ number: 1 }], teamNumbers: [1], matches: [{ number: 1 }], dataSources: [], seedPicklists: [], seedSortEquations: [], formulaFieldDefinitions: [], sheet: {} },
+      { key: "2026chcmp", season: 2026, name: "CHCMP", seasonLabel: "2026", teams: [{ number: 1 }], teamNumbers: [1], matches: [{ number: 1 }], dataSources: [], seedPicklists: [], seedSortEquations: [], formulaFieldDefinitions: [], sheet: {} },
+    ],
+  });
+  const state = context.__scoutingAppState;
+  context.firebaseCurrentUser = { uid: "admin" };
+  context.firebaseUserRole = "admin";
+  context.firebaseEventStateApi = {
+    subscribeActiveEvent: (listener) => {
+      sharedEventListener = listener;
+      return () => {};
+    },
+    saveActiveEvent: async (eventKey) => savedEventKeys.push(eventKey),
+  };
+
+  context.__activeEventTestApi.startSharedActiveEventSync();
+  sharedEventListener("2026chcmp");
+  assert.equal(state.activeEventKey, "2026chcmp");
+  assert.deepEqual(savedEventKeys, []);
+
+  context.__activeEventTestApi.switchActiveEvent("2024mdsev");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(savedEventKeys, ["2024mdsev"]);
+
+  context.firebaseUserRole = "member";
+  sharedEventListener("2026chcmp");
+  assert.equal(state.activeEventKey, "2026chcmp");
+  assert.deepEqual(savedEventKeys, ["2024mdsev"]);
+});
+
+await runTest("event-scoped scouting input drafts survive recent-event switches before their change event", () => {
+  const eventCatalog = [
+    { key: "2024mdsev", season: 2024, name: "MDS Event", seasonLabel: "2024", teams: [{ number: 1 }], teamNumbers: [1], matches: [{ number: 1 }], dataSources: [], seedPicklists: [], seedSortEquations: [], formulaFieldDefinitions: [], sheet: {} },
+    { key: "2026chcmp", season: 2026, name: "CHCMP", seasonLabel: "2026", teams: [{ number: 1 }], teamNumbers: [1], matches: [{ number: 1 }], dataSources: [], seedPicklists: [], seedSortEquations: [], formulaFieldDefinitions: [], sheet: {} },
+  ];
+  const context = loadAppContext({ eventCatalog });
+  const state = context.__scoutingAppState;
+  const api = context.__activeEventTestApi;
+
+  state.activeEventKey = "2024mdsev";
+  context.hydrateEventState("2024mdsev");
+  api.setCurrentScoutingSourceUrl("https://example.test/2026chcmp.csv", { applyToAttachment: false, persistAttachment: true });
+  api.setCurrentScoutingSchemaSourceUrl("https://example.test/2026chcmp_profile.json", { applyToAttachment: false, persistAttachment: true });
+  api.switchActiveEvent("2026chcmp");
+  api.setCurrentScoutingSourceUrl("https://example.test/2024mdsev.csv", { applyToAttachment: false, persistAttachment: true });
+  api.setCurrentScoutingSchemaSourceUrl("https://example.test/2024mdsev_profile.json", { applyToAttachment: false, persistAttachment: true });
+  api.switchActiveEvent("2024mdsev");
+
+  assert.equal(context.currentScoutingSourceInputValue(), "https://example.test/2026chcmp.csv");
+  assert.equal(context.currentScoutingSchemaSourceInputValue(), "https://example.test/2026chcmp_profile.json");
+
+  api.setCurrentScoutingSourceUrl("https://example.test/2024mdsev.csv", { applyToAttachment: false, persistAttachment: true });
+  api.setCurrentScoutingSchemaSourceUrl("https://example.test/2024mdsev_profile.json", { applyToAttachment: false, persistAttachment: true });
+  api.switchActiveEvent("2026chcmp");
+  assert.equal(context.currentScoutingSourceInputValue(), "https://example.test/2024mdsev.csv");
+  assert.equal(context.currentScoutingSchemaSourceInputValue(), "https://example.test/2024mdsev_profile.json");
+});
+
+await runTest("changing a local scouting profile uses its saved sidecar link to reattach and load the linked data file", async () => {
+  const reads = [];
+  const adopted = [];
+  const context = loadAppContext({
+    readAttachmentText: async (attachmentId) => {
+      reads.push(attachmentId);
+      if (attachmentId === "scouting-2026chcmp-default:schema-link") {
+        return JSON.stringify({ scoutingFile: "2026chcmp.json", schemaFile: "2026chcmp_profile-v2.json" });
+      }
+      if (attachmentId === "scouting-2026chcmp-default") return "{\"entries\":[]}";
+      return "";
+    },
+    readAttachmentTextByPath: async (sourcePath) => {
+      reads.push(`path:${sourcePath}`);
+      return sourcePath === "2026chcmp_profile-v2-link.json"
+        ? JSON.stringify({ scoutingFile: "2026chcmp.json", schemaFile: "2026chcmp_profile-v2.json" })
+        : "";
+    },
+    adoptAttachmentForPath: async (attachmentId, sourcePath) => {
+      adopted.push([attachmentId, sourcePath]);
+      return sourcePath === "2026chcmp.json";
+    },
+  });
+  const state = context.__scoutingAppState;
+  const eventModel = context.eventCatalog[0];
+  state.activeEventKey = eventModel.key;
+  state.eventWorkspace = context.EventWorkspace.createEventWorkspace(eventModel, {
+    sources: {
+      scouting: [{
+        attachmentId: "scouting-2026chcmp-default",
+        format: "scouting-json",
+        locationKind: "path",
+        location: {
+          path: "old-data.json",
+          schemaPath: "2026chcmp_profile-v1.json",
+          schemaLinkPath: "2026chcmp_profile-v1-link.json",
+        },
+        autoLoad: true,
+      }],
+    },
+  });
+
+  await context.__activeEventTestApi.applyScoutingSchemaSourceInputChange({
+    source: "2026chcmp_profile-v2.json",
+    forceReload: true,
+  });
+
+  assert.equal(context.currentScoutingAttachment().location.path, "2026chcmp.json");
+  assert.equal(context.currentScoutingAttachment().location.schemaPath, "2026chcmp_profile-v2.json");
+  assert.equal(context.currentScoutingAttachment().location.schemaLinkPath, "2026chcmp_profile-v2-link.json");
+  assert.deepEqual(adopted, [["scouting-2026chcmp-default", "2026chcmp.json"]]);
+  assert.ok(reads.includes("path:2026chcmp_profile-v2-link.json"));
+  assert.ok(reads.includes("scouting-2026chcmp-default"));
+});
+
+await runTest("members read shared submissions without writing, while admins can save, clear, and seed them", async () => {
+  const calls = { clear: 0, load: 0, save: 0 };
+  const context = loadAppContext();
+  const state = context.__scoutingAppState;
+  context.firebaseCurrentUser = { uid: "member" };
+  context.firebaseUserRole = "member";
+  context.firebaseSubmissionApi = {
+    clearEventSubmissions: async () => { calls.clear += 1; },
+    loadEventSubmissions: async () => {
+      calls.load += 1;
+      return [];
+    },
+    saveEventSubmissions: async () => { calls.save += 1; },
+  };
+
+  context.__activeEventTestApi.persistScoutingSubmissions("2026chcmp", [{ id: "member-row", eventKey: "2026chcmp" }]);
+  await context.__activeEventTestApi.syncSharedSubmissionsForEvent("2026chcmp");
+  context.__activeEventTestApi.clearCurrentEventScoutingData();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(calls, { clear: 0, load: 1, save: 0 });
+
+  context.firebaseUserRole = "admin";
+  context.__activeEventTestApi.persistScoutingSubmissions("2026chcmp", [{ id: "admin-row", eventKey: "2026chcmp" }]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  context.__activeEventTestApi.clearCurrentEventScoutingData();
+  state.scoutingSubmissions = [{ id: "seed-row", eventKey: "2026chcmp" }];
+  await context.__activeEventTestApi.syncSharedSubmissionsForEvent("2026chcmp");
+  assert.deepEqual(calls, { clear: 1, load: 2, save: 2 });
+});
 
 await runTest("renaming a derived equation updates the bound local schema json artifact for CSV-backed scouting attachments", async () => {
   const fixturePath = path.resolve("tests/fixtures/canonical-scouting-datasets/2026chcmp_profile-v1.json");

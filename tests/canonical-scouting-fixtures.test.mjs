@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { legacyGameDefinitions } from "./fixtures/legacy-game-definitions.mjs";
 
 function loadBrowserContext(relativePaths) {
   const context = {
     globalThis: {},
+    LegacyGameDefinitions: legacyGameDefinitions,
     console,
     Set,
     Map,
@@ -72,7 +74,7 @@ const context = loadBrowserContext([
   "src/scouting-json-schema.js",
   "src/scouting-json-import.js",
   "src/event-model-builder.js",
-  "src/real-event-snapshots.js",
+    "tests/fixtures/real-event-snapshots.js",
   "src/real-event-data.js",
   "src/import-foundation.js",
   "src/sheet-import-adapters.js",
@@ -188,7 +190,7 @@ migrationFixtures.forEach((fixture) => {
 runTest("2024mdsev canonical fixture preserves representative outputs from the legacy translated import path", () => {
   const fixture = migrationFixtures.find((candidate) => candidate.eventKey === "2024mdsev");
   const eventModel = eventCatalog.find((event) => event.key === fixture.eventKey);
-  const seasonDefinition = seasonFramework.gameDefinitions[fixture.season];
+  const seasonDefinition = legacyGameDefinitions[fixture.season];
   const rawSheetCsv = fs.readFileSync(path.resolve(fixture.rawSheetPath), "utf8");
   const translated = sheetImportAdapters.translateEventSheetToCanonical(eventModel, rawSheetCsv);
   const legacyPreview = scoutingJsonImport.previewScoutingJsonImport({
@@ -249,7 +251,7 @@ runTest("2024mdsev canonical fixture preserves representative outputs from the l
 [migrationFixtures[1], migrationFixtures[2]].forEach((fixture) => {
   runTest(`${fixture.eventKey} canonical fixture reproduces representative TeamCalculations outputs`, () => {
     const eventModel = eventCatalog.find((event) => event.key === fixture.eventKey);
-    const seasonDefinition = seasonFramework.gameDefinitions[fixture.season];
+    const seasonDefinition = legacyGameDefinitions[fixture.season];
     const preview = scoutingJsonImport.previewScoutingJsonImport({
       ...readCanonicalFixturePair(fixture),
       eventModel,

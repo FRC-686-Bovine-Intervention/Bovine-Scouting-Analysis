@@ -564,6 +564,30 @@ runTest("evaluateFormulaExpression delegates match and alliance min/max function
   });
 });
 
+runTest("evaluateFormulaExpression supports the complete team function family", () => {
+  const expected = [
+    ["teamAverage", 2],
+    ["teamSum", 4],
+    ["teamCount", 2],
+    ["teamMin", 1],
+    ["teamMax", 3],
+  ];
+
+  expected.forEach(([functionName, value]) => {
+    const parsed = metricEngine.parseFormulaExpression(`${functionName}(scouting.fuel)`);
+    assert.equal(parsed.error, "");
+    assert.equal(parsed.ast.callee, functionName);
+    const result = metricEngine.evaluateFormulaExpression(`${functionName}(scouting.fuel)`, {
+      resolveIdentifier(identifier) {
+        if (identifier === "scouting.fuel") return metricEngine.seriesResult([{ key: 1, value: 1 }, { key: 2, value: 3 }]);
+        return metricEngine.errorResult(`Unknown identifier ${identifier}`);
+      },
+    });
+    assert.equal(result.granularity, "event");
+    assert.equal(result.value, value);
+  });
+});
+
 runTest("evaluateFormulaExpression delegates event-scoped functions", () => {
   const result = metricEngine.evaluateFormulaExpression("eventAverage(average(scouting.autoFuelPct), statbotics.epa.total_points > 0)", {
     resolveIdentifier(identifier) {

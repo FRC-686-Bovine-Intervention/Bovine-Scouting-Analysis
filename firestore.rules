@@ -2,6 +2,9 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Assumed data model additions for issue #76:
+    // appState/configuration stores optional bounded provider credentials plus updatedAt.
+    // seasonMetadata/{season} stores the non-secret FIRST game title cache.
     function signedIn() { return request.auth != null; }
     function userIsAdmin() {
       return signedIn()
@@ -26,6 +29,75 @@ service cloud.firestore {
     function isAllowed() {
       return isAdmin() || allowlistIsMember();
     }
+    function isValidActiveEventState() {
+      return request.resource.data.keys().hasOnly(['eventKey', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['eventKey', 'updatedAt'])
+        && request.resource.data.eventKey is string
+        && request.resource.data.eventKey.size() > 0
+        && request.resource.data.eventKey.size() <= 64
+        && request.resource.data.eventKey.matches('^[a-z0-9]+$')
+        && request.resource.data.updatedAt is timestamp;
+    }
+    function isValidProviderConfiguration() {
+      return request.resource.data.keys().hasOnly(['tbaAuthKey', 'frcApiUsername', 'frcApiAuthorizationKey', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['updatedAt'])
+        && (!('tbaAuthKey' in request.resource.data)
+          || (request.resource.data.tbaAuthKey is string && request.resource.data.tbaAuthKey.size() <= 256))
+        && (!('frcApiUsername' in request.resource.data)
+          || (request.resource.data.frcApiUsername is string && request.resource.data.frcApiUsername.size() <= 256))
+        && (!('frcApiAuthorizationKey' in request.resource.data)
+          || (request.resource.data.frcApiAuthorizationKey is string && request.resource.data.frcApiAuthorizationKey.size() <= 256))
+        && request.resource.data.updatedAt is timestamp;
+    }
+    function isValidSeasonMetadata() {
+      return request.resource.data.keys().hasOnly(['season', 'gameName', 'source', 'fetchedAt'])
+        && request.resource.data.keys().hasAll(['season', 'gameName', 'source', 'fetchedAt'])
+        && request.resource.data.season is number
+        && request.resource.data.season >= 1992
+        && request.resource.data.season <= 9999
+        && request.resource.data.gameName is string
+        && request.resource.data.gameName.size() > 0
+        && request.resource.data.gameName.size() <= 128
+        && request.resource.data.source == 'first-events-api'
+        && request.resource.data.fetchedAt is timestamp;
+    }
+    function isValidCachedEvent() {
+      return request.resource.data.keys().hasOnly(['key', 'season', 'name', 'seasonLabel', 'workspace', 'cachedAt'])
+        && request.resource.data.keys().hasAll(['key', 'season', 'name', 'seasonLabel', 'workspace', 'cachedAt'])
+        && request.resource.data.key is string && request.resource.data.key.size() > 0 && request.resource.data.key.size() <= 64
+        && request.resource.data.season is number && request.resource.data.season >= 1992 && request.resource.data.season <= 9999
+        && request.resource.data.name is string && request.resource.data.name.size() <= 512
+        && request.resource.data.seasonLabel is string && request.resource.data.seasonLabel.size() <= 128
+        && request.resource.data.workspace is map && request.resource.data.workspace.size() <= 64
+        && request.resource.data.cachedAt is timestamp;
+    }
+    function isValidSourceManifest() {
+      return request.resource.data.keys().hasOnly(['sourceId', 'sourceUrl', 'contentType', 'encoding', 'status', 'fetchedAt', 'fingerprint', 'byteLength', 'chunkCount', 'cachedAt'])
+        && request.resource.data.keys().hasAll(['sourceId', 'sourceUrl', 'contentType', 'encoding', 'status', 'fetchedAt', 'fingerprint', 'byteLength', 'chunkCount', 'cachedAt'])
+        && request.resource.data.sourceId is string && request.resource.data.sourceId.size() > 0 && request.resource.data.sourceId.size() <= 64
+        && request.resource.data.sourceUrl is string && request.resource.data.sourceUrl.size() <= 2048
+        && request.resource.data.contentType is string && request.resource.data.contentType.size() <= 128
+        && request.resource.data.encoding in ['text', 'base64']
+        && request.resource.data.status is number && request.resource.data.status >= 0 && request.resource.data.status <= 599
+        && request.resource.data.fetchedAt is string && request.resource.data.fetchedAt.size() <= 64
+        && request.resource.data.fingerprint is string && request.resource.data.fingerprint.size() <= 128
+        && request.resource.data.byteLength is number && request.resource.data.byteLength >= 0
+        && request.resource.data.chunkCount is number && request.resource.data.chunkCount >= 1 && request.resource.data.chunkCount <= 10000
+        && request.resource.data.cachedAt is timestamp;
+    }
+    function isValidSourcePointer() {
+      return request.resource.data.keys().hasOnly(['sourceId', 'activeVersion', 'cachedAt'])
+        && request.resource.data.keys().hasAll(['sourceId', 'activeVersion', 'cachedAt'])
+        && request.resource.data.sourceId is string && request.resource.data.sourceId.size() > 0 && request.resource.data.sourceId.size() <= 64
+        && request.resource.data.activeVersion is string && request.resource.data.activeVersion.size() > 0 && request.resource.data.activeVersion.size() <= 160
+        && request.resource.data.cachedAt is timestamp;
+    }
+    function isValidSourceChunk() {
+      return request.resource.data.keys().hasOnly(['index', 'text'])
+        && request.resource.data.keys().hasAll(['index', 'text'])
+        && request.resource.data.index is number && request.resource.data.index >= 0
+        && request.resource.data.text is string && request.resource.data.text.size() <= 131072;
+    }
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
       allow write: if isAdmin();
@@ -36,14 +108,52 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // appState/activeEvent holds the administrator-selected event key and a server timestamp.
+    match /appState/activeEvent {
+      allow read: if isAllowed();
+      allow create, update: if isAdmin() && isValidActiveEventState();
+    }
+
+    // appState/configuration contains provider credentials and is intentionally admin-only.
+    match /appState/configuration {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() && isValidProviderConfiguration();
+    }
+
+    // The official game title is intentionally separate from provider credentials.
+    match /seasonMetadata/{season} {
+      allow read: if isAllowed();
+      allow create, update: if isAdmin()
+        && season.matches('^[0-9]{4}$')
+        && season == string(request.resource.data.season)
+        && isValidSeasonMetadata();
+    }
+
     match /events/{eventId}/profiles/{profileId} {
       allow read: if isAllowed();
       allow write: if isAdmin();
     }
 
     match /events/{eventId}/submissions/{submissionId} {
-      allow read, create, update: if isAllowed();
-      allow delete: if isAdmin();
+      allow read: if isAllowed();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /events/{eventId} {
+      allow read: if isAllowed();
+      allow create, update: if isAdmin() && eventId.matches('^[a-z0-9]+$') && eventId == request.resource.data.key && isValidCachedEvent();
+    }
+    match /events/{eventId}/sourceCache/{sourceId} {
+      allow read: if isAllowed();
+      allow create, update: if isAdmin() && sourceId == request.resource.data.sourceId && isValidSourcePointer();
+    }
+    match /events/{eventId}/sourceCache/{sourceId}/versions/{versionId} {
+      allow read: if isAllowed();
+      allow create, update: if isAdmin() && isValidSourceManifest();
+    }
+    match /events/{eventId}/sourceCache/{sourceId}/versions/{versionId}/chunks/{chunkId} {
+      allow read: if isAllowed();
+      allow create, update: if isAdmin() && chunkId.matches('^[0-9]{6}$') && request.resource.data.index == int(chunkId) && isValidSourceChunk();
     }
     match /mail/{mailId} {
       allow create: if isAdmin();
