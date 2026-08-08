@@ -6588,16 +6588,6 @@ function render() {
             <h1>${escapeHtml(displayEventName(event))}</h1>
           </div>
           <div class="split-row">
-            <label class="event-select" aria-label="Active event">
-              <span class="muted">Active Event</span>
-              <select id="sharedCachedEventSelect" ${state.eventLookupPending ? "disabled" : ""}>
-                ${[...new Map([
-                  [event.key, { key: event.key, season: event.season, name: event.name, seasonLabel: event.seasonLabel }],
-                  ...state.sharedCachedEvents.map((cachedEvent) => [cachedEvent.key, cachedEvent]),
-                ]).values()].map((choice) => `<option value="${escapeAttribute(choice.key)}" ${choice.key === event.key ? "selected" : ""}>${escapeHtml(`${choice.key} | ${choice.season} ${displayEventName(choice)}`)}</option>`).join("")}
-              </select>
-              ${state.eventLookupResult ? `<span class="muted">${escapeHtml(state.eventLookupResult.message)}</span>` : ""}
-            </label>
             ${renderGlobalRecentMatchControl()}
             ${renderThemeToggle()}
             <div class="user-identity" aria-label="Signed in as ${state.user}">

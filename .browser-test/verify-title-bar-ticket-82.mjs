@@ -53,7 +53,7 @@ try {
   const eventTitle = (await page.locator(".page-title h1").textContent()).trim();
   assert(seasonTitle === `${activeEvent.season} ${activeEvent.seasonLabel}`, `The title bar does not show the active season label. Got ${seasonTitle}.`);
   assert(eventTitle === activeEvent.name, `The title bar does not show the selected event name. Got ${eventTitle}.`);
-  assert(await page.locator("#sharedCachedEventSelect").count() === 1, "The active-event selector is missing from the title bar.");
+  assert(await page.locator(".topbar #sharedCachedEventSelect").count() === 0, "The active-event selector still appears in the title bar.");
   assert(!/trusted device|offline reopening|shared event catalog/i.test(await page.locator(".topbar").innerText()), "The verbose cache warning remains in the title bar.");
 
   await page.evaluate(() => {
