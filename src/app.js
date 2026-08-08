@@ -167,8 +167,6 @@ const eventWorkspaceProfileId = eventWorkspaceApi.activeScoutingAttachmentProfil
 const activeEventWorkspaceScoutingAttachmentSchemaSourceValue = eventWorkspaceApi.activeScoutingAttachmentSchemaSourceValue || (() => "");
 const activeEventWorkspaceScoutingAttachmentFormat = eventWorkspaceApi.activeScoutingAttachmentFormat || (() => "legacy-sheet-url");
 const removeEventWorkspaceScoutingAttachment = eventWorkspaceApi.removeScoutingAttachment || ((workspace) => workspace);
-const setEventWorkspaceExternalSourcePollingEnabled = eventWorkspaceApi.setExternalSourcePollingEnabled || ((workspace) => workspace);
-const setEventWorkspaceScoutingAttachmentPollingEnabled = eventWorkspaceApi.setActiveScoutingAttachmentPollingEnabled || ((workspace) => workspace);
 const setActiveEventWorkspaceScoutingAttachment = eventWorkspaceApi.setActiveScoutingAttachment || ((workspace) => workspace);
 const setEventWorkspaceScoutingSourceLocation = eventWorkspaceApi.setScoutingSourceLocation || ((workspace) => workspace);
 const setEventWorkspaceScoutingSchemaSourceLocation = eventWorkspaceApi.setScoutingSchemaSourceLocation || ((workspace) => workspace);
@@ -1300,31 +1298,6 @@ async function refreshAllDataSources() {
   for (const sourceId of ["scouting", "tba", "statbotics", "pridge"]) {
     await refreshDataSource(sourceId);
   }
-}
-
-function setDataSourcePollingEnabled(sourceId, pollingEnabled) {
-  if (sourceId === "scouting") {
-    state.eventWorkspace = setEventWorkspaceScoutingAttachmentPollingEnabled(currentEventWorkspace(), pollingEnabled);
-  } else {
-    state.eventWorkspace = setEventWorkspaceExternalSourcePollingEnabled(currentEventWorkspace(), sourceId, pollingEnabled);
-  }
-  saveState();
-  render();
-}
-
-function allDataSourcePollingEnabled() {
-  return currentDataSources().every((source) => source.pollingEnabled !== false);
-}
-
-function setAllDataSourcePollingEnabled(pollingEnabled) {
-  let workspace = currentEventWorkspace();
-  workspace = setEventWorkspaceScoutingAttachmentPollingEnabled(workspace, pollingEnabled);
-  ["tba", "statbotics", "pridge"].forEach((sourceId) => {
-    workspace = setEventWorkspaceExternalSourcePollingEnabled(workspace, sourceId, pollingEnabled);
-  });
-  state.eventWorkspace = workspace;
-  saveState();
-  render();
 }
 
 function setCurrentScoutingAttachment(attachmentId) {
@@ -8661,7 +8634,6 @@ function renderAdminEventControl() {
     .sort((left, right) => String(left || "").localeCompare(String(right || ""), undefined, { numeric: true, sensitivity: "base" }));
   const mismatchMessage = currentScoutingMismatchMessage(result);
   const sourceStatusIssues = issues.filter((issue) => issue !== mismatchMessage);
-  const allPollingEnabled = allDataSourcePollingEnabled();
   const diagnosticsState = currentScoutingDiagnosticsState();
   const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
   const diagnosticsNonEmpty = schemaDiffHasChanges(diagnosticsSelection.diagnostics?.schemaDiff);
@@ -8799,7 +8771,6 @@ function renderAdminEventControl() {
             </div>
             <div class="admin-actions">
               <button type="button" id="refreshAllSourcesButton">Refresh Sources</button>
-              <button type="button" id="toggleAllSourcePollingButton">${allPollingEnabled ? "Pause Polling" : "Resume Polling"}</button>
             </div>
           </div>
           <div class="data-source-list">
@@ -9909,9 +9880,6 @@ function bindViewEvents() {
   });
   document.querySelector("#refreshAllSourcesButton")?.addEventListener("click", async () => {
     await refreshAllDataSources();
-  });
-  document.querySelector("#toggleAllSourcePollingButton")?.addEventListener("click", () => {
-    setAllDataSourcePollingEnabled(!allDataSourcePollingEnabled());
   });
   document.querySelector("#clearAllianceBoardButton")?.addEventListener("click", clearAllianceBoard);
   document.querySelectorAll("[data-team], [data-team-link]").forEach((element) => {
