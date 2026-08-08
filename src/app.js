@@ -8575,7 +8575,7 @@ function renderRawSourceCacheViewer() {
       <label>Source Artifact<select id="rawSourceCacheSourceSelect" aria-label="Cached source artifact" ${!state.rawSourceCacheEventKey || state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a source artifact</option>${state.rawSourceCacheSources.map((source) => `<option value="${escapeAttribute(source.sourceId)}" ${source.sourceId === state.rawSourceCacheSourceId ? "selected" : ""}>${escapeHtml(source.sourceId)}</option>`).join("")}</select></label>
       ${state.rawSourceCacheStatus ? `<div class="issue-row ${artifact ? "" : state.rawSourceCacheSourceId ? "danger" : ""}">${escapeHtml(state.rawSourceCacheStatus)}</div>` : ""}
       ${metadata.length ? `<div class="attachment-metadata-grid">${metadata.map(([label, value]) => `<div><strong>${escapeHtml(label)}</strong><span class="muted">${escapeHtml(String(value))}</span></div>`).join("")}</div>` : ""}
-      ${artifact ? `<div class="admin-actions"><button type="button" id="copyRawSourceCacheButton">Copy Raw</button><button type="button" id="downloadRawSourceCacheButton">Download Raw</button></div><label>Readable Preview<textarea id="rawSourceCachePreview" class="admin-textarea" readonly spellcheck="false">${escapeHtml(rawSourceDisplayText(artifact))}</textarea></label>` : ""}
+      ${artifact ? `<div class="admin-actions"><button type="button" id="copyRawSourceCacheButton">Copy Raw</button><button type="button" id="downloadRawSourceCacheButton">Download Raw</button></div><textarea id="rawSourceCachePreview" class="admin-textarea raw-source-cache-preview" aria-label="Raw source preview" readonly spellcheck="false">${escapeHtml(rawSourceDisplayText(artifact))}</textarea>` : ""}
     </div>
   </article>`;
 }
@@ -8799,6 +8799,7 @@ function renderAdminEventControl() {
             }
           </div>
         </article>
+        ${renderRawSourceCacheViewer()}
       </div>
     </div>
   `;
@@ -8810,7 +8811,7 @@ function renderAdminDataQuality() {
   const activeDiagnostics = diagnosticsSelection.diagnostics;
   const reconciliationModel = currentScoutingSchemaReconciliationModel();
   const reviewGroups = flaggedSubmissionGroups();
-  return `<div class="grid">
+  return `<div class="grid cols-2">
     <article class="card">
       <h2>Schema Diagnostics</h2>
       ${reconciliationModel ? renderSchemaReconciliationCards(reconciliationModel) : renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
@@ -8833,7 +8834,7 @@ function renderAdminDataQuality() {
 
 function renderAdminUserControl() {
   if (!isAdmin()) return "";
-  return `<div class="grid">${renderAccessManagement()}${renderRawSourceCacheViewer()}</div>`;
+  return `<div class="grid">${renderAccessManagement()}</div>`;
 }
 
 function renderFlags(flags) {

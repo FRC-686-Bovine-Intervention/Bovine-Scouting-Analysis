@@ -24,10 +24,14 @@ assert.doesNotMatch(quality, /renderSubmissionGroup\(group\)/);
 assert.match(eventControl, /Event Imports/);
 assert.match(eventControl, /Source Status/);
 assert.match(eventControl, /Activity Log/);
+assert.match(eventControl, /renderRawSourceCacheViewer\(\)/);
 assert.match(eventControl, /data-view="adminDataQuality"/);
+assert.match(dataQuality, /return `<div class="grid cols-2">/);
 assert.match(dataQuality, /Schema Diagnostics/);
 assert.match(dataQuality, /Duplicate Review/);
+assert.doesNotMatch(userControl, /renderRawSourceCacheViewer\(\)/);
+assert.match(source, /raw-source-cache-preview/);
+assert.doesNotMatch(source, /Readable Preview/);
 assert.match(userControl, /renderAccessManagement\(\)/);
-assert.match(userControl, /renderRawSourceCacheViewer\(\)/);
 
 console.log("PASS admin page split keeps quality review separate and exposes the three admin controls");
