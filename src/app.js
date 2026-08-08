@@ -3860,6 +3860,7 @@ function saveState() {
   localStorage.removeItem(eventStorageKey(storageKeys.seasonDerivedEquations));
   localStorage.removeItem(eventStorageKey(storageKeys.seasonFilters));
   localStorage.setItem(eventStorageKey(storageKeys.eventWorkspace), JSON.stringify(state.eventWorkspace));
+  persistSharedWorkspaceState();
 }
 
 function clearAppStorage() {
@@ -4050,6 +4051,7 @@ function scoutingProfilesForEvent(eventModel = currentEvent()) {
 }
 
 let stopSharedActiveEventSync = null;
+let sharedWorkspacePersistTimer = null;
 
 function sharedCachedEventByKey(eventKey) {
   const normalizedEventKey = normalizeText(eventKey).toLowerCase();
@@ -4179,11 +4181,34 @@ async function loadCachedScoutingData(eventKey, api) {
   try {
     const cached = await api.loadEventSourceCache({ eventKey, sourceId: "scouting-data" });
     const rawText = cached.rawText ?? new TextDecoder().decode(cached.rawBytes);
+    const cachedSchema = await api.loadEventSourceCache({ eventKey, sourceId: "scouting-schema" }).catch(() => null);
+    const cachedLink = await api.loadEventSourceCache({ eventKey, sourceId: "scouting-schema-link" }).catch(() => null);
+    const schemaJsonText = cachedSchema?.rawText ?? (cachedSchema?.rawBytes ? new TextDecoder().decode(cachedSchema.rawBytes) : "");
+    const linkJsonText = cachedLink?.rawText ?? (cachedLink?.rawBytes ? new TextDecoder().decode(cachedLink.rawBytes) : "");
+    const linkedSources = parseSchemaLinkArtifactText(linkJsonText);
+    if (linkedSources && currentScoutingAttachment()) {
+      const attachmentId = currentScoutingAttachment().attachmentId;
+      state.eventWorkspace = {
+        ...currentEventWorkspace(),
+        sources: {
+          ...currentEventWorkspace().sources,
+          scouting: currentEventWorkspace().sources.scouting.map((attachment) => attachment.attachmentId !== attachmentId ? attachment : {
+            ...attachment,
+            location: {
+              ...attachment.location,
+              url: attachment.location?.url || linkedSources.scoutingSource,
+              schemaPath: attachment.location?.schemaPath || linkedSources.schemaSource,
+            },
+          }),
+        },
+      };
+    }
+    state.importSchemaJsonText = schemaJsonText;
     const contentType = normalizeText(cached.manifest?.contentType).toLowerCase();
     if (contentType.includes("json") || /^[\[{]/.test(rawText.trim())) {
-      loadPreparedScoutingJson(rawText, { importDraftSource: "shared-cache" });
+      loadPreparedScoutingJson(rawText, { schemaJsonText, importDraftSource: "shared-cache" });
     } else {
-      loadPreparedScoutingSheet(rawText, eventWorkspaceProfileId(currentEventWorkspace()) || "", { importDraftSource: "shared-cache" });
+      loadPreparedScoutingSheet(rawText, eventWorkspaceProfileId(currentEventWorkspace()) || "", { schemaJsonText, importDraftSource: "shared-cache" });
     }
     return true;
   } catch (error) {
@@ -4465,6 +4490,7 @@ function hydrateEventState(eventKey) {
   state.recentEventKeys = normalizeRecentEventKeys(state.recentEventKeys, resolvedEventKey);
   if (repairedScoutingSubmissions || repairedWorkspaceFingerprints) saveState();
   if (repairedScoutingSubmissions) persistScoutingSubmissions(resolvedEventKey, state.scoutingSubmissions);
+  void syncSharedWorkspaceForEvent(resolvedEventKey);
   loadPersistedScoutingSubmissions(resolvedEventKey, { render: true });
   recordScoutingPerf("hydrateEventState.total", startedAt, {
     eventKey: resolvedEventKey,
@@ -4797,6 +4823,60 @@ function normalizeView(view) {
   if (view === "scoringMatrixBuilder" || view === "sortBuilder" || view === "filterBuilder") return "derivedBuilder";
   if (view === "admin") return "adminEventControl";
   return appViews.some((item) => item.view === view) ? view : "teams";
+}
+
+async function loadSharedScoutingDataForActiveEvent() {
+  const api = globalThis.firebaseEventSourceCacheApi;
+  if (!api || !globalThis.firebaseCurrentUser || !state.activeEventKey) return false;
+  return loadCachedScoutingData(state.activeEventKey, api);
+}
+
+function sharedWorkspaceStateSnapshot() {
+  return {
+    eventWorkspace: cloneJsonValue(state.eventWorkspace || {}),
+    picklists: cloneJsonValue(state.picklists || []),
+    sortEquations: cloneJsonValue(state.sortEquations || []),
+    activePicklist: state.activePicklist,
+    activeSortEquation: state.activeSortEquation,
+  };
+}
+
+function persistSharedWorkspaceState() {
+  const api = globalThis.firebaseWorkspaceApi;
+  if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin" || !state.activeEventKey || !state.eventWorkspace) return;
+  if (sharedWorkspacePersistTimer) clearTimeout(sharedWorkspacePersistTimer);
+  sharedWorkspacePersistTimer = setTimeout(() => {
+    sharedWorkspacePersistTimer = null;
+    void api.saveEventWorkspaceState(state.activeEventKey, sharedWorkspaceStateSnapshot()).catch((error) => {
+      console.warn(`Unable to save shared workspace state for ${state.activeEventKey}; keeping the local state.`, error);
+    });
+  }, 150);
+}
+
+async function syncSharedWorkspaceForEvent(eventKey = state.activeEventKey) {
+  const api = globalThis.firebaseWorkspaceApi;
+  if (!api || !globalThis.firebaseCurrentUser || !eventKey) return false;
+  try {
+    const shared = await api.loadEventWorkspaceState(eventKey);
+    if (shared) {
+      const eventModel = currentEvent();
+      state.eventWorkspace = createEventWorkspace(eventModel, shared.eventWorkspace || {});
+      state.picklists = normalizePicklists(shared.picklists, eventModel);
+      state.sortEquations = normalizeSortEquations(shared.sortEquations, eventModel);
+      state.activePicklist = resolvePicklistId(shared.activePicklist, state.picklists) || state.picklists[0]?.id || "";
+      state.activeSortEquation = resolveSortEquationId(shared.activeSortEquation, state.sortEquations) || state.sortEquations[0]?.id || "";
+      saveState();
+      renderSafely();
+      return true;
+    }
+    if (globalThis.firebaseUserRole === "admin") {
+      await api.saveEventWorkspaceState(eventKey, sharedWorkspaceStateSnapshot());
+      return true;
+    }
+  } catch (error) {
+    console.warn(`Unable to sync shared workspace state for ${eventKey}; keeping local state.`, error);
+  }
+  return false;
 }
 
 function normalizeBoard(board, eventModel = currentEvent()) {
@@ -6171,7 +6251,7 @@ function loadEventSheetSample(options = {}) {
   });
 }
 
-async function cacheActiveRawScoutingSource(rawText, sourceUrl, contentType, rawBytes = null) {
+async function cacheActiveRawScoutingSource(rawText, sourceUrl, contentType, rawBytes = null, options = {}) {
   const api = globalThis.firebaseEventSourceCacheApi;
   if (!api || globalThis.firebaseUserRole !== "admin" || (!rawBytes && !normalizeText(rawText))) return false;
   try {
@@ -6186,7 +6266,21 @@ async function cacheActiveRawScoutingSource(rawText, sourceUrl, contentType, raw
         contentType,
         status: 200,
         fetchedAt: new Date().toISOString(),
-      }],
+      }, ...(normalizeText(options.schemaJsonText) ? [{
+        sourceId: "scouting-schema",
+        rawText: options.schemaJsonText,
+        sourceUrl: options.schemaSource || "",
+        contentType: "application/json",
+        status: 200,
+        fetchedAt: new Date().toISOString(),
+      }] : []), ...(normalizeText(options.schemaLinkText) ? [{
+        sourceId: "scouting-schema-link",
+        rawText: options.schemaLinkText,
+        sourceUrl: options.schemaLinkSource || "",
+        contentType: "application/json",
+        status: 200,
+        fetchedAt: new Date().toISOString(),
+      }] : [])],
     });
     return true;
   } catch (error) {
@@ -6225,7 +6319,15 @@ async function loadScoutingData(options = {}) {
             return { rawText: new TextDecoder().decode(rawBytes), rawBytes, contentType: response.headers.get("content-type") || "application/json" };
           })();
       const schemaJsonText = await readAttachedScoutingSchemaText(attachment, attachmentLoad, sourceUrl);
-      await cacheActiveRawScoutingSource(jsonResponse.rawText, sourceUrl, jsonResponse.contentType, jsonResponse.rawBytes);
+      const schemaLinkText = attachment?.location?.schemaLinkPath
+        ? await readLocalAttachmentTextByPath(attachment.location.schemaLinkPath).catch(() => "")
+        : "";
+      await cacheActiveRawScoutingSource(jsonResponse.rawText, sourceUrl, jsonResponse.contentType, jsonResponse.rawBytes, {
+        schemaJsonText,
+        schemaSource: attachmentLoad.schemaPath || attachmentLoad.schemaUrl,
+        schemaLinkText,
+        schemaLinkSource: attachment?.location?.schemaLinkPath || "",
+      });
       loadPreparedScoutingJson(jsonResponse.rawText, {
         ...options,
         schemaJsonText,
@@ -6242,7 +6344,16 @@ async function loadScoutingData(options = {}) {
     try {
       markCurrentScoutingAttachmentAttempt();
       const csvText = await readLocalAttachmentText(currentScoutingAttachment()?.attachmentId);
-      await cacheActiveRawScoutingSource(csvText, sourceUrl, "text/csv");
+      const schemaJsonText = await readAttachedScoutingSchemaText(attachment, attachmentLoad, sourceUrl).catch(() => "");
+      const schemaLinkText = attachment?.location?.schemaLinkPath
+        ? await readLocalAttachmentTextByPath(attachment.location.schemaLinkPath).catch(() => "")
+        : "";
+      await cacheActiveRawScoutingSource(csvText, sourceUrl, "text/csv", null, {
+        schemaJsonText,
+        schemaSource: attachmentLoad.schemaPath || attachmentLoad.schemaUrl,
+        schemaLinkText,
+        schemaLinkSource: attachment?.location?.schemaLinkPath || "",
+      });
       const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
       loadPreparedScoutingSheet(csvText, profileId, {
         ...options,
@@ -10470,6 +10581,8 @@ if (typeof globalThis.addEventListener === "function") {
       subscribeSharedSeasonMetadata();
       void syncSharedProfilesForEvent(state.activeEventKey);
       void syncSharedSubmissionsForEvent(state.activeEventKey);
+      void syncSharedWorkspaceForEvent(state.activeEventKey);
+      void loadSharedScoutingDataForActiveEvent();
     } else {
       clearTbaAuthKeyConfiguration();
       clearFrcApiCredentials();

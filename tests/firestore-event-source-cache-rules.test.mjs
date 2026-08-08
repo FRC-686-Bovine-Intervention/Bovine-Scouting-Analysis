@@ -4,6 +4,9 @@ import fs from "node:fs";
 const rules = fs.readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
 
 assert.match(rules, /match \/events\/\{eventId\}\/sourceCache\/\{sourceId\}/);
+assert.match(rules, /match \/events\/\{eventId\}\/workspace\/\{workspaceId\}/);
+assert.match(rules, /workspaceId == 'state'/);
+assert.match(rules, /request\.resource\.data\.eventWorkspace is map/);
 assert.match(rules, /match \/events\/\{eventId\}\/sourceCache\/\{sourceId\}\/versions\/\{versionId\}/);
 assert.match(rules, /match \/events\/\{eventId\}\/sourceCache\/\{sourceId\}\/versions\/\{versionId\}\/chunks\/\{chunkId\}/);
 assert.match(rules, /allow create, update: if isAdmin\(\) && sourceId == request\.resource\.data\.sourceId && isValidSourcePointer\(\)/);

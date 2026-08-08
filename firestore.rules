@@ -139,6 +139,21 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    match /events/{eventId}/workspace/{workspaceId} {
+      allow read: if isAllowed();
+      allow create, update: if isAdmin()
+        && workspaceId == 'state'
+        && request.resource.data.keys().hasOnly(['version', 'eventKey', 'eventWorkspace', 'picklists', 'sortEquations', 'activePicklist', 'activeSortEquation', 'updatedAt'])
+        && request.resource.data.version == 1
+        && request.resource.data.eventKey == eventId
+        && request.resource.data.eventWorkspace is map
+        && request.resource.data.picklists is list
+        && request.resource.data.sortEquations is list
+        && request.resource.data.activePicklist is string
+        && request.resource.data.activeSortEquation is string
+        && request.resource.data.updatedAt is timestamp;
+    }
+
     match /events/{eventId} {
       allow read: if isAllowed();
       allow create, update: if isAdmin() && eventId.matches('^[a-z0-9]+$') && eventId == request.resource.data.key && isValidCachedEvent();
