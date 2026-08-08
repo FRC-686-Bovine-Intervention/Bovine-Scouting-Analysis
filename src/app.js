@@ -257,7 +257,9 @@ const navItems = [
   { view: "derivedBuilder", label: "Derived Equation Builder", icon: "derivedBuilder" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
   { view: "alliance", label: "Alliance Selection", icon: "alliance" },
-  { view: "admin", label: "Admin", icon: "admin" },
+  { view: "adminEventControl", label: "Admin Event Control", icon: "admin" },
+  { view: "adminDataQuality", label: "Admin Data Quality", icon: "quality" },
+  { view: "adminUserControl", label: "Admin User Control", icon: "debug" },
 ];
 
 const appViews = [...navItems, { view: "teamDetail", label: "Team Detail", icon: "teams" }];
@@ -1577,9 +1579,9 @@ async function applyRecentAdminEventSelection(value) {
   if (!nextEventKey) return false;
   state.adminRecentEventsOpen = false;
   if (sharedCachedEventByKey(nextEventKey) && !globalEventCatalog.some((eventModel) => eventModel?.key === nextEventKey)) {
-    return openSharedCachedEvent(nextEventKey, { activeView: "admin" });
+    return openSharedCachedEvent(nextEventKey, { activeView: "adminEventControl" });
   }
-  return switchActiveEvent(nextEventKey, { activeView: "admin" });
+  return switchActiveEvent(nextEventKey, { activeView: "adminEventControl" });
 }
 
 function readCurrentScoutingAttachmentDraftFromDom() {
@@ -1635,9 +1637,9 @@ async function applyAdminEventCodeDraft(value, options = {}) {
   }
   state.adminEventCodeDraft = normalizedEventCode;
   if (globalEventCatalog.some((eventModel) => eventModel?.key === normalizedEventCode)) {
-    return switchActiveEvent(normalizedEventCode, { activeView: "admin" });
+    return switchActiveEvent(normalizedEventCode, { activeView: "adminEventControl" });
   }
-  return loadArbitraryEventCode(normalizedEventCode, { activeView: "admin" });
+  return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl" });
 }
 
 async function applyScoutingSourceInputChange(options = {}) {
@@ -4553,7 +4555,7 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     await refreshSharedSeasonMetadata();
     subscribeSharedSeasonMetadata();
     switchActiveEvent(registeredEvent.key, {
-      activeView: options.activeView || "admin",
+      activeView: options.activeView || "adminEventControl",
       preserveImportDraft: true,
     });
     let seasonTitleWarning = "";
@@ -4793,6 +4795,7 @@ function reservedMetricIds() {
 
 function normalizeView(view) {
   if (view === "scoringMatrixBuilder" || view === "sortBuilder" || view === "filterBuilder") return "derivedBuilder";
+  if (view === "admin") return "adminEventControl";
   return appViews.some((item) => item.view === view) ? view : "teams";
 }
 
@@ -4833,7 +4836,7 @@ function isAdmin() {
 }
 
 function canView(view) {
-  return view !== "admin" || isAdmin();
+  return !String(view || "").startsWith("admin") || isAdmin();
 }
 
 function visibleNavItems() {
@@ -6037,7 +6040,7 @@ function commitImportPreview(options = {}) {
 function switchImportContext(eventKey) {
   if (!eventKey) return;
   switchActiveEvent(eventKey, {
-    activeView: "admin",
+    activeView: "adminEventControl",
     preserveImportDraft: true,
     rerunImportPreview: true,
   });
@@ -6759,6 +6762,7 @@ function icon(name) {
     schedule: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/>',
     matchup: '<path d="M7 7h10"/><path d="M7 17h10"/><path d="M9 7a3 3 0 1 1 0 6"/><path d="M15 17a3 3 0 1 1 0-6"/>',
     quality: '<path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5"/><path d="M12 17h.01"/>',
+    debug: '<path d="M9 3h6l1 3h3v6a6 6 0 0 1-12 0V6h3l1-3Z"/><path d="M9 12h.01M15 12h.01M10 16h4"/>',
     picklists: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
     sortEquation:
       '<text x="12" y="17" text-anchor="middle" font-size="18" font-weight="700" fill="currentColor" stroke="none">&#931;</text>',
@@ -6790,7 +6794,9 @@ function viewTitle(view) {
     quality: "Data Quality",
     picklistBuilder: "Picklist Builder",
     alliance: "Alliance Selection",
-    admin: "Admin",
+    adminEventControl: "Admin Event Control",
+    adminDataQuality: "Admin Data Quality",
+    adminUserControl: "Admin User Control",
   }[view];
 }
 
@@ -6853,7 +6859,9 @@ function renderView() {
     quality: renderQuality,
     picklistBuilder: renderPicklistBuilder,
     alliance: renderAlliance,
-    admin: renderAdmin,
+    adminEventControl: renderAdminEventControl,
+    adminDataQuality: renderAdminDataQuality,
+    adminUserControl: renderAdminUserControl,
   }[state.activeView]();
 }
 
@@ -7775,30 +7783,8 @@ function renderAllianceCard(title, teamNumbers) {
 
 function renderQuality() {
   const flagged = currentTeams().filter((team) => team.flags.some((flag) => ["data_suspect", "broken", "declining", "inconsistent"].includes(flag.type)));
-  const groups = flaggedSubmissionGroups();
   return `
     <div class="grid">
-      ${
-        isAdmin()
-          ? `
-        <article class="card">
-          <div class="section-heading">
-            <div>
-              <h2>Submission Review</h2>
-              <p class="muted">Review duplicate and flagged scouting rows, then keep, exclude, or clear them manually.</p>
-            </div>
-          </div>
-          <div class="review-group-list">
-            ${
-              groups.length
-                ? groups.map(renderSubmissionGroup).join("")
-                : `<div class="empty-state">No flagged or duplicate scouting submissions need review right now.</div>`
-            }
-          </div>
-        </article>
-      `
-          : ""
-      }
       <article class="card">
         <div class="section-heading">
           <div>
@@ -8593,7 +8579,7 @@ function renderRawSourceCacheViewer() {
     </div>
   </article>`;
 }
-function renderAdmin() {
+function renderAdminEventControl() {
   const event = currentEvent();
   const workspace = currentEventWorkspace();
   const activeAttachment = currentScoutingAttachment();
@@ -8606,8 +8592,17 @@ function renderAdmin() {
   const mismatchMessage = currentScoutingMismatchMessage(result);
   const sourceStatusIssues = issues.filter((issue) => issue !== mismatchMessage);
   const allPollingEnabled = allDataSourcePollingEnabled();
+  const diagnosticsState = currentScoutingDiagnosticsState();
+  const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
+  const diagnosticsNonEmpty = schemaDiffHasChanges(diagnosticsSelection.diagnostics?.schemaDiff);
+  const reviewNonEmpty = reviewGroups.length > 0;
   return `
     <div class="grid">
+      ${(diagnosticsNonEmpty || reviewNonEmpty) ? `<div class="admin-quality-banner" role="status">
+        <strong>Admin data quality needs attention.</strong>
+        <span>${diagnosticsNonEmpty ? "Schema diagnostics are non-empty." : ""}${diagnosticsNonEmpty && reviewNonEmpty ? " " : ""}${reviewNonEmpty ? `${reviewGroups.length} duplicate or flagged review group${reviewGroups.length === 1 ? "" : "s"} pending.` : ""}</span>
+        <button type="button" class="link-button" data-view="adminDataQuality">Open Admin Data Quality</button>
+      </div>` : ""}
       <div class="grid cols-2">
         <article class="card">
           <div class="section-heading">
@@ -8779,30 +8774,7 @@ function renderAdmin() {
           </div>
         </article>
       </div>
-      ${renderRawSourceCacheViewer()}
       <div class="grid cols-2">
-        <article class="card">
-          <h2>Schema Diagnostics</h2>
-          ${(() => {
-            const diagnosticsState = currentScoutingDiagnosticsState();
-            const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
-            const activeDiagnostics = diagnosticsSelection.diagnostics;
-            const reconciliationModel = currentScoutingSchemaReconciliationModel();
-            return `
-              ${reconciliationModel ? renderSchemaReconciliationCards(reconciliationModel) : renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
-              ${
-                reconciliationModel
-                  ? `<div class="button-row">
-                      <button type="button" id="updateCurrentSchemaFromDiagnosticsButton"${reconciliationModel.readyToPersist ? "" : " disabled"}>Update Current Schema</button>
-                      <button type="button" id="saveNewSchemaFromDiagnosticsButton"${reconciliationModel.readyToPersist ? "" : " disabled"}>Save New Schema As...</button>
-                    </div>`
-                  : ""
-              }
-              <h3>Downstream Impact</h3>
-              ${renderDependencyImpactSummary(reconciliationModel ? reconciliationModel.resolvedDiagnostics?.diagnostics : activeDiagnostics?.diagnostics)}
-            `;
-          })()}
-        </article>
         <article class="card">
           <div class="section-heading">
             <div>
@@ -8828,27 +8800,40 @@ function renderAdmin() {
           </div>
         </article>
       </div>
-      ${renderAccessManagement()}
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Duplicate Review</h2>
-            <p class="muted">Flagged scouting rows stay in the system until an admin keeps, excludes, resets, or clears them.</p>
-          </div>
-          <div class="flag-list">
-            <span class="flag ${reviewGroups.length ? "warn" : "good"}">${reviewGroups.length} group${reviewGroups.length === 1 ? "" : "s"} pending</span>
-          </div>
-        </div>
-        <div class="review-group-list">
-          ${
-            reviewGroups.length
-              ? reviewGroups.map(renderSubmissionGroup).join("")
-              : `<div class="empty-state">No duplicate or flagged submissions are waiting for admin action.</div>`
-          }
-        </div>
-      </article>
     </div>
   `;
+}
+
+function renderAdminDataQuality() {
+  const diagnosticsState = currentScoutingDiagnosticsState();
+  const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
+  const activeDiagnostics = diagnosticsSelection.diagnostics;
+  const reconciliationModel = currentScoutingSchemaReconciliationModel();
+  const reviewGroups = flaggedSubmissionGroups();
+  return `<div class="grid">
+    <article class="card">
+      <h2>Schema Diagnostics</h2>
+      ${reconciliationModel ? renderSchemaReconciliationCards(reconciliationModel) : renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
+      ${reconciliationModel ? `<div class="button-row">
+        <button type="button" id="updateCurrentSchemaFromDiagnosticsButton"${reconciliationModel.readyToPersist ? "" : " disabled"}>Update Current Schema</button>
+        <button type="button" id="saveNewSchemaFromDiagnosticsButton"${reconciliationModel.readyToPersist ? "" : " disabled"}>Save New Schema As...</button>
+      </div>` : ""}
+      <h3>Downstream Impact</h3>
+      ${renderDependencyImpactSummary(reconciliationModel ? reconciliationModel.resolvedDiagnostics?.diagnostics : activeDiagnostics?.diagnostics)}
+    </article>
+    <article class="card">
+      <div class="section-heading">
+        <div><h2>Duplicate Review</h2><p class="muted">Flagged scouting rows stay in the system until an admin keeps, excludes, resets, or clears them.</p></div>
+        <div class="flag-list"><span class="flag ${reviewGroups.length ? "warn" : "good"}">${reviewGroups.length} group${reviewGroups.length === 1 ? "" : "s"} pending</span></div>
+      </div>
+      <div class="review-group-list">${reviewGroups.length ? reviewGroups.map(renderSubmissionGroup).join("") : `<div class="empty-state">No duplicate or flagged submissions are waiting for admin action.</div>`}</div>
+    </article>
+  </div>`;
+}
+
+function renderAdminUserControl() {
+  if (!isAdmin()) return "";
+  return `<div class="grid">${renderAccessManagement()}${renderRawSourceCacheViewer()}</div>`;
 }
 
 function renderFlags(flags) {
