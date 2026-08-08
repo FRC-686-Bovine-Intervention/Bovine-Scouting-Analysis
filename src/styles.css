@@ -1811,6 +1811,15 @@ button.pill {
   box-shadow: var(--shadow);
 }
 
+.formula-function-menu::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: max(100%, 320px);
+  height: 6px;
+}
+
 .formula-function-menu:hover .formula-function-popover,
 .formula-function-menu:focus-within .formula-function-popover {
   display: grid;
