@@ -95,7 +95,7 @@ runTest("materializeEventScopedProfileCatalog projects legacy season profiles on
   });
 });
 
-runTest("metric discovery blacklist merges defaults with schema globs and keeps foul metrics discoverable", () => {
+runTest("metric discovery blacklist keeps Statbotics raw provider fields discoverable", () => {
   const schemaPayload = {
     schema: {
       metricDiscovery: {
@@ -129,6 +129,14 @@ runTest("metric discovery blacklist merges defaults with schema globs and keeps 
   assert.equal(
     scoutingProfiles.isProviderMetricDiscoverable("statbotics", "team_name", schemaPayload),
     false,
+  );
+  assert.equal(
+    scoutingProfiles.isProviderMetricDiscoverable("statbotics", "country", schemaPayload),
+    true,
+  );
+  assert.equal(
+    scoutingProfiles.isProviderMetricDiscoverable("statbotics", "epa.breakdown.auto_points", schemaPayload),
+    true,
   );
 });
 
