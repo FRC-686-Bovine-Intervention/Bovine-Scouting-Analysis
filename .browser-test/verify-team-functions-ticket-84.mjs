@@ -71,6 +71,7 @@ try {
 
   const autocomplete = (await page.locator("#derivedFormulaAutocomplete [data-formula-suggestion]").allTextContents()).map((text) => text.trim());
   const helpText = await page.evaluate(() => renderFormulaHelpStandaloneDocument());
+  const dropdownText = await page.locator(".formula-function-popover").textContent();
 
   ["teamAverage", "teamSum", "teamCount", "teamMin", "teamMax"].forEach((name) => {
     assert(autocomplete.includes(name), `Autocomplete is missing ${name}. Got: ${autocomplete.join(", ")}`);
@@ -82,8 +83,15 @@ try {
     "Alias for teamMin",
     "Alias for teamMax",
   ].forEach((text) => assert(String(helpText || "").includes(text), `Function help is missing ${text}.`));
+  [
+    "Alias for teamAverage",
+    "Alias for teamSum",
+    "Alias for teamCount",
+    "Alias for teamMin",
+    "Alias for teamMax",
+  ].forEach((text) => assert(String(dropdownText || "").includes(text), `Dropdown help is missing ${text}.`));
 
-  console.log("PASS team* functions appear in derived autocomplete and common helper text identifies aliases.");
+  console.log("PASS team* functions appear in derived autocomplete and both help surfaces identify common aliases.");
 } finally {
   await browser.close();
 }

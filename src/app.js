@@ -9162,7 +9162,7 @@ function renderHoverFormulaFunctionEntries() {
         <summary class="formula-function-group-summary">${escapeHtml(group.label)}</summary>
         <div class="formula-function-group-list">
           ${group.entries
-            .map((entry) => `<div class="formula-function-item formula-function-item-compact"><strong>${escapeHtml(entry.name)}</strong></div>`)
+            .map((entry) => `<div class="formula-function-item formula-function-item-compact"><strong>${escapeHtml(entry.name)}</strong><span>${escapeHtml(entry.description)}</span></div>`)
             .join("")}
         </div>
       </details>
