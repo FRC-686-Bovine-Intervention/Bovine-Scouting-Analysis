@@ -6565,8 +6565,8 @@ function render() {
   }
 
   app.innerHTML = `
+    ${renderDeploymentBanner()}
     <div class="app-shell ${state.menuExpanded ? "menu-expanded" : "menu-collapsed"}">
-      ${renderDeploymentBanner()}
       <aside class="sidebar">
         <div class="brand-row">
           <div>
@@ -6614,8 +6614,8 @@ function render() {
 function renderNoEventLoaded() {
   const sharedEvents = state.sharedCachedEvents || [];
   app.innerHTML = `
+    ${renderDeploymentBanner()}
     <main class="login-shell">
-      ${renderDeploymentBanner()}
       <section class="login-panel">
         <div class="brand-row">
           <div>
@@ -6676,8 +6676,8 @@ function renderSafely() {
 
 function renderLogin() {
   app.innerHTML = `
+    ${renderDeploymentBanner()}
     <main class="login-shell">
-      ${renderDeploymentBanner()}
       <section class="login-panel">
         <div class="brand-row">
           <div>
