@@ -6580,8 +6580,8 @@ function render() {
       <main class="main">
         <header class="topbar">
           <div class="page-title">
-            <p class="eyebrow">${event.key}</p>
-            <h1>${viewTitle(state.activeView)}</h1>
+            <p class="eyebrow">${escapeHtml(`${event.season} ${event.seasonLabel}`.trim())}</p>
+            <h1>${escapeHtml(event.name)}</h1>
           </div>
           <div class="split-row">
             <label class="event-select" aria-label="Active event">
@@ -6592,7 +6592,6 @@ function render() {
                   ...state.sharedCachedEvents.map((cachedEvent) => [cachedEvent.key, cachedEvent]),
                 ]).values()].map((choice) => `<option value="${escapeAttribute(choice.key)}" ${choice.key === event.key ? "selected" : ""}>${escapeHtml(`${choice.key} | ${choice.season} ${choice.name}`)}</option>`).join("")}
               </select>
-              ${state.sharedCacheStatus ? `<span class="muted">${escapeHtml(state.sharedCacheStatus)}</span>` : ""}
               ${state.eventLookupResult ? `<span class="muted">${escapeHtml(state.eventLookupResult.message)}</span>` : ""}
             </label>
             ${renderGlobalRecentMatchControl()}
