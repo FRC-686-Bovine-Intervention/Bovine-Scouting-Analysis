@@ -61,7 +61,7 @@ async function main() {
 await runTest("loadEventByCode builds an event model and ready provider states from live payloads", async () => {
   const baseUrls = {
     tba: "https://tba.test/api",
-    statbotics: "https://statbotics.test/api",
+    statbotics: "https://api.statbotics.io/v3",
   };
   const context = loadBrowserContext([
     "src/legacy-scouting-schema-seeds.js",
@@ -169,7 +169,6 @@ await runTest("loadEventByCode builds an event model and ready provider states f
     fetchImpl,
     tbaAuthKey: "unit-test-key",
     tbaBaseUrl: baseUrls.tba,
-    statboticsBaseUrl: baseUrls.statbotics,
     timestamp: "2026-07-12T13:00:00Z",
   });
 
@@ -205,6 +204,7 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.sourceStates.tba.status, "ready");
   assert.equal(result.sourceStates.tba.lastSuccessfulAt, "2026-07-12T13:00:00Z");
   assert.equal(result.sourceStates.statbotics.status, "ready");
+  assert.match(result.sourceStates.statbotics.provenance.notes, /primary Statbotics site https:\/\/api\.statbotics\.io\/v3/i);
   assert.equal(result.sourceStates.pridge.status, "ready");
   assert.equal(result.sourceStates.pridge.provenance.mode, "native-compute");
   assert.equal(result.sourceStates.pridge.provenance.eventKey, "2026test");
@@ -358,10 +358,11 @@ await runTest("loadEventByCode falls back to a generic season shell for unknown 
   assert.equal(result.eventModel.matches[0].scoreBreakdown.red.mobilityPoints, 9);
 });
 
-await runTest("loadEventByCode keeps the event loadable when Statbotics fails", async () => {
+await runTest("loadEventByCode falls back to the secondary Statbotics site when the primary fails", async () => {
   const baseUrls = {
     tba: "https://tba.test/api",
-    statbotics: "https://statbotics.test/api",
+    statbotics: "https://www.statbotics.io/api/v3",
+    statboticsFallback: "https://api-statbotics.iterativerefinement.com/v3",
   };
   const context = loadBrowserContext([
     "src/legacy-scouting-schema-seeds.js",
@@ -405,8 +406,10 @@ await runTest("loadEventByCode keeps the event loadable when Statbotics fails", 
       dprs: { frc1: 8.1, frc2: 8.4, frc3: 8.8, frc4: 9.2, frc5: 9.5, frc6: 9.9 },
       ccwms: { frc1: 12.4, frc2: 10.7, frc3: 9.6, frc4: 8.7, frc5: 7.9, frc6: 6.9 },
     },
-    [`${baseUrls.statbotics}/event/2026fallback`]: { error: new Error("Statbotics down") },
-    [`${baseUrls.statbotics}/team_events/event/2026fallback`]: { error: new Error("Statbotics down") },
+    [`${baseUrls.statbotics}/event/2026fallback`]: { error: new Error("Statbotics primary down") },
+    [`${baseUrls.statbotics}/team_events/event/2026fallback`]: { error: new Error("Statbotics primary down") },
+    [`${baseUrls.statboticsFallback}/event/2026fallback`]: { year: 2026, status: "In Progress" },
+    [`${baseUrls.statboticsFallback}/team_events/event/2026fallback`]: [],
   });
 
   const result = await context.ExternalEventLoader.loadEventByCode("2026fallback", {
@@ -414,23 +417,24 @@ await runTest("loadEventByCode keeps the event loadable when Statbotics fails", 
     tbaAuthKey: "unit-test-key",
     tbaBaseUrl: baseUrls.tba,
     statboticsBaseUrl: baseUrls.statbotics,
+    statboticsFallbackBaseUrl: baseUrls.statboticsFallback,
     timestamp: "2026-07-12T13:05:00Z",
   });
 
   assert.equal(result.eventModel.key, "2026fallback");
   assert.equal(result.eventModel.matches.length, 1);
   assert.equal(result.sourceStates.tba.status, "ready");
-  assert.equal(result.sourceStates.statbotics.status, "error");
+  assert.equal(result.sourceStates.statbotics.status, "ready");
+  assert.match(result.sourceStates.statbotics.provenance.notes, /primary Statbotics site failed.*secondary fallback https:\/\/api-statbotics\.iterativerefinement\.com\/v3/i);
   assert.equal(result.sourceStates.pridge.status, "error");
   assert.equal(result.sourceStates.pridge.freshness, "stale");
   assert.equal(result.sourceStates.pridge.provenance.mode, "native-compute");
   assert.equal(result.sourceStates.pridge.provenance.eventKey, "2026fallback");
   assert.equal(result.sourceStates.pridge.provenance.generatedAt, "2026-07-12T13:05:00Z");
   assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.tba || "").startsWith("fnv1a:"));
-  assert.equal(result.sourceStates.pridge.provenance.inputFingerprints?.statbotics, undefined);
-  assert.match(result.sourceStates.pridge.error, /Statbotics start EPA priors/i);
-  assert.equal(result.warnings.length, 1);
-  assert.match(result.warnings[0], /Statbotics/i);
+  assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.statbotics || "").startsWith("fnv1a:"));
+  assert.match(result.sourceStates.pridge.error, /available TBA and Statbotics event inputs/i);
+  assert.equal(result.warnings.length, 0);
 });
 
 await runTest("loadEventByCode marks pRidge as error when no usable qualification matches remain", async () => {

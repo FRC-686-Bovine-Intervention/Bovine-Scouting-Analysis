@@ -167,8 +167,6 @@ const eventWorkspaceProfileId = eventWorkspaceApi.activeScoutingAttachmentProfil
 const activeEventWorkspaceScoutingAttachmentSchemaSourceValue = eventWorkspaceApi.activeScoutingAttachmentSchemaSourceValue || (() => "");
 const activeEventWorkspaceScoutingAttachmentFormat = eventWorkspaceApi.activeScoutingAttachmentFormat || (() => "legacy-sheet-url");
 const removeEventWorkspaceScoutingAttachment = eventWorkspaceApi.removeScoutingAttachment || ((workspace) => workspace);
-const setEventWorkspaceExternalSourcePollingEnabled = eventWorkspaceApi.setExternalSourcePollingEnabled || ((workspace) => workspace);
-const setEventWorkspaceScoutingAttachmentPollingEnabled = eventWorkspaceApi.setActiveScoutingAttachmentPollingEnabled || ((workspace) => workspace);
 const setActiveEventWorkspaceScoutingAttachment = eventWorkspaceApi.setActiveScoutingAttachment || ((workspace) => workspace);
 const setEventWorkspaceScoutingSourceLocation = eventWorkspaceApi.setScoutingSourceLocation || ((workspace) => workspace);
 const setEventWorkspaceScoutingSchemaSourceLocation = eventWorkspaceApi.setScoutingSchemaSourceLocation || ((workspace) => workspace);
@@ -219,7 +217,6 @@ const storageKeys = {
   importSourceUrl: "frc-scouting-import-source-url",
   scoutingWindow: "frc-scouting-window",
   recentMatchCount: "frc-scouting-recent-match-count",
-  statboticsBaseUrl: "frc-scouting-statbotics-base-url",
   recentEvents: "frc-scouting-recent-events",
   scoutingProfiles: "frc-scouting-scouting-profiles",
   seasonProfiles: "frc-scouting-season-profiles",
@@ -233,7 +230,6 @@ const globalStorageKeys = new Set([
   storageKeys.theme,
   storageKeys.activeEvent,
   storageKeys.menuExpanded,
-  storageKeys.statboticsBaseUrl,
   storageKeys.recentEvents,
   storageKeys.scoutingProfiles,
   storageKeys.seasonProfiles,
@@ -257,7 +253,9 @@ const navItems = [
   { view: "derivedBuilder", label: "Derived Equation Builder", icon: "derivedBuilder" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
   { view: "alliance", label: "Alliance Selection", icon: "alliance" },
-  { view: "admin", label: "Admin", icon: "admin" },
+  { view: "adminEventControl", label: "Admin Event Control", icon: "admin" },
+  { view: "adminDataQuality", label: "Admin Data Quality", icon: "quality" },
+  { view: "adminUserControl", label: "Admin User Control", icon: "debug" },
 ];
 
 const appViews = [...navItems, { view: "teamDetail", label: "Team Detail", icon: "teams" }];
@@ -269,7 +267,7 @@ const defaultColumnSortDirection = "desc";
 const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
 const maskedTbaAuthKeyValue = "............";
 const firstSeasonAttributionUrl = "https://frc-events.firstinspires.org/services/api";
-const defaultStatboticsBaseUrl = "https://api-statbotics.iterativerefinement.com/v3";
+const defaultStatboticsBaseUrl = "https://api.statbotics.io/v3";
 
 function readBootstrapStoredJson(key, fallback) {
   try {
@@ -335,10 +333,7 @@ try {
 } catch {
   // Storage can be unavailable in private or restricted browser contexts.
 }
-const initialStatboticsBaseUrl =
-  readStoredItem(storageKeys.statboticsBaseUrl)
-  || normalizeText(globalThis.__STATBOTICS_BASE_URL || globalThis.STATBOTICS_BASE_URL)
-  || defaultStatboticsBaseUrl;
+const initialStatboticsBaseUrl = defaultStatboticsBaseUrl;
 const initialLegacyDerivedEquationCatalog = normalizeSeasonDerivedEquationCatalog(
   readStoredJson(storageKeys.seasonDerivedEquations, {}),
 );
@@ -392,12 +387,11 @@ const state = {
   frcApiAuthorizationKey: "",
   frcApiUsernameDraft: "",
   frcApiAuthorizationKeyDraft: "",
+  frcApiCredentialsValidation: { configured: false, valid: false, status: "missing" },
   frcApiCredentialsDirty: false,
   frcApiCredentialsSavePending: false,
   seasonMetadata: {},
   statboticsBaseUrl: initialStatboticsBaseUrl,
-  statboticsBaseUrlDraft: initialStatboticsBaseUrl,
-  statboticsBaseUrlDirty: false,
   importResult: null,
   scoutingWindow: readStoredItem(storageKeys.scoutingWindow) || "all",
   recentMatchCount: Math.max(1, Number(readStoredItem(storageKeys.recentMatchCount) || 12)),
@@ -997,22 +991,6 @@ async function resolveLinkedScoutingSource(schemaSource, attachment) {
   return { ...link, linkPath };
 }
 
-function normalizeStatboticsBaseUrl(value) {
-  return normalizeText(value) || defaultStatboticsBaseUrl;
-}
-
-function setStatboticsBaseUrl(value, options = {}) {
-  state.statboticsBaseUrl = normalizeStatboticsBaseUrl(value);
-  globalThis.__STATBOTICS_BASE_URL = state.statboticsBaseUrl;
-  if (options.save) {
-    if (state.statboticsBaseUrl === defaultStatboticsBaseUrl) {
-      localStorage.removeItem(storageKeys.statboticsBaseUrl);
-    } else {
-      localStorage.setItem(storageKeys.statboticsBaseUrl, state.statboticsBaseUrl);
-    }
-  }
-}
-
 function buildScoutingSourceFingerprint(text) {
   const input = String(text || "");
   let hash = 2166136261;
@@ -1323,29 +1301,9 @@ async function refreshAllDataSources() {
   }
 }
 
-function setDataSourcePollingEnabled(sourceId, pollingEnabled) {
-  if (sourceId === "scouting") {
-    state.eventWorkspace = setEventWorkspaceScoutingAttachmentPollingEnabled(currentEventWorkspace(), pollingEnabled);
-  } else {
-    state.eventWorkspace = setEventWorkspaceExternalSourcePollingEnabled(currentEventWorkspace(), sourceId, pollingEnabled);
-  }
-  saveState();
-  render();
-}
-
-function allDataSourcePollingEnabled() {
-  return currentDataSources().every((source) => source.pollingEnabled !== false);
-}
-
-function setAllDataSourcePollingEnabled(pollingEnabled) {
-  let workspace = currentEventWorkspace();
-  workspace = setEventWorkspaceScoutingAttachmentPollingEnabled(workspace, pollingEnabled);
-  ["tba", "statbotics", "pridge"].forEach((sourceId) => {
-    workspace = setEventWorkspaceExternalSourcePollingEnabled(workspace, sourceId, pollingEnabled);
-  });
-  state.eventWorkspace = workspace;
-  saveState();
-  render();
+async function refreshCurrentExternalSourcesImmediately() {
+  if (currentEvent()?.catalogSource === "dynamic-external") return;
+  await Promise.all(["tba", "statbotics", "pridge"].map((sourceId) => refreshDataSource(sourceId)));
 }
 
 function setCurrentScoutingAttachment(attachmentId) {
@@ -1576,10 +1534,10 @@ async function applyRecentAdminEventSelection(value) {
   const nextEventKey = normalizeText(value);
   if (!nextEventKey) return false;
   state.adminRecentEventsOpen = false;
-  if (sharedCachedEventByKey(nextEventKey) && !globalEventCatalog.some((eventModel) => eventModel?.key === nextEventKey)) {
-    return openSharedCachedEvent(nextEventKey, { activeView: "admin" });
+  if (sharedCachedEventByKey(nextEventKey)) {
+    return openSharedCachedEvent(nextEventKey, { activeView: "adminEventControl", persistShared: true });
   }
-  return switchActiveEvent(nextEventKey, { activeView: "admin" });
+  return switchActiveEvent(nextEventKey, { activeView: "adminEventControl" });
 }
 
 function readCurrentScoutingAttachmentDraftFromDom() {
@@ -1634,10 +1592,15 @@ async function applyAdminEventCodeDraft(value, options = {}) {
     return true;
   }
   state.adminEventCodeDraft = normalizedEventCode;
-  if (globalEventCatalog.some((eventModel) => eventModel?.key === normalizedEventCode)) {
-    return switchActiveEvent(normalizedEventCode, { activeView: "admin" });
+  if (sharedCachedEventByKey(normalizedEventCode)) {
+    return openSharedCachedEvent(normalizedEventCode, { activeView: "adminEventControl", persistShared: true });
   }
-  return loadArbitraryEventCode(normalizedEventCode, { activeView: "admin" });
+  if (globalEventCatalog.some((eventModel) => eventModel?.key === normalizedEventCode)) {
+    const switched = switchActiveEvent(normalizedEventCode, { activeView: "adminEventControl" });
+    if (switched) void refreshCurrentExternalSourcesImmediately();
+    return switched;
+  }
+  return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl" });
 }
 
 async function applyScoutingSourceInputChange(options = {}) {
@@ -1758,12 +1721,22 @@ function restoreTbaAuthKeyDraftIfNeeded() {
   if (input) input.value = visibleTbaAuthKeyValue();
 }
 
-function tbaAuthKeyValidationLabel(validation = state.tbaAuthKeyValidation) {
-  if (validation.status === "checking") return "Checking configured key…";
-  if (validation.status === "valid") return "Configured key is valid.";
-  if (validation.status === "invalid") return "Configured key is invalid.";
-  if (validation.status === "unverified") return "Key is configured, but its validity could not be verified.";
-  return "No TBA auth key is configured.";
+function authFailureMessage(provider, validation) {
+  if (validation?.status === "invalid") return `${provider} authentication failed: credentials are invalid.`;
+  if (validation?.status === "missing") return `${provider} authentication is not configured.`;
+  return "";
+}
+
+function markTbaAuthFailure(error) {
+  if (/The Blue Alliance.*(?:401|403|auth)/i.test(String(error?.message || error))) {
+    state.tbaAuthKeyValidation = { configured: Boolean(state.tbaAuthKey), valid: false, status: "invalid" };
+  }
+}
+
+function markFrcApiAuthFailure(error) {
+  if (/FIRST API.*(?:401|403|auth|invalid)/i.test(String(error?.message || error))) {
+    state.frcApiCredentialsValidation = { configured: true, valid: false, status: "invalid" };
+  }
 }
 
 function clearTbaAuthKeyConfiguration() {
@@ -1843,6 +1816,7 @@ function clearFrcApiCredentials() {
   state.frcApiAuthorizationKey = "";
   state.frcApiUsernameDraft = "";
   state.frcApiAuthorizationKeyDraft = "";
+  state.frcApiCredentialsValidation = { configured: false, valid: false, status: "missing" };
   state.frcApiCredentialsDirty = false;
   state.frcApiCredentialsSavePending = false;
 }
@@ -1850,7 +1824,12 @@ function clearFrcApiCredentials() {
 async function refreshSharedSeasonMetadata() {
   const api = globalThis.firebaseFrcSeasonMetadataApi;
   if (!api || !globalThis.firebaseCurrentUser) return false;
-  const seasons = [...new Set(globalEventCatalog.map((eventModel) => Number(eventModel?.season)).filter(Boolean))];
+  const knownEvents = [
+    ...globalEventCatalog,
+    ...(Array.isArray(state.sharedCachedEvents) ? state.sharedCachedEvents : []),
+    currentEvent(),
+  ];
+  const seasons = [...new Set(knownEvents.map((eventModel) => Number(eventModel?.season)).filter(Boolean))];
   const results = await Promise.all(seasons.map((season) => api.loadSeasonMetadata(season).catch(() => null)));
   const changed = results.some((metadata) => rememberSeasonMetadata(metadata));
   if (changed) renderSafely();
@@ -1860,7 +1839,12 @@ async function refreshSharedSeasonMetadata() {
 function subscribeSharedSeasonMetadata() {
   const api = globalThis.firebaseFrcSeasonMetadataApi;
   if (!api?.subscribeSeasonMetadata || !globalThis.firebaseCurrentUser) return;
-  [...new Set(globalEventCatalog.map((eventModel) => Number(eventModel?.season)).filter(Boolean))].forEach((season) => {
+  const knownEvents = [
+    ...globalEventCatalog,
+    ...(Array.isArray(state.sharedCachedEvents) ? state.sharedCachedEvents : []),
+    currentEvent(),
+  ];
+  [...new Set(knownEvents.map((eventModel) => Number(eventModel?.season)).filter(Boolean))].forEach((season) => {
     if (seasonMetadataUnsubscribers.has(season)) return;
     seasonMetadataUnsubscribers.set(season, api.subscribeSeasonMetadata(season, (metadata) => {
       if (rememberSeasonMetadata(metadata)) renderSafely();
@@ -1884,6 +1868,9 @@ async function refreshFrcApiCredentials() {
     state.frcApiAuthorizationKey = credentials.authorizationKey;
     state.frcApiUsernameDraft = credentials.username;
     state.frcApiAuthorizationKeyDraft = credentials.authorizationKey;
+    state.frcApiCredentialsValidation = credentials.username && credentials.authorizationKey
+      ? { configured: true, valid: null, status: "unverified" }
+      : { configured: false, valid: false, status: "missing" };
     state.frcApiCredentialsDirty = false;
     renderSafely();
     return true;
@@ -1905,6 +1892,7 @@ async function saveFrcApiCredentials() {
   try {
     const draftCredentials = { username: state.frcApiUsernameDraft, authorizationKey: state.frcApiAuthorizationKeyDraft };
     const validation = await api.validateCredentials(draftCredentials, Number(currentEvent()?.season || 2020));
+    state.frcApiCredentialsValidation = validation;
     if (validation.configured && validation.valid !== true) {
       throw new Error(validation.status === "invalid" ? "FIRST API credentials were rejected." : "FIRST API credentials could not be verified.");
     }
@@ -1914,39 +1902,14 @@ async function saveFrcApiCredentials() {
     state.frcApiCredentialsDirty = false;
     state.eventLookupResult = { kind: "success", message: credentials.username && credentials.authorizationKey ? "Saved FIRST API credentials." : "Removed FIRST API credentials." };
   } catch {
+    if (state.frcApiCredentialsValidation.status !== "invalid") {
+      state.frcApiCredentialsValidation = { configured: Boolean(state.frcApiUsernameDraft && state.frcApiAuthorizationKeyDraft), valid: null, status: "unverified" };
+    }
     state.eventLookupResult = { kind: "error", message: "Unable to save FIRST API credentials." };
   } finally {
     state.frcApiCredentialsSavePending = false;
     render();
   }
-  return true;
-}
-
-function updateStatboticsBaseUrlDraft(value) {
-  state.statboticsBaseUrlDraft = normalizeText(value);
-  state.statboticsBaseUrlDirty = true;
-}
-
-function restoreStatboticsBaseUrlDraftIfNeeded() {
-  if (state.statboticsBaseUrlDirty) return;
-  state.statboticsBaseUrlDraft = state.statboticsBaseUrl;
-  const input = document.querySelector("#adminStatboticsBaseUrlInput");
-  if (input) input.value = state.statboticsBaseUrlDraft;
-}
-
-function saveStatboticsBaseUrlDraft() {
-  if (!state.statboticsBaseUrlDirty) return false;
-  setStatboticsBaseUrl(state.statboticsBaseUrlDraft, { save: true });
-  state.statboticsBaseUrlDraft = state.statboticsBaseUrl;
-  state.statboticsBaseUrlDirty = false;
-  state.eventLookupResult = {
-    kind: "success",
-    message: state.statboticsBaseUrl === defaultStatboticsBaseUrl
-      ? `Using the default Statbotics base URL (${defaultStatboticsBaseUrl}).`
-      : `Saved Statbotics base URL ${state.statboticsBaseUrl}.`,
-  };
-  saveState();
-  render();
   return true;
 }
 
@@ -2103,16 +2066,19 @@ function currentDataSources() {
     const sourceState = workspace.sources?.[definition.sourceId] || {};
     const policy = defaultRefreshPolicyForSource({ kind: "external", sourceId: definition.sourceId });
     const dataSourceNote = (event.dataSources || []).find((source) => String(source.name || "").includes(definition.label)) || {};
+    const authFailure = definition.sourceId === "tba"
+      ? authFailureMessage("TBA", state.tbaAuthKeyValidation)
+      : "";
     return {
       sourceId: definition.sourceId,
       name: definition.label,
-      status: visibleStatusForSource(
+      status: authFailure ? "error" : visibleStatusForSource(
         { ...sourceState, status: sourceState.status || dataSourceNote.status || "ready" },
         policy,
         now,
       ),
       freshness: freshnessForSource(sourceState, policy, now),
-      notes: sourceState.error || sourceState.provenance?.notes || dataSourceNote.notes || "",
+      notes: authFailure || sourceState.error || sourceState.provenance?.notes || dataSourceNote.notes || "",
       kind: "external",
       detectedLabel: "",
       nextPollAt: sourceState.nextPollAt ? formatTimeOnly(sourceState.nextPollAt) : "Pending",
@@ -2127,14 +2093,15 @@ function currentDataSources() {
     { label: "Teams", value: importedTeamCount() },
   ].filter((stat) => stat.value > 0);
   const seasonMetadata = state.seasonMetadata[String(event.season)] || null;
+  const firstAuthFailure = authFailureMessage("FIRST API", state.frcApiCredentialsValidation);
   const firstSource = {
     sourceId: "first",
     name: "FIRST",
-    status: seasonMetadata?.gameName ? "ready" : "stale",
+    status: firstAuthFailure ? "error" : seasonMetadata?.gameName ? "ready" : "stale",
     freshness: seasonMetadata?.gameName ? "fresh" : "unknown",
-    notes: seasonMetadata?.gameName
+    notes: firstAuthFailure || (seasonMetadata?.gameName
       ? `Official season title: ${globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel?.(seasonMetadata.gameName) || seasonMetadata.gameName}. Event Data provided by FIRST.`
-      : "Official season title has not been cached yet. It refreshes when an administrator loads a valid event code.",
+      : "Official season title has not been cached yet."),
     kind: "first",
     detectedLabel: "",
     nextPollAt: seasonMetadata?.fetchedAt ? `Updated ${formatTimestamp(seasonMetadata.fetchedAt)}` : "Refresh: event load",
@@ -3858,6 +3825,7 @@ function saveState() {
   localStorage.removeItem(eventStorageKey(storageKeys.seasonDerivedEquations));
   localStorage.removeItem(eventStorageKey(storageKeys.seasonFilters));
   localStorage.setItem(eventStorageKey(storageKeys.eventWorkspace), JSON.stringify(state.eventWorkspace));
+  persistSharedWorkspaceState();
 }
 
 function clearAppStorage() {
@@ -4048,6 +4016,8 @@ function scoutingProfilesForEvent(eventModel = currentEvent()) {
 }
 
 let stopSharedActiveEventSync = null;
+let sharedWorkspacePersistTimer = null;
+let pendingUserSharedActiveEventKey = "";
 
 function sharedCachedEventByKey(eventKey) {
   const normalizedEventKey = normalizeText(eventKey).toLowerCase();
@@ -4177,11 +4147,34 @@ async function loadCachedScoutingData(eventKey, api) {
   try {
     const cached = await api.loadEventSourceCache({ eventKey, sourceId: "scouting-data" });
     const rawText = cached.rawText ?? new TextDecoder().decode(cached.rawBytes);
+    const cachedSchema = await api.loadEventSourceCache({ eventKey, sourceId: "scouting-schema" }).catch(() => null);
+    const cachedLink = await api.loadEventSourceCache({ eventKey, sourceId: "scouting-schema-link" }).catch(() => null);
+    const schemaJsonText = cachedSchema?.rawText ?? (cachedSchema?.rawBytes ? new TextDecoder().decode(cachedSchema.rawBytes) : "");
+    const linkJsonText = cachedLink?.rawText ?? (cachedLink?.rawBytes ? new TextDecoder().decode(cachedLink.rawBytes) : "");
+    const linkedSources = parseSchemaLinkArtifactText(linkJsonText);
+    if (linkedSources && currentScoutingAttachment()) {
+      const attachmentId = currentScoutingAttachment().attachmentId;
+      state.eventWorkspace = {
+        ...currentEventWorkspace(),
+        sources: {
+          ...currentEventWorkspace().sources,
+          scouting: currentEventWorkspace().sources.scouting.map((attachment) => attachment.attachmentId !== attachmentId ? attachment : {
+            ...attachment,
+            location: {
+              ...attachment.location,
+              url: attachment.location?.url || linkedSources.scoutingSource,
+              schemaPath: attachment.location?.schemaPath || linkedSources.schemaSource,
+            },
+          }),
+        },
+      };
+    }
+    state.importSchemaJsonText = schemaJsonText;
     const contentType = normalizeText(cached.manifest?.contentType).toLowerCase();
     if (contentType.includes("json") || /^[\[{]/.test(rawText.trim())) {
-      loadPreparedScoutingJson(rawText, { importDraftSource: "shared-cache" });
+      loadPreparedScoutingJson(rawText, { schemaJsonText, importDraftSource: "shared-cache" });
     } else {
-      loadPreparedScoutingSheet(rawText, eventWorkspaceProfileId(currentEventWorkspace()) || "", { importDraftSource: "shared-cache" });
+      loadPreparedScoutingSheet(rawText, eventWorkspaceProfileId(currentEventWorkspace()) || "", { schemaJsonText, importDraftSource: "shared-cache" });
     }
     return true;
   } catch (error) {
@@ -4198,7 +4191,23 @@ async function openSharedCachedEvent(eventKey, options = {}) {
   state.eventLookupPending = true;
   state.eventLookupResult = { kind: "info", message: `Opening ${cachedEvent.key} from the shared cache...` };
   render();
+  let liveRefreshWarning = "";
   try {
+    if (options.refreshStale !== false && state.tbaAuthKey && cachedEventLoader.cacheFreshness) {
+      try {
+        const cachedTbaEvent = await api.loadEventSourceCache({ eventKey: cachedEvent.key, sourceId: "tba-event" });
+        if (cachedEventLoader.cacheFreshness(cachedTbaEvent?.manifest) === "stale") {
+          const refreshed = await loadArbitraryEventCode(cachedEvent.key, {
+            activeView: options.activeView || state.activeView,
+            allowDuplicate: true,
+          });
+          if (refreshed) return true;
+          liveRefreshWarning = state.eventLookupResult?.message || `Unable to refresh ${cachedEvent.key} from external providers.`;
+        }
+      } catch (error) {
+        liveRefreshWarning = error?.message || `Unable to check the cached ${cachedEvent.key} freshness.`;
+      }
+    }
     const result = await cachedEventLoader.rebuildCachedEvent({
       event: cachedEvent,
       loadSource: (sourceId) => api.loadEventSourceCache({ eventKey: cachedEvent.key, sourceId }),
@@ -4210,12 +4219,16 @@ async function openSharedCachedEvent(eventKey, options = {}) {
       seasonLabel: officialSeasonLabel(cachedEvent.season || result.eventModel.season) || cachedEvent.seasonLabel || result.eventModel.seasonLabel,
       catalogSource: "shared-cache",
     });
-    switchActiveEvent(registeredEvent.key, { activeView: options.activeView || state.activeView, persistShared: false, preserveImportDraft: true });
+    switchActiveEvent(registeredEvent.key, {
+      activeView: options.activeView || state.activeView,
+      persistShared: options.persistShared === true,
+      preserveImportDraft: true,
+    });
     applyLoadedExternalSourceState({ ...result, eventModel: registeredEvent }, { render: false });
     await loadCachedScoutingData(registeredEvent.key, api);
     state.eventLookupResult = {
       kind: result.warnings.length || result.cacheFreshness === "stale" ? "warn" : "success",
-      message: `${registeredEvent.key} opened from the shared Firestore cache (${result.cacheFreshness}).${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`,
+      message: `${registeredEvent.key} opened from the shared Firestore cache (${result.cacheFreshness}).${liveRefreshWarning ? ` Live refresh failed: ${liveRefreshWarning}` : ""}${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`,
     };
     render();
     return true;
@@ -4250,6 +4263,10 @@ function startSharedActiveEventSync() {
   stopSharedActiveEventSync?.();
   stopSharedActiveEventSync = api.subscribeActiveEvent((eventKey) => {
     const sharedEventKey = normalizeText(eventKey);
+    if (globalThis.firebaseUserRole !== "admin") pendingUserSharedActiveEventKey = "";
+    if (pendingUserSharedActiveEventKey) {
+      if (sharedEventKey !== pendingUserSharedActiveEventKey) return;
+    }
     if (!sharedEventKey) {
       persistSharedActiveEvent(state.activeEventKey);
       return;
@@ -4399,8 +4416,8 @@ function hydrateEventState(eventKey) {
   state.activeAnalysisFilterId = normalizeAnalysisFilterSelection(readStoredItem(storageKeys.analysisFilter, resolvedEventKey), eventModel);
   state.teamDetailMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.teamDetailMetric, resolvedEventKey), eventModel);
   state.picklistCompareMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.picklistCompareMetric, resolvedEventKey), eventModel);
-  state.selectedTeam = Number(readStoredItem(storageKeys.selectedTeam, resolvedEventKey)) || eventModel.teams[0].number;
-  state.selectedMatch = Number(readStoredItem(storageKeys.selectedMatch, resolvedEventKey)) || eventModel.matches[0].number;
+  state.selectedTeam = Number(readStoredItem(storageKeys.selectedTeam, resolvedEventKey)) || eventModel.teams[0]?.number || 0;
+  state.selectedMatch = Number(readStoredItem(storageKeys.selectedMatch, resolvedEventKey)) || eventModel.matches[0]?.number || 0;
   state.picklists = normalizePicklists(readStoredJson(storageKeys.picklists, eventModel.seedPicklists, resolvedEventKey), eventModel);
   state.sortEquations = normalizeSortEquations(readStoredJson(storageKeys.sortEquations, eventModel.seedSortEquations, resolvedEventKey), eventModel);
   state.activePicklist = resolvePicklistId(readStoredItem(storageKeys.activePicklist, resolvedEventKey), state.picklists) || state.picklists[0]?.id || "";
@@ -4451,8 +4468,8 @@ function hydrateEventState(eventKey) {
   if (persistedLoadedSources === null && !state.loadedSources.length && state.picklists.length) {
     state.loadedSources = [`picklist:${state.picklists[0].id}`];
   }
-  state.selectedTeam = teamByNumber(state.selectedTeam)?.number || eventModel.teams[0].number;
-  state.selectedMatch = currentMatches().some((match) => match.number === state.selectedMatch) ? state.selectedMatch : eventModel.matches[0].number;
+  state.selectedTeam = teamByNumber(state.selectedTeam)?.number || eventModel.teams[0]?.number || 0;
+  state.selectedMatch = currentMatches().some((match) => match.number === state.selectedMatch) ? state.selectedMatch : eventModel.matches[0]?.number || 0;
   state.contextMenu = null;
   state.inlineRename = null;
   state.picklistSelectedTeam = null;
@@ -4463,6 +4480,7 @@ function hydrateEventState(eventKey) {
   state.recentEventKeys = normalizeRecentEventKeys(state.recentEventKeys, resolvedEventKey);
   if (repairedScoutingSubmissions || repairedWorkspaceFingerprints) saveState();
   if (repairedScoutingSubmissions) persistScoutingSubmissions(resolvedEventKey, state.scoutingSubmissions);
+  void syncSharedWorkspaceForEvent(resolvedEventKey);
   loadPersistedScoutingSubmissions(resolvedEventKey, { render: true });
   recordScoutingPerf("hydrateEventState.total", startedAt, {
     eventKey: resolvedEventKey,
@@ -4502,13 +4520,19 @@ function switchActiveEvent(eventKey, options = {}) {
       state.importDraftSource = "";
     }
     saveState();
-    if (options.persistShared !== false) persistSharedActiveEvent(resolvedEventKey);
+    if (options.persistShared !== false) {
+      pendingUserSharedActiveEventKey = resolvedEventKey;
+      setTimeout(() => {
+        if (pendingUserSharedActiveEventKey === resolvedEventKey) pendingUserSharedActiveEventKey = "";
+      }, 5000);
+      persistSharedActiveEvent(resolvedEventKey);
+    }
     if (options.rerunImportPreview) {
       state.importResult = null;
       runImportPreview();
       return true;
     }
-    renderSafely();
+    if (options.render !== false) renderSafely();
     maybeAutoloadScoutingAttachment();
     recordScoutingPerf("switchActiveEvent.total", startedAt, {
       fromEventKey: previousEventKey,
@@ -4541,6 +4565,7 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     render();
     return false;
   }
+  if (!options.allowDuplicate && state.eventLookupPending && state.adminEventCodeDraft === normalizedEventCode) return false;
   state.eventLookupPending = true;
   state.eventLookupResult = { kind: "info", message: `Loading ${normalizedEventCode} from external providers...` };
   render();
@@ -4553,9 +4578,13 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     await refreshSharedSeasonMetadata();
     subscribeSharedSeasonMetadata();
     switchActiveEvent(registeredEvent.key, {
-      activeView: options.activeView || "admin",
+      activeView: options.activeView || "adminEventControl",
+      render: false,
       preserveImportDraft: true,
     });
+    applyLoadedExternalSourceState(loadResult, { render: true });
+    await refreshSharedSeasonMetadata();
+    subscribeSharedSeasonMetadata();
     let seasonTitleWarning = "";
     const seasonMetadataApi = globalThis.firebaseFrcSeasonMetadataApi;
     if (globalThis.firebaseUserRole === "admin" && state.frcApiUsername && state.frcApiAuthorizationKey && seasonMetadataApi) {
@@ -4564,12 +4593,13 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
           username: state.frcApiUsername,
           authorizationKey: state.frcApiAuthorizationKey,
         });
+        state.frcApiCredentialsValidation = { configured: true, valid: true, status: "valid" };
         rememberSeasonMetadata(metadata);
       } catch (error) {
+        markFrcApiAuthFailure(error);
         seasonTitleWarning = error?.message || "Unable to refresh the official FIRST season title.";
       }
     }
-    applyLoadedExternalSourceState(loadResult, { render: false });
     let sourceCacheWarning = "";
     const sourceCacheApi = globalThis.firebaseEventSourceCacheApi;
     if (globalThis.firebaseUserRole === "admin" && sourceCacheApi && Array.isArray(loadResult.rawSourceArtifacts)) {
@@ -4594,6 +4624,8 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     render();
     return true;
   } catch (error) {
+    markTbaAuthFailure(error);
+    markFrcApiAuthFailure(error);
     state.eventLookupResult = {
       kind: "error",
       message: error?.message || "Unable to load that event code right now.",
@@ -4793,7 +4825,62 @@ function reservedMetricIds() {
 
 function normalizeView(view) {
   if (view === "scoringMatrixBuilder" || view === "sortBuilder" || view === "filterBuilder") return "derivedBuilder";
+  if (view === "admin") return "adminEventControl";
   return appViews.some((item) => item.view === view) ? view : "teams";
+}
+
+async function loadSharedScoutingDataForActiveEvent() {
+  const api = globalThis.firebaseEventSourceCacheApi;
+  if (!api || !globalThis.firebaseCurrentUser || !state.activeEventKey) return false;
+  return loadCachedScoutingData(state.activeEventKey, api);
+}
+
+function sharedWorkspaceStateSnapshot() {
+  return {
+    eventWorkspace: cloneJsonValue(state.eventWorkspace || {}),
+    picklists: cloneJsonValue(state.picklists || []),
+    sortEquations: cloneJsonValue(state.sortEquations || []),
+    activePicklist: state.activePicklist,
+    activeSortEquation: state.activeSortEquation,
+  };
+}
+
+function persistSharedWorkspaceState() {
+  const api = globalThis.firebaseWorkspaceApi;
+  if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin" || !state.activeEventKey || !state.eventWorkspace) return;
+  if (sharedWorkspacePersistTimer) clearTimeout(sharedWorkspacePersistTimer);
+  sharedWorkspacePersistTimer = setTimeout(() => {
+    sharedWorkspacePersistTimer = null;
+    void api.saveEventWorkspaceState(state.activeEventKey, sharedWorkspaceStateSnapshot()).catch((error) => {
+      console.warn(`Unable to save shared workspace state for ${state.activeEventKey}; keeping the local state.`, error);
+    });
+  }, 150);
+}
+
+async function syncSharedWorkspaceForEvent(eventKey = state.activeEventKey) {
+  const api = globalThis.firebaseWorkspaceApi;
+  if (!api || !globalThis.firebaseCurrentUser || !eventKey) return false;
+  try {
+    const shared = await api.loadEventWorkspaceState(eventKey);
+    if (shared) {
+      const eventModel = currentEvent();
+      state.eventWorkspace = createEventWorkspace(eventModel, shared.eventWorkspace || {});
+      state.picklists = normalizePicklists(shared.picklists, eventModel);
+      state.sortEquations = normalizeSortEquations(shared.sortEquations, eventModel);
+      state.activePicklist = resolvePicklistId(shared.activePicklist, state.picklists) || state.picklists[0]?.id || "";
+      state.activeSortEquation = resolveSortEquationId(shared.activeSortEquation, state.sortEquations) || state.sortEquations[0]?.id || "";
+      saveState();
+      renderSafely();
+      return true;
+    }
+    if (globalThis.firebaseUserRole === "admin") {
+      await api.saveEventWorkspaceState(eventKey, sharedWorkspaceStateSnapshot());
+      return true;
+    }
+  } catch (error) {
+    console.warn(`Unable to sync shared workspace state for ${eventKey}; keeping local state.`, error);
+  }
+  return false;
 }
 
 function normalizeBoard(board, eventModel = currentEvent()) {
@@ -4833,7 +4920,7 @@ function isAdmin() {
 }
 
 function canView(view) {
-  return view !== "admin" || isAdmin();
+  return !String(view || "").startsWith("admin") || isAdmin();
 }
 
 function visibleNavItems() {
@@ -6037,7 +6124,7 @@ function commitImportPreview(options = {}) {
 function switchImportContext(eventKey) {
   if (!eventKey) return;
   switchActiveEvent(eventKey, {
-    activeView: "admin",
+    activeView: "adminEventControl",
     preserveImportDraft: true,
     rerunImportPreview: true,
   });
@@ -6168,7 +6255,7 @@ function loadEventSheetSample(options = {}) {
   });
 }
 
-async function cacheActiveRawScoutingSource(rawText, sourceUrl, contentType, rawBytes = null) {
+async function cacheActiveRawScoutingSource(rawText, sourceUrl, contentType, rawBytes = null, options = {}) {
   const api = globalThis.firebaseEventSourceCacheApi;
   if (!api || globalThis.firebaseUserRole !== "admin" || (!rawBytes && !normalizeText(rawText))) return false;
   try {
@@ -6183,7 +6270,21 @@ async function cacheActiveRawScoutingSource(rawText, sourceUrl, contentType, raw
         contentType,
         status: 200,
         fetchedAt: new Date().toISOString(),
-      }],
+      }, ...(normalizeText(options.schemaJsonText) ? [{
+        sourceId: "scouting-schema",
+        rawText: options.schemaJsonText,
+        sourceUrl: options.schemaSource || "",
+        contentType: "application/json",
+        status: 200,
+        fetchedAt: new Date().toISOString(),
+      }] : []), ...(normalizeText(options.schemaLinkText) ? [{
+        sourceId: "scouting-schema-link",
+        rawText: options.schemaLinkText,
+        sourceUrl: options.schemaLinkSource || "",
+        contentType: "application/json",
+        status: 200,
+        fetchedAt: new Date().toISOString(),
+      }] : [])],
     });
     return true;
   } catch (error) {
@@ -6222,7 +6323,15 @@ async function loadScoutingData(options = {}) {
             return { rawText: new TextDecoder().decode(rawBytes), rawBytes, contentType: response.headers.get("content-type") || "application/json" };
           })();
       const schemaJsonText = await readAttachedScoutingSchemaText(attachment, attachmentLoad, sourceUrl);
-      await cacheActiveRawScoutingSource(jsonResponse.rawText, sourceUrl, jsonResponse.contentType, jsonResponse.rawBytes);
+      const schemaLinkText = attachment?.location?.schemaLinkPath
+        ? await readLocalAttachmentTextByPath(attachment.location.schemaLinkPath).catch(() => "")
+        : "";
+      await cacheActiveRawScoutingSource(jsonResponse.rawText, sourceUrl, jsonResponse.contentType, jsonResponse.rawBytes, {
+        schemaJsonText,
+        schemaSource: attachmentLoad.schemaPath || attachmentLoad.schemaUrl,
+        schemaLinkText,
+        schemaLinkSource: attachment?.location?.schemaLinkPath || "",
+      });
       loadPreparedScoutingJson(jsonResponse.rawText, {
         ...options,
         schemaJsonText,
@@ -6239,7 +6348,16 @@ async function loadScoutingData(options = {}) {
     try {
       markCurrentScoutingAttachmentAttempt();
       const csvText = await readLocalAttachmentText(currentScoutingAttachment()?.attachmentId);
-      await cacheActiveRawScoutingSource(csvText, sourceUrl, "text/csv");
+      const schemaJsonText = await readAttachedScoutingSchemaText(attachment, attachmentLoad, sourceUrl).catch(() => "");
+      const schemaLinkText = attachment?.location?.schemaLinkPath
+        ? await readLocalAttachmentTextByPath(attachment.location.schemaLinkPath).catch(() => "")
+        : "";
+      await cacheActiveRawScoutingSource(csvText, sourceUrl, "text/csv", null, {
+        schemaJsonText,
+        schemaSource: attachmentLoad.schemaPath || attachmentLoad.schemaUrl,
+        schemaLinkText,
+        schemaLinkSource: attachment?.location?.schemaLinkPath || "",
+      });
       const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
       loadPreparedScoutingSheet(csvText, profileId, {
         ...options,
@@ -6567,7 +6685,6 @@ function render() {
   app.innerHTML = `
     ${renderDeploymentBanner()}
     <div class="app-shell ${state.menuExpanded ? "menu-expanded" : "menu-collapsed"}">
-      ${renderDeploymentBanner()}
       <aside class="sidebar">
         <div class="brand-row">
           <div>
@@ -6620,7 +6737,7 @@ function renderNoEventLoaded() {
       <section class="login-panel">
         <div class="brand-row">
           <div>
-            <p class="eyebrow">FRC Event Strategy</p>
+            <p class="eyebrow">Bovine Scouting Analysis</p>
             <h1>No event loaded</h1>
           </div>
           ${renderThemeToggle()}
@@ -6676,6 +6793,7 @@ function renderSafely() {
 }
 
 function renderLogin() {
+  const localFirebase = globalThis.firebaseAuthApi?.isEmulator;
   app.innerHTML = `
     ${renderDeploymentBanner()}
     <main class="login-shell">
@@ -6687,7 +6805,13 @@ function renderLogin() {
           ${renderThemeToggle()}
         </div>
         <div class="login-actions">
-          <button class="primary" id="firebaseLoginButton" type="button">Sign in with Google</button>
+          ${localFirebase ? `
+            <label for="firebaseEmailInput">Local admin email</label>
+            <input id="firebaseEmailInput" type="email" value="admin@example.test" autocomplete="username">
+            <label for="firebasePasswordInput">Local admin password</label>
+            <input id="firebasePasswordInput" type="password" value="local-admin-password" autocomplete="current-password">
+            <button class="primary" id="firebaseLoginButton" type="button">Sign in to Firebase Emulator</button>
+          ` : '<button class="primary" id="firebaseLoginButton" type="button">Sign in with Google</button>'}
           <p class="muted" id="firebaseAuthStatus" role="status"></p>
         </div>
       </section>
@@ -6704,12 +6828,15 @@ function renderLogin() {
       return;
     }
     button.disabled = true;
-    if (status) status.textContent = "Opening Google sign-in…";
+    if (status) status.textContent = localFirebase ? "Signing in to the local emulator…" : "Opening Google sign-in…";
     try {
-      await authApi.signIn();
+      await authApi.signIn(localFirebase ? {
+        email: document.querySelector("#firebaseEmailInput")?.value,
+        password: document.querySelector("#firebasePasswordInput")?.value,
+      } : undefined);
     } catch (error) {
       console.error("Firebase sign-in failed", error);
-      if (status) status.textContent = error?.message || "Unable to sign in with Google.";
+      if (status) status.textContent = error?.message || (localFirebase ? "Unable to sign in to the Firebase Emulator." : "Unable to sign in with Google.");
       button.disabled = false;
     }
   });
@@ -6750,6 +6877,7 @@ function icon(name) {
     schedule: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/>',
     matchup: '<path d="M7 7h10"/><path d="M7 17h10"/><path d="M9 7a3 3 0 1 1 0 6"/><path d="M15 17a3 3 0 1 1 0-6"/>',
     quality: '<path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5"/><path d="M12 17h.01"/>',
+    debug: '<path d="M9 3h6l1 3h3v6a6 6 0 0 1-12 0V6h3l1-3Z"/><path d="M9 12h.01M15 12h.01M10 16h4"/>',
     picklists: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
     sortEquation:
       '<text x="12" y="17" text-anchor="middle" font-size="18" font-weight="700" fill="currentColor" stroke="none">&#931;</text>',
@@ -6781,7 +6909,9 @@ function viewTitle(view) {
     quality: "Data Quality",
     picklistBuilder: "Picklist Builder",
     alliance: "Alliance Selection",
-    admin: "Admin",
+    adminEventControl: "Admin Event Control",
+    adminDataQuality: "Admin Data Quality",
+    adminUserControl: "Admin User Control",
   }[view];
 }
 
@@ -6844,7 +6974,9 @@ function renderView() {
     quality: renderQuality,
     picklistBuilder: renderPicklistBuilder,
     alliance: renderAlliance,
-    admin: renderAdmin,
+    adminEventControl: renderAdminEventControl,
+    adminDataQuality: renderAdminDataQuality,
+    adminUserControl: renderAdminUserControl,
   }[state.activeView]();
 }
 
@@ -7766,30 +7898,8 @@ function renderAllianceCard(title, teamNumbers) {
 
 function renderQuality() {
   const flagged = currentTeams().filter((team) => team.flags.some((flag) => ["data_suspect", "broken", "declining", "inconsistent"].includes(flag.type)));
-  const groups = flaggedSubmissionGroups();
   return `
     <div class="grid">
-      ${
-        isAdmin()
-          ? `
-        <article class="card">
-          <div class="section-heading">
-            <div>
-              <h2>Submission Review</h2>
-              <p class="muted">Review duplicate and flagged scouting rows, then keep, exclude, or clear them manually.</p>
-            </div>
-          </div>
-          <div class="review-group-list">
-            ${
-              groups.length
-                ? groups.map(renderSubmissionGroup).join("")
-                : `<div class="empty-state">No flagged or duplicate scouting submissions need review right now.</div>`
-            }
-          </div>
-        </article>
-      `
-          : ""
-      }
       <article class="card">
         <div class="section-heading">
           <div>
@@ -8580,11 +8690,11 @@ function renderRawSourceCacheViewer() {
       <label>Source Artifact<select id="rawSourceCacheSourceSelect" aria-label="Cached source artifact" ${!state.rawSourceCacheEventKey || state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a source artifact</option>${state.rawSourceCacheSources.map((source) => `<option value="${escapeAttribute(source.sourceId)}" ${source.sourceId === state.rawSourceCacheSourceId ? "selected" : ""}>${escapeHtml(source.sourceId)}</option>`).join("")}</select></label>
       ${state.rawSourceCacheStatus ? `<div class="issue-row ${artifact ? "" : state.rawSourceCacheSourceId ? "danger" : ""}">${escapeHtml(state.rawSourceCacheStatus)}</div>` : ""}
       ${metadata.length ? `<div class="attachment-metadata-grid">${metadata.map(([label, value]) => `<div><strong>${escapeHtml(label)}</strong><span class="muted">${escapeHtml(String(value))}</span></div>`).join("")}</div>` : ""}
-      ${artifact ? `<div class="admin-actions"><button type="button" id="copyRawSourceCacheButton">Copy Raw</button><button type="button" id="downloadRawSourceCacheButton">Download Raw</button></div><label>Readable Preview<textarea id="rawSourceCachePreview" class="admin-textarea" readonly spellcheck="false">${escapeHtml(rawSourceDisplayText(artifact))}</textarea></label>` : ""}
+      ${artifact ? `<div class="admin-actions"><button type="button" id="copyRawSourceCacheButton">Copy Raw</button><button type="button" id="downloadRawSourceCacheButton">Download Raw</button></div><textarea id="rawSourceCachePreview" class="admin-textarea raw-source-cache-preview" aria-label="Raw source preview" readonly spellcheck="false">${escapeHtml(rawSourceDisplayText(artifact))}</textarea>` : ""}
     </div>
   </article>`;
 }
-function renderAdmin() {
+function renderAdminEventControl() {
   const event = currentEvent();
   const workspace = currentEventWorkspace();
   const activeAttachment = currentScoutingAttachment();
@@ -8596,9 +8706,17 @@ function renderAdmin() {
     .sort((left, right) => String(left || "").localeCompare(String(right || ""), undefined, { numeric: true, sensitivity: "base" }));
   const mismatchMessage = currentScoutingMismatchMessage(result);
   const sourceStatusIssues = issues.filter((issue) => issue !== mismatchMessage);
-  const allPollingEnabled = allDataSourcePollingEnabled();
+  const diagnosticsState = currentScoutingDiagnosticsState();
+  const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
+  const diagnosticsNonEmpty = schemaDiffHasChanges(diagnosticsSelection.diagnostics?.schemaDiff);
+  const reviewNonEmpty = reviewGroups.length > 0;
   return `
     <div class="grid">
+      ${(diagnosticsNonEmpty || reviewNonEmpty) ? `<div class="admin-quality-banner" role="status">
+        <strong>Admin data quality needs attention.</strong>
+        <span>${diagnosticsNonEmpty ? "Schema diagnostics are non-empty." : ""}${diagnosticsNonEmpty && reviewNonEmpty ? " " : ""}${reviewNonEmpty ? `${reviewGroups.length} duplicate or flagged review group${reviewGroups.length === 1 ? "" : "s"} pending.` : ""}</span>
+        <button type="button" class="link-button" data-view="adminDataQuality">Open Admin Data Quality</button>
+      </div>` : ""}
       <div class="grid cols-2">
         <article class="card">
           <div class="section-heading">
@@ -8692,38 +8810,25 @@ function renderAdmin() {
                 />
                 <button type="button" id="saveTbaAuthKeyButton" ${state.tbaAuthKeyDirty && !state.tbaAuthKeySavePending ? "" : "disabled"}>${state.tbaAuthKeySavePending ? "Saving…" : "Save"}</button>
                 </div>
-                <span class="muted" id="tbaAuthKeyValidationStatus">${escapeHtml(tbaAuthKeyValidationLabel())}</span>
               </label>
-              <label>
-                FIRST API Username
-                <input id="adminFrcApiUsernameInput" class="admin-input" type="text" value="${escapeAttribute(state.frcApiUsernameDraft)}" placeholder="FRC Events API username" aria-label="FIRST API username" autocomplete="off" autocapitalize="off" spellcheck="false" />
-              </label>
-              <label>
-                FIRST API Token
-                <div class="admin-actions admin-field-row">
+              <div class="admin-credentials-row">
+                <label>
+                  FIRST API Username
+                  <input id="adminFrcApiUsernameInput" class="admin-input" type="text" value="${escapeAttribute(state.frcApiUsernameDraft)}" placeholder="FRC Events API username" aria-label="FIRST API username" autocomplete="off" autocapitalize="off" spellcheck="false" />
+                </label>
+                <label>
+                  FIRST API Token
                   <input id="adminFrcApiAuthorizationKeyInput" class="admin-input" type="password" value="${escapeAttribute(state.frcApiAuthorizationKeyDraft)}" placeholder="FRC Events API token" aria-label="FIRST API token" autocomplete="off" autocapitalize="off" spellcheck="false" />
-                  <button type="button" id="saveFrcApiCredentialsButton" ${state.frcApiCredentialsDirty && !state.frcApiCredentialsSavePending ? "" : "disabled"}>${state.frcApiCredentialsSavePending ? "Saving…" : "Save"}</button>
-                </div>
-                <span class="muted">The official game title refreshes automatically when you load a valid event code.</span>
-              </label>
-            <label>
-              Statbotics Base URL
-              <div class="admin-actions admin-field-row">
-                <input
-                  id="adminStatboticsBaseUrlInput"
-                  class="admin-input"
-                  type="text"
-                  value="${escapeAttribute(state.statboticsBaseUrlDraft)}"
-                  placeholder="${escapeAttribute(defaultStatboticsBaseUrl)}"
-                  aria-label="Statbotics base URL"
-                  autocomplete="off"
-                  autocapitalize="off"
-                  spellcheck="false"
-                />
-                <button type="button" id="saveStatboticsBaseUrlButton" ${state.statboticsBaseUrlDirty ? "" : "disabled"}>Save</button>
+                </label>
+                <button type="button" id="saveFrcApiCredentialsButton" ${state.frcApiCredentialsDirty && !state.frcApiCredentialsSavePending ? "" : "disabled"}>${state.frcApiCredentialsSavePending ? "Saving…" : "Save"}</button>
               </div>
-              <span class="muted">Using a temporary default mirror right now. The original official Statbotics API is <code>https://api.statbotics.io/v3</code>.</span>
-            </label>
+            <div>
+              <div class="field-label">Statbotics API Sources</div>
+              <ul class="source-list">
+                <li><span class="muted">Primary</span> <a href="https://api.statbotics.io/v3" target="_blank" rel="noopener noreferrer"><code>https://api.statbotics.io/v3</code></a></li>
+                <li><span class="muted">Secondary</span> <a href="https://api-statbotics.iterativerefinement.com/v3" target="_blank" rel="noopener noreferrer"><code>https://api-statbotics.iterativerefinement.com/v3</code></a></li>
+              </ul>
+            </div>
             <div class="admin-actions">
               <button type="button" id="clearCurrentEventScoutingDataButton">Clear Saved Scouting Data</button>
             </div>
@@ -8736,7 +8841,6 @@ function renderAdmin() {
             </div>
             <div class="admin-actions">
               <button type="button" id="refreshAllSourcesButton">Refresh Sources</button>
-              <button type="button" id="toggleAllSourcePollingButton">${allPollingEnabled ? "Pause Polling" : "Resume Polling"}</button>
             </div>
           </div>
           <div class="data-source-list">
@@ -8773,28 +8877,6 @@ function renderAdmin() {
       ${renderRawSourceCacheViewer()}
       <div class="grid cols-2">
         <article class="card">
-          <h2>Schema Diagnostics</h2>
-          ${(() => {
-            const diagnosticsState = currentScoutingDiagnosticsState();
-            const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
-            const activeDiagnostics = diagnosticsSelection.diagnostics;
-            const reconciliationModel = currentScoutingSchemaReconciliationModel();
-            return `
-              ${reconciliationModel ? renderSchemaReconciliationCards(reconciliationModel) : renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
-              ${
-                reconciliationModel
-                  ? `<div class="button-row">
-                      <button type="button" id="updateCurrentSchemaFromDiagnosticsButton"${reconciliationModel.readyToPersist ? "" : " disabled"}>Update Current Schema</button>
-                      <button type="button" id="saveNewSchemaFromDiagnosticsButton"${reconciliationModel.readyToPersist ? "" : " disabled"}>Save New Schema As...</button>
-                    </div>`
-                  : ""
-              }
-              <h3>Downstream Impact</h3>
-              ${renderDependencyImpactSummary(reconciliationModel ? reconciliationModel.resolvedDiagnostics?.diagnostics : activeDiagnostics?.diagnostics)}
-            `;
-          })()}
-        </article>
-        <article class="card">
           <div class="section-heading">
             <div>
               <h2>Activity Log</h2>
@@ -8818,28 +8900,42 @@ function renderAdmin() {
             }
           </div>
         </article>
+        ${renderRawSourceCacheViewer()}
       </div>
-      ${renderAccessManagement()}
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Duplicate Review</h2>
-            <p class="muted">Flagged scouting rows stay in the system until an admin keeps, excludes, resets, or clears them.</p>
-          </div>
-          <div class="flag-list">
-            <span class="flag ${reviewGroups.length ? "warn" : "good"}">${reviewGroups.length} group${reviewGroups.length === 1 ? "" : "s"} pending</span>
-          </div>
-        </div>
-        <div class="review-group-list">
-          ${
-            reviewGroups.length
-              ? reviewGroups.map(renderSubmissionGroup).join("")
-              : `<div class="empty-state">No duplicate or flagged submissions are waiting for admin action.</div>`
-          }
-        </div>
-      </article>
     </div>
   `;
+}
+
+function renderAdminDataQuality() {
+  const diagnosticsState = currentScoutingDiagnosticsState();
+  const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
+  const activeDiagnostics = diagnosticsSelection.diagnostics;
+  const reconciliationModel = currentScoutingSchemaReconciliationModel();
+  const reviewGroups = flaggedSubmissionGroups();
+  return `<div class="grid cols-2">
+    <article class="card">
+      <h2>Schema Diagnostics</h2>
+      ${reconciliationModel ? renderSchemaReconciliationCards(reconciliationModel) : renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
+      ${reconciliationModel ? `<div class="button-row">
+        <button type="button" id="updateCurrentSchemaFromDiagnosticsButton"${reconciliationModel.readyToPersist ? "" : " disabled"}>Update Current Schema</button>
+        <button type="button" id="saveNewSchemaFromDiagnosticsButton"${reconciliationModel.readyToPersist ? "" : " disabled"}>Save New Schema As...</button>
+      </div>` : ""}
+      <h3>Downstream Impact</h3>
+      ${renderDependencyImpactSummary(reconciliationModel ? reconciliationModel.resolvedDiagnostics?.diagnostics : activeDiagnostics?.diagnostics)}
+    </article>
+    <article class="card">
+      <div class="section-heading">
+        <div><h2>Duplicate Review</h2><p class="muted">Flagged scouting rows stay in the system until an admin keeps, excludes, resets, or clears them.</p></div>
+        <div class="flag-list"><span class="flag ${reviewGroups.length ? "warn" : "good"}">${reviewGroups.length} group${reviewGroups.length === 1 ? "" : "s"} pending</span></div>
+      </div>
+      <div class="review-group-list">${reviewGroups.length ? reviewGroups.map(renderSubmissionGroup).join("") : `<div class="empty-state">No duplicate or flagged submissions are waiting for admin action.</div>`}</div>
+    </article>
+  </div>`;
+}
+
+function renderAdminUserControl() {
+  if (!isAdmin()) return "";
+  return `<div class="grid">${renderAccessManagement()}</div>`;
 }
 
 function renderFlags(flags) {
@@ -9767,16 +9863,6 @@ function bindViewEvents() {
   document.querySelector("#saveFrcApiCredentialsButton")?.addEventListener("click", async () => {
     await saveFrcApiCredentials();
   });
-  document.querySelector("#adminStatboticsBaseUrlInput")?.addEventListener("input", (event) => {
-    updateStatboticsBaseUrlDraft(event.target.value);
-    document.querySelector("#saveStatboticsBaseUrlButton")?.removeAttribute("disabled");
-  });
-  document.querySelector("#adminStatboticsBaseUrlInput")?.addEventListener("blur", () => {
-    restoreStatboticsBaseUrlDraftIfNeeded();
-  });
-  document.querySelector("#saveStatboticsBaseUrlButton")?.addEventListener("click", () => {
-    saveStatboticsBaseUrlDraft();
-  });
   document.querySelector("#chooseLocalScoutingFileButton")?.addEventListener("click", async () => {
     await chooseLocalScoutingAttachmentFile();
   });
@@ -9865,9 +9951,6 @@ function bindViewEvents() {
   });
   document.querySelector("#refreshAllSourcesButton")?.addEventListener("click", async () => {
     await refreshAllDataSources();
-  });
-  document.querySelector("#toggleAllSourcePollingButton")?.addEventListener("click", () => {
-    setAllDataSourcePollingEnabled(!allDataSourcePollingEnabled());
   });
   document.querySelector("#clearAllianceBoardButton")?.addEventListener("click", clearAllianceBoard);
   document.querySelectorAll("[data-team], [data-team-link]").forEach((element) => {
@@ -10463,6 +10546,8 @@ if (typeof globalThis.addEventListener === "function") {
     render();
     if (user) {
       void refreshSharedCachedEventCatalog({ render: false }).then(async () => {
+        await refreshSharedSeasonMetadata();
+        subscribeSharedSeasonMetadata();
         await restoreSharedCachedActiveEvent();
         startSharedActiveEventSync();
         render();
@@ -10475,6 +10560,8 @@ if (typeof globalThis.addEventListener === "function") {
       subscribeSharedSeasonMetadata();
       void syncSharedProfilesForEvent(state.activeEventKey);
       void syncSharedSubmissionsForEvent(state.activeEventKey);
+      void syncSharedWorkspaceForEvent(state.activeEventKey);
+      void loadSharedScoutingDataForActiveEvent();
     } else {
       clearTbaAuthKeyConfiguration();
       clearFrcApiCredentials();

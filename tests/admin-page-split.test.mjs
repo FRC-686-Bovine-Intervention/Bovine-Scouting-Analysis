@@ -1,0 +1,50 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+
+const source = fs.readFileSync("src/app.js", "utf8");
+
+function sectionBetween(startMarker, endMarker) {
+  const start = source.indexOf(startMarker);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  assert.notEqual(start, -1, `missing ${startMarker}`);
+  assert.notEqual(end, -1, `missing ${endMarker}`);
+  return source.slice(start, end);
+}
+
+const quality = sectionBetween("function renderQuality()", "function renderSortBuilder()");
+const eventControl = sectionBetween("function renderAdminEventControl()", "function renderAdminDataQuality()");
+const eventCodeHandler = sectionBetween("async function applyAdminEventCodeDraft", "async function applyScoutingSourceInputChange");
+const dataQuality = sectionBetween("function renderAdminDataQuality()", "function renderAdminUserControl()");
+const userControl = sectionBetween("function renderAdminUserControl()", "function renderFlags(flags)");
+
+assert.match(source, /view: "adminEventControl", label: "Admin Event Control"/);
+assert.match(source, /view: "adminDataQuality", label: "Admin Data Quality"/);
+assert.match(source, /view: "adminUserControl", label: "Admin User Control", icon: "debug"/);
+assert.match(source, /if \(view === "admin"\) return "adminEventControl"/);
+assert.doesNotMatch(quality, /renderSubmissionGroup\(group\)/);
+assert.match(eventControl, /Event Imports/);
+assert.match(eventControl, /Source Status/);
+assert.match(eventControl, /Statbotics API Sources/);
+assert.match(eventControl, /Primary/);
+assert.match(eventControl, /Secondary/);
+assert.match(eventControl, /admin-credentials-row/);
+assert.doesNotMatch(eventControl, /tbaAuthKeyValidationStatus/);
+assert.doesNotMatch(eventControl, /official game title refreshes automatically/);
+assert.doesNotMatch(eventControl, /adminStatboticsBaseUrlInput/);
+assert.doesNotMatch(eventControl, /saveStatboticsBaseUrlButton/);
+assert.doesNotMatch(eventControl, /toggleAllSourcePollingButton|Pause Polling|Resume Polling/);
+assert.match(eventCodeHandler, /refreshCurrentExternalSourcesImmediately/);
+assert.match(source, /authFailureMessage\("TBA"/);
+assert.match(source, /authFailureMessage\("FIRST API"/);
+assert.match(eventControl, /Activity Log/);
+assert.match(eventControl, /renderRawSourceCacheViewer\(\)/);
+assert.match(eventControl, /data-view="adminDataQuality"/);
+assert.match(dataQuality, /return `<div class="grid cols-2">/);
+assert.match(dataQuality, /Schema Diagnostics/);
+assert.match(dataQuality, /Duplicate Review/);
+assert.doesNotMatch(userControl, /renderRawSourceCacheViewer\(\)/);
+assert.match(source, /raw-source-cache-preview/);
+assert.doesNotMatch(source, /Readable Preview/);
+assert.match(userControl, /renderAccessManagement\(\)/);
+
+console.log("PASS admin page split keeps quality review separate and exposes the three admin controls");

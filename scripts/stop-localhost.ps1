@@ -1,7 +1,8 @@
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$pidFile = Join-Path $repoRoot ".localhost-server.pid"
+$pidFile = Join-Path $repoRoot ".localhost-server.4173.pid"
+$emulatorPidFile = Join-Path $repoRoot ".firebase-emulators.pid"
 
 if (-not (Test-Path -LiteralPath $pidFile)) {
   Write-Output "No localhost server PID file found."
@@ -24,3 +25,9 @@ if ($process) {
 }
 
 Remove-Item -LiteralPath $pidFile -ErrorAction SilentlyContinue
+
+if (Test-Path -LiteralPath $emulatorPidFile) {
+  $emulatorPid = Get-Content -LiteralPath $emulatorPidFile -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($emulatorPid -and (Get-Process -Id ([int]$emulatorPid) -ErrorAction SilentlyContinue)) { Stop-Process -Id ([int]$emulatorPid) }
+  Remove-Item -LiteralPath $emulatorPidFile -ErrorAction SilentlyContinue
+}

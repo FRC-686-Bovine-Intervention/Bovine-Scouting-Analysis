@@ -37,19 +37,8 @@ const defaultMetricDiscoveryBlacklist = Object.freeze({
     "scoreBreakdown.rp",
   ]),
   statbotics: Object.freeze([
-    "country",
-    "district",
-    "event",
     "event_name",
-    "first_event",
-    "state",
-    "status",
-    "team",
     "team_name",
-    "time",
-    "type",
-    "week",
-    "year",
   ]),
 });
 

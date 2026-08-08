@@ -1,5 +1,5 @@
 import "./firebase-config.js";
-import { onAuthStateChanged, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-auth.js";
+import { onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-auth.js";
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-firestore.js";
 
 const services = globalThis.firebaseServices;
@@ -7,7 +7,8 @@ if (!services?.auth || !services?.googleProvider) throw new Error("Firebase serv
 const { auth, googleProvider } = services;
 
 globalThis.firebaseAuthApi = {
-  signIn: () => signInWithPopup(auth, googleProvider),
+  isEmulator: services.environment?.mode === "emulator",
+  signIn: ({ email, password } = {}) => services.environment?.mode === "emulator" ? signInWithEmailAndPassword(auth, String(email || ""), String(password || "")) : signInWithPopup(auth, googleProvider),
   signOut: () => signOut(auth),
   getCurrentUser: () => auth.currentUser,
 };

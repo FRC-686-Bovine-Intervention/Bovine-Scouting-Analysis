@@ -54,6 +54,12 @@ body {
     sans-serif;
 }
 
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
 button,
 input,
 select {
@@ -151,7 +157,8 @@ select {
 }
 
 .login-shell {
-  min-height: 100vh;
+  min-height: 0;
+  flex: 1;
   display: grid;
   place-items: center;
   padding: 24px;
@@ -220,7 +227,8 @@ select {
 }
 
 .app-shell {
-  min-height: 100vh;
+  min-height: 0;
+  flex: 1;
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
 }
@@ -232,7 +240,7 @@ select {
 .sidebar {
   position: sticky;
   top: 0;
-  height: 100vh;
+  height: 100%;
   border-right: 1px solid var(--line);
   background: var(--panel);
   padding: 18px;
@@ -330,6 +338,24 @@ select {
   background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--accent-strong);
+}
+
+.admin-quality-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #d9a441;
+  border-radius: 8px;
+  background: #fff7d6;
+  color: #6f4d00;
+}
+
+.admin-quality-banner .link-button {
+  margin-left: auto;
+  color: inherit;
+  text-decoration: underline;
 }
 
 .main {
@@ -435,6 +461,13 @@ select {
   min-width: 0;
 }
 
+.admin-credentials-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
 .checkbox-row {
   display: flex;
   align-items: center;
@@ -490,6 +523,23 @@ select {
   font-family:
     "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
     line-height: 1.45;
+}
+
+.raw-source-cache-viewer {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.raw-source-cache-viewer .admin-form-grid {
+  min-height: 0;
+  flex: 1;
+}
+
+.raw-source-cache-preview {
+  width: 100%;
+  min-height: 360px;
+  resize: vertical;
 }
 
 .preview-stat-grid {
@@ -1803,6 +1853,15 @@ button.pill {
   box-shadow: var(--shadow);
 }
 
+.formula-function-menu::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: max(100%, 320px);
+  height: 6px;
+}
+
 .formula-function-menu:hover .formula-function-popover,
 .formula-function-menu:focus-within .formula-function-popover {
   display: grid;
@@ -2072,6 +2131,10 @@ button.pill {
   }
 
   .data-source-row {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-credentials-row {
     grid-template-columns: 1fr;
   }
 
