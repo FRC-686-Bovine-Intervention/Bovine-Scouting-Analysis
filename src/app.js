@@ -4558,14 +4558,14 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
       statboticsBaseUrl: state.statboticsBaseUrl,
     });
     const registeredEvent = registerEventModel(loadResult.eventModel);
-    await refreshSharedSeasonMetadata();
-    subscribeSharedSeasonMetadata();
     switchActiveEvent(registeredEvent.key, {
       activeView: options.activeView || "adminEventControl",
       render: false,
       preserveImportDraft: true,
     });
     applyLoadedExternalSourceState(loadResult, { render: true });
+    await refreshSharedSeasonMetadata();
+    subscribeSharedSeasonMetadata();
     let seasonTitleWarning = "";
     const seasonMetadataApi = globalThis.firebaseFrcSeasonMetadataApi;
     if (globalThis.firebaseUserRole === "admin" && state.frcApiUsername && state.frcApiAuthorizationKey && seasonMetadataApi) {
