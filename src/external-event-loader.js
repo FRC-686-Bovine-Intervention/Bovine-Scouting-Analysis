@@ -48,13 +48,13 @@ function resolveStatboticsBaseUrl(options = {}) {
   return normalizeText(options.statboticsBaseUrl)
     || normalizeText(globalThis.__STATBOTICS_BASE_URL)
     || normalizeText(globalThis.STATBOTICS_BASE_URL)
-    || "https://www.statbotics.io/api/v3";
+    || "https://api.statbotics.io/v3";
 }
 
 function resolveStatboticsFallbackBaseUrl(options = {}) {
   return normalizeText(options.statboticsFallbackBaseUrl)
     || normalizeText(globalThis.__STATBOTICS_FALLBACK_BASE_URL)
-    || "https://statbotics.iterativerefinement.com/v3";
+    || "https://api.statbotics.io/v3";
 }
 
 function formatProviderError(provider, error) {

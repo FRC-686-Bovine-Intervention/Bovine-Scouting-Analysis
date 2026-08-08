@@ -61,7 +61,7 @@ async function main() {
 await runTest("loadEventByCode builds an event model and ready provider states from live payloads", async () => {
   const baseUrls = {
     tba: "https://tba.test/api",
-    statbotics: "https://www.statbotics.io/api/v3",
+    statbotics: "https://api.statbotics.io/v3",
   };
   const context = loadBrowserContext([
     "src/legacy-scouting-schema-seeds.js",
@@ -204,7 +204,7 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.sourceStates.tba.status, "ready");
   assert.equal(result.sourceStates.tba.lastSuccessfulAt, "2026-07-12T13:00:00Z");
   assert.equal(result.sourceStates.statbotics.status, "ready");
-  assert.match(result.sourceStates.statbotics.provenance.notes, /primary Statbotics site https:\/\/www\.statbotics\.io\/api\/v3/i);
+  assert.match(result.sourceStates.statbotics.provenance.notes, /primary Statbotics site https:\/\/api\.statbotics\.io\/v3/i);
   assert.equal(result.sourceStates.pridge.status, "ready");
   assert.equal(result.sourceStates.pridge.provenance.mode, "native-compute");
   assert.equal(result.sourceStates.pridge.provenance.eventKey, "2026test");

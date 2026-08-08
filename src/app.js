@@ -271,7 +271,7 @@ const defaultColumnSortDirection = "desc";
 const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
 const maskedTbaAuthKeyValue = "............";
 const firstSeasonAttributionUrl = "https://frc-events.firstinspires.org/services/api";
-const defaultStatboticsBaseUrl = "https://www.statbotics.io/api/v3";
+const defaultStatboticsBaseUrl = "https://api.statbotics.io/v3";
 
 function readBootstrapStoredJson(key, fallback) {
   try {
@@ -337,10 +337,10 @@ try {
 } catch {
   // Storage can be unavailable in private or restricted browser contexts.
 }
-const initialStatboticsBaseUrl =
+const initialStatboticsBaseUrl = normalizeStatboticsBaseUrl(
   readStoredItem(storageKeys.statboticsBaseUrl)
-  || normalizeText(globalThis.__STATBOTICS_BASE_URL || globalThis.STATBOTICS_BASE_URL)
-  || defaultStatboticsBaseUrl;
+  || normalizeText(globalThis.__STATBOTICS_BASE_URL || globalThis.STATBOTICS_BASE_URL),
+);
 const initialLegacyDerivedEquationCatalog = normalizeSeasonDerivedEquationCatalog(
   readStoredJson(storageKeys.seasonDerivedEquations, {}),
 );
@@ -1000,7 +1000,11 @@ async function resolveLinkedScoutingSource(schemaSource, attachment) {
 }
 
 function normalizeStatboticsBaseUrl(value) {
-  return normalizeText(value) || defaultStatboticsBaseUrl;
+  const normalized = normalizeText(value).replace(/\/$/, "");
+  if (!normalized || normalized === "https://www.statbotics.io/api/v3" || normalized === "https://statbotics.iterativerefinement.com/v3") {
+    return defaultStatboticsBaseUrl;
+  }
+  return normalized;
 }
 
 function setStatboticsBaseUrl(value, options = {}) {
@@ -8847,7 +8851,7 @@ function renderAdminEventControl() {
                 />
                 <button type="button" id="saveStatboticsBaseUrlButton" ${state.statboticsBaseUrlDirty ? "" : "disabled"}>Save</button>
               </div>
-              <span class="muted">Uses the official Statbotics site first, with <code>https://statbotics.iterativerefinement.com/v3</code> as a fallback if the primary site fails.</span>
+              <span class="muted">Uses the Statbotics API at <code>https://api.statbotics.io/v3</code>. Team-event data automatically uses the query-form endpoint when the legacy route is unavailable.</span>
             </label>
             <div class="admin-actions">
               <button type="button" id="clearCurrentEventScoutingDataButton">Clear Saved Scouting Data</button>
