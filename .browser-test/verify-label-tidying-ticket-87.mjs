@@ -50,6 +50,19 @@ try {
   assert.equal(initialUi.eyebrow, "2022 Rapid React");
   assert.equal(initialUi.title, "FIRST Chesapeake District Championship");
   assert.equal(initialUi.eventKey, "2022chcmp");
+  const cachedSeasonHeading = await page.evaluate(async () => {
+    const cachedEvent = globalThis.eventCatalog[0];
+    globalThis.__scoutingAppState.sharedCachedEvents = [cachedEvent];
+    globalThis.firebaseEventSourceCacheApi = {
+      loadEventSourceCache: async () => { throw new Error("No cached source is available for this event."); },
+    };
+    globalThis.CachedEventLoader = {
+      rebuildCachedEvent: async () => ({ eventModel: { ...cachedEvent, seasonLabel: "" }, sourceStates: {}, warnings: [], cacheFreshness: "fresh" }),
+    };
+    await globalThis.openSharedCachedEvent("2022chcmp");
+    return document.querySelector(".page-title .eyebrow")?.textContent || "";
+  });
+  assert.equal(cachedSeasonHeading, "2022 Rapid React");
   const emptySeasonHeading = await page.evaluate(() => {
     globalThis.eventCatalog[0].seasonLabel = "";
     globalThis.render();

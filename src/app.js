@@ -4202,7 +4202,7 @@ async function openSharedCachedEvent(eventKey, options = {}) {
       ...result.eventModel,
       name: cachedEvent.name || result.eventModel.name,
       season: cachedEvent.season || result.eventModel.season,
-      seasonLabel: officialSeasonLabel(cachedEvent.season || result.eventModel.season),
+      seasonLabel: officialSeasonLabel(cachedEvent.season || result.eventModel.season) || cachedEvent.seasonLabel || result.eventModel.seasonLabel,
       catalogSource: "shared-cache",
     });
     switchActiveEvent(registeredEvent.key, { activeView: options.activeView || state.activeView, persistShared: false, preserveImportDraft: true });
@@ -6978,7 +6978,7 @@ function renderTeams() {
       <div>
         <h2>Event Teams</h2>
       </div>
-      <span class="muted">${currentTeams().length} teams at ${currentEvent().name}</span>
+      <span class="muted">${currentTeams().length} teams at ${escapeHtml(displayEventName(currentEvent()))}</span>
     </div>
     <div class="team-grid" style="margin-top: 14px;">
       ${currentTeams()
@@ -8625,7 +8625,8 @@ function renderAdmin() {
               <select id="recentAdminEventSelect" aria-label="Recent event selection" size="${Math.min(10, Math.max(2, recentEventKeys.length))}">
                 ${recentEventKeys.map((eventKey) => {
                   const item = sharedCachedEventByKey(eventKey) || eventModelByKey(eventKey);
-                  const recentEventLabel = item.season === 2026 ? item.name : `${item.season} ${item.name}`;
+                  const recentEventName = displayEventName(item);
+                  const recentEventLabel = item.season === 2026 ? recentEventName : `${item.season} ${recentEventName}`;
                   return `<option value="${item.key}" ${item.key === event.key ? "selected" : ""}>${item.key} | ${escapeHtml(recentEventLabel)}</option>`;
                 }).join("")}
               </select>
