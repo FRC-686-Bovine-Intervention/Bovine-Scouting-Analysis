@@ -28,7 +28,7 @@ The startup script serves the checkout at `http://localhost:4173`, starts the Au
 
 - `admin@example.test` / `local-admin-password` in the Auth emulator;
 - an admin role in `users/{uid}` and `allowlist/admin%40example.test`;
-- the `2026local` event and representative cached provider/scouting data.
+- the `2026local` event, a second `2026cached` event, and representative cached provider/scouting data.
 
 To run the pieces manually, use this PowerShell flow:
 
@@ -48,3 +48,5 @@ If `.firebase-emulators.pid` is stale, remove that PID file and rerun `scripts/s
 The harness accepts `SCOUTING_APP_URL`, `FIREBASE_LOCAL_ADMIN_EMAIL`, `FIREBASE_LOCAL_ADMIN_PASSWORD`, `FIREBASE_AUTH_EMULATOR_HOST`, `FIRESTORE_EMULATOR_HOST`, `FIREBASE_PROJECT_ID`, and `PLAYWRIGHT_EXECUTABLE_PATH` environment variables.
 
 Failures are prefixed with an actionable code: `EMULATOR_UNAVAILABLE`, `APP_UNAVAILABLE`, `AUTHENTICATION_FAILED`, `AUTHORIZATION_FAILED`, `ADMIN_PAGE_UNAVAILABLE`, `DERIVED_BUILDER_UNAVAILABLE`, `DERIVED_HELP_UNAVAILABLE`, `DERIVED_HELP_NOT_SCROLLABLE`, `DERIVED_HELP_REGRESSION`, or `DERIVED_HELP_CLICK_FAILED`. The message includes the failing service, rendered status/body text when available, and the local command or role document to check.
+
+To verify event-code switching and source timing, run `node .browser-test/verify-event-switch-source-timing.mjs` with the local stack and emulators running. It exercises cached-to-cached, cached-to-local, local-to-uncached, and uncached-to-cached transitions through the real Enter-key interaction. The uncached provider responses are mocked in the browser, and every transition must complete within 30 seconds.

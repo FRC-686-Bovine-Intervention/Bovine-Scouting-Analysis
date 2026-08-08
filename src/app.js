@@ -1535,7 +1535,7 @@ async function applyRecentAdminEventSelection(value) {
   if (!nextEventKey) return false;
   state.adminRecentEventsOpen = false;
   if (sharedCachedEventByKey(nextEventKey) && !globalEventCatalog.some((eventModel) => eventModel?.key === nextEventKey)) {
-    return openSharedCachedEvent(nextEventKey, { activeView: "adminEventControl" });
+    return openSharedCachedEvent(nextEventKey, { activeView: "adminEventControl", persistShared: true });
   }
   return switchActiveEvent(nextEventKey, { activeView: "adminEventControl" });
 }
@@ -1592,6 +1592,9 @@ async function applyAdminEventCodeDraft(value, options = {}) {
     return true;
   }
   state.adminEventCodeDraft = normalizedEventCode;
+  if (sharedCachedEventByKey(normalizedEventCode)) {
+    return openSharedCachedEvent(normalizedEventCode, { activeView: "adminEventControl", persistShared: true });
+  }
   if (globalEventCatalog.some((eventModel) => eventModel?.key === normalizedEventCode)) {
     const switched = switchActiveEvent(normalizedEventCode, { activeView: "adminEventControl" });
     if (switched) void refreshCurrentExternalSourcesImmediately();
@@ -4014,6 +4017,7 @@ function scoutingProfilesForEvent(eventModel = currentEvent()) {
 
 let stopSharedActiveEventSync = null;
 let sharedWorkspacePersistTimer = null;
+let pendingUserSharedActiveEventKey = "";
 
 function sharedCachedEventByKey(eventKey) {
   const normalizedEventKey = normalizeText(eventKey).toLowerCase();
@@ -4199,7 +4203,11 @@ async function openSharedCachedEvent(eventKey, options = {}) {
       seasonLabel: officialSeasonLabel(cachedEvent.season || result.eventModel.season) || cachedEvent.seasonLabel || result.eventModel.seasonLabel,
       catalogSource: "shared-cache",
     });
-    switchActiveEvent(registeredEvent.key, { activeView: options.activeView || state.activeView, persistShared: false, preserveImportDraft: true });
+    switchActiveEvent(registeredEvent.key, {
+      activeView: options.activeView || state.activeView,
+      persistShared: options.persistShared === true,
+      preserveImportDraft: true,
+    });
     applyLoadedExternalSourceState({ ...result, eventModel: registeredEvent }, { render: false });
     await loadCachedScoutingData(registeredEvent.key, api);
     state.eventLookupResult = {
@@ -4239,6 +4247,10 @@ function startSharedActiveEventSync() {
   stopSharedActiveEventSync?.();
   stopSharedActiveEventSync = api.subscribeActiveEvent((eventKey) => {
     const sharedEventKey = normalizeText(eventKey);
+    if (globalThis.firebaseUserRole !== "admin") pendingUserSharedActiveEventKey = "";
+    if (pendingUserSharedActiveEventKey) {
+      if (sharedEventKey !== pendingUserSharedActiveEventKey) return;
+    }
     if (!sharedEventKey) {
       persistSharedActiveEvent(state.activeEventKey);
       return;
@@ -4388,8 +4400,8 @@ function hydrateEventState(eventKey) {
   state.activeAnalysisFilterId = normalizeAnalysisFilterSelection(readStoredItem(storageKeys.analysisFilter, resolvedEventKey), eventModel);
   state.teamDetailMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.teamDetailMetric, resolvedEventKey), eventModel);
   state.picklistCompareMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.picklistCompareMetric, resolvedEventKey), eventModel);
-  state.selectedTeam = Number(readStoredItem(storageKeys.selectedTeam, resolvedEventKey)) || eventModel.teams[0].number;
-  state.selectedMatch = Number(readStoredItem(storageKeys.selectedMatch, resolvedEventKey)) || eventModel.matches[0].number;
+  state.selectedTeam = Number(readStoredItem(storageKeys.selectedTeam, resolvedEventKey)) || eventModel.teams[0]?.number || 0;
+  state.selectedMatch = Number(readStoredItem(storageKeys.selectedMatch, resolvedEventKey)) || eventModel.matches[0]?.number || 0;
   state.picklists = normalizePicklists(readStoredJson(storageKeys.picklists, eventModel.seedPicklists, resolvedEventKey), eventModel);
   state.sortEquations = normalizeSortEquations(readStoredJson(storageKeys.sortEquations, eventModel.seedSortEquations, resolvedEventKey), eventModel);
   state.activePicklist = resolvePicklistId(readStoredItem(storageKeys.activePicklist, resolvedEventKey), state.picklists) || state.picklists[0]?.id || "";
@@ -4440,8 +4452,8 @@ function hydrateEventState(eventKey) {
   if (persistedLoadedSources === null && !state.loadedSources.length && state.picklists.length) {
     state.loadedSources = [`picklist:${state.picklists[0].id}`];
   }
-  state.selectedTeam = teamByNumber(state.selectedTeam)?.number || eventModel.teams[0].number;
-  state.selectedMatch = currentMatches().some((match) => match.number === state.selectedMatch) ? state.selectedMatch : eventModel.matches[0].number;
+  state.selectedTeam = teamByNumber(state.selectedTeam)?.number || eventModel.teams[0]?.number || 0;
+  state.selectedMatch = currentMatches().some((match) => match.number === state.selectedMatch) ? state.selectedMatch : eventModel.matches[0]?.number || 0;
   state.contextMenu = null;
   state.inlineRename = null;
   state.picklistSelectedTeam = null;
@@ -4492,7 +4504,13 @@ function switchActiveEvent(eventKey, options = {}) {
       state.importDraftSource = "";
     }
     saveState();
-    if (options.persistShared !== false) persistSharedActiveEvent(resolvedEventKey);
+    if (options.persistShared !== false) {
+      pendingUserSharedActiveEventKey = resolvedEventKey;
+      setTimeout(() => {
+        if (pendingUserSharedActiveEventKey === resolvedEventKey) pendingUserSharedActiveEventKey = "";
+      }, 5000);
+      persistSharedActiveEvent(resolvedEventKey);
+    }
     if (options.rerunImportPreview) {
       state.importResult = null;
       runImportPreview();
