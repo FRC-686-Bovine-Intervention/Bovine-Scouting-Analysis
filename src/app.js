@@ -8851,7 +8851,7 @@ function renderAdminEventControl() {
                 />
                 <button type="button" id="saveStatboticsBaseUrlButton" ${state.statboticsBaseUrlDirty ? "" : "disabled"}>Save</button>
               </div>
-              <span class="muted">Uses the Statbotics API at <code>https://api.statbotics.io/v3</code>. Team-event data automatically uses the query-form endpoint when the legacy route is unavailable.</span>
+              <span class="muted">Uses <code>https://api.statbotics.io/v3</code> first, with <code>https://api-statbotics.iterativerefinement.com/v3</code> as a fallback. Team-event data automatically uses the query-form endpoint when the legacy route is unavailable.</span>
             </label>
             <div class="admin-actions">
               <button type="button" id="clearCurrentEventScoutingDataButton">Clear Saved Scouting Data</button>

@@ -54,7 +54,7 @@ function resolveStatboticsBaseUrl(options = {}) {
 function resolveStatboticsFallbackBaseUrl(options = {}) {
   return normalizeText(options.statboticsFallbackBaseUrl)
     || normalizeText(globalThis.__STATBOTICS_FALLBACK_BASE_URL)
-    || "https://api.statbotics.io/v3";
+    || "https://api-statbotics.iterativerefinement.com/v3";
 }
 
 function formatProviderError(provider, error) {
