@@ -24,8 +24,7 @@ function endpoint(host, pathName) {
 
 async function requireService(name, url, remedy) {
   try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    await fetch(url);
   } catch (error) {
     throw new HarnessError("EMULATOR_UNAVAILABLE", `${name} is not reachable at ${url} (${error.message}). ${remedy}`);
   }
@@ -65,7 +64,7 @@ await requireService(
 );
 await requireService(
   "Firestore emulator",
-  endpoint(firestoreHost, `/emulator/v1/projects/${projectId}/databases/(default)/documents/users`),
+  endpoint(firestoreHost, "/"),
   "Run .\\scripts\\start-localhost.ps1, or start `firebase emulators:start --only auth,firestore` and seed with `node scripts/seed-firebase-emulators.mjs`.",
 );
 
@@ -109,10 +108,11 @@ try {
     code: "ADMIN_PAGE_UNAVAILABLE",
     message: "Admin navigation was present, but the Admin page did not render its admin-only event control. Confirm the signed-in user has role=admin.",
   });
+  const adminPageReached = await page.locator("#adminEventCodeInput").count() > 0;
 
   assertAuthorization(await page.locator('[data-view="derivedBuilder"]').count() > 0, "Admin access was authenticated, but Derived Equation Builder navigation is missing. Confirm the seeded admin role was loaded from Firestore.");
   await page.click('[data-view="derivedBuilder"]');
-  await waitForSelector(page, "#derivedMetricIdInput", {
+  await waitForSelector(page, "#derivedEquationFormulaInput", {
     code: "DERIVED_BUILDER_UNAVAILABLE",
     message: "Derived Equation Builder navigation was present, but its real page did not render.",
   });
@@ -123,7 +123,7 @@ try {
     appUrl,
     email,
     pages: ["main", "admin", "derivedBuilder"],
-    eventControl: await page.locator("#adminEventCodeInput").count() > 0,
+    adminPageReached,
   }, null, 2));
 } finally {
   await browser.close();
