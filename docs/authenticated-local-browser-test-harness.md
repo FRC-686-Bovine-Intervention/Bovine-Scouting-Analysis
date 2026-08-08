@@ -13,6 +13,17 @@ node .browser-test/authenticated-local-harness.mjs
 
 The Firebase CLI requires a Java runtime for the Auth and Firestore emulators. The startup script checks `PATH` first and also discovers a JDK under `C:\Program Files\Eclipse Adoptium`. If Java is installed elsewhere, set `JAVA_HOME` and prepend its `bin` directory to `PATH` before retrying.
 
+In the Codex desktop sandbox, Java may still fail with `EPERM` even when `java -version` works. This means the sandbox is blocking Node/Firebase from spawning Java; it is not a Java or Firebase configuration error. Approve elevated execution for the emulator and browser-test commands, or run them from a normal PowerShell terminal outside the sandbox. A minimal confirmation is:
+
+```powershell
+$taskJavaHome = "C:\Program Files\Eclipse Adoptium\jdk-21.0.12.8-hotspot"
+$env:JAVA_HOME = $taskJavaHome
+$env:Path = "$taskJavaHome\bin;$env:Path"
+node -e "const c=require('child_process').spawnSync('java',['-version'],{encoding:'utf8'}); console.log(c.error?.code ?? c.status)"
+```
+
+`0` confirms Java can be spawned when the command is allowed to run outside the restricted sandbox.
+
 The startup script serves the checkout at `http://localhost:4173`, starts the Auth emulator on port `9099` and Firestore emulator on port `8080`, then runs `scripts/seed-firebase-emulators.mjs`. The seed creates:
 
 - `admin@example.test` / `local-admin-password` in the Auth emulator;
