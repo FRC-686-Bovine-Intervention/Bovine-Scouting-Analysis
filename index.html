@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FRC Scouting Analysis</title>
+    <script>
+      (() => {
+        const hostname = String(location.hostname || "").toLowerCase();
+        const liveHosts = new Set(["bovine-scouting-analysis.web.app", "bovine-scouting-analysis.firebaseapp.com"]);
+        if (!hostname || !liveHosts.has(hostname)) document.title = `(Dev) ${document.title}`;
+      })();
+    </script>
     <link rel="stylesheet" href="src/styles.css?revision=__DEPLOYMENT_REVISION__" />
   </head>
   <body>
