@@ -91,6 +91,10 @@ await runTest("loadEventByCode builds an event model and ready provider states f
           red: { team_keys: ["frc111", "frc222", "frc333"], score: 180 },
           blue: { team_keys: ["frc444", "frc555", "frc666"], score: 150 },
         },
+        score_breakdown: {
+          red: { autoPoints: 60, teleopPoints: 90, endgamePoints: 30, totalPoints: 180 },
+          blue: { autoPoints: 50, teleopPoints: 75, endgamePoints: 25, totalPoints: 150 },
+        },
       },
     ],
     [`${baseUrls.tba}/event/2026test/rankings`]: {
@@ -212,6 +216,9 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.tba || "").startsWith("fnv1a:"));
   assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.statbotics || "").startsWith("fnv1a:"));
   assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.total), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components["epa.breakdown.auto_points"]), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components["epa.breakdown.teleop_points"]), true);
+  assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:epa.breakdown.auto_points"), true);
   assert.equal(result.warnings.length, 0);
 });
 

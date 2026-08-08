@@ -185,6 +185,15 @@ function buildMetricCatalog(schemaOrEventModel = {}) {
       shortLabel: sourceLabels.pridge,
       unit: "pts",
     },
+    ...(Array.isArray(schemaOrEventModel.pridgeComponentDefinitions) ? schemaOrEventModel.pridgeComponentDefinitions.map((component) => ({
+      id: `source:pridge:${component.id}`,
+      kind: "source",
+      sourceId: "pridge",
+      componentId: component.id,
+      label: `${sourceLabels.pridge} ${component.label || component.id}`,
+      shortLabel: component.label || component.id,
+      unit: component.unit || "pts",
+    })) : []),
     ...derivedMetricDefinitions(schemaOrEventModel).map((metricDefinition) => ({
       id: `derived:${metricDefinition.id}`,
       kind: "derived",

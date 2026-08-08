@@ -29,6 +29,13 @@ function cloneMatrix(matrix) {
   return matrix.map((row) => row.slice());
 }
 
+function readPathValue(value, path) {
+  return String(path || "")
+    .split(".")
+    .filter(Boolean)
+    .reduce((current, segment) => current?.[segment], value);
+}
+
 function invertMatrix(matrix) {
   const size = matrix.length;
   if (!size) return [];
@@ -74,7 +81,8 @@ function multiplyMatrixVector(matrix, vector) {
 }
 
 function buildPriorRidgeInput(matches, teamEvents, options = {}) {
-  const responseName = String(options.responseName || "score").trim().toLowerCase();
+  const requestedResponseName = String(options.responseName || "score").trim();
+  const responseName = requestedResponseName.toLowerCase() === "score" ? "score" : requestedResponseName;
   const qualificationMatches = (Array.isArray(matches) ? matches : [])
     .filter((match) => match?.comp_level === "qm")
     .map((match) => {
@@ -82,10 +90,10 @@ function buildPriorRidgeInput(matches, teamEvents, options = {}) {
       const blue = Array.isArray(match?.alliances?.blue?.team_keys) ? match.alliances.blue.team_keys : [];
       const redScore = responseName === "score"
         ? finiteNumber(match?.alliances?.red?.score)
-        : finiteNumber(match?.score_breakdown?.red?.[responseName]);
+        : finiteNumber(readPathValue(match?.score_breakdown?.red, responseName));
       const blueScore = responseName === "score"
         ? finiteNumber(match?.alliances?.blue?.score)
-        : finiteNumber(match?.score_breakdown?.blue?.[responseName]);
+        : finiteNumber(readPathValue(match?.score_breakdown?.blue, responseName));
       return {
         red: red
           .map((teamKey) => Number(String(teamKey).replace("frc", "")))

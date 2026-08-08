@@ -189,6 +189,50 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, tbaComponents) {
   };
 }
 
+function camelCasePath(value) {
+  return String(value || "").split(".").map((segment) => segment.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())).join(".");
+}
+
+function pridgeResponseCandidates(breakdownId) {
+  const suffix = String(breakdownId || "").replace(/^epa\.breakdown\./, "");
+  const camel = camelCasePath(suffix);
+  const candidates = [camel];
+  const aliases = {
+    total_points: ["totalPoints"],
+    auto_points: ["autoPoints", "totalAutoPoints"],
+    teleop_points: ["teleopPoints", "totalTeleopPoints"],
+    endgame_points: ["endgamePoints", "endGamePoints", "totalTowerPoints"],
+  };
+  (aliases[suffix] || []).forEach((candidate) => candidates.push(candidate));
+  return [...new Set(candidates)];
+}
+
+function buildPridgeBreakdownResults(tbaMatches, statboticsTeamEvents, options = {}) {
+  const breakdownIds = [...new Set((statboticsTeamEvents || []).flatMap((teamEvent) =>
+    Object.keys(teamEvent?.epa?.breakdown || {}).map((key) => `epa.breakdown.${key}`),
+  ))].sort();
+  return breakdownIds.reduce((results, breakdownId) => {
+    const responseName = pridgeResponseCandidates(breakdownId).find((candidate) => {
+      try {
+        const input = priorRidge.buildPriorRidgeInput(tbaMatches, statboticsTeamEvents, { responseName: candidate });
+        return input.matches.length > 0;
+      } catch {
+        return false;
+      }
+    });
+    if (!responseName) return results;
+    try {
+      results[breakdownId] = priorRidge.computeEventPridge(tbaMatches, statboticsTeamEvents, {
+        ...options,
+        responseName,
+      });
+    } catch {
+      // A provider field without a matching TBA response stays unavailable.
+    }
+    return results;
+  }, {});
+}
+
 function buildEventModelFromPayloads(payload) {
   const explicitScouterMetricDefinitions = Array.isArray(payload?.scouterMetricDefinitions) ? payload.scouterMetricDefinitions : [];
   const explicitFormulaFieldDefinitions = Array.isArray(payload?.formulaFieldDefinitions) ? payload.formulaFieldDefinitions : [];
@@ -229,15 +273,22 @@ function buildEventModelFromPayloads(payload) {
       pridgeError = String(error?.message || "Unable to compute pRidge.");
     }
   }
+  const pridgeBreakdownResults = typeof priorRidge.buildPriorRidgeInput === "function"
+    ? buildPridgeBreakdownResults(payload.tbaMatches || [], payload.statboticsTeamEvents || [], { digits: 1 })
+    : {};
   const teamsWithPridge = teams.map((team) => {
     const total = pridgeResult?.ratings?.[team.number] ?? null;
+    const components = Object.fromEntries(Object.entries(pridgeBreakdownResults).map(([breakdownId, result]) => [
+      breakdownId,
+      result.ratings?.[team.number] ?? null,
+    ]));
     return {
       ...team,
       sources: {
         ...team.sources,
         pridge: {
           total,
-          components: {},
+          components,
           trend: [],
         },
       },
@@ -251,11 +302,12 @@ function buildEventModelFromPayloads(payload) {
     matchesComplete: matches.length,
     matches,
     scoringComponents: [],
+    pridgeComponentDefinitions: Object.keys(pridgeBreakdownResults).map((id) => ({ id, label: id, unit: "pts" })),
     scoringMatrixPresets: eventSchema.scoringMatrixPresets || [],
     scouterMetricDefinitions: explicitScouterMetricDefinitions,
     formulaFieldDefinitions: explicitFormulaFieldDefinitions,
     derivedMetricDefinitions: explicitDerivedMetricDefinitions,
-    metrics: buildMetricCatalog(eventSchema),
+    metrics: buildMetricCatalog({ ...eventSchema, pridgeComponentDefinitions: Object.keys(pridgeBreakdownResults).map((id) => ({ id, label: id, unit: "pts" })) }),
     teams: teamsWithPridge,
     teamNumbers: teamsWithPridge.map((team) => team.number),
     rankingSortOrderInfo: Array.isArray(payload.tbaRankings?.sort_order_info) ? [...payload.tbaRankings.sort_order_info] : [],
@@ -290,7 +342,7 @@ function buildEventModelFromPayloads(payload) {
         status: pridgeResult ? "Computed locally" : "Unavailable",
         updated: pridgeResult ? `Lambda ${round(pridgeResult.lambda, 3)} over ${pridgeResult.matchCount} qual matches` : "Requires complete TBA + Statbotics event payloads",
         notes: pridgeResult
-          ? "Event-total pRidge was computed locally from TBA qualification scores and Statbotics start EPA priors."
+          ? "pRidge totals and matching EPA breakdowns were computed locally from TBA qualification scores and Statbotics start EPA priors."
           : (pridgeError || "pRidge could not be computed from the available event payloads."),
       },
     ],

@@ -224,6 +224,15 @@ function buildMetrics(season) {
       shortLabel: sourceLabels.pridge,
       unit: "pts",
     },
+    ...(Array.isArray(season.pridgeComponentDefinitions) ? season.pridgeComponentDefinitions.map((component) => ({
+      id: `source:pridge:${component.id}`,
+      kind: "source",
+      sourceId: "pridge",
+      componentId: component.id,
+      label: `${sourceLabels.pridge} ${component.label || component.id}`,
+      shortLabel: component.label || component.id,
+      unit: component.unit || "pts",
+    })) : []),
     ...derivedMetricDefinitions(season).map((metricDefinition) => ({
       id: `derived:${metricDefinition.id}`,
       kind: "derived",
@@ -243,7 +252,10 @@ function buildCriteriaSources(season) {
   return [
     { id: "statbotics", label: sourceLabels.statbotics, components: scoringComponents },
     { id: "scouter", label: sourceLabels.scouter, components: scouterComponents },
-    { id: "pridge", label: sourceLabels.pridge, components: [{ id: "total", label: "Total" }] },
+    { id: "pridge", label: sourceLabels.pridge, components: [
+      { id: "total", label: "Total" },
+      ...(Array.isArray(season.pridgeComponentDefinitions) ? season.pridgeComponentDefinitions.map((component) => ({ id: component.id, label: component.label || component.id })) : []),
+    ] },
     {
       id: "derived",
       label: sourceLabels.derived,

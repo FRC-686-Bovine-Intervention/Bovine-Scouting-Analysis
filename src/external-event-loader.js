@@ -343,7 +343,7 @@ async function loadEventByCode(eventCode, options = {}) {
     sourceStates.pridge = buildReadySourceState("pridge", eventModel, timestamp, {
       mode: "native-compute",
       inputFingerprints,
-      notes: "Event-total pRidge was computed locally from TBA qualification matches and Statbotics start EPA priors.",
+      notes: "pRidge totals and matching EPA breakdowns were computed locally from TBA qualification matches and Statbotics start EPA priors.",
     });
   } else {
     const inputFingerprints = {
