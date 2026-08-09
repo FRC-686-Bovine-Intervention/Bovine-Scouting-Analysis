@@ -77,6 +77,29 @@ runTest("buildCanonicalSchemaForEventModel uses event-owned field definitions wi
   assert.equal(schema.expectedScoutingFields.some((field) => field === "driverTag"), true);
 });
 
+runTest("buildPridgeResponseBaseline emits stable phase formulas and diagnostics validate TBA identifiers", () => {
+  const context = loadBrowserContext(["src/metric-engine.js", "src/scouting-json-schema.js"]);
+  const baseline = context.ScoutingJsonSchema.buildPridgeResponseBaseline({ season: 2026, key: "2026chcmp", formulaFieldDefinitions: [] });
+  const definitions = baseline.schema.pridgeResponseDefinitions;
+  assert.deepEqual(JSON.parse(JSON.stringify(definitions.map((definition) => definition.id))), [
+    "tbaTotalAutoPoints",
+    "tbaTotalTeleopPoints",
+    "tbaTotalEndgamePoints",
+  ]);
+  assert.equal(definitions[0].formula, "tba.totalAutoPoints");
+  assert.equal(baseline.schema.comments.length > 0, true);
+
+  const diagnostics = context.ScoutingJsonSchema.diagnosePridgeResponseDefinitions(definitions, [
+    "tba.totalAutoPoints",
+    "tba.totalTeleopPoints",
+    "tba.endGameTowerPoints",
+  ]);
+  assert.equal(diagnostics.hasIssues, false);
+  const missing = context.ScoutingJsonSchema.diagnosePridgeResponseDefinitions(definitions, ["tba.totalAutoPoints"]);
+  assert.equal(missing.hasIssues, true);
+  assert.match(missing.invalid[0].failures.join(" "), /not available/);
+});
+
 runTest("validateCanonicalSchema accepts fixture-backed canonical scouting JSON", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
   const eventModel = buildEventModel(context);

@@ -6,9 +6,107 @@ const requiredEntryIdentityFields = ["matchNumber", "teamNumber", "alliance"];
 const requiredEntriesMetaFields = ["format", "season", "eventKey", "entryType"];
 const requiredSchemaMetaFields = ["format"];
 const contextualEntryMetricIds = ["scoutUser", "station", "defensePlayed", "robotStatus", "notes"];
+const pridgeResponseIds = [
+  "tbaTotalAutoPoints",
+  "tbaTotalTeleopPoints",
+  "tbaTotalEndgamePoints",
+];
 
 function normalizeText(value) {
   return String(value || "").trim();
+}
+
+function normalizePridgeResponseDefinitions(definitions = []) {
+  return (Array.isArray(definitions) ? definitions : [])
+    .map((definition) => ({
+      id: normalizeText(definition?.id),
+      label: normalizeText(definition?.label) || normalizeText(definition?.id),
+      unit: normalizeText(definition?.unit) || "pts",
+      formula: normalizeText(definition?.formula),
+      comments: normalizeText(definition?.comments),
+    }))
+    .filter((definition) => pridgeResponseIds.includes(definition.id));
+}
+
+function buildPridgeResponseBaseline(eventModel = {}, options = {}) {
+  const schemaId = normalizeText(options.schemaId) || `${eventModel?.season || "season"}-match-v1`;
+  const profile = options.profile && typeof options.profile === "object" ? options.profile : null;
+  return {
+    meta: {
+      ...buildCanonicalSchemaMeta({
+        sourceApp: "Bovine Scouting Analysis",
+        templateProfileId: options.templateProfileId || canonicalTemplateProfileId,
+        profileLabel: options.profileLabel || "Schema baseline",
+        translationVersion: options.translationVersion,
+      }),
+      season: Number(eventModel?.season || 0),
+      eventKey: normalizeText(eventModel?.key),
+    },
+    schema: {
+      ...buildCanonicalSchemaForEventModel(eventModel, { schemaId }),
+      pridgeResponseDefinitions: normalizePridgeResponseDefinitions(options.pridgeResponseDefinitions || [
+        {
+          id: "tbaTotalAutoPoints",
+          label: "TBA total auto points",
+          unit: "pts",
+          formula: "tba.totalAutoPoints",
+          comments: "Replace with this season's alliance auto total from TBA score_breakdown.",
+        },
+        {
+          id: "tbaTotalTeleopPoints",
+          label: "TBA total teleop points",
+          unit: "pts",
+          formula: "tba.totalTeleopPoints",
+          comments: "Replace with this season's alliance teleop total from TBA score_breakdown.",
+        },
+        {
+          id: "tbaTotalEndgamePoints",
+          label: "TBA total endgame points",
+          unit: "pts",
+          formula: "tba.endGameTowerPoints",
+          comments: "Replace with this season's alliance endgame total; confirm that climbs or other endgame actions are included.",
+        },
+      ]),
+      comments: [
+        "Use one definition for each stable tbaTotal* id.",
+        "Map formulas per season using only numeric alliance-level TBA score_breakdown fields.",
+        "Check Schema Diagnostics after loading live TBA data; unknown tba.* identifiers mean the formula does not match this event's available metrics.",
+      ],
+    },
+    profile: profile ? normalizeCanonicalProfile(profile) : null,
+  };
+}
+
+function diagnosePridgeResponseDefinitions(definitions = [], availableTbaIdentifiers = []) {
+  const normalized = normalizePridgeResponseDefinitions(definitions);
+  const available = new Set((availableTbaIdentifiers || []).map(normalizeText).filter(Boolean));
+  const metricEngine = globalThis.MetricEngine || {};
+  const collectIdentifiers = metricEngine.collectFormulaIdentifiers || ((formula) => {
+    const matches = String(formula || "").match(/\btba\.[A-Za-z0-9_.]+\b/g) || [];
+    return new Set(matches);
+  });
+  const byId = new Map(normalized.map((definition) => [definition.id, definition]));
+  const entries = pridgeResponseIds.map((id) => {
+    const definition = byId.get(id);
+    const failures = [];
+    if (!definition) {
+      failures.push(`Missing schema definition ${id}.`);
+    } else {
+      const parsed = metricEngine.parseFormulaExpression?.(definition.formula);
+      if (parsed?.error) failures.push(`${id}: ${parsed.error}`);
+      [...collectIdentifiers(parsed?.ast || definition.formula)].forEach((identifier) => {
+        if (!String(identifier).startsWith("tba.")) return;
+        if (!available.has(identifier)) failures.push(`${id}: TBA metric ${identifier} is not available in the current event.`);
+      });
+    }
+    return { id, label: definition?.label || id, formula: definition?.formula || "", failures };
+  });
+  return {
+    entries,
+    missing: entries.filter((entry) => entry.failures.some((failure) => failure.startsWith("Missing schema definition"))),
+    invalid: entries.filter((entry) => entry.failures.length && !entry.failures.some((failure) => failure.startsWith("Missing schema definition"))),
+    hasIssues: entries.some((entry) => entry.failures.length > 0),
+  };
 }
 
 function sanitizeProfileIdentifier(value, fallback = "value") {
@@ -398,6 +496,10 @@ globalThis.ScoutingJsonSchema = {
   inferCanonicalFieldType,
   normalizeCanonicalProfile,
   normalizeCanonicalPayload,
+  buildPridgeResponseBaseline,
+  diagnosePridgeResponseDefinitions,
+  normalizePridgeResponseDefinitions,
+  pridgeResponseIds,
   contextualEntryMetricIds,
   requiredEntryIdentityFields,
   validateCanonicalSchema,

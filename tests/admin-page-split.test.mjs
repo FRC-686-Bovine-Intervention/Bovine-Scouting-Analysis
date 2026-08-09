@@ -37,6 +37,8 @@ assert.match(eventCodeHandler, /refreshCurrentExternalSourcesImmediately/);
 assert.match(source, /authFailureMessage\("TBA"/);
 assert.match(source, /authFailureMessage\("FIRST API"/);
 assert.match(eventControl, /Activity Log/);
+assert.match(eventControl, /createSchemaBaselineButton/);
+assert.match(dataQuality, /renderPridgeResponseDiagnostics/);
 assert.match(eventControl, /renderRawSourceCacheViewer\(\)/);
 assert.match(eventControl, /data-view="adminDataQuality"/);
 assert.match(dataQuality, /return `<div class="grid cols-2">/);

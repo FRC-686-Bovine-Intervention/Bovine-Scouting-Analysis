@@ -60,6 +60,8 @@ const buildCanonicalSchemaArtifact = scoutingJsonSchema.buildCanonicalSchemaArti
   schema: schemaPayload?.schema || {},
   profile: schemaPayload?.profile || {},
 }));
+const buildPridgeResponseBaseline = scoutingJsonSchema.buildPridgeResponseBaseline || (() => ({}));
+const diagnosePridgeResponseDefinitions = scoutingJsonSchema.diagnosePridgeResponseDefinitions || (() => ({ entries: [], hasIssues: false }));
 const defaultRefreshPolicyForSource = sourceRefresh.defaultPolicyForSource || (() => ({ baseIntervalMs: 60 * 1000, staleAfterMs: 5 * 60 * 1000, maxBackoffMs: 20 * 60 * 1000 }));
 const freshnessForSource = sourceRefresh.freshnessForSource || ((source) => source?.freshness || "unknown");
 const sourceStatusBadgeClassName = sourceRefresh.sourceStatusBadgeClassName || ((status) => {
@@ -2271,11 +2273,56 @@ function currentScoutingDiagnosticsState() {
         sortEquations: state.sortEquations.filter((equation) => !isProtectedSortEquation(equation)),
       })
     : null;
+  const pridgeDiagnostics = diagnosePridgeResponseDefinitions(
+    currentPridgeResponseDefinitions(),
+    currentAvailableTbaFormulaIdentifiers(),
+  );
   return {
     committedFields,
     currentDiagnostics,
     pendingDiagnostics,
+    pridgeDiagnostics,
   };
+}
+
+function currentPridgeResponseDefinitions(eventModel = currentEvent()) {
+  const schemaText = normalizeText(state.importSchemaJsonText);
+  if (schemaText) {
+    try {
+      const parsed = JSON.parse(schemaText);
+      const definitions = parsed?.schema?.pridgeResponseDefinitions || parsed?.pridgeResponseDefinitions;
+      if (Array.isArray(definitions)) return definitions;
+    } catch {
+      // Keep diagnostics useful while the schema editor contains invalid JSON.
+    }
+  }
+  return Array.isArray(eventModel?.pridgeResponseDefinitions) ? eventModel.pridgeResponseDefinitions : [];
+}
+
+async function createSchemaBaselineFile() {
+  const eventModel = currentEvent();
+  try {
+    const artifact = buildPridgeResponseBaseline(eventModel);
+    const suggestedName = `${normalizeText(eventModel.key) || "event"}_schema-baseline.json`;
+    const selected = await createLocalAttachmentFile({
+      attachmentId: `schema-baseline:${normalizeText(eventModel.key) || "event"}`,
+      format: "scouting-json",
+      suggestedName,
+      requestWriteAccess: true,
+    });
+    const text = JSON.stringify(artifact, null, 2);
+    await writeLocalAttachmentText(selected.attachmentId, text);
+    pushActivity(`Created schema baseline ${selected.path || suggestedName} with tbaTotal* pRidge response formulas.`);
+    setImportError("");
+    state.importSchemaJsonText = text;
+    saveState();
+    render();
+    return true;
+  } catch (error) {
+    setImportError(`Unable to create the schema baseline file. ${error?.message || "Choose a writable local path and retry."}`);
+    render();
+    return false;
+  }
 }
 
 function cloneJsonValue(value) {
@@ -2841,16 +2888,16 @@ function tbaMatchMetricsByTeam(teamNumber, eventModel = currentEvent()) {
     cache.set(
       normalizedTeamNumber,
       (eventModel.matches || [])
-        .filter((match) => match.red.includes(normalizedTeamNumber) || match.blue.includes(normalizedTeamNumber))
+        .filter((match) => (match.red || []).includes(normalizedTeamNumber) || (match.blue || []).includes(normalizedTeamNumber))
         .map((match) => {
-          const allianceKey = match.red.includes(normalizedTeamNumber) ? "red" : "blue";
+          const allianceKey = (match.red || []).includes(normalizedTeamNumber) ? "red" : "blue";
           const breakdown = match.scoreBreakdown?.[allianceKey] || null;
           const flattenedBreakdown = Object.fromEntries(flattenTbaScalarEntries(breakdown || {}));
           return {
             matchNumber: match.number,
             allianceKey,
-            allianceTeams: allianceKey === "red" ? match.red : match.blue,
-            allTeams: [...match.red, ...match.blue],
+            allianceTeams: allianceKey === "red" ? (match.red || []) : (match.blue || []),
+            allTeams: [...(match.red || []), ...(match.blue || [])],
             ...flattenedBreakdown,
           };
         })
@@ -8708,7 +8755,8 @@ function renderAdminEventControl() {
   const sourceStatusIssues = issues.filter((issue) => issue !== mismatchMessage);
   const diagnosticsState = currentScoutingDiagnosticsState();
   const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
-  const diagnosticsNonEmpty = schemaDiffHasChanges(diagnosticsSelection.diagnostics?.schemaDiff);
+  const diagnosticsNonEmpty = schemaDiffHasChanges(diagnosticsSelection.diagnostics?.schemaDiff)
+    || Boolean(diagnosticsState.pridgeDiagnostics?.hasIssues);
   const reviewNonEmpty = reviewGroups.length > 0;
   return `
     <div class="grid">
@@ -8787,6 +8835,10 @@ function renderAdminEventControl() {
                   <button type="button" id="chooseLocalScoutingSchemaFileButton" ${localAttachmentFilesSupported() ? "" : "disabled"}>Browse</button>
                 </div>
               </label>
+              <div class="admin-actions">
+                <button type="button" id="createSchemaBaselineButton">Create Schema Baseline</button>
+                <span class="muted">Creates an editable JSON file with the three tbaTotal* pRidge response formulas and mapping instructions.</span>
+              </div>
             ${
               mismatchMessage
                 ? `<div class="issue-list">
@@ -8915,6 +8967,7 @@ function renderAdminDataQuality() {
   return `<div class="grid cols-2">
     <article class="card">
       <h2>Schema Diagnostics</h2>
+      ${renderPridgeResponseDiagnostics(diagnosticsState.pridgeDiagnostics)}
       ${reconciliationModel ? renderSchemaReconciliationCards(reconciliationModel) : renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
       ${reconciliationModel ? `<div class="button-row">
         <button type="button" id="updateCurrentSchemaFromDiagnosticsButton"${reconciliationModel.readyToPersist ? "" : " disabled"}>Update Current Schema</button>
@@ -8931,6 +8984,15 @@ function renderAdminDataQuality() {
       <div class="review-group-list">${reviewGroups.length ? reviewGroups.map(renderSubmissionGroup).join("") : `<div class="empty-state">No duplicate or flagged submissions are waiting for admin action.</div>`}</div>
     </article>
   </div>`;
+}
+
+function renderPridgeResponseDiagnostics(diagnostics) {
+  if (!diagnostics?.hasIssues) return `<div class="issue-row good"><strong>pRidge response formulas</strong><span>All three tbaTotal* definitions are present and match available TBA metrics.</span></div>`;
+  return `<div class="issue-list">${(diagnostics.entries || []).map((entry) => {
+    const failures = entry.failures || [];
+    if (!failures.length) return `<div class="issue-row good"><strong>${escapeHtml(entry.id)}</strong><span>${escapeHtml(entry.formula)}</span></div>`;
+    return `<div class="issue-row danger"><strong>${escapeHtml(entry.id)}</strong><span>${escapeHtml(failures.join(" "))}</span></div>`;
+  }).join("")}</div>`;
 }
 
 function renderAdminUserControl() {
@@ -9868,6 +9930,9 @@ function bindViewEvents() {
   });
   document.querySelector("#chooseLocalScoutingSchemaFileButton")?.addEventListener("click", async () => {
     await chooseLocalScoutingSchemaFile();
+  });
+  document.querySelector("#createSchemaBaselineButton")?.addEventListener("click", async () => {
+    await createSchemaBaselineFile();
   });
   document.querySelectorAll("[data-schema-added-new]").forEach((element) => {
     element.addEventListener("click", () => {
