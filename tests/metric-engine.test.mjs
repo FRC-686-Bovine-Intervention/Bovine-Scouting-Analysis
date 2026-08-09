@@ -181,6 +181,20 @@ runTest("average supports an optional inline filter expression", () => {
   assert.equal(result.value, 6);
 });
 
+runTest("aggregate functions reject numeric inline filters with a clear validation error", () => {
+  const result = metricEngine.evaluateFormulaExpression("average(scouting.teleL3Made, scouting.climbAttempt)", {
+    recentEntryCount: 2,
+    resolveIdentifier(identifier) {
+      return identifier === "scouting.teleL3Made" || identifier === "scouting.climbAttempt"
+        ? metricEngine.seriesResult([{ key: 1, value: 1 }, { key: 2, value: 2 }])
+        : metricEngine.errorResult(`Unknown identifier ${identifier}`);
+    },
+  });
+
+  assert.equal(result.kind, "error");
+  assert.match(result.error, /boolean values.*numeric\/non-boolean formulas/);
+});
+
 runTest("sum supports an optional inline filter expression", () => {
   const result = metricEngine.evaluateFormulaExpression("sum(scouting.teleL3Made, scouting.climbAttempt > 0)", {
     recentEntryCount: 3,

@@ -133,7 +133,7 @@ runTest("schema artifacts emit only the portable contract members", () => {
       id: "profile-1",
       label: "Profile",
       versionKey: "v1",
-      derivedEquations: [{ id: "fuelTotal", formula: "sum(scouting.fuel)" }],
+      derivedEquations: [{ id: "fuelTotal", formula: "sum(scouting.fuel)", usage: "metric" }],
       filters: [{ name: "legacyFilter", formula: "true" }],
       metricDiscovery: { blacklist: { statbotics: ["legacy"] } },
     },

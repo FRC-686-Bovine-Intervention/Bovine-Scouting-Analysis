@@ -107,19 +107,11 @@ function buildProfileVersionKey(profile = {}) {
     .map((definition) => ({
       name: canonicalProfileEquationName(definition),
       formula: normalizeText(definition?.formula),
-      usage: normalizeText(definition?.usage),
-    }))
-    .filter((definition) => definition.name);
-  const normalizedFilters = (Array.isArray(profile?.filters) ? profile.filters : [])
-    .map((definition) => ({
-      name: canonicalProfileEquationName(definition, "filter"),
-      formula: normalizeText(definition?.formula),
     }))
     .filter((definition) => definition.name);
   const fingerprint = fnv1aHash(JSON.stringify(stableValue({
     fields: normalizedFields,
     equations: normalizedEquations,
-    filters: normalizedFilters,
   })));
   return `${profileId}|${fingerprint}`;
 }

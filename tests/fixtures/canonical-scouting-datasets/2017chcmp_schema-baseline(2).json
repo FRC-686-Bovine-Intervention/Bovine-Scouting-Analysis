@@ -44,7 +44,6 @@
     "id": "canonical-json-v1",
     "label": "Canonical JSON",
     "versionKey": "canonical-json-v1|e567884c",
-    "derivedEquations": [],
-    "filters": []
+    "derivedEquations": []
   }
 }

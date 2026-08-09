@@ -8,7 +8,7 @@
   },
   "schema": {
     "schemaId": "2025-match-v1",
-    "metricDiscovery": {
+    "metricPresentation": {
       "blacklistComment": "Patterns match the full, case-sensitive flattened field ID; * is the only wildcard and matches any characters, including dots (for example, scoreBreakdown.autoReef.*.node* matches scoreBreakdown.autoReef.topRow.nodeA).",
       "blacklist": {
         "tba": [
@@ -93,7 +93,6 @@
         "name": "scoutingTotal",
         "formula": "auto + coral + algae + climb"
       }
-    ],
-    "filters": []
+    ]
   }
 }

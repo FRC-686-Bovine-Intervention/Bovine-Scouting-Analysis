@@ -297,12 +297,20 @@ function scalarResult(value, granularity = "scalar") {
   };
 }
 
+function booleanScalarResult(value, granularity = "scalar") {
+  return { ...scalarResult(value, granularity), boolean: true };
+}
+
 function seriesResult(entries) {
   return {
     kind: "series",
     granularity: "match",
     entries: normalizeSeriesEntries(entries),
   };
+}
+
+function booleanSeriesResult(entries) {
+  return { ...seriesResult(entries), boolean: true };
 }
 
 function errorResult(message) {
@@ -337,6 +345,10 @@ function isScalarResult(result) {
 
 function isScopeResult(result) {
   return result?.kind === "scope";
+}
+
+function isBooleanResult(result) {
+  return Boolean(result?.boolean);
 }
 
 function scopeResult(scopeId) {
@@ -447,9 +459,9 @@ function compareFormulaResults(left, right, operator) {
       key,
       value: compareValues(valueForKey(left, key), valueForKey(right, key), operator),
     }));
-    return seriesResult(entries);
+    return booleanSeriesResult(entries);
   }
-  return scalarResult(compareValues(left.value, right.value, operator), granularity);
+  return booleanScalarResult(compareValues(left.value, right.value, operator), granularity);
 }
 
 function combineBooleanResults(left, right, operator) {
@@ -466,22 +478,22 @@ function combineBooleanResults(left, right, operator) {
     return 0;
   };
   if (granularity === "match") {
-    return seriesResult(
+    return booleanSeriesResult(
       coalescedEntryKeys(left, right).map((key) => ({
         key,
         value: applyOperator(valueForKey(left, key), valueForKey(right, key)),
       })),
     );
   }
-  return scalarResult(applyOperator(left.value, right.value), granularity);
+  return booleanScalarResult(applyOperator(left.value, right.value), granularity);
 }
 
 function negateBooleanResult(result) {
   if (isErrorResult(result)) return result;
   if (isSeriesResult(result)) {
-    return seriesResult(result.entries.map((entry) => ({ key: entry.key, value: truthyNumber(entry.value) ? 0 : 1 })));
+    return booleanSeriesResult(result.entries.map((entry) => ({ key: entry.key, value: truthyNumber(entry.value) ? 0 : 1 })));
   }
-  return scalarResult(truthyNumber(result.value) ? 0 : 1, result.granularity);
+  return booleanScalarResult(truthyNumber(result.value) ? 0 : 1, result.granularity);
 }
 
 function negateFormulaResult(result) {
@@ -502,6 +514,7 @@ function recentSeriesEntries(result, recentEntryCount = 0) {
 function filteredSeriesEntries(result, filterResult, recentEntryCount = 0) {
   const entries = recentSeriesEntries(result, recentEntryCount);
   if (!filterResult) return entries;
+  if (isErrorResult(filterResult)) return filterResult;
   if (!isSeriesResult(filterResult)) return null;
   const allowedKeys = new Map(
     recentSeriesEntries(filterResult, recentEntryCount).map((entry) => [entry.key, truthyNumber(entry.value) === 1]),
@@ -513,6 +526,7 @@ function numericSeriesValues(result, recentEntryCount = 0, filterResult = null, 
   if (isScopeResult(result) || isScopeResult(filterResult)) return errorResult("Scope values can only be used inside group functions.");
   if (!isSeriesResult(result)) return errorResult(seriesError);
   const entries = filteredSeriesEntries(result, filterResult, recentEntryCount);
+  if (isErrorResult(entries)) return entries;
   if (entries === null) return errorResult("Optional filter arguments must evaluate to a match-level expression.");
   return entries
     .map((entry) => numericValueOrNaN(entry.value))
@@ -535,6 +549,7 @@ function countSeriesValues(result, recentEntryCount = 0, filterResult = null) {
   if (isScopeResult(result) || isScopeResult(filterResult)) return errorResult("Scope values can only be used inside group functions.");
   if (!isSeriesResult(result)) return errorResult("count requires a match-level expression.");
   const entries = filteredSeriesEntries(result, filterResult, recentEntryCount);
+  if (isErrorResult(entries)) return entries;
   if (entries === null) return errorResult("Optional filter arguments must evaluate to a match-level expression.");
   const count = entries.filter((entry) => isPresentValue(entry.value)).length;
   return scalarResult(count, "event");
@@ -910,7 +925,14 @@ function evaluateFormulaAst(ast, options = {}) {
   if (ast.type === "call") {
     const normalizedName = String(ast.callee || "").trim().toLowerCase();
     const recentEntryCount = Number(options.recentEntryCount) || 0;
-    const evaluateOptionalFilter = (filterAst) => (filterAst ? evaluateFormulaAst(filterAst, options) : null);
+    const evaluateOptionalFilter = (filterAst) => {
+      if (!filterAst) return null;
+      const result = evaluateFormulaAst(filterAst, options);
+      if (isErrorResult(result)) return result;
+      return isBooleanResult(result)
+        ? result
+        : errorResult("Optional filter arguments must evaluate to boolean values; numeric/non-boolean formulas are not valid filters.");
+    };
     if (normalizedName === "and") {
       if (ast.args.length < 2) return errorResult("and requires at least two arguments.");
       return ast.args
@@ -1342,6 +1364,7 @@ globalThis.MetricEngine = {
   isErrorResult,
   isScopeResult,
   isScalarResult,
+  isBooleanResult,
   isSeriesResult,
   metricTrendValues,
   normalizeAllianceFieldShares,

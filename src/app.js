@@ -2243,22 +2243,16 @@ function currentProfileMetricScopeKey(eventModel = currentEvent()) {
   return importedProfileScopeKey(eventModel) || preferredScoutingProfileIdForEvent(eventModel);
 }
 
-function isPredicateEquationDefinition(definition) {
-  return normalizeText(definition?.usage).toLowerCase() === "predicate";
-}
-
 function currentProfileDerivedEquationDefinitions(eventModel = currentEvent()) {
-  return currentProfileEquationList(eventModel)
-    .filter((definition) => !isPredicateEquationDefinition(definition))
-    .map((definition) => ({
-      id: definition.name,
-      name: definition.name,
-      label: definition.name,
-      unit: definition.unit || "pts",
-      expression: definition.formula,
-      formula: "expression",
-      source: "profile_equation",
-    }));
+  return currentProfileEquationList(eventModel).map((definition) => ({
+    id: definition.name,
+    name: definition.name,
+    label: definition.name,
+    unit: definition.unit || "pts",
+    expression: definition.formula,
+    formula: "expression",
+    source: "profile_equation",
+  }));
 }
 
 function currentDerivedMetricDefinitions(eventModel = currentEvent()) {
@@ -2633,13 +2627,11 @@ function currentScoutingSchemaReconciliationModel() {
           : currentAvailableScoutingFieldDefinitions())) || [],
     ),
     derivedEquations: draftDerivedEquations,
-    filters: cloneJsonValue(currentProfileFilterList()),
   };
   const resolvedDiagnostics = buildScoutingDependencyDiagnostics({
     previousFields: diagnosticsState.committedFields.length ? diagnosticsState.committedFields : currentAvailableScoutingFieldDefinitions(),
     currentFields: draftProfileDefinition.fields,
     equations: draftDerivedEquations,
-    filters: draftProfileDefinition.filters,
     sortEquations: state.sortEquations.filter((equation) => !isProtectedSortEquation(equation)),
   });
 
@@ -2661,7 +2653,6 @@ function applyScoutingSchemaResolutionDraft(model = currentScoutingSchemaReconci
     label: model.draftProfileDefinition.label,
     versionKey: model.draftProfileDefinition.versionKey,
     derivedEquations: cloneJsonValue(model.draftProfileDefinition.derivedEquations || []),
-    filters: cloneJsonValue(model.draftProfileDefinition.filters || []),
     pridgeResponseDefinitions: cloneJsonValue(
       model.draftProfileDefinition.pridgeResponseDefinitions
         || currentPridgeResponseDefinitions(currentEvent()),
@@ -2679,7 +2670,6 @@ function applyScoutingSchemaResolutionDraft(model = currentScoutingSchemaReconci
     label: nextProfileDefinition.label || importSummary?.profileLabel || currentProfileMetricScopeKey(currentEvent()),
     fields: model.draftProfileDefinition.fields,
     derivedEquations: nextProfileDefinition.derivedEquations,
-    filters: nextProfileDefinition.filters,
     metricDiscovery: nextProfileDefinition.metricDiscovery,
     pridgeResponseDefinitions: nextProfileDefinition.pridgeResponseDefinitions,
   });
@@ -2789,8 +2779,7 @@ function currentProfileEquationList(eventModel = currentEvent()) {
 }
 
 function currentProfileFilterList(eventModel = currentEvent()) {
-  return [...(currentImportedProfileDefinition(eventModel)?.filters || [])]
-    .sort((left, right) => left.name.localeCompare(right.name));
+  return currentProfileEquationList(eventModel);
 }
 
 function equationDefinitionById(id, eventModel = currentEvent()) {
@@ -2798,7 +2787,7 @@ function equationDefinitionById(id, eventModel = currentEvent()) {
 }
 
 function profileFilterDefinitionById(id, eventModel = currentEvent()) {
-  return currentProfileFilterList(eventModel).find((definition) => definition.name === id || definition.id === id) || null;
+  return equationDefinitionById(id, eventModel);
 }
 
 function sanitizeFormulaReferenceToken(value, fallback = "value") {
@@ -2839,28 +2828,10 @@ function uniqueProfileEquationName(requestedName, existingDefinitions = [], fall
   return candidate;
 }
 
-function profileFilterReferenceEntries(eventModel = currentEvent()) {
-  const counts = new Map();
-  return currentProfileFilterList(eventModel).map((definition) => {
-    const baseToken = sanitizeFormulaReferenceToken(definition.id || definition.name);
-    const nextCount = (counts.get(baseToken) || 0) + 1;
-    counts.set(baseToken, nextCount);
-    return {
-      token: `filter.${nextCount === 1 ? baseToken : `${baseToken}_${nextCount}`}`,
-      definition,
-    };
-  });
-}
-
-function profileFilterDefinitionByReference(reference, eventModel = currentEvent()) {
-  const normalizedReference = String(reference || "").toLowerCase();
-  return profileFilterReferenceEntries(eventModel).find((entry) => entry.token.toLowerCase() === normalizedReference)?.definition || null;
-}
-
 function ensureActiveDerivedEquation(eventModel = currentEvent()) {
   const definitions = currentProfileEquationList(eventModel);
   if (definitions.some((definition) => definition.id === state.activeDerivedEquationId)) return state.activeDerivedEquationId;
-  state.activeDerivedEquationId = definitions.find((definition) => !isPredicateEquationDefinition(definition))?.id || definitions[0]?.id || "";
+  state.activeDerivedEquationId = definitions[0]?.id || "";
   return state.activeDerivedEquationId;
 }
 
@@ -3450,6 +3421,7 @@ function evaluateGroupFormulaForContext(groupRequest, formulaContext, evaluation
   const peerSeriesResultCache = new Map();
   const peerFilterResultCache = new Map();
   const evaluateGroup = ({ name, seriesAst, scopeId, filterAst, parentOptions }, context) => {
+    let filterValidationError = "";
     const recentEntryCount = Number(parentOptions?.recentEntryCount) || currentRecentMatchCount();
     const cacheKey = [
       context?.eventModel?.key || "",
@@ -3512,12 +3484,18 @@ function evaluateGroupFormulaForContext(groupRequest, formulaContext, evaluation
           filterResult = peerFilterCache.get(filterAst);
         }
         if (isErrorFormulaResult(filterResult)) return [];
+        if (filterResult && !metricEngine.isBooleanResult?.(filterResult)) {
+          filterValidationError = "Optional filter arguments must evaluate to boolean values; numeric/non-boolean formulas are not valid filters.";
+          return [];
+        }
         if (filterResult && !extractSeriesEntryValue(filterResult, row.matchNumber)) return [];
         return [extractSeriesEntryValue(seriesResult, row.matchNumber)];
       });
       return { key: row.matchNumber, value: aggregateGroupValues(name, peerValues) };
     });
-    const result = { kind: "series", granularity: "match", entries };
+    const result = filterValidationError
+      ? { kind: "error", granularity: "invalid", error: filterValidationError }
+      : { kind: "series", granularity: "match", entries };
     groupEvaluationCache.set(cacheKey, result);
     return result;
   };
@@ -3602,6 +3580,11 @@ function evaluateEventFormulaForContext(eventRequest, formulaContext, evaluation
           eventEvaluationCache.set(cacheKey, result);
           return result;
         }
+        if (!metricEngine.isBooleanResult?.(filterResult)) {
+          const result = { kind: "error", error: "Optional filter arguments must evaluate to boolean values; numeric/non-boolean formulas are not valid filters." };
+          eventEvaluationCache.set(cacheKey, result);
+          return result;
+        }
         include = Number(normalizedFilter.value) !== 0;
       }
       if (!include) continue;
@@ -3654,20 +3637,6 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
     const componentId = identifier.slice("pridge.".length);
     if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.total ?? Number.NaN);
     return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.components?.[componentId] ?? Number.NaN);
-  }
-  if (identifier.startsWith("filter.")) {
-    const referencedFilter = profileFilterDefinitionByReference(identifier, formulaContext.eventModel);
-    if (!referencedFilter) return null;
-    return evaluateSeasonFilterDefinitionForTeam(formulaContext.baseTeam, referencedFilter, {
-      eventModel: formulaContext.eventModel,
-      formulaContext,
-      evaluationCache: filterEvaluationCache,
-      evaluationStack: filterEvaluationStack,
-      equationEvaluationCache: evaluationCache,
-      equationEvaluationStack: evaluationStack,
-      groupEvaluationCache,
-      eventEvaluationCache,
-    }).result;
   }
   const referencedEquation = equationDefinitionById(identifier, formulaContext.eventModel);
   if (!referencedEquation) return null;
@@ -4538,7 +4507,6 @@ function registerScoutingProfile(eventModel, profile) {
         derivedEquations: Array.isArray(profile?.derivedEquations)
           ? profile.derivedEquations
           : (Array.isArray(profile?.equations) ? profile.equations : (existingProfile?.derivedEquations || existingProfile?.equations || [])),
-        filters: Array.isArray(profile?.filters) ? profile.filters : (existingProfile?.filters || []),
         metricPresentation: profile?.metricPresentation && typeof profile.metricPresentation === "object"
           ? cloneJsonValue(profile.metricPresentation)
           : (existingProfile?.metricPresentation ? cloneJsonValue(existingProfile.metricPresentation) : undefined),
@@ -4915,52 +4883,15 @@ function normalizeEquationDefinitions(definitions) {
   (definitions || []).forEach((definition, index) => {
     const name = canonicalProfileEquationName(definition, `equation_${index + 1}`);
     const formula = String(definition?.formula || "");
-    const usage = normalizeText(definition?.usage).toLowerCase() === "predicate" ? "predicate" : "metric";
     if (!name || seen.has(name)) return;
     seen.add(name);
     nextDefinitions.push({
       id: name,
       name,
       formula: canonicalizeStoredFormula(formula, "0"),
-      usage,
     });
   });
   return nextDefinitions;
-}
-
-function normalizeFilterDefinitions(definitions) {
-  const seen = new Set();
-  const nextDefinitions = [];
-  (definitions || []).forEach((definition, index) => {
-    const name = canonicalProfileEquationName(definition, `filter_${index + 1}`);
-    if (!name || seen.has(name)) return;
-    seen.add(name);
-    nextDefinitions.push({
-      id: name,
-      name,
-      formula: canonicalizeStoredFormula(String(definition?.formula || "").trim() || "0 > 1", "0 > 1"),
-    });
-  });
-  return nextDefinitions;
-}
-
-function predicateEquationDefinitionsFromFilters(definitions) {
-  return normalizeFilterDefinitions(definitions).map((definition) => ({
-    ...definition,
-    unit: "bool",
-    usage: "predicate",
-  }));
-}
-
-function filterDefinitionsFromPredicateEquations(definitions) {
-  return normalizeFilterDefinitions(
-    (definitions || [])
-      .filter((definition) => isPredicateEquationDefinition(definition))
-      .map((definition) => ({
-        name: definition.name,
-        formula: definition.formula,
-      })),
-  );
 }
 
 function normalizeScoutingProfileDefinition(profile) {
@@ -4973,15 +4904,13 @@ function normalizeScoutingProfileDefinition(profile) {
     : [];
   const equations = normalizeEquationDefinitions([
     ...(Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : [])),
-    ...predicateEquationDefinitionsFromFilters(profile?.filters),
+    ...(Array.isArray(profile?.filters) ? profile.filters : []),
   ]);
-  const filters = filterDefinitionsFromPredicateEquations(equations);
   const versionKey = normalizeText(profile?.versionKey || profile?.versionId)
     || buildNormalizedScoutingProfileVersionKey({
       id,
       fields,
       equations,
-      filters,
     });
   const metricPresentation = profile?.metricPresentation && typeof profile.metricPresentation === "object"
     ? cloneJsonValue(profile.metricPresentation)
@@ -4995,7 +4924,6 @@ function normalizeScoutingProfileDefinition(profile) {
     versionKey,
     fields,
     equations,
-    filters,
     ...(metricPresentation ? { metricPresentation } : {}),
     ...(pridgeResponseDefinitions.length ? { pridgeResponseDefinitions } : {}),
   };
@@ -5020,7 +4948,7 @@ function normalizeScoutingProfileCatalog(catalog) {
 function normalizeLegacyFilterCatalog(catalog) {
   const normalized = { seasons: {} };
   Object.entries(catalog?.seasons || {}).forEach(([seasonKey, definitions]) => {
-    normalized.seasons[String(seasonKey)] = normalizeFilterDefinitions(definitions);
+    normalized.seasons[String(seasonKey)] = normalizeEquationDefinitions(definitions);
   });
   return normalized;
 }
@@ -5044,7 +4972,7 @@ function migrateLegacyScopedConfigIntoProfiles(profileCatalog, legacyEquationCat
         derivedEquations: [],
       }];
     const legacyEquations = normalizeEquationDefinitions(legacyEquationCatalog?.seasons?.[seasonKey] || []);
-    const legacyPredicateEquations = predicateEquationDefinitionsFromFilters(legacyFilterCatalog?.seasons?.[seasonKey] || []);
+    const legacyPredicateEquations = normalizeEquationDefinitions(legacyFilterCatalog?.seasons?.[seasonKey] || []);
     migrated[seasonKey] = baseProfiles.map((profile) => ({
       ...profile,
       derivedEquations: normalizeEquationDefinitions(
@@ -6707,10 +6635,6 @@ function filterResultEntries(filterResult) {
   return Array.isArray(filterResult?.entries) ? filterResult.entries : [];
 }
 
-function seriesResultLooksBoolean(result) {
-  return filterResultEntries(result).every((entry) => Number.isNaN(Number(entry.value)) || [0, 1].includes(Number(entry.value)));
-}
-
 function evaluateSeasonFilterDefinitionForTeam(team, definition, options = {}) {
   const eventModel = options.eventModel || currentEvent();
   const formulaContext = options.formulaContext || buildTeamFormulaContext(team, eventModel);
@@ -6747,7 +6671,7 @@ function filterStatusForTeam(team, filterId, eventModel = currentEvent()) {
   if (!isSeriesFormulaResult(evaluation.result)) {
     return { label: "Event Only", severity: "warn", detail: "Filters must evaluate to a match-level result." };
   }
-  if (!seriesResultLooksBoolean(evaluation.result)) {
+  if (!metricEngine.isBooleanResult?.(evaluation.result)) {
     return { label: "Non-Boolean", severity: "warn", detail: "Filters must resolve to true/false style values such as `metric > 0`." };
   }
   return null;
@@ -6758,7 +6682,7 @@ function applyAnalysisPredicateToEntries(team, entries, eventModel = currentEven
   const normalizedEntries = Array.isArray(entries) ? entries : [];
   if (!definition || !normalizedEntries.length) return normalizedEntries;
   const evaluation = evaluateSeasonFilterForTeam(team, definition.id, { eventModel });
-  if (isErrorFormulaResult(evaluation.result) || !isSeriesFormulaResult(evaluation.result) || !seriesResultLooksBoolean(evaluation.result)) {
+  if (isErrorFormulaResult(evaluation.result) || !isSeriesFormulaResult(evaluation.result) || !metricEngine.isBooleanResult?.(evaluation.result)) {
     return [];
   }
   const includeByMatch = new Map(filterResultEntries(evaluation.result).map((entry) => [Number(entry.key), truthy(entry.value)]));

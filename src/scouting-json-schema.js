@@ -217,15 +217,6 @@ function normalizeProfileEquation(definition, index = 0) {
   };
 }
 
-function normalizeProfileFilter(definition, index = 0) {
-  const name = canonicalProfileEquationName(definition, `filter_${index + 1}`);
-  if (!name) return null;
-  return {
-    name,
-    formula: normalizeText(definition?.formula || definition?.expression),
-  };
-}
-
 function selectSchemaProfile(schemaSource, schemaMeta = {}) {
   if (schemaSource?.profile && typeof schemaSource.profile === "object" && !Array.isArray(schemaSource.profile)) {
     return schemaSource.profile;
