@@ -80,8 +80,11 @@
         snapshot = await firestore.getDocsFromCache(firestore.collection(eventDocument(normalizedEventKey), "sourceCache"));
         fromCache = true;
       }
-      const sources = (snapshot?.docs || []).map((sourceSnapshot) => sourceSnapshot.data()).map((source) => ({
-        sourceId: normalizeText(source?.sourceId),
+      const sources = (snapshot?.docs || []).map((sourceSnapshot) => ({
+        source: sourceSnapshot.data(),
+        documentId: sourceSnapshot.id,
+      })).map(({ source, documentId }) => ({
+        sourceId: normalizeText(source?.sourceId || documentId),
       })).filter((source) => source.sourceId).sort((left, right) => left.sourceId.localeCompare(right.sourceId));
       return { fromCache, sources };
     }

@@ -2306,6 +2306,36 @@ function currentScoutingDiagnosticsState() {
   };
 }
 
+async function cacheScoutingSchemaArtifacts(schemaJsonText, schemaSource = "", schemaLinkText = "", schemaLinkSource = "") {
+  const api = globalThis.firebaseEventSourceCacheApi;
+  if (!api || globalThis.firebaseUserRole !== "admin" || !normalizeText(schemaJsonText)) return false;
+  try {
+    await api.saveEventSourceCache({
+      event: currentEvent(),
+      workspace: currentEventWorkspace(),
+      artifacts: [{
+        sourceId: "scouting-schema",
+        rawText: schemaJsonText,
+        sourceUrl: schemaSource,
+        contentType: "application/json",
+        status: 200,
+        fetchedAt: new Date().toISOString(),
+      }, ...(normalizeText(schemaLinkText) ? [{
+        sourceId: "scouting-schema-link",
+        rawText: schemaLinkText,
+        sourceUrl: schemaLinkSource,
+        contentType: "application/json",
+        status: 200,
+        fetchedAt: new Date().toISOString(),
+      }] : [])],
+    });
+    return true;
+  } catch (error) {
+    console.warn("Unable to cache scouting schema artifacts", error);
+    return false;
+  }
+}
+
 async function loadAttachedSchemaForDiagnostics() {
   const attachment = currentScoutingAttachment();
   const schemaPath = normalizeText(attachment?.location?.schemaPath);
@@ -2332,6 +2362,10 @@ async function loadAttachedSchemaForDiagnostics() {
       versionKey: profile?.versionKey,
     });
     state.importSchemaJsonText = schemaJsonText;
+    const schemaLinkText = attachment?.location?.schemaLinkPath
+      ? await readLocalAttachmentTextByPath(attachment.location.schemaLinkPath).catch(() => "")
+      : "";
+    await cacheScoutingSchemaArtifacts(schemaJsonText, schemaPath || schemaUrl, schemaLinkText, attachment?.location?.schemaLinkPath || "");
     applyCurrentPridgeResponseDefinitions();
     saveState();
     render();
@@ -2922,6 +2956,12 @@ async function saveSchemaArtifactAsNewFiles({
     { render: false },
   );
   state.importSchemaJsonText = schemaArtifactText;
+  await cacheScoutingSchemaArtifacts(
+    schemaArtifactText,
+    selectedSchema.path,
+    linkArtifactText,
+    selectedLink.path,
+  );
   pushActivity(`Saved a new schema profile ${selectedSchema.path} and schema link ${selectedLink.path} for ${normalizedScoutingSource}.`);
   return {
     schemaSource: selectedSchema.path,
@@ -4237,6 +4277,14 @@ function rawSourceDisplayText(artifact = state.rawSourceCacheArtifact) {
     try { return JSON.stringify(JSON.parse(rawText), null, 2); } catch { return rawText; }
   }
   return rawText;
+}
+
+function isRawSourceSchemaArtifact(sourceId) {
+  const normalizedSourceId = normalizeText(sourceId).toLowerCase();
+  return normalizedSourceId === "scouting-schema"
+    || normalizedSourceId === "scouting-schema-link"
+    || normalizedSourceId.endsWith(":schema")
+    || normalizedSourceId.endsWith(":schema-link");
 }
 
 async function selectRawSourceCacheEvent(eventKey) {
@@ -6603,10 +6651,20 @@ async function loadScoutingData(options = {}) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const rawBytes = new Uint8Array(await response.arrayBuffer());
     const csvText = new TextDecoder().decode(rawBytes);
-    await cacheActiveRawScoutingSource(csvText, requestUrl, response.headers.get("content-type") || "text/csv", rawBytes);
+    const schemaJsonText = await readAttachedScoutingSchemaText(attachment, attachmentLoad, sourceUrl).catch(() => "");
+    const schemaLinkText = attachment?.location?.schemaLinkPath
+      ? await readLocalAttachmentTextByPath(attachment.location.schemaLinkPath).catch(() => "")
+      : "";
+    await cacheActiveRawScoutingSource(csvText, requestUrl, response.headers.get("content-type") || "text/csv", rawBytes, {
+      schemaJsonText,
+      schemaSource: attachmentLoad.schemaPath || attachmentLoad.schemaUrl,
+      schemaLinkText,
+      schemaLinkSource: attachment?.location?.schemaLinkPath || "",
+    });
     const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
     loadPreparedScoutingSheet(csvText, profileId, {
       ...options,
+      schemaJsonText,
       importDraftSource: "attached",
     });
   } catch (error) {
@@ -8898,6 +8956,8 @@ function renderRawSourceCacheViewer() {
   const artifact = state.rawSourceCacheArtifact;
   const manifest = artifact?.manifest || null;
   const events = state.sharedCachedEvents;
+  const schemaSources = state.rawSourceCacheSources.filter((source) => isRawSourceSchemaArtifact(source.sourceId));
+  const payloadSources = state.rawSourceCacheSources.filter((source) => !isRawSourceSchemaArtifact(source.sourceId));
   const metadata = manifest ? [
     ["Provider / source", manifest.sourceId], ["Source URL", manifest.sourceUrl || "Not recorded"], ["Retrieved", manifest.fetchedAt || "Not recorded"],
     ["Content type", manifest.contentType || "Not recorded"], ["HTTP status", manifest.status ?? "Not recorded"], ["Fingerprint", manifest.fingerprint || "Not recorded"],
@@ -8907,7 +8967,8 @@ function renderRawSourceCacheViewer() {
     <div class="section-heading"><div><h2>Raw Source Cache</h2><p class="muted">Administrator debugging view. Rendering never changes the persisted payload.</p></div></div>
     <div class="admin-form-grid">
       <label>Cached Event<select id="rawSourceCacheEventSelect" aria-label="Cached event for raw source viewer" ${state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a shared cached event</option>${events.map((event) => `<option value="${escapeAttribute(event.key)}" ${event.key === state.rawSourceCacheEventKey ? "selected" : ""}>${escapeHtml(`${event.key} | ${displayEventName(event)}`)}</option>`).join("")}</select></label>
-      <label>Source Artifact<select id="rawSourceCacheSourceSelect" aria-label="Cached source artifact" ${!state.rawSourceCacheEventKey || state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a source artifact</option>${state.rawSourceCacheSources.map((source) => `<option value="${escapeAttribute(source.sourceId)}" ${source.sourceId === state.rawSourceCacheSourceId ? "selected" : ""}>${escapeHtml(source.sourceId)}</option>`).join("")}</select></label>
+      <label>Source Artifact<select id="rawSourceCacheSourceSelect" aria-label="Cached source artifact" ${!state.rawSourceCacheEventKey || state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a source artifact</option>${payloadSources.map((source) => `<option value="${escapeAttribute(source.sourceId)}" ${source.sourceId === state.rawSourceCacheSourceId ? "selected" : ""}>${escapeHtml(source.sourceId)}</option>`).join("")}</select></label>
+      <label>Schema Artifact<select id="rawSourceCacheSchemaSelect" aria-label="Cached schema artifact" ${!state.rawSourceCacheEventKey || state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a cached schema artifact</option>${schemaSources.map((source) => `<option value="${escapeAttribute(source.sourceId)}" ${source.sourceId === state.rawSourceCacheSourceId ? "selected" : ""}>${escapeHtml(source.sourceId === "scouting-schema" ? "Scouting schema" : "Schema link")}</option>`).join("")}</select></label>
       ${state.rawSourceCacheStatus ? `<div class="issue-row ${artifact ? "" : state.rawSourceCacheSourceId ? "danger" : ""}">${escapeHtml(state.rawSourceCacheStatus)}</div>` : ""}
       ${metadata.length ? `<div class="attachment-metadata-grid">${metadata.map(([label, value]) => `<div><strong>${escapeHtml(label)}</strong><span class="muted">${escapeHtml(String(value))}</span></div>`).join("")}</div>` : ""}
       ${artifact ? `<div class="admin-actions"><button type="button" id="copyRawSourceCacheButton">Copy Raw</button><button type="button" id="downloadRawSourceCacheButton">Download Raw</button></div><textarea id="rawSourceCachePreview" class="admin-textarea raw-source-cache-preview" aria-label="Raw source preview" readonly spellcheck="false">${escapeHtml(rawSourceDisplayText(artifact))}</textarea>` : ""}
@@ -9099,7 +9160,6 @@ function renderAdminEventControl() {
           </div>
         </article>
       </div>
-      ${renderRawSourceCacheViewer()}
       <div class="grid cols-2">
         <article class="card">
           <div class="section-heading">
@@ -10056,6 +10116,7 @@ function bindViewEvents() {
   });
   document.querySelector("#rawSourceCacheEventSelect")?.addEventListener("change", (event) => { void selectRawSourceCacheEvent(event.target.value); });
   document.querySelector("#rawSourceCacheSourceSelect")?.addEventListener("change", (event) => { void selectRawSourceCacheArtifact(event.target.value); });
+  document.querySelector("#rawSourceCacheSchemaSelect")?.addEventListener("change", (event) => { void selectRawSourceCacheArtifact(event.target.value); });
   document.querySelector("#copyRawSourceCacheButton")?.addEventListener("click", () => { void copyRawSourceCacheArtifact(); });
   document.querySelector("#downloadRawSourceCacheButton")?.addEventListener("click", downloadRawSourceCacheArtifact);
   document.querySelector("#adminEventCodeInput")?.addEventListener("input", (event) => {

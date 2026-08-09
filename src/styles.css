@@ -533,7 +533,9 @@ select {
 
 .raw-source-cache-viewer .admin-form-grid {
   min-height: 0;
-  flex: 1;
+  flex: 0 1 auto;
+  align-content: start;
+  align-items: start;
 }
 
 .raw-source-cache-preview {

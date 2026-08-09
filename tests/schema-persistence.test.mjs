@@ -6,6 +6,10 @@ import vm from "node:vm";
 
 const appSourceForSchemaLoadAssertion = fs.readFileSync(path.resolve("src/app.js"), "utf8");
 assert.match(appSourceForSchemaLoadAssertion, /loadPreparedScoutingSheet\(csvText, profileId, \{[\s\S]*schemaJsonText,[\s\S]*importDraftSource: "attached"/);
+assert.match(appSourceForSchemaLoadAssertion, /const schemaJsonText = await readAttachedScoutingSchemaText\(attachment, attachmentLoad, sourceUrl\)\.catch\(\(\) => ""\);[\s\S]*cacheActiveRawScoutingSource\(csvText, requestUrl,[\s\S]*schemaJsonText,[\s\S]*schemaSource: attachmentLoad\.schemaPath \|\| attachmentLoad\.schemaUrl/);
+assert.match(appSourceForSchemaLoadAssertion, /async function cacheScoutingSchemaArtifacts\(schemaJsonText,[\s\S]*sourceId: "scouting-schema"[\s\S]*api\.saveEventSourceCache/);
+assert.match(appSourceForSchemaLoadAssertion, /state\.importSchemaJsonText = schemaJsonText;[\s\S]*cacheScoutingSchemaArtifacts\(schemaJsonText, schemaPath \|\| schemaUrl/);
+assert.match(appSourceForSchemaLoadAssertion, /state\.importSchemaJsonText = schemaArtifactText;[\s\S]*cacheScoutingSchemaArtifacts\([\s\S]*selectedSchema\.path[\s\S]*selectedLink\.path/);
 assert.match(appSourceForSchemaLoadAssertion, /const selectedProfileDefinitions = currentImportedProfileDefinition\(eventModel\)\?\.pridgeResponseDefinitions;[\s\S]*const profileDefinitions = Array\.isArray\(selectedProfileDefinitions\)/);
 assert.match(appSourceForSchemaLoadAssertion, /const importedPridgeResponseDefinitions = currentPridgeResponseDefinitions\(currentEvent\(\)\);[\s\S]*pridgeResponseDefinitions: importedPridgeResponseDefinitions/);
 assert.match(appSourceForSchemaLoadAssertion, /const pridgeResponseDefinitions = Array\.isArray\(profile\?\.pridgeResponseDefinitions\)[\s\S]*pridgeResponseDefinitions \}/);
