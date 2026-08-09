@@ -18,6 +18,7 @@ const sourceData = {
 const result = await context.globalThis.CachedEventLoader.rebuildCachedEvent({ event: { key: "2025chcmp", season: 2025 }, loadSource: async (sourceId) => sourceData[sourceId], now: Date.parse("2025-01-01T00:20:00.000Z") });
 assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel)), { key: "2025chcmp", season: 2025, name: "Championship", teams: [{ team_number: 686 }], matches: [], catalogSource: "shared-cache" });
 assert.equal(builtBundle.deferPridgeTrends, true);
+assert.equal(builtBundle.deferPridgeComputation, true);
 assert.equal(result.cacheFreshness, "stale");
 assert.match(result.sourceStates.tba.notes, /stale/);
 await assert.rejects(() => context.globalThis.CachedEventLoader.rebuildCachedEvent({ event: { key: "2025chcmp" }, loadSource: async (sourceId) => sourceId === "tba-matches" ? Promise.reject(new Error("offline cache miss")) : sourceData[sourceId] }), /tba-matches data is unavailable/);
