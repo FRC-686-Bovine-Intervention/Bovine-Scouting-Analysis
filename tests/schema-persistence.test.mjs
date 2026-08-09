@@ -1337,6 +1337,8 @@ await runTest("provider metric catalogs apply default and schema blacklists with
   assert.equal(identifiers.includes("statbotics.team_name"), false);
   assert.equal(identifiers.includes("statbotics.epa.total_points"), true);
   assert.equal(context.metricTokenLabel({ kind: "source", sourceId: "pridge", componentId: "epa.breakdown.auto_points" }), "pridge.epa.breakdown.auto_points");
+  assert.equal(context.metricTokenLabel({ kind: "source", sourceId: "pridge", componentId: "tbaTotalAutoPoints" }), "pridge.epa.breakdown.auto_points");
+  assert.equal(identifiers.includes("pridge.epa.total_points"), true);
   assert.equal(
     context.metricTokenLabel({
       kind: "source",

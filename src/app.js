@@ -2936,6 +2936,22 @@ async function saveSchemaArtifactAsNewFiles({
   };
 }
 
+const PRIDGE_FORMULA_COMPONENT_ALIASES = Object.freeze({
+  tbaTotalAutoPoints: "epa.breakdown.auto_points",
+  tbaTotalTeleopPoints: "epa.breakdown.teleop_points",
+  tbaTotalEndgamePoints: "epa.breakdown.endgame_points",
+});
+
+function pridgeFormulaComponentId(componentId) {
+  return PRIDGE_FORMULA_COMPONENT_ALIASES[componentId] || componentId;
+}
+
+function pridgeComponentCandidates(componentId) {
+  const legacyComponentId = Object.entries(PRIDGE_FORMULA_COMPONENT_ALIASES)
+    .find(([, alias]) => alias === componentId)?.[0];
+  return legacyComponentId ? [componentId, legacyComponentId] : [componentId];
+}
+
 function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
   return [
     ...currentProfileDerivedEquationDefinitions(eventModel).map((definition) => ({ id: definition.name })),
@@ -2943,10 +2959,11 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
     ...currentAvailableTbaFormulaIdentifiers(eventModel).map((id) => ({ id })),
     ...currentAvailableStatboticsFormulaIdentifiers(eventModel).map((id) => ({ id })),
     { id: "pridge.total" },
+    { id: "pridge.epa.total_points" },
     ...runtimeMetricsForEventModel(eventModel)
       .filter((metric) => metric.kind === "source" && metric.sourceId === "pridge" && metric.componentId !== "total")
-      .map((metric) => ({ id: `pridge.${metric.componentId}` })),
-  ];
+      .map((metric) => ({ id: `pridge.${pridgeFormulaComponentId(metric.componentId)}` })),
+  ].filter((entry, index, entries) => entries.findIndex((candidate) => candidate.id === entry.id) === index);
 }
 
 function currentMetricDiscoverySchemaPayload() {
@@ -3634,7 +3651,11 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
   if (identifier.startsWith("pridge.")) {
     const componentId = identifier.slice("pridge.".length);
     if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.total ?? Number.NaN);
-    return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.components?.[componentId] ?? Number.NaN);
+    const components = formulaContext.overlayTeam.sources?.pridge?.components || {};
+    const value = pridgeComponentCandidates(componentId)
+      .map((candidate) => components[candidate])
+      .find((candidate) => candidate !== null && candidate !== undefined && candidate !== "");
+    return formulaScalarValue(value ?? Number.NaN);
   }
   const referencedEquation = equationDefinitionById(identifier, formulaContext.eventModel);
   if (!referencedEquation) return null;
@@ -5439,7 +5460,10 @@ function metricTokenLabel(metric) {
   if (metric.kind === "source" && (metric.sourceId === "scouting" || metric.sourceId === "scouter")) return `scouting.${metric.componentId}`;
   if (metric.kind === "source" && metric.sourceId === "tba") return `tba.${metric.componentId}`;
   if (metric.kind === "source" && metric.sourceId === "statbotics") return `statbotics.${metric.componentId}`;
-  if (metric.kind === "source" && metric.sourceId === "pridge") return `pridge.${metric.componentId}`;
+  if (metric.kind === "source" && metric.sourceId === "pridge") {
+    if (metric.componentId === "total") return "pridge.total";
+    return `pridge.${pridgeFormulaComponentId(metric.componentId)}`;
+  }
   return metric.label || metric.id || "";
 }
 
