@@ -83,23 +83,34 @@ async function switchByCode(target) {
 
 async function switchByRecent(target) {
   await page.evaluate(() => {
-    if (globalThis.__ticket109SwitchDurations) return;
-    globalThis.__ticket109SwitchDurations = [];
+    if (globalThis.__ticket109InteractionDurations) return;
+    globalThis.__ticket109InteractionDurations = { openRecent: [], switch: [] };
+    document.addEventListener("click", (event) => {
+      if (!event.target?.closest?.("#openRecentAdminEventsButton")) return;
+      const startedAt = performance.now();
+      setTimeout(() => globalThis.__ticket109InteractionDurations.openRecent.push(Number((performance.now() - startedAt).toFixed(1))), 0);
+    }, true);
     document.addEventListener("change", (event) => {
       if (event.target?.id !== "recentAdminEventSelect") return;
       const startedAt = performance.now();
-      setTimeout(() => globalThis.__ticket109SwitchDurations.push(Number((performance.now() - startedAt).toFixed(1))), 0);
+      setTimeout(() => globalThis.__ticket109InteractionDurations.switch.push(Number((performance.now() - startedAt).toFixed(1))), 0);
     }, true);
   });
-  const userDurationCountBefore = await page.evaluate(() => globalThis.__ticket109SwitchDurations.length);
+  const openDurationCountBefore = await page.evaluate(() => globalThis.__ticket109InteractionDurations.openRecent.length);
+  const switchDurationCountBefore = await page.evaluate(() => globalThis.__ticket109InteractionDurations.switch.length);
   const switchCountBefore = await page.evaluate(() => (globalThis.__scoutingPerf?.events || []).filter((event) => event.label === "switchActiveEvent.total").length);
   const before = await snapshot();
   await page.click("#openRecentAdminEventsButton");
+  await page.waitForFunction((count) => globalThis.__ticket109InteractionDurations?.openRecent.length > count, openDurationCountBefore);
+  const openDurationMs = await page.evaluate((count) => globalThis.__ticket109InteractionDurations.openRecent[count], openDurationCountBefore);
+  if (!(openDurationMs < 500)) {
+    throw new Error(`Opening Recent Events froze the UI for ${openDurationMs}ms; expected <500ms.`);
+  }
   const select = page.locator("#recentAdminEventSelect");
   await select.waitFor({ state: "visible", timeout: 2000 });
   await select.selectOption(target);
-  await page.waitForFunction((count) => globalThis.__ticket109SwitchDurations?.length > count, userDurationCountBefore);
-  const userDurationMs = await page.evaluate((count) => globalThis.__ticket109SwitchDurations[count], userDurationCountBefore);
+  await page.waitForFunction((count) => globalThis.__ticket109InteractionDurations?.switch.length > count, switchDurationCountBefore);
+  const userDurationMs = await page.evaluate((count) => globalThis.__ticket109InteractionDurations.switch[count], switchDurationCountBefore);
   if (!(userDurationMs < 500)) {
     throw new Error(`Recent event UI freeze lasted ${userDurationMs}ms; expected <500ms.`);
   }
@@ -115,7 +126,7 @@ async function switchByRecent(target) {
   if (!(switchDurationMs < 500)) {
     throw new Error(`Recent event switch took ${switchDurationMs}ms; expected <500ms.`);
   }
-  return { ...result, switchDurationMs, userDurationMs };
+  return { ...result, openDurationMs, switchDurationMs, userDurationMs };
 }
 
 try {
