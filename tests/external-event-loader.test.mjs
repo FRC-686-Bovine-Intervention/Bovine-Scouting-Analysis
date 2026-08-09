@@ -233,11 +233,17 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.tba || "").startsWith("fnv1a:"));
   assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.statbotics || "").startsWith("fnv1a:"));
   assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.total), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components["epa.total_points"]), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components["epa.breakdown.total_points"]), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components["epa.breakdown.auto_points"]), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components["epa.breakdown.teleop_points"]), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components["epa.breakdown.endgame_points"]), true);
   assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components.tbaTotalAutoPoints), true);
   assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components.tbaTotalTeleopPoints), true);
   assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components.tbaTotalEndgamePoints), true);
   assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:tbaTotalEndgamePoints"), true);
-  assert.equal(Object.keys(result.eventModel.teams[0].sources.pridge.components).some((id) => id.includes("epa")), false);
+  assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:epa.breakdown.auto_points"), true);
+  assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:epa.breakdown.endgame_points"), true);
   assert.equal(result.warnings.length, 0);
 
   const reapplied = context.EventModelBuilder.applyPridgeResponseDefinitions(result.eventModel, [

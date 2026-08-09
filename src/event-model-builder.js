@@ -11,7 +11,20 @@ const PRIDGE_RESPONSE_IDS = new Set([
   "tbaTotalAutoPoints",
   "tbaTotalTeleopPoints",
   "tbaTotalEndgamePoints",
+  "epa.total_points",
+  "epa.breakdown.total_points",
+  "epa.breakdown.auto_points",
+  "epa.breakdown.teleop_points",
+  "epa.breakdown.endgame_points",
 ]);
+
+const PRIDGE_EPA_RESPONSE_CANDIDATES = [
+  ["epa.total_points", ["totalPoints"]],
+  ["epa.breakdown.total_points", ["totalPoints"]],
+  ["epa.breakdown.auto_points", ["totalAutoPoints", "autoPoints"]],
+  ["epa.breakdown.teleop_points", ["totalTeleopPoints", "teleopPoints"]],
+  ["epa.breakdown.endgame_points", ["endGameTowerPoints", "endGameBargePoints", "endGamePoints", "endgamePoints"]],
+];
 
 function round(value, digits = 1) {
   return Number(Number(value || 0).toFixed(digits));
@@ -48,6 +61,35 @@ function normalizePridgeResponseDefinitions(payload) {
     unit: normalizeText(definition.unit) || "pts",
     formula: normalizeText(definition.formula),
   }));
+}
+
+function buildLivePridgeEpaResponseDefinitions(rawMatches) {
+  const qualificationMatches = (Array.isArray(rawMatches) ? rawMatches : [])
+    .filter((match) => match?.comp_level === "qm");
+  return PRIDGE_EPA_RESPONSE_CANDIDATES.flatMap(([id, candidates]) => {
+    const field = candidates.find((candidate) => qualificationMatches.some((match) => {
+      const values = [match?.score_breakdown?.red?.[candidate], match?.score_breakdown?.blue?.[candidate]];
+      return values.some((value) => Number.isFinite(Number(value)));
+    }));
+    if (!field && id === "epa.total_points") {
+      return [{ id, label: "pRidge EPA total points", unit: "pts", formula: "tba.totalPoints" }];
+    }
+    if (!field && id === "epa.breakdown.total_points") {
+      return [{ id, label: "pRidge EPA breakdown total points", unit: "pts", formula: "tba.totalPoints" }];
+    }
+    return field ? [{ id, label: `pRidge ${id.replace("epa.", "EPA ").replaceAll(".", " ")}`, unit: "pts", formula: `tba.${field}` }] : [];
+  });
+}
+
+function mergePridgeResponseDefinitions(rawMatches, definitions) {
+  const merged = [...(Array.isArray(definitions) ? definitions : []), ...buildLivePridgeEpaResponseDefinitions(rawMatches)];
+  const seen = new Set();
+  return merged.filter((definition) => {
+    const id = normalizeText(definition?.id);
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 function readPath(source, path) {
@@ -350,7 +392,9 @@ function buildEventModelFromPayloads(payload) {
   const explicitScouterMetricDefinitions = Array.isArray(payload?.scouterMetricDefinitions) ? payload.scouterMetricDefinitions : [];
   const explicitFormulaFieldDefinitions = Array.isArray(payload?.formulaFieldDefinitions) ? payload.formulaFieldDefinitions : [];
   const explicitDerivedMetricDefinitions = Array.isArray(payload?.derivedMetricDefinitions) ? payload.derivedMetricDefinitions : [];
-  const pridgeResponseDefinitions = normalizePridgeResponseDefinitions(payload);
+  const pridgeResponseDefinitions = normalizePridgeResponseDefinitions({
+    pridgeResponseDefinitions: mergePridgeResponseDefinitions(payload?.tbaMatches, payload?.pridgeResponseDefinitions),
+  });
   const eventSchema = {
     scoringComponents: [],
     scouterMetricDefinitions: explicitScouterMetricDefinitions,
@@ -413,16 +457,21 @@ function buildEventModelFromPayloads(payload) {
   });
   const teamsWithPridge = teams.map((team) => {
     const total = pridgeResult?.ratings?.[team.number] ?? null;
+    const responseComponents = Object.fromEntries(pridgeResponseDefinitions.map((definition) => [
+      definition.id,
+      pridgeResponseResults[definition.id]?.ratings?.[team.number] ?? null,
+    ]));
+    if (Number.isFinite(Number(total))) {
+      responseComponents["epa.total_points"] = total;
+      responseComponents["epa.breakdown.total_points"] = total;
+    }
     return {
       ...team,
       sources: {
         ...team.sources,
         pridge: {
           total,
-          components: Object.fromEntries(pridgeResponseDefinitions.map((definition) => [
-            definition.id,
-            pridgeResponseResults[definition.id]?.ratings?.[team.number] ?? null,
-          ])),
+          components: responseComponents,
           trend: [],
           trendEntries: [],
         },

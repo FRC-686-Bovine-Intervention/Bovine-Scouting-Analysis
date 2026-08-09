@@ -2943,6 +2943,9 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
     ...currentAvailableTbaFormulaIdentifiers(eventModel).map((id) => ({ id })),
     ...currentAvailableStatboticsFormulaIdentifiers(eventModel).map((id) => ({ id })),
     { id: "pridge.total" },
+    ...runtimeMetricsForEventModel(eventModel)
+      .filter((metric) => metric.kind === "source" && metric.sourceId === "pridge" && metric.componentId !== "total")
+      .map((metric) => ({ id: `pridge.${metric.componentId}` })),
   ];
 }
 
