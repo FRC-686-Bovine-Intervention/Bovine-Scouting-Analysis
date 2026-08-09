@@ -551,11 +551,32 @@ select {
 .issue-row,
 .activity-row {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, auto);
+  min-width: 0;
   gap: 4px;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-soft);
+}
+
+.issue-row > * {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.schema-reconciliation-actions {
+  width: min(100%, 420px);
+}
+
+.schema-map-options {
+  width: 100%;
+  min-width: 0 !important;
+}
+
+.schema-map-options select {
+  max-width: 100%;
 }
 
 .issue-row.warn {

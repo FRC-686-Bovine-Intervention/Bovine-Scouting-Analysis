@@ -2195,6 +2195,13 @@ function currentAvailableScoutingFieldDefinitions(eventModel = currentEvent()) {
   return currentFormulaFieldDefinitions(eventModel).filter((fieldDefinition) => !scoringComponentIds.has(fieldDefinition.id));
 }
 
+function isLikelyHtmlArtifactScoutingField(fieldDefinition) {
+  const fieldId = normalizeText(fieldDefinition?.id || fieldDefinition);
+  if (!fieldId) return false;
+  return /doctypehtml|htmllang|scriptnonce|windowppconfig|productname\d/i.test(fieldId)
+    || (fieldId.length > 120 && /html|script|nonce|window/i.test(fieldId));
+}
+
 function currentObservedScoutingFieldDefinitions(eventModel = currentEvent()) {
   const submissions = currentScoutingSubmissions();
   if (!submissions.length) return [];
@@ -2209,7 +2216,7 @@ function currentObservedScoutingFieldDefinitions(eventModel = currentEvent()) {
     },
     submissions,
     schemaFields: [],
-  });
+  }).filter((fieldDefinition) => !isLikelyHtmlArtifactScoutingField(fieldDefinition));
 }
 
 function currentImportSchemaFields() {
@@ -6080,7 +6087,8 @@ function renderSchemaReconciliationCards(model = currentScoutingSchemaReconcilia
           <div
             data-schema-map-options="${escapeAttribute(entry.fieldDefinition.id)}"
             hidden
-            style="min-width:420px; margin-top:8px;"
+            class="schema-map-options"
+            style="margin-top:8px;"
           >
             <select
               data-schema-added-remap-select="${escapeAttribute(entry.fieldDefinition.id)}"
@@ -6099,8 +6107,8 @@ function renderSchemaReconciliationCards(model = currentScoutingSchemaReconcilia
         `
         : "";
       const actions = `
-        <span style="margin-left:auto; display:flex; flex-direction:column; align-items:flex-end;">
-          <span class="button-row" style="justify-content:flex-end; align-items:center; flex-wrap:nowrap; gap:8px;">
+        <span class="schema-reconciliation-actions" style="margin-left:auto; display:flex; flex-direction:column; align-items:flex-end;">
+          <span class="button-row" style="justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:8px;">
             ${mapAction}
             <button
               type="button"
@@ -6135,7 +6143,8 @@ function renderSchemaReconciliationCards(model = currentScoutingSchemaReconcilia
           <div
             data-schema-removed-map-options="${escapeAttribute(entry.fieldDefinition.id)}"
             hidden
-            style="min-width:420px; margin-top:8px;"
+            class="schema-map-options"
+            style="margin-top:8px;"
           >
             <select
               data-schema-removed-remap-select="${escapeAttribute(entry.fieldDefinition.id)}"
@@ -6157,8 +6166,8 @@ function renderSchemaReconciliationCards(model = currentScoutingSchemaReconcilia
         <div class="issue-row danger">
           <strong>Removed ${escapeHtml(entry.fieldDefinition.id)}</strong>
           <span>${escapeHtml(entry.fieldDefinition.label || entry.fieldDefinition.id)} no longer exists in the imported scouting file.</span>
-          <span style="margin-left:auto; display:flex; flex-direction:column; align-items:flex-end;">
-            <span class="button-row" style="justify-content:flex-end; align-items:center; flex-wrap:nowrap; gap:8px;">
+          <span class="schema-reconciliation-actions" style="margin-left:auto; display:flex; flex-direction:column; align-items:flex-end;">
+            <span class="button-row" style="justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:8px;">
               ${mapAction}
               <button
                 type="button"

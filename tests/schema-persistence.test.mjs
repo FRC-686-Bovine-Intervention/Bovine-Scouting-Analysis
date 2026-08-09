@@ -169,6 +169,33 @@ await runTest("schema baseline downloads the cached profile, workspace, and comp
   assert.equal(artifact.schema.pridgeResponseDefinitions.length, 3);
 });
 
+await runTest("schema diagnostics ignore HTML response artifacts while preserving real added fields", () => {
+  const context = loadAppContext({ schemaFields: [{ id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" }] });
+  const eventModel = context.eventCatalog[0];
+  const state = context.__scoutingAppState;
+  state.activeEventKey = eventModel.key;
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    label: "Current",
+    fields: [{ id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" }],
+  });
+  state.scoutingSubmissions = [{
+    eventKey: eventModel.key,
+    matchNumber: 1,
+    teamNumber: 1,
+    alliance: "red",
+    rawMetrics: {
+      autoFuelPct: 50,
+      robotStatus: "Good",
+      doctypeHtmlHtmlLangEnUsHeadScriptNonceExampleWindowPpConfigProductName26981: "unexpected",
+    },
+  }];
+
+  const diagnostics = context.currentScoutingDiagnosticsState().currentDiagnostics.schemaDiff;
+  assert.equal(diagnostics.added.some((field) => field.id === "robotStatus"), true);
+  assert.equal(diagnostics.added.some((field) => field.id.includes("doctypeHtml")), false);
+});
+
 await runTest("a clean catalog exposes only shared cached events instead of a packaged fallback", () => {
   const context = loadAppContext({
     eventCatalog: [],
