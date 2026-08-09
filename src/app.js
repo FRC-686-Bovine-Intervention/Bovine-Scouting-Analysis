@@ -5439,7 +5439,7 @@ function metricTokenLabel(metric) {
   if (metric.kind === "source" && (metric.sourceId === "scouting" || metric.sourceId === "scouter")) return `scouting.${metric.componentId}`;
   if (metric.kind === "source" && metric.sourceId === "tba") return `tba.${metric.componentId}`;
   if (metric.kind === "source" && metric.sourceId === "statbotics") return `statbotics.${metric.componentId}`;
-  if (metric.kind === "source" && metric.sourceId === "pridge" && metric.componentId === "total") return "pridge.total";
+  if (metric.kind === "source" && metric.sourceId === "pridge") return `pridge.${metric.componentId}`;
   return metric.label || metric.id || "";
 }
 
