@@ -4,6 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
 
+const appSourceForSchemaLoadAssertion = fs.readFileSync(path.resolve("src/app.js"), "utf8");
+assert.match(appSourceForSchemaLoadAssertion, /loadPreparedScoutingSheet\(csvText, profileId, \{[\s\S]*schemaJsonText,[\s\S]*importDraftSource: "attached"/);
+
 async function runTest(name, fn) {
   try {
     await fn();

@@ -6447,6 +6447,7 @@ async function loadScoutingData(options = {}) {
       const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
       loadPreparedScoutingSheet(csvText, profileId, {
         ...options,
+        schemaJsonText,
         importDraftSource: "attached",
       });
     } catch (error) {
