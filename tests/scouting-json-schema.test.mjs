@@ -100,6 +100,24 @@ runTest("buildPridgeResponseBaseline emits stable phase formulas and diagnostics
   assert.match(missing.invalid[0].failures.join(" "), /not available/);
 });
 
+runTest("buildPridgeResponseBaseline preserves an existing schema field list and profile equations", () => {
+  const context = loadBrowserContext(["src/metric-engine.js", "src/scouting-json-schema.js"]);
+  const baseline = context.ScoutingJsonSchema.buildPridgeResponseBaseline(
+    { season: 2026, key: "2026chcmp", formulaFieldDefinitions: [] },
+    {
+      expectedScoutingFields: ["autoFuelPct", "startingPosition"],
+      profile: {
+        id: "existing-profile",
+        label: "Existing Profile",
+        derivedEquations: [{ name: "fuelTotal", formula: "sum" }],
+      },
+    },
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(baseline.schema.expectedScoutingFields)), ["autoFuelPct", "startingPosition"]);
+  assert.equal(baseline.profile.id, "existing-profile");
+  assert.equal(baseline.profile.derivedEquations[0].name, "fuelTotal");
+});
+
 runTest("validateCanonicalSchema accepts fixture-backed canonical scouting JSON", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
   const eventModel = buildEventModel(context);

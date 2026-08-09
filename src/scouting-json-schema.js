@@ -31,6 +31,9 @@ function normalizePridgeResponseDefinitions(definitions = []) {
 function buildPridgeResponseBaseline(eventModel = {}, options = {}) {
   const schemaId = normalizeText(options.schemaId) || `${eventModel?.season || "season"}-match-v1`;
   const profile = options.profile && typeof options.profile === "object" ? options.profile : null;
+  const expectedScoutingFields = Array.isArray(options.expectedScoutingFields) && options.expectedScoutingFields.length
+    ? options.expectedScoutingFields
+    : buildCanonicalSchemaForEventModel(eventModel, { schemaId }).expectedScoutingFields;
   return {
     meta: {
       ...buildCanonicalSchemaMeta({
@@ -43,7 +46,8 @@ function buildPridgeResponseBaseline(eventModel = {}, options = {}) {
       eventKey: normalizeText(eventModel?.key),
     },
     schema: {
-      ...buildCanonicalSchemaForEventModel(eventModel, { schemaId }),
+      schemaId,
+      expectedScoutingFields: expectedScoutingFields.map((field) => normalizeText(field?.id || field)).filter(Boolean),
       pridgeResponseDefinitions: normalizePridgeResponseDefinitions(options.pridgeResponseDefinitions || [
         {
           id: "tbaTotalAutoPoints",

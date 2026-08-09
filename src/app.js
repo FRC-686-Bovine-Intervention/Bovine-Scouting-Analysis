@@ -2310,7 +2310,18 @@ function currentPridgeResponseDefinitions(eventModel = currentEvent()) {
 async function createSchemaBaselineFile() {
   const eventModel = currentEvent();
   try {
-    const artifact = buildPridgeResponseBaseline(eventModel);
+    const existingSchema = (() => {
+      const schemaText = normalizeText(state.importSchemaJsonText);
+      if (!schemaText) return {};
+      try { return JSON.parse(schemaText); } catch { return {}; }
+    })();
+    const existingProfile = existingSchema.profile || currentImportedProfileDefinition(eventModel) || null;
+    const artifact = buildPridgeResponseBaseline(eventModel, {
+      expectedScoutingFields: existingSchema.schema?.expectedScoutingFields,
+      profile: existingProfile,
+      pridgeResponseDefinitions: existingSchema.schema?.pridgeResponseDefinitions
+        || eventModel.pridgeResponseDefinitions,
+    });
     const suggestedName = `${normalizeText(eventModel.key) || "event"}_schema-baseline.json`;
     const text = JSON.stringify(artifact, null, 2);
     const locationRef = globalThis.location || {};
