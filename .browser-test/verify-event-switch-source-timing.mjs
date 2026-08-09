@@ -52,6 +52,8 @@ async function snapshot() {
     const sources = state?.eventWorkspace?.sources || {};
     return {
       activeEventKey: window.__scoutingActiveEventKey,
+      workspaceEventKey: state?.eventWorkspace?.eventKey || "",
+      adminEventCode: document.querySelector("#adminEventCodeInput")?.value || "",
       pending: state?.eventLookupPending,
       lookup: state?.eventLookupResult,
       tba: sources.tba?.lastAttemptedAt || sources.tba?.lastSuccessfulAt || "",
@@ -60,11 +62,22 @@ async function snapshot() {
   });
 }
 
+function assertLoadedEvent(target, current, context) {
+  const loaded = current.activeEventKey === target
+    && current.workspaceEventKey === target
+    && current.adminEventCode === target
+    && (!current.lookup || current.lookup.kind !== "error");
+  if (!loaded) {
+    throw new Error(`Requested event ${target} was not successfully loaded during ${context}: ${JSON.stringify(current)}`);
+  }
+}
+
 async function waitForSwitch(target, baseline, timeoutMs = 30000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const current = await snapshot();
-    if (current.activeEventKey === target && current.tba && current.statbotics && (!baseline || current.tba !== baseline.tba || current.statbotics !== baseline.statbotics)) {
+    if (current.activeEventKey === target && current.workspaceEventKey === target && current.adminEventCode === target && current.tba && current.statbotics && (!baseline || current.tba !== baseline.tba || current.statbotics !== baseline.statbotics)) {
+      assertLoadedEvent(target, current, "event switch");
       return { target, elapsedMs: Date.now() - startedAt, current };
     }
     await page.waitForTimeout(100);
@@ -75,7 +88,11 @@ async function waitForSwitch(target, baseline, timeoutMs = 30000) {
 async function waitForActiveEvent(target, timeoutMs = 30000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    if ((await snapshot()).activeEventKey === target) return { target, elapsedMs: Date.now() - startedAt };
+    const current = await snapshot();
+    if (current.activeEventKey === target) {
+      assertLoadedEvent(target, current, "Recent Events selection");
+      return { target, elapsedMs: Date.now() - startedAt };
+    }
     await page.waitForTimeout(100);
   }
   throw new Error(`Active event did not switch within ${timeoutMs}ms: ${JSON.stringify({ target, current: await snapshot() })}`);
@@ -164,7 +181,7 @@ try {
   const cachedToLocalRecent = await switchByRecent("2026local");
   const localToCachedRecent = await switchByRecent("2026cached");
   const cachedToLocalRecentAgain = await switchByRecent("2026local");
-  if (requestCounts.tbaEvent !== 1 || requestCounts.statboticsEvent !== 1 || requestCounts.cachedTbaEvent < 1 || requestCounts.cachedStatboticsEvent < 1) {
+  if (requestCounts.tbaEvent !== 1 || requestCounts.statboticsEvent !== 1 || requestCounts.cachedTbaEvent > 1 || requestCounts.cachedStatboticsEvent > 1) {
     throw new Error(`Duplicate provider loads detected: ${JSON.stringify(requestCounts)}`);
   }
   if (/shared Firestore cache/i.test(uncachedToCached.current.lookup?.message || "")) {
