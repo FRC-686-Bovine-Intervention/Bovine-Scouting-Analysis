@@ -160,6 +160,7 @@ await runTest("schema baseline downloads the cached profile, workspace, and comp
 
   await context.__activeEventTestApi.createSchemaBaselineFile();
   const artifact = JSON.parse(downloadedText);
+  assert.deepEqual(artifact.schema.expectedScoutingFields, ["fuel"]);
   assert.equal(artifact.profile.derivedEquations[0].name, "scoutingTotal");
   assert.equal(artifact.profile.filters[0].name, "usable");
   assert.deepEqual(artifact.workspace.picklists, state.picklists);

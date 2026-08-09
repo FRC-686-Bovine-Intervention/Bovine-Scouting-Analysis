@@ -2395,8 +2395,12 @@ async function createSchemaBaselineFile() {
     const cachedSortEquations = Array.isArray(state.sortEquations) && state.sortEquations.length
       ? state.sortEquations
       : existingWorkspace.sortEquations;
+    const cachedExpectedScoutingFields = Array.isArray(existingSchema.schema?.expectedScoutingFields)
+      && existingSchema.schema.expectedScoutingFields.length
+      ? existingSchema.schema.expectedScoutingFields
+      : (Array.isArray(existingProfile?.fields) ? existingProfile.fields : []);
     const artifact = buildPridgeResponseBaseline(eventModel, {
-      expectedScoutingFields: existingSchema.schema?.expectedScoutingFields,
+      expectedScoutingFields: cachedExpectedScoutingFields,
       profile: existingProfile,
       pridgeResponseDefinitions: schemaBaselinePridgeResponseDefinitions(eventModel, existingSchema),
       workspace: {
