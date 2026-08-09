@@ -82,12 +82,27 @@ async function switchByCode(target) {
 }
 
 async function switchByRecent(target) {
+  await page.evaluate(() => {
+    if (globalThis.__ticket109SwitchDurations) return;
+    globalThis.__ticket109SwitchDurations = [];
+    document.addEventListener("change", (event) => {
+      if (event.target?.id !== "recentAdminEventSelect") return;
+      const startedAt = performance.now();
+      setTimeout(() => globalThis.__ticket109SwitchDurations.push(Number((performance.now() - startedAt).toFixed(1))), 0);
+    }, true);
+  });
+  const userDurationCountBefore = await page.evaluate(() => globalThis.__ticket109SwitchDurations.length);
   const switchCountBefore = await page.evaluate(() => (globalThis.__scoutingPerf?.events || []).filter((event) => event.label === "switchActiveEvent.total").length);
   const before = await snapshot();
   await page.click("#openRecentAdminEventsButton");
   const select = page.locator("#recentAdminEventSelect");
   await select.waitFor({ state: "visible", timeout: 2000 });
   await select.selectOption(target);
+  await page.waitForFunction((count) => globalThis.__ticket109SwitchDurations?.length > count, userDurationCountBefore);
+  const userDurationMs = await page.evaluate((count) => globalThis.__ticket109SwitchDurations[count], userDurationCountBefore);
+  if (!(userDurationMs < 500)) {
+    throw new Error(`Recent event UI freeze lasted ${userDurationMs}ms; expected <500ms.`);
+  }
   const result = await waitForSwitch(target, before);
   await page.waitForTimeout(50);
   const switchEvents = await page.evaluate((beforeCount) => (globalThis.__scoutingPerf?.events || [])
@@ -100,7 +115,7 @@ async function switchByRecent(target) {
   if (!(switchDurationMs < 500)) {
     throw new Error(`Recent event switch took ${switchDurationMs}ms; expected <500ms.`);
   }
-  return { ...result, switchDurationMs };
+  return { ...result, switchDurationMs, userDurationMs };
 }
 
 try {
@@ -122,6 +137,9 @@ try {
   await page.waitForFunction(() => window.__scoutingAppState?.tbaAuthKeySavePending === false, { timeout: 10000 });
   const localToUncached = await switchByCode(uncachedEventKey);
   const uncachedToCached = await switchByRecent("2026cached");
+  const cachedToLocalRecent = await switchByRecent("2026local");
+  const localToCachedRecent = await switchByRecent("2026cached");
+  const cachedToLocalRecentAgain = await switchByRecent("2026local");
   if (requestCounts.tbaEvent !== 1 || requestCounts.statboticsEvent !== 1 || requestCounts.cachedTbaEvent < 1 || requestCounts.cachedStatboticsEvent < 1) {
     throw new Error(`Duplicate provider loads detected: ${JSON.stringify(requestCounts)}`);
   }
@@ -133,7 +151,7 @@ try {
     pass: true,
     cutoffMs: 500,
     requestCounts,
-    transitions: [cachedToLocal, localToCached, localToUncached, uncachedToCached],
+    transitions: [cachedToLocal, localToCached, localToUncached, uncachedToCached, cachedToLocalRecent, localToCachedRecent, cachedToLocalRecentAgain],
   }, null, 2));
 } finally {
   await browser.close();
