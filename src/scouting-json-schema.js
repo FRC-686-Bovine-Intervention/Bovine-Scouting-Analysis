@@ -28,6 +28,25 @@ function normalizePridgeResponseDefinitions(definitions = []) {
     .filter((definition) => pridgeResponseIds.includes(definition.id));
 }
 
+function normalizeMetricPresentation(value) {
+  const blacklist = value?.blacklist;
+  if (!blacklist || typeof blacklist !== "object" || Array.isArray(blacklist)) return null;
+  const normalized = {};
+  ["tba", "statbotics"].forEach((provider) => {
+    if (Array.isArray(blacklist[provider])) {
+      normalized[provider] = blacklist[provider].map(normalizeText).filter(Boolean);
+    }
+  });
+  return Object.keys(normalized).length ? { blacklist: normalized } : null;
+}
+
+function normalizeWorkspace(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    picklists: Array.isArray(value.picklists) ? JSON.parse(JSON.stringify(value.picklists)) : [],
+  };
+}
+
 function buildPridgeResponseBaseline(eventModel = {}, options = {}) {
   const schemaId = normalizeText(options.schemaId) || `${eventModel?.season || "season"}-match-v1`;
   const profile = options.profile && typeof options.profile === "object" ? options.profile : null;
@@ -227,9 +246,6 @@ function normalizeCanonicalProfile(profile, schemaMeta = {}) {
   const profileLabel = normalizeText(profile?.label || profile?.name) || normalizeText(schemaMeta?.profileLabel) || profileId;
   const derivedEquations = Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : [];
   const legacyEquations = Array.isArray(profile?.equations) ? profile.equations : [];
-  const metricDiscovery = profile?.metricDiscovery && typeof profile.metricDiscovery === "object"
-    ? JSON.parse(JSON.stringify(profile.metricDiscovery))
-    : null;
   if (!profileId && !profileLabel && !derivedEquations.length && !legacyEquations.length) {
     return null;
   }
@@ -240,10 +256,6 @@ function normalizeCanonicalProfile(profile, schemaMeta = {}) {
     derivedEquations: (derivedEquations.length ? derivedEquations : legacyEquations)
       .map((definition, index) => normalizeProfileEquation(definition, index))
       .filter(Boolean),
-    filters: (Array.isArray(profile?.filters) ? profile.filters : [])
-      .map((definition, index) => normalizeProfileFilter(definition, index))
-      .filter(Boolean),
-    ...(metricDiscovery ? { metricDiscovery } : {}),
   };
 }
 
@@ -309,6 +321,9 @@ function buildCanonicalSchemaArtifact(schemaPayload, options = {}) {
           .filter(Boolean),
       }
     : buildCanonicalSchemaForEventModel(eventModel, { schemaId: resolvedSchemaId });
+  const { fields: _legacyFields, metricDiscovery: _legacyMetricDiscovery, ...schemaContract } = schema;
+  const metricPresentation = normalizeMetricPresentation(normalized.schema?.metricPresentation);
+  const pridgeResponseDefinitions = normalizePridgeResponseDefinitions(normalized.schema?.pridgeResponseDefinitions);
   return {
     meta: {
       ...normalized.schemaMeta,
@@ -318,20 +333,21 @@ function buildCanonicalSchemaArtifact(schemaPayload, options = {}) {
       profileLabel: normalizeText(profile?.label || normalized.schemaMeta?.profileLabel),
       translationVersion: normalizeText(normalized.schemaMeta?.translationVersion),
     },
-    schema,
+    schema: {
+      ...schemaContract,
+      ...(metricPresentation ? { metricPresentation } : {}),
+      ...(pridgeResponseDefinitions.length ? { pridgeResponseDefinitions } : {}),
+      ...(Array.isArray(normalized.schema?.comments) ? { comments: normalized.schema.comments.map(normalizeText).filter(Boolean) } : {}),
+    },
     profile: profile
       ? {
           id: profile.id,
           label: profile.label,
           versionKey: profile.versionKey,
           derivedEquations: profile.derivedEquations,
-          filters: profile.filters,
-          ...(profile.metricDiscovery ? { metricDiscovery: profile.metricDiscovery } : {}),
         }
       : profile,
-    ...(normalized.workspace && typeof normalized.workspace === "object"
-      ? { workspace: JSON.parse(JSON.stringify(normalized.workspace)) }
-      : {}),
+    ...(normalizeWorkspace(normalized.workspace) ? { workspace: normalizeWorkspace(normalized.workspace) } : {}),
   };
 }
 
@@ -356,9 +372,7 @@ function normalizeCanonicalPayload(payload, schemaPayload = null) {
     ? schemaSource.schema
     : {};
   const profile = normalizeCanonicalProfile(selectSchemaProfile(schemaSource, schemaMeta), schemaMeta);
-  const workspace = schemaSource?.workspace && typeof schemaSource.workspace === "object" && !Array.isArray(schemaSource.workspace)
-    ? schemaSource.workspace
-    : null;
+  const workspace = normalizeWorkspace(schemaSource?.workspace);
   const entries = Array.isArray(entriesPayload?.entries) ? entriesPayload.entries : null;
   return {
     entriesPayload,
