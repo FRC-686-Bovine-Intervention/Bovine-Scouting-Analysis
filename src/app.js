@@ -2958,7 +2958,6 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
     ...currentAvailableScoutingFieldDefinitions(eventModel).map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
     ...currentAvailableTbaFormulaIdentifiers(eventModel).map((id) => ({ id })),
     ...currentAvailableStatboticsFormulaIdentifiers(eventModel).map((id) => ({ id })),
-    { id: "pridge.total" },
     { id: "pridge.epa.total_points" },
     ...runtimeMetricsForEventModel(eventModel)
       .filter((metric) => metric.kind === "source" && metric.sourceId === "pridge" && metric.componentId !== "total")
@@ -5347,6 +5346,7 @@ function updateSortEquation(id, updater) {
 function normalizeLegacyMetricId(id) {
   const normalizedId = String(id || "");
   if (normalizedId.startsWith("source:epa:")) return `source:statbotics:${normalizedId.slice("source:epa:".length)}`;
+  if (normalizedId === "source:pridge:total") return "source:pridge:epa.total_points";
   return normalizedId;
 }
 
@@ -5355,8 +5355,8 @@ function termsFromLegacyWeights(weights = {}) {
     .filter(([, weight]) => Number(weight) !== 0)
     .map(([id, weight]) => {
       const metricId = {
-        pridge: "source:pridge:total",
-        "source:pridge:total": "source:pridge:total",
+        pridge: "source:pridge:epa.total_points",
+        "source:pridge:total": "source:pridge:epa.total_points",
       }[id] || normalizeLegacyMetricId(id);
       return metricId ? { operator: "+", weight: Number(weight), metricId } : null;
     })
@@ -5460,10 +5460,7 @@ function metricTokenLabel(metric) {
   if (metric.kind === "source" && (metric.sourceId === "scouting" || metric.sourceId === "scouter")) return `scouting.${metric.componentId}`;
   if (metric.kind === "source" && metric.sourceId === "tba") return `tba.${metric.componentId}`;
   if (metric.kind === "source" && metric.sourceId === "statbotics") return `statbotics.${metric.componentId}`;
-  if (metric.kind === "source" && metric.sourceId === "pridge") {
-    if (metric.componentId === "total") return "pridge.total";
-    return `pridge.${pridgeFormulaComponentId(metric.componentId)}`;
-  }
+  if (metric.kind === "source" && metric.sourceId === "pridge") return `pridge.${pridgeFormulaComponentId(metric.componentId)}`;
   return metric.label || metric.id || "";
 }
 
@@ -7363,7 +7360,7 @@ function renderTeamDetail(team) {
   const detailSelectedMetric = detailTrendMetrics.find((metric) => metric.id === state.teamDetailMetric) || null;
   const detailScoutingConfidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
   const detailOprMetric = metricById("source:tba:opr.total");
-  const detailPridgeMetric = metricById("source:pridge:total");
+  const detailPridgeMetric = metricById("source:pridge:epa.total_points");
   return `
     <article class="card">
         <div class="section-heading">

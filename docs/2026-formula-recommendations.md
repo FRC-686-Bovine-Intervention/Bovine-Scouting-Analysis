@@ -72,7 +72,7 @@ Behavior:
 Behavior:
 
 - The first argument must already be a per-team event value.
-- Good inputs include `statbotics.auto`, `pridge.total`, `tba.opr.total`, or `average(scouting.autoSpeakerMade)`.
+- Good inputs include `statbotics.auto`, `pridge.epa.total_points`, `tba.opr.total`, or `average(scouting.autoSpeakerMade)`.
 - Do not pass a raw match-level series such as `scouting.autoSpeakerMade`; wrap it first, for example `eventAverage(average(scouting.autoSpeakerMade))`.
 - Optional `filter` must also resolve to a per-team event value such as `average(scouting.autoSpeakerMade) > 0`.
 

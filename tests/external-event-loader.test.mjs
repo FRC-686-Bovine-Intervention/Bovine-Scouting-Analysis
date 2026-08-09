@@ -244,6 +244,7 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:tbaTotalEndgamePoints"), true);
   assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:epa.breakdown.auto_points"), true);
   assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:epa.breakdown.endgame_points"), true);
+  assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:epa.total_points"), true);
   assert.equal(result.warnings.length, 0);
 
   const reapplied = context.EventModelBuilder.applyPridgeResponseDefinitions(result.eventModel, [

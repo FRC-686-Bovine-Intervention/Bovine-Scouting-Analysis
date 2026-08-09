@@ -48,10 +48,10 @@ const season = legacyGameDefinitions[2026];
   const criteriaSources = seasonFramework.buildCriteriaSources(season);
 
   const pridgeMetrics = metrics.filter((metric) => metric.sourceId === "pridge");
-  assert.equal(pridgeMetrics.map((metric) => metric.id).join(","), "source:pridge:total");
+  assert.equal(pridgeMetrics.map((metric) => metric.id).join(","), "source:pridge:epa.total_points");
 
   const pridgeCriteriaSource = criteriaSources.find((source) => source.id === "pridge");
-  assert.equal(pridgeCriteriaSource.components.map((component) => component.id).join(","), "total");
+  assert.equal(pridgeCriteriaSource.components.map((component) => component.id).join(","), "epa.total_points");
 });
 
 runTest("season metrics do not inject legacy derived metrics that no longer exist", () => {

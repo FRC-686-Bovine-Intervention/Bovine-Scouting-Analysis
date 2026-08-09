@@ -217,10 +217,10 @@ function buildMetrics(season) {
       })),
     ]),
     {
-      id: "source:pridge:total",
+      id: "source:pridge:epa.total_points",
       kind: "source",
       sourceId: "pridge",
-      componentId: "total",
+      componentId: "epa.total_points",
       label: sourceLabels.pridge,
       shortLabel: sourceLabels.pridge,
       unit: "pts",
@@ -255,7 +255,7 @@ function buildCriteriaSources(season) {
     { id: "statbotics", label: sourceLabels.statbotics, components: scoringComponents },
     { id: "scouter", label: sourceLabels.scouter, components: scouterComponents },
     { id: "pridge", label: sourceLabels.pridge, components: [
-      { id: "total", label: "Total" },
+      { id: "epa.total_points", label: "EPA total points" },
       ...(Array.isArray(season?.pridgeResponseDefinitions) ? season.pridgeResponseDefinitions : [])
         .map((definition) => ({ id: definition.id, label: definition.label || definition.id })),
     ] },

@@ -180,10 +180,10 @@ function buildMetricCatalog(schemaOrEventModel = {}) {
       })),
     ]),
     {
-      id: "source:pridge:total",
+      id: "source:pridge:epa.total_points",
       kind: "source",
       sourceId: "pridge",
-      componentId: "total",
+      componentId: "epa.total_points",
       label: sourceLabels.pridge,
       shortLabel: sourceLabels.pridge,
       unit: "pts",
