@@ -407,18 +407,22 @@ function downloadTextFile(text, filename, deps = {}) {
   const documentRef = deps.document || globalThis.document;
   const urlRef = deps.URL || globalThis.URL;
   const BlobCtor = deps.Blob || globalThis.Blob;
-  if (!documentRef?.createElement || !BlobCtor || typeof urlRef?.createObjectURL !== "function") {
+  if (!documentRef?.createElement) {
     throw new Error("Browser downloads are unavailable.");
   }
   const link = documentRef.createElement("a");
-  const objectUrl = urlRef.createObjectURL(new BlobCtor([String(text || "")], { type: "application/json" }));
+  const content = String(text || "");
+  const hasObjectUrl = BlobCtor && typeof urlRef?.createObjectURL === "function";
+  const objectUrl = hasObjectUrl
+    ? urlRef.createObjectURL(new BlobCtor([content], { type: "application/json" }))
+    : `data:application/json;charset=utf-8,${encodeURIComponent(content)}`;
   link.href = objectUrl;
   link.download = normalizeText(filename) || "schema-baseline.json";
   link.style.display = "none";
   documentRef.body?.appendChild(link);
   link.click();
   link.remove();
-  if (typeof urlRef.revokeObjectURL === "function") urlRef.revokeObjectURL(objectUrl);
+  if (hasObjectUrl && typeof urlRef.revokeObjectURL === "function") urlRef.revokeObjectURL(objectUrl);
   return link.download;
 }
 

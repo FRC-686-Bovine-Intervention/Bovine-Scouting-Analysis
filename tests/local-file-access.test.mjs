@@ -78,6 +78,22 @@ async function main() {
     assert.equal(createdBlob.options.type, "application/json");
   });
 
+  await runTest("downloadTextFile falls back to a data URL without Blob APIs", async () => {
+    const link = {
+      style: {},
+      click() {},
+      remove() {},
+    };
+    const context = loadBrowserContext(["src/local-file-access.js"]);
+    context.LocalFileAccess.downloadTextFile("{\"fallback\":true}", "baseline.json", {
+      document: { createElement() { return link; }, body: { appendChild() {} } },
+      URL: {},
+    });
+    assert.equal(link.download, "baseline.json");
+    assert.match(link.href, /^data:application\/json;charset=utf-8,/);
+    assert.equal(decodeURIComponent(link.href.split(",", 2)[1]), "{\"fallback\":true}");
+  });
+
   await runTest("pickAttachmentFile persists the chosen handle and returns a display path", async () => {
     const storage = createMemoryStorage();
     const context = loadBrowserContext(["src/local-file-access.js"]);
