@@ -451,6 +451,10 @@ select {
   min-width: 0;
 }
 
+.admin-field-row.schema-source-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
 .admin-field-row > * {
   min-width: 0;
 }

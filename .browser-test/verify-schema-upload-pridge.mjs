@@ -151,7 +151,7 @@ try {
   assert(exportedBaseline, "Unable to seed cached schema state for baseline export.");
   const baselineDownloadPromise = page.waitForEvent("download");
   await page.locator('[data-view="adminEventControl"]').first().click();
-  await page.getByRole("button", { name: "Create Schema Baseline" }).click();
+  await page.getByRole("button", { name: "Download" }).click();
   const baselineDownload = await baselineDownloadPromise;
   const downloadedBaseline = JSON.parse(fs.readFileSync(await baselineDownload.path(), "utf8"));
   assert(downloadedBaseline.profile.derivedEquations.some((equation) => equation.name === "cachedEquation"), `Downloaded baseline omitted cached derived equations: ${JSON.stringify(downloadedBaseline)}`);

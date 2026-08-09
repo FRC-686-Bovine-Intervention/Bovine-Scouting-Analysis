@@ -9007,7 +9007,7 @@ function renderAdminEventControl() {
               </label>
               <label>
                 Scouting Profile
-                <div class="admin-actions admin-field-row">
+                <div class="admin-actions admin-field-row schema-source-row">
                   <input
                     id="importSchemaSourceUrl"
                     class="admin-input"
@@ -9017,13 +9017,10 @@ function renderAdminEventControl() {
                     aria-label="Scouting profile source"
                     spellcheck="false"
                   />
+                  <button type="button" id="createSchemaBaselineButton">Download</button>
                   <button type="button" id="chooseLocalScoutingSchemaFileButton" ${localAttachmentFilesSupported() ? "" : "disabled"}>Browse</button>
                 </div>
               </label>
-              <div class="admin-actions">
-                <button type="button" id="createSchemaBaselineButton">Create Schema Baseline</button>
-                <span class="muted">Creates an editable JSON file with the three tbaTotal* pRidge response formulas and mapping instructions.</span>
-              </div>
             ${
               mismatchMessage
                 ? `<div class="issue-list">
