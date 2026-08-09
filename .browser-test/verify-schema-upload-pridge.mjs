@@ -35,6 +35,7 @@ fs.writeFileSync(schemaPath, JSON.stringify(schemaPayload, null, 2), "utf8");
 const executablePath = "C:/Users/rich/AppData/Local/ms-playwright/chromium-1228/chrome-win64/chrome.exe";
 const browser = await chromium.launch({ headless: true, executablePath: fs.existsSync(executablePath) ? executablePath : undefined });
 const context = await browser.newContext();
+await context.addInitScript(() => { globalThis.confirm = () => true; });
 await context.addInitScript(() => {
   globalThis.showOpenFilePicker = undefined;
   globalThis.showSaveFilePicker = undefined;
@@ -158,7 +159,34 @@ try {
     assert(afterReload.definitions.some((definition) => definition.id === id && definition.formula === formula), `Reloaded active definition mismatch for ${id}: ${JSON.stringify(afterReload)}`);
     assert(afterReload.cachedDefinitions.some((definition) => definition.id === id && definition.formula === formula), `Reloaded cached definition mismatch for ${id}: ${JSON.stringify(afterReload)}`);
   }
-  console.log(JSON.stringify({ pass: true, pageErrors, result, afterReload }, null, 2));
+
+  await page.locator('[data-view="adminEventControl"]').first().click();
+  await page.locator("#clearCurrentEventScoutingDataButton").click();
+  await page.waitForTimeout(300);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1200);
+  await page.locator('[data-view="adminDataQuality"]').first().click();
+  await page.getByRole("heading", { name: "Schema Diagnostics" }).waitFor();
+  const afterClearReload = await page.evaluate(async () => {
+    const attachment = currentScoutingAttachment();
+    const diagnostics = currentScoutingDiagnosticsState();
+    const definitions = currentPridgeResponseDefinitions().map((definition) => ({ id: definition.id, formula: definition.formula }));
+    const cachedText = attachment?.attachmentId ? await LocalFileAccess.readAttachmentText(`${attachment.attachmentId}:schema`) : "";
+    const cached = cachedText ? JSON.parse(cachedText) : null;
+    return {
+      definitions,
+      cachedDefinitions: cached?.schema?.pridgeResponseDefinitions || [],
+      missingFailures: diagnostics.pridgeDiagnostics.entries.flatMap((entry) => entry.failures).filter((failure) => /Missing schema definition tbaTotal/i.test(failure)),
+      renderedDiagnostics: document.querySelector("h2")?.closest("article")?.innerText || document.body.innerText,
+    };
+  });
+  assert(afterClearReload.missingFailures.length === 0, `Schema-only reload reports missing tbaTotal definitions: ${JSON.stringify(afterClearReload)}`);
+  assert(!/Missing schema definition tbaTotal/i.test(afterClearReload.renderedDiagnostics), `Schema-only rendered diagnostics reports missing tbaTotal definitions: ${JSON.stringify(afterClearReload)}`);
+  for (const [id, formula] of Object.entries(expected)) {
+    assert(afterClearReload.definitions.some((definition) => definition.id === id && definition.formula === formula), `Schema-only active definition mismatch for ${id}: ${JSON.stringify(afterClearReload)}`);
+    assert(afterClearReload.cachedDefinitions.some((definition) => definition.id === id && definition.formula === formula), `Schema-only cached definition mismatch for ${id}: ${JSON.stringify(afterClearReload)}`);
+  }
+  console.log(JSON.stringify({ pass: true, pageErrors, result, afterReload, afterClearReload }, null, 2));
 } finally {
   await browser.close();
 }

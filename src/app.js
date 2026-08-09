@@ -1207,7 +1207,10 @@ function maybeAutoloadScoutingAttachment() {
   const eventModel = currentEvent();
   const attachmentId = currentScoutingAttachment()?.attachmentId || "";
   const autoloadToken = `${eventModel.key}:${attachmentId}`;
-  if (!shouldAutoLoadEventWorkspaceScoutingAttachment(currentEventWorkspace(), eventModel, state.scoutingSubmissions)) return;
+  if (!shouldAutoLoadEventWorkspaceScoutingAttachment(currentEventWorkspace(), eventModel, state.scoutingSubmissions)) {
+    void loadAttachedSchemaForDiagnostics();
+    return;
+  }
   if (attemptedScoutingAutoloadToken === autoloadToken) return;
   if (pendingScoutingAutoloadToken === autoloadToken) return;
   pendingScoutingAutoloadToken = autoloadToken;
@@ -1515,6 +1518,7 @@ async function chooseLocalScoutingSchemaFile() {
     );
     render();
     pushActivity(`Bound local scouting schema file ${selected.path} to ${attachment.label || attachment.attachmentId}.`);
+    await loadAttachedSchemaForDiagnostics();
     if (shouldDeferInferredLocalScoutingLoad(nextSource, attachment)) {
       pushActivity(`Set scouting data to ${localAttachmentPathBasename(nextSource)}. Use Scouting Data Browse to authorize that local file before loading.`);
       return;
@@ -2292,6 +2296,42 @@ function currentScoutingDiagnosticsState() {
     pendingDiagnostics,
     pridgeDiagnostics,
   };
+}
+
+async function loadAttachedSchemaForDiagnostics() {
+  const attachment = currentScoutingAttachment();
+  const schemaPath = normalizeText(attachment?.location?.schemaPath);
+  const schemaUrl = normalizeText(attachment?.location?.schemaUrl);
+  const usableSchemaUrl = /^https?:\/\//i.test(schemaUrl) ? schemaUrl : "";
+  if (!attachment?.attachmentId || (!schemaPath && !usableSchemaUrl)) return false;
+  try {
+    const schemaJsonText = await readAttachedScoutingSchemaText(attachment, { schemaPath, schemaUrl: usableSchemaUrl }, currentScoutingSourceUrl());
+    const parsed = JSON.parse(schemaJsonText);
+    const schema = parsed?.schema || parsed;
+    const profile = parsed?.profile || {};
+    const expectedFields = Array.isArray(schema?.expectedScoutingFields)
+      ? schema.expectedScoutingFields.map((field) => ({ id: normalizeText(field?.id || field), label: normalizeText(field?.label || field?.id || field) })).filter((field) => field.id)
+      : [];
+    const profileFields = Array.isArray(profile?.fields) && profile.fields.length ? profile.fields : expectedFields;
+    registerScoutingProfile(currentEvent(), {
+      id: profile?.id || attachment.profileId || defaultScoutingProfileId,
+      label: profile?.label || attachment.profileLabel,
+      ...(profileFields.length ? { fields: profileFields } : {}),
+      derivedEquations: profile?.derivedEquations || profile?.equations,
+      filters: profile?.filters,
+      metricDiscovery: profile?.metricDiscovery,
+      pridgeResponseDefinitions: schema?.pridgeResponseDefinitions || parsed?.pridgeResponseDefinitions,
+      versionKey: profile?.versionKey,
+    });
+    state.importSchemaJsonText = schemaJsonText;
+    applyCurrentPridgeResponseDefinitions();
+    saveState();
+    render();
+    return true;
+  } catch (error) {
+    console.warn("Unable to load the bound scouting schema for diagnostics", error);
+    return false;
+  }
 }
 
 function currentPridgeResponseDefinitions(eventModel = currentEvent()) {
