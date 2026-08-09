@@ -278,8 +278,8 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
         ...profileDefinition,
         id: profileIdOverride || normalizeText(profileDefinition?.id) || normalizeText(schemaMeta.templateProfileId) || normalizeText(meta.templateProfileId) || canonicalTemplateProfileId,
         label: profileLabelOverride || normalizeText(profileDefinition?.label) || normalizeText(schemaMeta.profileLabel) || normalizeText(meta.profileLabel) || "Canonical Scouting JSON",
-        metricDiscovery: schema?.metricDiscovery && typeof schema.metricDiscovery === "object"
-          ? JSON.parse(JSON.stringify(schema.metricDiscovery))
+        metricPresentation: schema?.metricPresentation && typeof schema.metricPresentation === "object"
+          ? JSON.parse(JSON.stringify(schema.metricPresentation))
           : null,
       },
       workspace: validation.workspace || normalizedPayload.workspace || null,

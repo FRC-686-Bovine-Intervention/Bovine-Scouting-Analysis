@@ -166,9 +166,9 @@ await runTest("schema baseline downloads the cached profile, workspace, and comp
   const artifact = JSON.parse(downloadedText);
   assert.deepEqual(artifact.schema.expectedScoutingFields, ["fuel"]);
   assert.equal(artifact.profile.derivedEquations[0].name, "scoutingTotal");
-  assert.equal(artifact.profile.filters[0].name, "usable");
+  assert.equal("filters" in artifact.profile, false);
   assert.deepEqual(artifact.workspace.picklists, state.picklists);
-  assert.deepEqual(artifact.workspace.sortEquations, state.sortEquations);
+  assert.equal("sortEquations" in artifact.workspace, false);
   assert.equal(artifact.schema.pridgeResponseDefinitions.find((definition) => definition.id === "tbaTotalAutoPoints").formula, "tba.autoPoints");
   assert.equal(artifact.schema.pridgeResponseDefinitions.length, 3);
 });
@@ -1299,7 +1299,7 @@ await runTest("provider metric catalogs apply default and schema blacklists with
   const state = context.__scoutingAppState;
   const eventModel = context.eventCatalog[0];
   state.activeEventKey = eventModel.key;
-  const metricDiscovery = {
+  const metricPresentation = {
     blacklist: {
       tba: [
         "scoreBreakdown.autoReef.*.node*",
@@ -1310,7 +1310,7 @@ await runTest("provider metric catalogs apply default and schema blacklists with
   };
   state.importSchemaJsonText = JSON.stringify({
     schema: {
-      metricDiscovery,
+      metricPresentation,
     },
   });
   context.registerScoutingProfile(eventModel, {
@@ -1322,7 +1322,7 @@ await runTest("provider metric catalogs apply default and schema blacklists with
       type: "number",
       unit: "count",
     }],
-    metricDiscovery,
+    metricPresentation,
   });
   state.importSchemaJsonText = "";
 

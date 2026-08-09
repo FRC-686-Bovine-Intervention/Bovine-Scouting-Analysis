@@ -118,6 +118,42 @@ runTest("buildPridgeResponseBaseline preserves an existing schema field list and
   assert.equal(baseline.profile.derivedEquations[0].name, "fuelTotal");
 });
 
+runTest("schema artifacts emit only the portable contract members", () => {
+  const context = loadBrowserContext(["src/scouting-json-schema.js"]);
+  const artifact = context.ScoutingJsonSchema.buildCanonicalSchemaArtifact({
+    meta: { format: "frc-scouting-analysis/v1", templateProfileId: "profile-1" },
+    schema: {
+      schemaId: "2027-match-v1",
+      expectedScoutingFields: [{ id: "fuel", label: "Fuel", type: "number" }],
+      metricPresentation: { blacklist: { tba: ["total*"], statbotics: ["epa"] } },
+      metricDiscovery: { blacklist: { tba: ["legacy"] } },
+      fields: [{ id: "fuel", label: "runtime metadata" }],
+    },
+    profile: {
+      id: "profile-1",
+      label: "Profile",
+      versionKey: "v1",
+      derivedEquations: [{ id: "fuelTotal", formula: "sum(scouting.fuel)" }],
+      filters: [{ name: "legacyFilter", formula: "true" }],
+      metricDiscovery: { blacklist: { statbotics: ["legacy"] } },
+    },
+    workspace: {
+      picklists: [{ id: "main", teams: [1] }],
+      activePicklist: "main",
+      sortEquations: [{ id: "legacy-sort" }],
+    },
+  }, { eventModel: { season: 2027, formulaFieldDefinitions: [{ id: "fuel" }] } });
+
+  assert.deepEqual(artifact.schema.expectedScoutingFields, ["fuel"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(artifact.schema.metricPresentation)), { blacklist: { tba: ["total*"], statbotics: ["epa"] } });
+  assert.equal("fields" in artifact.schema, false);
+  assert.equal("metricDiscovery" in artifact.schema, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(artifact.profile.derivedEquations)), [{ name: "fuelTotal", formula: "sum(scouting.fuel)" }]);
+  assert.equal("filters" in artifact.profile, false);
+  assert.equal("metricDiscovery" in artifact.profile, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(artifact.workspace)), { picklists: [{ id: "main", teams: [1] }] });
+});
+
 runTest("validateCanonicalSchema accepts fixture-backed canonical scouting JSON", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
   const eventModel = buildEventModel(context);

@@ -44,9 +44,9 @@ const defaultMetricDiscoveryBlacklist = Object.freeze({
 
 function metricDiscoveryBlacklist(schemaPayload = {}, sourceId = "") {
   const normalizedSourceId = normalizeText(sourceId);
-  const metricDiscovery = schemaPayload?.schema?.metricDiscovery || schemaPayload?.metricDiscovery || {};
-  const schemaPatterns = Array.isArray(metricDiscovery?.blacklist?.[normalizedSourceId])
-    ? metricDiscovery.blacklist[normalizedSourceId]
+  const metricPresentation = schemaPayload?.schema?.metricPresentation || schemaPayload?.metricPresentation || {};
+  const schemaPatterns = Array.isArray(metricPresentation?.blacklist?.[normalizedSourceId])
+    ? metricPresentation.blacklist[normalizedSourceId]
     : [];
   return [
     ...(defaultMetricDiscoveryBlacklist[normalizedSourceId] || []),

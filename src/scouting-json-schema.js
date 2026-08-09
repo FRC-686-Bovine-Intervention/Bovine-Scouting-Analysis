@@ -97,9 +97,7 @@ function buildPridgeResponseBaseline(eventModel = {}, options = {}) {
       ],
     },
     profile: profile ? normalizeCanonicalProfile(profile) : null,
-    ...(options.workspace && typeof options.workspace === "object"
-      ? { workspace: JSON.parse(JSON.stringify(options.workspace)) }
-      : {}),
+    ...(normalizeWorkspace(options.workspace) ? { workspace: normalizeWorkspace(options.workspace) } : {}),
   };
 }
 

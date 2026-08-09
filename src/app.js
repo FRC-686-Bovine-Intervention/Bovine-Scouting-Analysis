@@ -1097,7 +1097,6 @@ function canonicalSchemaProfileDefinition(profileDefinition = {}) {
     label: normalizeText(profileDefinition?.label || profileDefinition?.name),
     versionKey: normalizeText(profileDefinition?.versionKey || profileDefinition?.versionId),
     derivedEquations: cloneJsonValue(profileDefinition?.derivedEquations || profileDefinition?.equations || []),
-    filters: cloneJsonValue(profileDefinition?.filters || []),
   };
 }
 
@@ -2991,8 +2990,8 @@ function currentMetricDiscoverySchemaPayload() {
     }
   }
   const profileDefinition = currentImportedProfileDefinition(currentEvent());
-  return profileDefinition?.metricDiscovery
-    ? { schema: { metricDiscovery: cloneJsonValue(profileDefinition.metricDiscovery) } }
+  return profileDefinition?.metricPresentation
+    ? { schema: { metricPresentation: cloneJsonValue(profileDefinition.metricPresentation) } }
     : {};
 }
 
