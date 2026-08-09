@@ -341,6 +341,7 @@ async function loadEventByCode(eventCode, options = {}) {
     statboticsEvent: statboticsEventResult.ok ? (statboticsEventResult.value?.payload || {}) : {},
     statboticsTeamEvents: statboticsTeamEventsResult.ok ? (statboticsTeamEventsResult.value?.payload || []) : [],
     statboticsTeamMatches: statboticsTeamMatchesResult.rows,
+    deferPridgeTrends: options.deferPridgeTrends === true,
     pridgeResponseDefinitions: options.pridgeResponseDefinitions || [],
     catalogSource: "dynamic-external",
   });

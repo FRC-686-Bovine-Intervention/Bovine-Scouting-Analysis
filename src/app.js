@@ -4414,6 +4414,7 @@ async function openSharedCachedEvent(eventKey, options = {}) {
           const refreshed = await loadArbitraryEventCode(cachedEvent.key, {
             activeView: options.activeView || state.activeView,
             allowDuplicate: true,
+            deferPridgeTrends: true,
           });
           if (refreshed) return true;
           liveRefreshWarning = state.eventLookupResult?.message || `Unable to refresh ${cachedEvent.key} from external providers.`;
@@ -4800,6 +4801,7 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     const loadResult = await loadExternalEventByCode(normalizedEventCode, {
       tbaAuthKey: state.tbaAuthKey,
       statboticsBaseUrl: state.statboticsBaseUrl,
+      deferPridgeTrends: options.deferPridgeTrends === true,
     });
     const registeredEvent = registerEventModel(loadResult.eventModel);
     await refreshSharedSeasonMetadata();

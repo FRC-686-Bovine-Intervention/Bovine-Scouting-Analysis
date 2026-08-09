@@ -253,6 +253,42 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(Number.isFinite(reapplied.teams[0].sources.pridge.components.tbaTotalAutoPoints), true);
 });
 
+await runTest("loadEventByCode can defer cumulative pRidge trends during an event switch refresh", async () => {
+  const baseUrls = { tba: "https://tba.test/api", statbotics: "https://api.statbotics.io/v3" };
+  let builtBundle;
+  const context = loadBrowserContext([
+    "src/external-source-snapshots.js",
+    "src/external-event-loader.js",
+  ], {
+    EventModelBuilder: {
+      buildEventModelFromProviderBundle: (bundle) => {
+        builtBundle = bundle;
+        return { key: bundle.key, teams: [], matches: [] };
+      },
+    },
+  });
+  const fetchImpl = createFetchStub({
+    [`${baseUrls.tba}/event/2017chcmp`]: { key: "2017chcmp", year: 2017, name: "Championship" },
+    [`${baseUrls.tba}/event/2017chcmp/teams`]: [],
+    [`${baseUrls.tba}/event/2017chcmp/matches`]: [],
+    [`${baseUrls.tba}/event/2017chcmp/rankings`]: {},
+    [`${baseUrls.tba}/event/2017chcmp/oprs`]: {},
+    [`${baseUrls.statbotics}/event/2017chcmp`]: { event: "2017chcmp", year: 2017 },
+    [`${baseUrls.statbotics}/team_events/event/2017chcmp`]: [],
+    [`${baseUrls.statbotics}/matches?event=2017chcmp`]: [],
+  });
+
+  await context.ExternalEventLoader.loadEventByCode("2017chcmp", {
+    fetchImpl,
+    tbaAuthKey: "unit-test-key",
+    tbaBaseUrl: baseUrls.tba,
+    statboticsBaseUrl: baseUrls.statbotics,
+    deferPridgeTrends: true,
+  });
+
+  assert.equal(builtBundle.deferPridgeTrends, true);
+});
+
 await runTest("loadEventByCode falls back to the query-form Statbotics team_events endpoint after a 404", async () => {
   const baseUrls = {
     tba: "https://tba.test/api",
