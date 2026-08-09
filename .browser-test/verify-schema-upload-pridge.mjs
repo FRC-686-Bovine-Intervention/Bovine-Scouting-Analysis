@@ -150,13 +150,14 @@ try {
   });
   assert(exportedBaseline, "Unable to seed cached schema state for baseline export.");
   const baselineDownloadPromise = page.waitForEvent("download");
-  await page.locator('[data-view="adminDataQuality"]').first().click();
+  await page.locator('[data-view="adminEventControl"]').first().click();
   await page.getByRole("button", { name: "Create Schema Baseline" }).click();
   const baselineDownload = await baselineDownloadPromise;
   const downloadedBaseline = JSON.parse(fs.readFileSync(await baselineDownload.path(), "utf8"));
   assert(downloadedBaseline.profile.derivedEquations.some((equation) => equation.name === "cachedEquation"), `Downloaded baseline omitted cached derived equations: ${JSON.stringify(downloadedBaseline)}`);
   assert(downloadedBaseline.workspace.picklists.some((picklist) => picklist.id === "cached-main"), `Downloaded baseline omitted cached picklists: ${JSON.stringify(downloadedBaseline)}`);
-  assert(downloadedBaseline.workspace.sortEquations.some((equation) => equation.id === "cached-sort"), `Downloaded baseline omitted cached sort equations: ${JSON.stringify(downloadedBaseline)}`);
+  assert(!("sortEquations" in downloadedBaseline.workspace), `Downloaded baseline leaked transient sort equations: ${JSON.stringify(downloadedBaseline)}`);
+  assert(!("activePicklist" in downloadedBaseline.workspace), `Downloaded baseline leaked transient picklist selection: ${JSON.stringify(downloadedBaseline)}`);
   assert(downloadedBaseline.schema.pridgeResponseDefinitions.length === 3, `Downloaded baseline did not complete missing pRidge definitions: ${JSON.stringify(downloadedBaseline)}`);
 
   await page.reload({ waitUntil: "domcontentloaded" });
