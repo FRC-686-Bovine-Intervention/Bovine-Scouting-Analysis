@@ -134,7 +134,31 @@ try {
   assert(missingFailures.length === 0, `Schema Diagnostics still reports missing tbaTotal definitions: ${JSON.stringify(result)}`);
   assert(!/Missing schema definition tbaTotal/i.test(result.renderedDiagnostics), `Rendered Schema Diagnostics still reports missing tbaTotal definitions: ${JSON.stringify(result)}`);
   assert(result.importedRows > 0, `Expected imported scouting rows: ${JSON.stringify(result)}`);
-  console.log(JSON.stringify({ pass: true, pageErrors, result }, null, 2));
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1200);
+  await page.locator('[data-view="adminDataQuality"]').first().click();
+  await page.getByRole("heading", { name: "Schema Diagnostics" }).waitFor();
+  const afterReload = await page.evaluate(async () => {
+    const attachment = currentScoutingAttachment();
+    const diagnostics = currentScoutingDiagnosticsState();
+    const definitions = currentPridgeResponseDefinitions().map((definition) => ({ id: definition.id, formula: definition.formula }));
+    const cachedText = attachment?.attachmentId ? await LocalFileAccess.readAttachmentText(`${attachment.attachmentId}:schema`) : "";
+    const cached = cachedText ? JSON.parse(cachedText) : null;
+    return {
+      definitions,
+      cachedDefinitions: cached?.schema?.pridgeResponseDefinitions || [],
+      missingFailures: diagnostics.pridgeDiagnostics.entries.flatMap((entry) => entry.failures).filter((failure) => /Missing schema definition tbaTotal/i.test(failure)),
+      renderedDiagnostics: document.querySelector("h2")?.closest("article")?.innerText || document.body.innerText,
+    };
+  });
+  assert(afterReload.missingFailures.length === 0, `Reloaded Schema Diagnostics reports missing tbaTotal definitions: ${JSON.stringify(afterReload)}`);
+  assert(!/Missing schema definition tbaTotal/i.test(afterReload.renderedDiagnostics), `Reloaded rendered diagnostics reports missing tbaTotal definitions: ${JSON.stringify(afterReload)}`);
+  for (const [id, formula] of Object.entries(expected)) {
+    assert(afterReload.definitions.some((definition) => definition.id === id && definition.formula === formula), `Reloaded active definition mismatch for ${id}: ${JSON.stringify(afterReload)}`);
+    assert(afterReload.cachedDefinitions.some((definition) => definition.id === id && definition.formula === formula), `Reloaded cached definition mismatch for ${id}: ${JSON.stringify(afterReload)}`);
+  }
+  console.log(JSON.stringify({ pass: true, pageErrors, result, afterReload }, null, 2));
 } finally {
   await browser.close();
 }
