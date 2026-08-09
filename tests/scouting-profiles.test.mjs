@@ -98,7 +98,7 @@ runTest("materializeEventScopedProfileCatalog projects legacy season profiles on
 runTest("metric discovery blacklist keeps Statbotics raw provider fields discoverable", () => {
   const schemaPayload = {
     schema: {
-      metricDiscovery: {
+      metricPresentation: {
         blacklist: {
           tba: [
             "scoreBreakdown.autoReef.*.node*",
@@ -142,7 +142,7 @@ runTest("metric discovery blacklist keeps Statbotics raw provider fields discove
 
 runTest("metric discovery globs are case-sensitive full matches with star as the only wildcard", () => {
   const schemaPayload = {
-    metricDiscovery: {
+    metricPresentation: {
       blacklist: {
         tba: [
           "scoreBreakdown.autoReef.*.node*",

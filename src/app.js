@@ -4539,9 +4539,9 @@ function registerScoutingProfile(eventModel, profile) {
           ? profile.derivedEquations
           : (Array.isArray(profile?.equations) ? profile.equations : (existingProfile?.derivedEquations || existingProfile?.equations || [])),
         filters: Array.isArray(profile?.filters) ? profile.filters : (existingProfile?.filters || []),
-        metricDiscovery: profile?.metricDiscovery && typeof profile.metricDiscovery === "object"
-          ? cloneJsonValue(profile.metricDiscovery)
-          : (existingProfile?.metricDiscovery ? cloneJsonValue(existingProfile.metricDiscovery) : undefined),
+        metricPresentation: profile?.metricPresentation && typeof profile.metricPresentation === "object"
+          ? cloneJsonValue(profile.metricPresentation)
+          : (existingProfile?.metricPresentation ? cloneJsonValue(existingProfile.metricPresentation) : undefined),
         pridgeResponseDefinitions: Array.isArray(profile?.pridgeResponseDefinitions)
           ? cloneJsonValue(profile.pridgeResponseDefinitions)
           : (Array.isArray(existingProfile?.pridgeResponseDefinitions)
@@ -4983,8 +4983,8 @@ function normalizeScoutingProfileDefinition(profile) {
       equations,
       filters,
     });
-  const metricDiscovery = profile?.metricDiscovery && typeof profile.metricDiscovery === "object"
-    ? cloneJsonValue(profile.metricDiscovery)
+  const metricPresentation = profile?.metricPresentation && typeof profile.metricPresentation === "object"
+    ? cloneJsonValue(profile.metricPresentation)
     : null;
   const pridgeResponseDefinitions = Array.isArray(profile?.pridgeResponseDefinitions)
     ? cloneJsonValue(profile.pridgeResponseDefinitions)
@@ -4996,7 +4996,7 @@ function normalizeScoutingProfileDefinition(profile) {
     fields,
     equations,
     filters,
-    ...(metricDiscovery ? { metricDiscovery } : {}),
+    ...(metricPresentation ? { metricPresentation } : {}),
     ...(pridgeResponseDefinitions.length ? { pridgeResponseDefinitions } : {}),
   };
 }
