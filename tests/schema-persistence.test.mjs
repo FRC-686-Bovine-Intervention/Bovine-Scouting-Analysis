@@ -169,6 +169,8 @@ await runTest("schema baseline downloads the cached profile, workspace, and comp
   assert.equal("filters" in artifact.profile, false);
   assert.deepEqual(artifact.workspace.picklists, state.picklists);
   assert.equal("sortEquations" in artifact.workspace, false);
+  assert.equal("activePicklist" in artifact.workspace, false);
+  assert.equal("activeSortEquation" in artifact.workspace, false);
   assert.equal(artifact.schema.pridgeResponseDefinitions.find((definition) => definition.id === "tbaTotalAutoPoints").formula, "tba.autoPoints");
   assert.equal(artifact.schema.pridgeResponseDefinitions.length, 3);
 });

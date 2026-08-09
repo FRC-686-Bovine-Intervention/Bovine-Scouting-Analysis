@@ -152,6 +152,9 @@ runTest("schema artifacts emit only the portable contract members", () => {
   assert.equal("filters" in artifact.profile, false);
   assert.equal("metricDiscovery" in artifact.profile, false);
   assert.deepEqual(JSON.parse(JSON.stringify(artifact.workspace)), { picklists: [{ id: "main", teams: [1] }] });
+  assert.equal("activePicklist" in artifact.workspace, false);
+  assert.equal("activeSortEquation" in artifact.workspace, false);
+  assert.equal("sortEquations" in artifact.workspace, false);
 });
 
 runTest("validateCanonicalSchema accepts fixture-backed canonical scouting JSON", () => {

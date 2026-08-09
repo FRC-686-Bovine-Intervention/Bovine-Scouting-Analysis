@@ -2427,9 +2427,6 @@ async function createSchemaBaselineFile() {
     const cachedPicklists = Array.isArray(state.picklists) && state.picklists.length
       ? state.picklists
       : existingWorkspace.picklists;
-    const cachedSortEquations = Array.isArray(state.sortEquations) && state.sortEquations.length
-      ? state.sortEquations
-      : existingWorkspace.sortEquations;
     const cachedExpectedScoutingFields = Array.isArray(existingSchema.schema?.expectedScoutingFields)
       && existingSchema.schema.expectedScoutingFields.length
       ? existingSchema.schema.expectedScoutingFields
@@ -2439,11 +2436,7 @@ async function createSchemaBaselineFile() {
       profile: existingProfile,
       pridgeResponseDefinitions: schemaBaselinePridgeResponseDefinitions(eventModel, existingSchema),
       workspace: {
-        ...existingWorkspace,
         picklists: cloneJsonValue(cachedPicklists || []),
-        sortEquations: cloneJsonValue(cachedSortEquations || []),
-        activePicklist: state.activePicklist || existingWorkspace.activePicklist || "",
-        activeSortEquation: state.activeSortEquation || existingWorkspace.activeSortEquation || "",
       },
     });
     const suggestedName = `${normalizeText(eventModel.key) || "event"}_schema-baseline.json`;
@@ -6288,11 +6281,9 @@ function commitImportPreview(options = {}) {
   if (importedWorkspace && typeof importedWorkspace === "object") {
     if (Array.isArray(importedWorkspace.picklists)) {
       state.picklists = normalizePicklists(importedWorkspace.picklists, currentEvent());
-      state.activePicklist = resolvePicklistId(importedWorkspace.activePicklist, state.picklists) || state.picklists[0]?.id || "";
-    }
-    if (Array.isArray(importedWorkspace.sortEquations)) {
-      state.sortEquations = normalizeSortEquations(importedWorkspace.sortEquations, currentEvent());
-      state.activeSortEquation = resolveSortEquationId(importedWorkspace.activeSortEquation, state.sortEquations) || state.sortEquations[0]?.id || "";
+      if (!state.picklists.some((picklist) => picklist.id === state.activePicklist)) {
+        state.activePicklist = state.picklists[0]?.id || "";
+      }
     }
   }
   if (state.importDraftSource === "attached") {
