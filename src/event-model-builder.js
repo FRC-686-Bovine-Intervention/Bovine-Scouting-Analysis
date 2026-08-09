@@ -161,7 +161,7 @@ function applyPridgeResponseDefinitions(eventModel = {}, definitions = []) {
   const rawMatches = rawMatchesFromEventModel(eventModel);
   const teamEvents = teamEventsFromEventModel(eventModel);
   const results = {};
-  normalizedDefinitions.forEach((definition) => {
+  if (!eventModel.pridgeComputationDeferred) normalizedDefinitions.forEach((definition) => {
     try {
       const formulaMatches = buildFormulaMatches(rawMatches, definition);
       if (formulaMatches.length) {
@@ -503,6 +503,7 @@ function buildEventModelFromPayloads(payload) {
     });
   }
   return {
+    pridgeComputationDeferred: deferPridgeComputation,
     key: payload.key,
     name: payload.tbaEvent?.name || payload.statboticsEvent?.name || payload.key,
     season: payload.year,

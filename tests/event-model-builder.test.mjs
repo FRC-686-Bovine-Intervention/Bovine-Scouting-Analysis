@@ -12,6 +12,11 @@ const context = {
       return { ratings: { 1: 1, 2: 2 }, lambda: 0.1, matchCount: 1 };
     },
   },
+  MetricEngine: {
+    scalarResult: (value) => ({ kind: "scalar", value }),
+    errorResult: (error) => ({ kind: "error", error }),
+    evaluateFormulaExpression: (formula, { resolveIdentifier }) => resolveIdentifier(formula),
+  },
   Array,
   Math,
   Map,
@@ -49,6 +54,26 @@ pridgeCalls = 0;
 const deferredComputation = context.EventModelBuilder.buildEventModelFromProviderBundle({ ...bundle, deferPridgeComputation: true });
 assert.equal(pridgeCalls, 0, "Interactive event refreshes must not synchronously solve pRidge.");
 assert.equal(deferredComputation.teams[0].sources.pridge.total, null);
+
+const hydrationDeferredEvent = {
+  pridgeComputationDeferred: true,
+  matches: [{
+    number: 1,
+    red: [1, 3, 5],
+    blue: [2, 4, 6],
+    redScore: 100,
+    blueScore: 90,
+    scoreBreakdown: { red: { totalPoints: 100 }, blue: { totalPoints: 90 } },
+  }],
+  teams: [1, 2, 3, 4, 5, 6].map((number) => ({
+    number,
+    sources: { statbotics: { components: { "epa.stats.start": 1 } }, pridge: { components: {} } },
+  })),
+};
+context.EventModelBuilder.applyPridgeResponseDefinitions(hydrationDeferredEvent, [
+  { id: "epa.total_points", label: "pRidge total", formula: "tba.totalPoints" },
+]);
+assert.equal(pridgeCalls, 0, "Event hydration must retain deferred pRidge computation.");
 
 pridgeCalls = 0;
 const eager = context.EventModelBuilder.buildEventModelFromProviderBundle(bundle);
