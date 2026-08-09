@@ -228,6 +228,11 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:tbaTotalEndgamePoints"), true);
   assert.equal(Object.keys(result.eventModel.teams[0].sources.pridge.components).some((id) => id.includes("epa")), false);
   assert.equal(result.warnings.length, 0);
+
+  const reapplied = context.EventModelBuilder.applyPridgeResponseDefinitions(result.eventModel, [
+    { id: "tbaTotalAutoPoints", label: "TBA total auto points", formula: "tba.totalAutoPoints" },
+  ]);
+  assert.equal(Number.isFinite(reapplied.teams[0].sources.pridge.components.tbaTotalAutoPoints), true);
 });
 
 await runTest("loadEventByCode falls back to the query-form Statbotics team_events endpoint after a 404", async () => {

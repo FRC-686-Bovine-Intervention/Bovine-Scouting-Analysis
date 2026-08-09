@@ -70,6 +70,7 @@ const buildCanonicalSchemaArtifact = scoutingJsonSchema.buildCanonicalSchemaArti
 }));
 const buildPridgeResponseBaseline = scoutingJsonSchema.buildPridgeResponseBaseline || (() => ({}));
 const diagnosePridgeResponseDefinitions = scoutingJsonSchema.diagnosePridgeResponseDefinitions || (() => ({ entries: [], hasIssues: false }));
+const applyPridgeResponseDefinitions = (globalThis.EventModelBuilder || {}).applyPridgeResponseDefinitions || ((eventModel) => eventModel);
 const defaultRefreshPolicyForSource = sourceRefresh.defaultPolicyForSource || (() => ({ baseIntervalMs: 60 * 1000, staleAfterMs: 5 * 60 * 1000, maxBackoffMs: 20 * 60 * 1000 }));
 const freshnessForSource = sourceRefresh.freshnessForSource || ((source) => source?.freshness || "unknown");
 const sourceStatusBadgeClassName = sourceRefresh.sourceStatusBadgeClassName || ((status) => {
@@ -2305,6 +2306,14 @@ function currentPridgeResponseDefinitions(eventModel = currentEvent()) {
     }
   }
   return Array.isArray(eventModel?.pridgeResponseDefinitions) ? eventModel.pridgeResponseDefinitions : [];
+}
+
+function applyCurrentPridgeResponseDefinitions(eventModel = currentEvent()) {
+  const definitions = currentPridgeResponseDefinitions(eventModel);
+  if (!definitions.length) return eventModel;
+  const nextEventModel = applyPridgeResponseDefinitions(eventModel, definitions);
+  if (nextEventModel && nextEventModel !== eventModel) registerEventModel(nextEventModel);
+  return nextEventModel || eventModel;
 }
 
 async function createSchemaBaselineFile() {
@@ -6268,6 +6277,7 @@ function loadPreparedScoutingJson(jsonText, options = {}) {
   }
   state.importCsvText = jsonText;
   state.importSchemaJsonText = options.schemaJsonText || "";
+  applyCurrentPridgeResponseDefinitions();
   state.importSelectedProfileId = "canonical-json-v1";
   state.importDraftSource = options.importDraftSource || "";
   state.importResult = previewScoutingJsonImport({

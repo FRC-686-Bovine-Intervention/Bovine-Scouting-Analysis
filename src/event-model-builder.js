@@ -92,6 +92,63 @@ function buildFormulaMatches(rawMatches, definition) {
   }).filter(Boolean);
 }
 
+function rawMatchesFromEventModel(eventModel = {}) {
+  return (eventModel.matches || []).map((match) => ({
+    comp_level: "qm",
+    match_number: match.number,
+    alliances: {
+      red: { team_keys: (match.red || []).map((team) => `frc${team}`), score: match.redScore },
+      blue: { team_keys: (match.blue || []).map((team) => `frc${team}`), score: match.blueScore },
+    },
+    score_breakdown: {
+      red: cloneBreakdown(match.scoreBreakdown?.red),
+      blue: cloneBreakdown(match.scoreBreakdown?.blue),
+    },
+  }));
+}
+
+function teamEventsFromEventModel(eventModel = {}) {
+  return (eventModel.teams || []).map((team) => ({
+    team: team.number,
+    epa: { stats: { start: team.sources?.statbotics?.components?.["epa.stats.start"] } },
+  }));
+}
+
+function applyPridgeResponseDefinitions(eventModel = {}, definitions = []) {
+  const normalizedDefinitions = normalizePridgeResponseDefinitions({ pridgeResponseDefinitions: definitions });
+  const rawMatches = rawMatchesFromEventModel(eventModel);
+  const teamEvents = teamEventsFromEventModel(eventModel);
+  const results = {};
+  normalizedDefinitions.forEach((definition) => {
+    try {
+      const formulaMatches = buildFormulaMatches(rawMatches, definition);
+      if (formulaMatches.length) {
+        results[definition.id] = computeEventPridge(formulaMatches, teamEvents, { responseName: "score", digits: 1 });
+      }
+    } catch {
+      // Keep the response unavailable when the active event lacks required live inputs.
+    }
+  });
+  return {
+    ...eventModel,
+    pridgeResponseDefinitions: normalizedDefinitions,
+    teams: (eventModel.teams || []).map((team) => ({
+      ...team,
+      sources: {
+        ...team.sources,
+        pridge: {
+          ...(team.sources?.pridge || {}),
+          components: Object.fromEntries(normalizedDefinitions.map((definition) => [
+            definition.id,
+            results[definition.id]?.ratings?.[team.number] ?? null,
+          ])),
+        },
+      },
+    })),
+    metrics: buildMetricCatalog({ ...eventModel, pridgeResponseDefinitions: normalizedDefinitions }),
+  };
+}
+
 function providerPathSegment(segment) {
   return normalizeText(segment);
 }
@@ -425,6 +482,7 @@ function buildEventModelFromProviderBundle(bundle) {
 }
 
 globalThis.EventModelBuilder = {
+  applyPridgeResponseDefinitions,
   buildEventModelFromProviderBundle,
   buildEventModelFromSnapshot,
 };
