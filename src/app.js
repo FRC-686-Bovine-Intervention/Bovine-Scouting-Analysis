@@ -40,8 +40,13 @@ const writeLocalAttachmentText = localFileAccess.writeAttachmentText || (async (
 const createLocalAttachmentFile = localFileAccess.createAttachmentFile || (async () => {
   throw new Error("Persistent local scouting files are unavailable in this browser.");
 });
-const downloadLocalTextFile = localFileAccess.downloadTextFile || (() => {
-  throw new Error("Browser downloads are unavailable.");
+const downloadLocalTextFile = localFileAccess.downloadTextFile || ((text, filename) => {
+  const link = document.createElement("a");
+  link.href = `data:application/json;charset=utf-8,${encodeURIComponent(String(text || ""))}`;
+  link.download = String(filename || "schema-baseline.json");
+  link.click();
+  link.remove();
+  return link.download;
 });
 const clearLocalAttachmentFile = localFileAccess.removeAttachment || (async () => false);
 const readPersistedScoutingSubmissions = localFileAccess.readScoutingSubmissions || (async () => null);
