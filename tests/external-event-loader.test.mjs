@@ -112,6 +112,9 @@ await runTest("loadEventByCode builds an event model and ready provider states f
       ccwms: { frc111: 41.4, frc222: 36.6, frc333: 33.7, frc444: 25.7, frc555: 23.4, frc666: 19.3 },
     },
     [`${baseUrls.statbotics}/event/2026test`]: { year: 2026, status: "In Progress" },
+    [`${baseUrls.statbotics}/matches?event=2026test`]: [
+      { comp_level: "qm", key: "2026test_qm1", match_number: 1, epas: { 111: { epa: 40.25 } } },
+    ],
     [`${baseUrls.statbotics}/team_events/event/2026test`]: [
       {
         team: 111,
@@ -168,6 +171,11 @@ await runTest("loadEventByCode builds an event model and ready provider states f
         record: { qual: { count: 12, rank: 24, rps_per_match: 1.5 } },
       },
     ],
+    [`${baseUrls.statbotics}/team_match/111/2026test_qm1`]: {
+      team: 111,
+      match: "2026test_qm1",
+      epa: { total_points: 40.25 },
+    },
   });
 
   const result = await context.ExternalEventLoader.loadEventByCode("2026test", {
@@ -205,7 +213,10 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.eventModel.teams[0].sources.statbotics.components["epa.stats.pre_elim"], 43);
   assert.equal(result.eventModel.teams[0].sources.statbotics.components["record.qual.rank"], 4);
   assert.equal(Array.isArray(result.eventModel.teams[0].sources.statbotics.trend), true);
-  assert.equal(result.eventModel.teams[0].sources.statbotics.trend.length, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].sources.statbotics.trend)), [40.25]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].sources.statbotics.trendEntries)), [{ key: 1, value: 40.25 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[1].sources.statbotics.trend)), []);
+  assert.equal(result.eventModel.teams[0].sources.pridge.trendEntries.length, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].derived || {})), {});
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.seedSortEquations || [])), []);
   assert.equal(result.eventModel.seedPicklists[1].name, "Backup / Live Sources");

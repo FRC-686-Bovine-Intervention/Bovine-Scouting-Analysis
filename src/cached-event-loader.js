@@ -26,14 +26,15 @@
     if (typeof loadSource !== "function") throw new Error("A cached-source reader is required.");
     if (typeof buildEventModelFromProviderBundle !== "function") throw new Error("Event model construction is unavailable.");
     const sourceIds = ["tba-event", "tba-teams", "tba-matches", "tba-rankings", "tba-oprs", "statbotics-event", "statbotics-team-events"];
-    const loaded = Object.fromEntries(await Promise.all(sourceIds.map(async (sourceId) => {
+    const optionalSourceIds = ["statbotics-matches"];
+    const loaded = Object.fromEntries(await Promise.all([...sourceIds, ...optionalSourceIds].map(async (sourceId) => {
       try { return [sourceId, await loadSource(sourceId)]; }
       catch (error) { return [sourceId, { error }]; }
     })));
     for (const sourceId of ["tba-event", "tba-teams", "tba-matches"]) {
       if (loaded[sourceId]?.error) throw new Error(`Cached ${sourceId} data is unavailable: ${loaded[sourceId].error?.message || "unknown error"}`);
     }
-    const payload = (sourceId, fallback) => loaded[sourceId]?.error ? fallback : decodeRawSource(loaded[sourceId]);
+    const payload = (sourceId, fallback) => loaded[sourceId]?.error || !loaded[sourceId] ? fallback : decodeRawSource(loaded[sourceId]);
     const tbaEvent = payload("tba-event", {});
     const tbaTeams = payload("tba-teams", []);
     const tbaMatches = payload("tba-matches", []);
@@ -42,6 +43,7 @@
       tbaEvent, tbaTeams: Array.isArray(tbaTeams) ? tbaTeams : [], tbaMatches: Array.isArray(tbaMatches) ? tbaMatches : [],
       tbaRankings: payload("tba-rankings", {}), tbaTeamStats: payload("tba-oprs", {}),
       statboticsEvent: payload("statbotics-event", {}), statboticsTeamEvents: payload("statbotics-team-events", []), catalogSource: "shared-cache",
+      statboticsTeamMatches: payload("statbotics-matches", []),
     });
     const warnings = sourceIds.filter((sourceId) => loaded[sourceId]?.error).map((sourceId) => `Cached ${sourceId} data is unavailable.`);
     const sourceStates = {

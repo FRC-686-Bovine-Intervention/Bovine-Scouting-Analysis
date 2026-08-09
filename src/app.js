@@ -7430,7 +7430,11 @@ function metricUsesMatchDistribution(team, metric, options = {}) {
     const evaluation = derivedMetricEvaluation(team, metric, options);
     return isSeriesFormulaResult(evaluation.result);
   }
-  return metric.kind === "source" && (metric.sourceId === "scouter" || (metric.sourceId === "tba" && metric.granularity === "match"));
+  return metric.kind === "source" && (
+    metric.sourceId === "scouter"
+    || (metric.sourceId === "tba" && metric.granularity === "match")
+    || Array.isArray(team.sources?.[metric.sourceId]?.trendEntries) && team.sources[metric.sourceId].trendEntries.length > 0
+  );
 }
 
 function applyCurrentScoutingWindowToEntries(entries) {
@@ -7460,6 +7464,13 @@ function analysisSeriesEntriesForMetric(team, metric, options = {}) {
         value: Number(row?.[metric.componentId]),
       }))
       .filter((entry) => Number.isFinite(entry.value));
+    const filteredEntries = applyAnalysisPredicateToEntries(team, entries, currentEvent());
+    return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
+  }
+  if (metric.kind === "source" && Array.isArray(team.sources?.[metric.sourceId]?.trendEntries)) {
+    const entries = team.sources[metric.sourceId].trendEntries
+      .map((entry) => ({ key: Number(entry.key), value: Number(entry.value) }))
+      .filter((entry) => Number.isFinite(entry.key) && Number.isFinite(entry.value));
     const filteredEntries = applyAnalysisPredicateToEntries(team, entries, currentEvent());
     return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
   }
