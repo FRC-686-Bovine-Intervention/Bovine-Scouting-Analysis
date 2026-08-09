@@ -389,6 +389,7 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, tbaComponents, teamMatch
 }
 
 function buildEventModelFromPayloads(payload) {
+  const deferPridgeTrends = payload?.deferPridgeTrends === true;
   const explicitScouterMetricDefinitions = Array.isArray(payload?.scouterMetricDefinitions) ? payload.scouterMetricDefinitions : [];
   const explicitFormulaFieldDefinitions = Array.isArray(payload?.formulaFieldDefinitions) ? payload.formulaFieldDefinitions : [];
   const explicitDerivedMetricDefinitions = Array.isArray(payload?.derivedMetricDefinitions) ? payload.derivedMetricDefinitions : [];
@@ -478,7 +479,7 @@ function buildEventModelFromPayloads(payload) {
       },
     };
   });
-  if (typeof computeEventPridge === "function" && matches.length && (payload.statboticsTeamEvents || []).length) {
+  if (!deferPridgeTrends && typeof computeEventPridge === "function" && matches.length && (payload.statboticsTeamEvents || []).length) {
     const cumulativeByTeam = new Map(teamsWithPridge.map((team) => [team.number, []]));
     matches.forEach((match) => {
       try {
@@ -590,6 +591,7 @@ function buildEventModelFromProviderBundle(bundle) {
     statboticsEvent: bundle.statboticsEvent || {},
     statboticsTeamEvents: bundle.statboticsTeamEvents || [],
     statboticsTeamMatches: bundle.statboticsTeamMatches || [],
+    deferPridgeTrends: bundle.deferPridgeTrends === true,
     pridgeResponseDefinitions: bundle.pridgeResponseDefinitions || [],
     catalogSource: bundle.catalogSource || "dynamic-external",
   });

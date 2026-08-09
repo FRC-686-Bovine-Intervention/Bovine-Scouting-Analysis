@@ -43,7 +43,7 @@
       tbaEvent, tbaTeams: Array.isArray(tbaTeams) ? tbaTeams : [], tbaMatches: Array.isArray(tbaMatches) ? tbaMatches : [],
       tbaRankings: payload("tba-rankings", {}), tbaTeamStats: payload("tba-oprs", {}),
       statboticsEvent: payload("statbotics-event", {}), statboticsTeamEvents: payload("statbotics-team-events", []), catalogSource: "shared-cache",
-      statboticsTeamMatches: payload("statbotics-matches", []),
+      statboticsTeamMatches: payload("statbotics-matches", []), deferPridgeTrends: true,
     });
     const warnings = sourceIds.filter((sourceId) => loaded[sourceId]?.error).map((sourceId) => `Cached ${sourceId} data is unavailable.`);
     const sourceStates = {
