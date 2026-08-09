@@ -2305,7 +2305,10 @@ function currentPridgeResponseDefinitions(eventModel = currentEvent()) {
       // Keep diagnostics useful while the schema editor contains invalid JSON.
     }
   }
-  const profileDefinitions = currentImportedProfileDefinition(eventModel)?.pridgeResponseDefinitions;
+  const selectedProfileDefinitions = currentImportedProfileDefinition(eventModel)?.pridgeResponseDefinitions;
+  const profileDefinitions = Array.isArray(selectedProfileDefinitions) && selectedProfileDefinitions.length
+    ? selectedProfileDefinitions
+    : eventScopedProfiles(eventModel).find((profile) => Array.isArray(profile?.pridgeResponseDefinitions) && profile.pridgeResponseDefinitions.length)?.pridgeResponseDefinitions;
   if (Array.isArray(profileDefinitions) && profileDefinitions.length) return profileDefinitions;
   return Array.isArray(eventModel?.pridgeResponseDefinitions) ? eventModel.pridgeResponseDefinitions : [];
 }

@@ -6,10 +6,11 @@ import vm from "node:vm";
 
 const appSourceForSchemaLoadAssertion = fs.readFileSync(path.resolve("src/app.js"), "utf8");
 assert.match(appSourceForSchemaLoadAssertion, /loadPreparedScoutingSheet\(csvText, profileId, \{[\s\S]*schemaJsonText,[\s\S]*importDraftSource: "attached"/);
-assert.match(appSourceForSchemaLoadAssertion, /const profileDefinitions = currentImportedProfileDefinition\(eventModel\)\?\.pridgeResponseDefinitions;[\s\S]*if \(Array\.isArray\(profileDefinitions\) && profileDefinitions\.length\) return profileDefinitions;[\s\S]*return Array\.isArray\(eventModel\?\.pridgeResponseDefinitions\)/);
+assert.match(appSourceForSchemaLoadAssertion, /const selectedProfileDefinitions = currentImportedProfileDefinition\(eventModel\)\?\.pridgeResponseDefinitions;[\s\S]*const profileDefinitions = Array\.isArray\(selectedProfileDefinitions\)/);
 assert.match(appSourceForSchemaLoadAssertion, /const importedPridgeResponseDefinitions = currentPridgeResponseDefinitions\(currentEvent\(\)\);[\s\S]*pridgeResponseDefinitions: importedPridgeResponseDefinitions/);
 assert.match(appSourceForSchemaLoadAssertion, /const pridgeResponseDefinitions = Array\.isArray\(profile\?\.pridgeResponseDefinitions\)[\s\S]*pridgeResponseDefinitions \}/);
 assert.match(appSourceForSchemaLoadAssertion, /const localById = new Map\(localProfiles\.map\(\(profile\) => \[profile\.id, profile\]\)\);[\s\S]*localProfile\.pridgeResponseDefinitions/);
+assert.match(appSourceForSchemaLoadAssertion, /eventScopedProfiles\(eventModel\)\.find\(\(profile\) => Array\.isArray\(profile\?\.pridgeResponseDefinitions\)/);
 
 async function runTest(name, fn) {
   try {
