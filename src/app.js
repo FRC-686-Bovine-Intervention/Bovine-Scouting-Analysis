@@ -4431,7 +4431,15 @@ async function syncSharedProfilesForEvent(eventKey = state.activeEventKey) {
   try {
     const sharedProfiles = await api.loadEventProfiles(eventKey);
     if (sharedProfiles.length) {
-      state.scoutingProfileCatalog = normalizeScoutingProfileCatalog({ ...state.scoutingProfileCatalog, [eventKey]: sharedProfiles });
+      const localProfiles = normalizeScoutingProfileCatalog(state.scoutingProfileCatalog)[eventKey] || [];
+      const localById = new Map(localProfiles.map((profile) => [profile.id, profile]));
+      const mergedProfiles = sharedProfiles.map((profile) => {
+        const localProfile = localById.get(profile?.id);
+        return Array.isArray(profile?.pridgeResponseDefinitions) || !Array.isArray(localProfile?.pridgeResponseDefinitions)
+          ? profile
+          : { ...profile, pridgeResponseDefinitions: cloneJsonValue(localProfile.pridgeResponseDefinitions) };
+      });
+      state.scoutingProfileCatalog = normalizeScoutingProfileCatalog({ ...state.scoutingProfileCatalog, [eventKey]: mergedProfiles });
       saveState();
       renderSafely();
       return true;
