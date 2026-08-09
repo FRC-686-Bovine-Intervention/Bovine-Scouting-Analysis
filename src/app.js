@@ -1551,6 +1551,7 @@ async function deleteScoutingAttachment(attachmentId) {
 async function applyRecentAdminEventSelection(value) {
   const nextEventKey = normalizeText(value);
   if (!nextEventKey) return false;
+  if (nextEventKey === state.activeEventKey) return true;
   state.adminRecentEventsOpen = false;
   if (sharedCachedEventByKey(nextEventKey)) {
     return openSharedCachedEvent(nextEventKey, { activeView: "adminEventControl", persistShared: true });
@@ -10048,18 +10049,7 @@ function bindViewEvents() {
     state.adminRecentEventsOpen = !state.adminRecentEventsOpen;
     render();
   });
-  document.querySelector("#recentAdminEventSelect")?.addEventListener("input", async (event) => {
-    await applyRecentAdminEventSelection(event.target.value);
-  });
   document.querySelector("#recentAdminEventSelect")?.addEventListener("change", async (event) => {
-    await applyRecentAdminEventSelection(event.target.value);
-  });
-  document.querySelector("#recentAdminEventSelect")?.addEventListener("dblclick", async (event) => {
-    await applyRecentAdminEventSelection(event.target.value);
-  });
-  document.querySelector("#recentAdminEventSelect")?.addEventListener("keydown", async (event) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
     await applyRecentAdminEventSelection(event.target.value);
   });
   document.querySelector("#rawSourceCacheEventSelect")?.addEventListener("change", (event) => { void selectRawSourceCacheEvent(event.target.value); });

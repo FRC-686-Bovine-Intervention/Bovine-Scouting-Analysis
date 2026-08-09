@@ -82,12 +82,19 @@ async function switchByCode(target) {
 }
 
 async function switchByRecent(target) {
+  const switchCountBefore = await page.evaluate(() => (globalThis.__scoutingPerf?.events || []).filter((event) => event.label === "switchActiveEvent.total").length);
   const before = await snapshot();
   await page.click("#openRecentAdminEventsButton");
   const select = page.locator("#recentAdminEventSelect");
   await select.waitFor({ state: "visible", timeout: 2000 });
   await select.selectOption(target);
-  return waitForSwitch(target, before);
+  const result = await waitForSwitch(target, before);
+  await page.waitForTimeout(50);
+  const switchCountAfter = await page.evaluate(() => (globalThis.__scoutingPerf?.events || []).filter((event) => event.label === "switchActiveEvent.total").length);
+  if (switchCountAfter - switchCountBefore !== 1) {
+    throw new Error(`Recent event selection triggered ${switchCountAfter - switchCountBefore} event switches instead of one.`);
+  }
+  return result;
 }
 
 try {
