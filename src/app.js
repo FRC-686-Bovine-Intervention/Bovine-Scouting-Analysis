@@ -2305,6 +2305,8 @@ function currentPridgeResponseDefinitions(eventModel = currentEvent()) {
       // Keep diagnostics useful while the schema editor contains invalid JSON.
     }
   }
+  const profileDefinitions = currentImportedProfileDefinition(eventModel)?.pridgeResponseDefinitions;
+  if (Array.isArray(profileDefinitions) && profileDefinitions.length) return profileDefinitions;
   return Array.isArray(eventModel?.pridgeResponseDefinitions) ? eventModel.pridgeResponseDefinitions : [];
 }
 
@@ -2353,6 +2355,7 @@ async function createSchemaBaselineFile() {
     pushActivity(`Created schema baseline ${savedPath} with tbaTotal* pRidge response formulas.`);
     setImportError("");
     state.importSchemaJsonText = text;
+    applyCurrentPridgeResponseDefinitions(eventModel);
     saveState();
     render();
     return true;
@@ -2540,6 +2543,10 @@ function applyScoutingSchemaResolutionDraft(model = currentScoutingSchemaReconci
     versionKey: model.draftProfileDefinition.versionKey,
     derivedEquations: cloneJsonValue(model.draftProfileDefinition.derivedEquations || []),
     filters: cloneJsonValue(model.draftProfileDefinition.filters || []),
+    pridgeResponseDefinitions: cloneJsonValue(
+      model.draftProfileDefinition.pridgeResponseDefinitions
+        || currentPridgeResponseDefinitions(currentEvent()),
+    ),
   };
   if (importSummary) {
     state.importResult.summary = {
@@ -2555,6 +2562,7 @@ function applyScoutingSchemaResolutionDraft(model = currentScoutingSchemaReconci
     derivedEquations: nextProfileDefinition.derivedEquations,
     filters: nextProfileDefinition.filters,
     metricDiscovery: nextProfileDefinition.metricDiscovery,
+    pridgeResponseDefinitions: nextProfileDefinition.pridgeResponseDefinitions,
   });
   return true;
 }
@@ -4401,6 +4409,11 @@ function registerScoutingProfile(eventModel, profile) {
         metricDiscovery: profile?.metricDiscovery && typeof profile.metricDiscovery === "object"
           ? cloneJsonValue(profile.metricDiscovery)
           : (existingProfile?.metricDiscovery ? cloneJsonValue(existingProfile.metricDiscovery) : undefined),
+        pridgeResponseDefinitions: Array.isArray(profile?.pridgeResponseDefinitions)
+          ? cloneJsonValue(profile.pridgeResponseDefinitions)
+          : (Array.isArray(existingProfile?.pridgeResponseDefinitions)
+            ? cloneJsonValue(existingProfile.pridgeResponseDefinitions)
+            : undefined),
         ...(normalizeText(profile?.versionKey || profile?.versionId)
           ? { versionKey: normalizeText(profile?.versionKey || profile?.versionId) }
           : {}),
@@ -4488,8 +4501,9 @@ function hydrateEventState(eventKey) {
   state.adminEventCodeDraft = resolvedEventKey;
   state.adminRecentEventsOpen = false;
   globalThis.__scoutingActiveEventKey = state.activeEventKey;
-  const eventModel = currentEvent();
-  ensureEventScopedScoutingProfiles(eventModel);
+  const initialEventModel = currentEvent();
+  ensureEventScopedScoutingProfiles(initialEventModel);
+  const eventModel = applyCurrentPridgeResponseDefinitions(currentEvent());
   void syncSharedProfilesForEvent(resolvedEventKey);
   void syncSharedSubmissionsForEvent(resolvedEventKey);
   state.eventWorkspace = createEventWorkspace(eventModel, readStoredJson(storageKeys.eventWorkspace, null, resolvedEventKey));
@@ -6169,6 +6183,7 @@ function commitImportPreview(options = {}) {
   const preview = state.importResult;
   const importedCsvText = state.importCsvText;
   const importedSchemaJsonText = state.importSchemaJsonText;
+  const importedPridgeResponseDefinitions = currentPridgeResponseDefinitions(currentEvent());
   const replaceExisting = currentScoutingImportShouldReplace();
   const committed = commitScoutingImport({
     preview,
@@ -6192,6 +6207,7 @@ function commitImportPreview(options = {}) {
     filters: preview.summary.profileDefinition?.filters,
     metricDiscovery: preview.summary.profileDefinition?.metricDiscovery,
     versionKey: preview.summary.profileDefinition?.versionKey,
+    pridgeResponseDefinitions: importedPridgeResponseDefinitions,
   });
   if (state.importDraftSource === "attached") {
     markCurrentScoutingAttachmentSuccess(preview, importedCsvText, { schemaJsonText: importedSchemaJsonText });

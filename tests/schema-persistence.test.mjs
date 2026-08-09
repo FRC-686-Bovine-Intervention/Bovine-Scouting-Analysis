@@ -6,6 +6,8 @@ import vm from "node:vm";
 
 const appSourceForSchemaLoadAssertion = fs.readFileSync(path.resolve("src/app.js"), "utf8");
 assert.match(appSourceForSchemaLoadAssertion, /loadPreparedScoutingSheet\(csvText, profileId, \{[\s\S]*schemaJsonText,[\s\S]*importDraftSource: "attached"/);
+assert.match(appSourceForSchemaLoadAssertion, /const profileDefinitions = currentImportedProfileDefinition\(eventModel\)\?\.pridgeResponseDefinitions;[\s\S]*if \(Array\.isArray\(profileDefinitions\) && profileDefinitions\.length\) return profileDefinitions;[\s\S]*return Array\.isArray\(eventModel\?\.pridgeResponseDefinitions\)/);
+assert.match(appSourceForSchemaLoadAssertion, /const importedPridgeResponseDefinitions = currentPridgeResponseDefinitions\(currentEvent\(\)\);[\s\S]*pridgeResponseDefinitions: importedPridgeResponseDefinitions/);
 
 async function runTest(name, fn) {
   try {
