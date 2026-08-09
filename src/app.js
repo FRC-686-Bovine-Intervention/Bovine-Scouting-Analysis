@@ -4845,6 +4845,9 @@ function normalizeScoutingProfileDefinition(profile) {
   const metricDiscovery = profile?.metricDiscovery && typeof profile.metricDiscovery === "object"
     ? cloneJsonValue(profile.metricDiscovery)
     : null;
+  const pridgeResponseDefinitions = Array.isArray(profile?.pridgeResponseDefinitions)
+    ? cloneJsonValue(profile.pridgeResponseDefinitions)
+    : [];
   return {
     id,
     label: scoutingProfileLabel(id, profile?.label || profile?.name || id),
@@ -4853,6 +4856,7 @@ function normalizeScoutingProfileDefinition(profile) {
     equations,
     filters,
     ...(metricDiscovery ? { metricDiscovery } : {}),
+    ...(pridgeResponseDefinitions.length ? { pridgeResponseDefinitions } : {}),
   };
 }
 
