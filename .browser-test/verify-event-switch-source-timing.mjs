@@ -90,11 +90,17 @@ async function switchByRecent(target) {
   await select.selectOption(target);
   const result = await waitForSwitch(target, before);
   await page.waitForTimeout(50);
-  const switchCountAfter = await page.evaluate(() => (globalThis.__scoutingPerf?.events || []).filter((event) => event.label === "switchActiveEvent.total").length);
-  if (switchCountAfter - switchCountBefore !== 1) {
-    throw new Error(`Recent event selection triggered ${switchCountAfter - switchCountBefore} event switches instead of one.`);
+  const switchEvents = await page.evaluate((beforeCount) => (globalThis.__scoutingPerf?.events || [])
+    .filter((event) => event.label === "switchActiveEvent.total")
+    .slice(beforeCount), switchCountBefore);
+  if (switchEvents.length !== 1) {
+    throw new Error(`Recent event selection triggered ${switchEvents.length} event switches instead of one.`);
   }
-  return result;
+  const switchDurationMs = Number(switchEvents[0].durationMs);
+  if (!(switchDurationMs < 500)) {
+    throw new Error(`Recent event switch took ${switchDurationMs}ms; expected <500ms.`);
+  }
+  return { ...result, switchDurationMs };
 }
 
 try {
@@ -125,7 +131,7 @@ try {
 
   console.log(JSON.stringify({
     pass: true,
-    cutoffMs: 30000,
+    cutoffMs: 500,
     requestCounts,
     transitions: [cachedToLocal, localToCached, localToUncached, uncachedToCached],
   }, null, 2));
