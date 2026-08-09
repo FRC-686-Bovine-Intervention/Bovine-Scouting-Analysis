@@ -34,6 +34,9 @@ await api.saveEventWorkspaceState("2026CHCMP", {
 const loaded = await api.loadEventWorkspaceState("2026chcmp");
 assert.equal(calls.length, 1);
 assert.equal(calls[0][1].slice(-3).join("/"), "2026chcmp/workspace/state");
+assert.deepEqual(Object.keys(calls[0][2]).sort(), ["eventKey", "eventWorkspace", "picklists", "updatedAt", "version"]);
+assert.equal("sortEquations" in calls[0][2], false);
+assert.equal("activeSortEquation" in calls[0][2], false);
 assert.equal(loaded.eventKey, "2026chcmp");
 assert.equal(loaded.eventWorkspace.sources.scouting[0].attachmentId, "link");
 await assert.rejects(() => api.loadEventWorkspaceState(""), /event key/);

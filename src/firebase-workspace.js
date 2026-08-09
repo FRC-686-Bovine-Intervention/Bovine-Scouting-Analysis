@@ -21,9 +21,6 @@ async function saveEventWorkspaceState(eventKey, state = {}) {
     eventKey: String(eventKey || "").trim().toLowerCase(),
     eventWorkspace: state.eventWorkspace || {},
     picklists: Array.isArray(state.picklists) ? state.picklists : [],
-    sortEquations: Array.isArray(state.sortEquations) ? state.sortEquations : [],
-    activePicklist: String(state.activePicklist || ""),
-    activeSortEquation: String(state.activeSortEquation || ""),
     updatedAt: serverTimestamp(),
   });
 }

@@ -5004,9 +5004,6 @@ function sharedWorkspaceStateSnapshot() {
   return {
     eventWorkspace: cloneJsonValue(state.eventWorkspace || {}),
     picklists: cloneJsonValue(state.picklists || []),
-    sortEquations: cloneJsonValue(state.sortEquations || []),
-    activePicklist: state.activePicklist,
-    activeSortEquation: state.activeSortEquation,
   };
 }
 
@@ -5031,9 +5028,9 @@ async function syncSharedWorkspaceForEvent(eventKey = state.activeEventKey) {
       const eventModel = currentEvent();
       state.eventWorkspace = createEventWorkspace(eventModel, shared.eventWorkspace || {});
       state.picklists = normalizePicklists(shared.picklists, eventModel);
-      state.sortEquations = normalizeSortEquations(shared.sortEquations, eventModel);
-      state.activePicklist = resolvePicklistId(shared.activePicklist, state.picklists) || state.picklists[0]?.id || "";
-      state.activeSortEquation = resolveSortEquationId(shared.activeSortEquation, state.sortEquations) || state.sortEquations[0]?.id || "";
+      state.activePicklist = state.picklists.some((picklist) => picklist.id === state.activePicklist)
+        ? state.activePicklist
+        : state.picklists[0]?.id || "";
       saveState();
       renderSafely();
       return true;
@@ -5381,6 +5378,13 @@ function rankTeamsByTerms(terms) {
 }
 
 function scoreTeamByEquation(team, equation) {
+  if (equation?.formula) {
+    const evaluation = evaluateEquationForTeam(team, equation.id, { eventModel: currentEvent() });
+    const aggregate = formulaResultForEventAggregate(evaluation.result);
+    if (!aggregate.valid) return Number.NaN;
+    const numericValue = Number(aggregate.value);
+    return Number.isFinite(numericValue) ? numericValue : Number.NaN;
+  }
   if (equation.metricId) return teamMetricValue(team, metricById(equation.metricId));
   return scoreTeamByTerms(team, equation.terms);
 }
