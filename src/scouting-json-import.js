@@ -5,12 +5,12 @@ const requiredIdentityFields = scoutingJsonSchema.requiredEntryIdentityFields ||
 const contextualEntryMetricIds = new Set(scoutingJsonSchema.contextualEntryMetricIds || ["scoutUser", "station", "defensePlayed", "robotStatus", "notes"]);
 const canonicalFormatId = scoutingJsonSchema.canonicalFormatId || "frc-scouting-analysis/v1";
 const canonicalTemplateProfileId = scoutingJsonSchema.canonicalTemplateProfileId || "canonical-json-v1";
-const buildCanonicalSchemaForEventModel = scoutingJsonSchema.buildCanonicalSchemaForEventModel || (() => ({ schemaId: canonicalTemplateProfileId, fields: [] }));
+const buildCanonicalSchemaForEventModel = scoutingJsonSchema.buildCanonicalSchemaForEventModel || (() => ({ schemaId: canonicalTemplateProfileId, expectedScoutingFields: [] }));
 const normalizeCanonicalProfile = scoutingJsonSchema.normalizeCanonicalProfile || ((profile, schemaMeta = {}) => ({
   id: String(profile?.id || profile?.profileId || schemaMeta?.templateProfileId || canonicalTemplateProfileId).trim(),
   label: String(profile?.label || profile?.name || schemaMeta?.profileLabel || profile?.id || canonicalTemplateProfileId).trim(),
   versionKey: String(profile?.versionKey || profile?.versionId || "").trim(),
-  derivedEquations: Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : []),
+  derivedEquations: Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : [],
 }));
 const normalizeCanonicalPayload = scoutingJsonSchema.normalizeCanonicalPayload || ((payload, schemaPayload = null) => ({
   meta: payload?.meta || {},
@@ -188,10 +188,8 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
   const expectedSchema = buildCanonicalSchemaForEventModel(eventModel);
   const schemaFieldDefinitions = Array.isArray(schema.expectedScoutingFields) && schema.expectedScoutingFields.length
     ? schema.expectedScoutingFields
-    : (Array.isArray(schema.fields) && schema.fields.length
-      ? schema.fields
-      : expectedSchema.expectedScoutingFields);
-  const fieldIds = new Set(schemaFieldDefinitions.map((fieldDefinition) => normalizeText(fieldDefinition?.id)).filter(Boolean));
+    : expectedSchema.expectedScoutingFields;
+  const fieldIds = new Set(schemaFieldDefinitions.map((fieldDefinition) => schemaFieldName(fieldDefinition)).filter(Boolean));
   const schemaFieldMap = validation.schemaFieldMap || new Map();
   const parsedRows = [];
 

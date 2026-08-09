@@ -209,11 +209,11 @@ function normalizeSchemaField(fieldDefinition, expectedField = null) {
 }
 
 function normalizeProfileEquation(definition, index = 0) {
-  const name = canonicalProfileEquationName(definition, `equation_${index + 1}`);
+  const name = normalizeText(definition?.name) || canonicalProfileEquationName(definition, `equation_${index + 1}`);
   if (!name) return null;
   return {
     name,
-    formula: normalizeText(definition?.formula || definition?.expression),
+    formula: normalizeText(definition?.formula),
   };
 }
 
@@ -234,15 +234,14 @@ function normalizeCanonicalProfile(profile, schemaMeta = {}) {
   const profileId = normalizeText(profile?.id || profile?.profileId) || normalizeText(schemaMeta?.templateProfileId);
   const profileLabel = normalizeText(profile?.label || profile?.name) || normalizeText(schemaMeta?.profileLabel) || profileId;
   const derivedEquations = Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : [];
-  const legacyEquations = Array.isArray(profile?.equations) ? profile.equations : [];
-  if (!profileId && !profileLabel && !derivedEquations.length && !legacyEquations.length) {
+  if (!profileId && !profileLabel && !derivedEquations.length) {
     return null;
   }
   return {
     id: profileId || canonicalTemplateProfileId,
     label: profileLabel || profileId || canonicalTemplateProfileId,
     versionKey: normalizeText(profile?.versionKey || profile?.versionId),
-    derivedEquations: (derivedEquations.length ? derivedEquations : legacyEquations)
+    derivedEquations: derivedEquations
       .map((definition, index) => normalizeProfileEquation(definition, index))
       .filter(Boolean),
   };
@@ -300,7 +299,7 @@ function buildCanonicalSchemaArtifact(schemaPayload, options = {}) {
   ) || normalizeCanonicalProfile(null, normalized.schemaMeta);
   const schemaFieldEntries = Array.isArray(normalized.schema?.expectedScoutingFields) && normalized.schema.expectedScoutingFields.length
     ? normalized.schema.expectedScoutingFields
-    : (Array.isArray(normalized.schema?.fields) ? normalized.schema.fields : []);
+    : [];
   const schema = schemaFieldEntries.length
     ? {
         ...normalized.schema,
@@ -435,7 +434,7 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
   if (!schemaId) {
     errors.push("Canonical scouting schema JSON schema.schemaId is required.");
   }
-  const schemaFieldEntries = Array.isArray(schema.expectedScoutingFields) ? schema.expectedScoutingFields : schema.fields;
+  const schemaFieldEntries = schema.expectedScoutingFields;
   if (!Array.isArray(schemaFieldEntries)) {
     errors.push("Canonical scouting schema JSON schema.expectedScoutingFields must be an array.");
   }
@@ -456,6 +455,10 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
 
   if (Array.isArray(schemaFieldEntries)) {
     schemaFieldEntries.forEach((field, index) => {
+      if (typeof field !== "string" || !normalizeText(field)) {
+        errors.push(`Schema expectedScoutingFields entry ${index + 1} must be a non-empty string field id.`);
+        return;
+      }
       const fieldId = canonicalSchemaFieldName(field);
       const expectedField = expectedFieldMap.get(fieldId) || null;
       const normalizedField = normalizeSchemaField(field, expectedField);
@@ -469,11 +472,8 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
         errors.push(`Schema field ${fieldId} is duplicated.`);
         return;
       }
-      if (!fieldType) {
-        errors.push(`Schema field ${fieldId} is missing type.`);
-      } else if (!["number", "string"].includes(fieldType)) {
-        errors.push(`Schema field ${fieldId} has unsupported type ${fieldType}.`);
-      }
+      if (!fieldType) errors.push(`Schema field ${fieldId} is missing type.`);
+      else if (!["number", "string"].includes(fieldType)) errors.push(`Schema field ${fieldId} has unsupported type ${fieldType}.`);
       schemaFieldMap.set(fieldId, {
         id: fieldId,
         label: fieldLabel || fieldId,

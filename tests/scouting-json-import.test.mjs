@@ -479,10 +479,7 @@ runTest("previewScoutingJsonImport honors payload schema fields instead of forci
       },
       schema: {
         schemaId: "2026-match-drifted",
-        fields: [
-          { id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" },
-          { id: "customDriverTag", label: "Driver Tag", type: "string", unit: "text" },
-        ],
+        expectedScoutingFields: ["autoFuelPct", "customDriverTag"],
       },
       entries: [
         {
@@ -506,10 +503,7 @@ runTest("previewScoutingJsonImport honors payload schema fields instead of forci
       },
       schema: {
         schemaId: "2026-match-drifted",
-        fields: [
-          { id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" },
-          { id: "customDriverTag", label: "Driver Tag", type: "string", unit: "text" },
-        ],
+        expectedScoutingFields: ["autoFuelPct", "customDriverTag"],
       },
     }),
     eventModel,
@@ -676,10 +670,7 @@ runTest("previewScoutingJsonImport surfaces profile equations from schema artifa
         id: "canonical-json-v1",
         label: "Canonical JSON",
         derivedEquations: [
-          { id: "scoutingTotal", name: "Scouting Total", formula: "scouting.auto + scouting.cycle + scouting.endgame" },
-        ],
-        filters: [
-          { id: "shareGate", name: "Share Gate", formula: "scouting.autoFuelPct > 0" },
+          { name: "scoutingTotal", formula: "scouting.auto + scouting.cycle + scouting.endgame" },
         ],
       },
     }),

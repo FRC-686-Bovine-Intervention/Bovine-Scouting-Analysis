@@ -124,7 +124,7 @@ runTest("schema artifacts emit only the portable contract members", () => {
     meta: { format: "frc-scouting-analysis/v1", templateProfileId: "profile-1" },
     schema: {
       schemaId: "2027-match-v1",
-      expectedScoutingFields: [{ id: "fuel", label: "Fuel", type: "number" }],
+      expectedScoutingFields: ["fuel"],
       metricPresentation: { blacklist: { tba: ["total*"], statbotics: ["epa"] } },
       metricDiscovery: { blacklist: { tba: ["legacy"] } },
       fields: [{ id: "fuel", label: "runtime metadata" }],
@@ -178,6 +178,22 @@ runTest("validateCanonicalSchema rejects missing schema.expectedScoutingFields w
   const validation = context.ScoutingJsonSchema.validateCanonicalSchema(payload, eventModel, "2026chcmp", schemaPayload);
 
   assert.equal(validation.errors.some((error) => error.includes("schema.expectedScoutingFields must be an array")), true);
+});
+
+runTest("validateCanonicalSchema rejects runtime field metadata in the portable contract", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
+  const eventModel = buildEventModel(context);
+  const validation = context.ScoutingJsonSchema.validateCanonicalSchema({
+    meta: { format: "frc-scouting-analysis/v1", season: 2026, eventKey: "2026chcmp", entryType: "match" },
+    schema: {
+      schemaId: "2026-match-v1",
+      expectedScoutingFields: [{ id: "autoFuelPct", label: "Auto Fuel %", type: "number" }],
+    },
+    entries: [],
+  }, eventModel, "2026chcmp");
+
+  assert.equal(validation.errors.length, 1);
+  assert.match(validation.errors[0], /must be a non-empty string field id/);
 });
 
 runTest("validateCanonicalSchema accepts split entries and schema artifacts", () => {

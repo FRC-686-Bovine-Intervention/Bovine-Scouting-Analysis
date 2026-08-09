@@ -1092,11 +1092,14 @@ function currentSchemaArtifactSeed(profileDefinition, eventModel = currentEvent(
 }
 
 function canonicalSchemaProfileDefinition(profileDefinition = {}) {
+  const runtimeEquations = Array.isArray(profileDefinition?.derivedEquations)
+    ? profileDefinition.derivedEquations
+    : (Array.isArray(profileDefinition?.equations) ? profileDefinition.equations : []);
   return {
     id: normalizeText(profileDefinition?.id || profileDefinition?.profileId),
     label: normalizeText(profileDefinition?.label || profileDefinition?.name),
     versionKey: normalizeText(profileDefinition?.versionKey || profileDefinition?.versionId),
-    derivedEquations: cloneJsonValue(profileDefinition?.derivedEquations || profileDefinition?.equations || []),
+    derivedEquations: cloneJsonValue(runtimeEquations),
   };
 }
 
@@ -2343,14 +2346,13 @@ async function loadAttachedSchemaForDiagnostics() {
     const expectedFields = Array.isArray(schema?.expectedScoutingFields)
       ? schema.expectedScoutingFields.map((field) => ({ id: normalizeText(field?.id || field), label: normalizeText(field?.label || field?.id || field) })).filter((field) => field.id)
       : [];
-    const profileFields = Array.isArray(profile?.fields) && profile.fields.length ? profile.fields : expectedFields;
+    const profileFields = expectedFields;
     registerScoutingProfile(currentEvent(), {
       id: profile?.id || attachment.profileId || defaultScoutingProfileId,
       label: profile?.label || attachment.profileLabel,
       ...(profileFields.length ? { fields: profileFields } : {}),
-      derivedEquations: profile?.derivedEquations || profile?.equations,
-      filters: profile?.filters,
-      metricDiscovery: profile?.metricDiscovery,
+      derivedEquations: profile?.derivedEquations || [],
+      metricPresentation: schema?.metricPresentation,
       pridgeResponseDefinitions: schema?.pridgeResponseDefinitions || parsed?.pridgeResponseDefinitions,
       versionKey: profile?.versionKey,
     });
@@ -2433,7 +2435,7 @@ async function createSchemaBaselineFile() {
       : (Array.isArray(existingProfile?.fields) ? existingProfile.fields : []);
     const artifact = buildPridgeResponseBaseline(eventModel, {
       expectedScoutingFields: cachedExpectedScoutingFields,
-      profile: existingProfile,
+      profile: canonicalSchemaProfileDefinition(existingProfile),
       pridgeResponseDefinitions: schemaBaselinePridgeResponseDefinitions(eventModel, existingSchema),
       workspace: {
         picklists: cloneJsonValue(cachedPicklists || []),
@@ -2663,7 +2665,7 @@ function applyScoutingSchemaResolutionDraft(model = currentScoutingSchemaReconci
     label: nextProfileDefinition.label || importSummary?.profileLabel || currentProfileMetricScopeKey(currentEvent()),
     fields: model.draftProfileDefinition.fields,
     derivedEquations: nextProfileDefinition.derivedEquations,
-    metricDiscovery: nextProfileDefinition.metricDiscovery,
+    metricPresentation: nextProfileDefinition.metricPresentation,
     pridgeResponseDefinitions: nextProfileDefinition.pridgeResponseDefinitions,
   });
   return true;
@@ -4499,7 +4501,7 @@ function registerScoutingProfile(eventModel, profile) {
         fields: Array.isArray(profile?.fields) ? profile.fields : (existingProfile?.fields || []),
         derivedEquations: Array.isArray(profile?.derivedEquations)
           ? profile.derivedEquations
-          : (Array.isArray(profile?.equations) ? profile.equations : (existingProfile?.derivedEquations || existingProfile?.equations || [])),
+          : (existingProfile?.derivedEquations || []),
         metricPresentation: profile?.metricPresentation && typeof profile.metricPresentation === "object"
           ? cloneJsonValue(profile.metricPresentation)
           : (existingProfile?.metricPresentation ? cloneJsonValue(existingProfile.metricPresentation) : undefined),
@@ -4895,10 +4897,7 @@ function normalizeScoutingProfileDefinition(profile) {
         .map((fieldDefinition) => normalizeScoutingProfileField(fieldDefinition))
         .filter(Boolean)
     : [];
-  const equations = normalizeEquationDefinitions([
-    ...(Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : [])),
-    ...(Array.isArray(profile?.filters) ? profile.filters : []),
-  ]);
+  const equations = normalizeEquationDefinitions(Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : []);
   const versionKey = normalizeText(profile?.versionKey || profile?.versionId)
     || buildNormalizedScoutingProfileVersionKey({
       id,
@@ -6275,9 +6274,8 @@ function commitImportPreview(options = {}) {
     id: preview.summary.profileId,
     label: preview.summary.profileLabel,
     fields: preview.summary.schemaFields,
-    derivedEquations: preview.summary.profileDefinition?.derivedEquations || preview.summary.profileDefinition?.equations,
-    filters: preview.summary.profileDefinition?.filters,
-    metricDiscovery: preview.summary.profileDefinition?.metricDiscovery,
+    derivedEquations: preview.summary.profileDefinition?.derivedEquations || [],
+    metricPresentation: preview.summary.profileDefinition?.metricPresentation,
     versionKey: preview.summary.profileDefinition?.versionKey,
     pridgeResponseDefinitions: importedPridgeResponseDefinitions,
   });
