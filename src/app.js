@@ -40,6 +40,9 @@ const writeLocalAttachmentText = localFileAccess.writeAttachmentText || (async (
 const createLocalAttachmentFile = localFileAccess.createAttachmentFile || (async () => {
   throw new Error("Persistent local scouting files are unavailable in this browser.");
 });
+const downloadLocalTextFile = localFileAccess.downloadTextFile || (() => {
+  throw new Error("Browser downloads are unavailable.");
+});
 const clearLocalAttachmentFile = localFileAccess.removeAttachment || (async () => false);
 const readPersistedScoutingSubmissions = localFileAccess.readScoutingSubmissions || (async () => null);
 const writePersistedScoutingSubmissions = localFileAccess.writeScoutingSubmissions || (async () => false);
@@ -2304,15 +2307,25 @@ async function createSchemaBaselineFile() {
   try {
     const artifact = buildPridgeResponseBaseline(eventModel);
     const suggestedName = `${normalizeText(eventModel.key) || "event"}_schema-baseline.json`;
-    const selected = await createLocalAttachmentFile({
-      attachmentId: `schema-baseline:${normalizeText(eventModel.key) || "event"}`,
-      format: "scouting-json",
-      suggestedName,
-      requestWriteAccess: true,
-    });
     const text = JSON.stringify(artifact, null, 2);
-    await writeLocalAttachmentText(selected.attachmentId, text);
-    pushActivity(`Created schema baseline ${selected.path || suggestedName} with tbaTotal* pRidge response formulas.`);
+    const locationRef = globalThis.location || {};
+    const nativeSaveAvailable = typeof globalThis.showSaveFilePicker === "function"
+      && String(locationRef.protocol || "").toLowerCase() !== "file:"
+      && globalThis.isSecureContext !== false;
+    let savedPath = suggestedName;
+    if (nativeSaveAvailable) {
+      const selected = await createLocalAttachmentFile({
+        attachmentId: `schema-baseline:${normalizeText(eventModel.key) || "event"}`,
+        format: "scouting-json",
+        suggestedName,
+        requestWriteAccess: true,
+      });
+      await writeLocalAttachmentText(selected.attachmentId, text);
+      savedPath = selected.path || suggestedName;
+    } else {
+      downloadLocalTextFile(text, suggestedName);
+    }
+    pushActivity(`Created schema baseline ${savedPath} with tbaTotal* pRidge response formulas.`);
     setImportError("");
     state.importSchemaJsonText = text;
     saveState();
