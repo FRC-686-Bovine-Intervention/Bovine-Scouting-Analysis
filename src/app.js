@@ -22,6 +22,7 @@ const toDisplaySeasonLabel = globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel 
 const commitScoutingImport = importFoundation.commitScoutingImport;
 const buildSampleCsv = importFoundation.buildSampleCsv;
 const previewScoutingImport = importFoundation.previewScoutingImport;
+const isHtmlDocumentText = importFoundation.isHtmlDocumentText || (() => false);
 const buildExternalSourceSnapshot = externalSourceSnapshots.buildExternalSourceSnapshot || ((sourceId, eventModel) => ({ eventKey: eventModel?.key, sourceId }));
 const buildExternalSnapshotFingerprint = externalSourceSnapshots.buildSnapshotFingerprint || ((value) => JSON.stringify(value || null));
 const seedWorkspaceExternalSourceFingerprints = externalSourceSnapshots.seedExternalSourceFingerprints || ((workspace) => workspace);
@@ -6426,6 +6427,12 @@ function loadPreparedScoutingJson(jsonText, options = {}) {
 }
 
 function loadPreparedScoutingSheet(csvText, profileId = "", options = {}) {
+  if (isHtmlDocumentText(csvText)) {
+    setImportError("The scouting source returned an HTML document instead of CSV data. Check the sheet URL, sharing permissions, and export endpoint.");
+    markCurrentScoutingAttachmentFailure("Scouting source returned HTML instead of CSV data.");
+    render();
+    return;
+  }
   if (typeof sharedTranslateEventSheetToCanonical === "function") {
     const translated = sharedTranslateEventSheetToCanonical(currentEvent(), csvText, {
       templateProfileId: profileId,

@@ -462,6 +462,15 @@ function buildSampleCsv(eventModel, profileId) {
 }
 
 function previewScoutingImport({ csvText, eventModel, activeEventKey, existingSubmissions = [], templateProfileId = "" }) {
+  if (isHtmlDocumentText(csvText)) {
+    return {
+      ok: false,
+      errors: ["The scouting source returned an HTML document instead of CSV data. Check the sheet URL, sharing permissions, and export endpoint."],
+      warnings: [],
+      summary: null,
+    };
+  }
+
   const seasonCheck = validateSeasonPackage(eventModel);
   if (!seasonCheck.valid) {
     return {
@@ -573,6 +582,14 @@ function previewScoutingImport({ csvText, eventModel, activeEventKey, existingSu
   };
 }
 
+function isHtmlDocumentText(value) {
+  const sample = String(value || "").replace(/^\uFEFF/, "").trimStart().slice(0, 4096).toLowerCase();
+  if (!sample) return false;
+  return sample.startsWith("<!doctype html")
+    || sample.startsWith("<html")
+    || (sample.includes("<head") && sample.includes("<script") && sample.includes("</html>"));
+}
+
 function commitScoutingImport({ preview, existingSubmissions = [], existingActivity = [], replaceExisting = false }) {
   if (!preview?.ok || !preview.summary) {
     return {
@@ -602,5 +619,6 @@ globalThis.ImportFoundation = {
   buildSampleCsv,
   previewScoutingImport,
   commitScoutingImport,
+  isHtmlDocumentText,
 };
 })();
