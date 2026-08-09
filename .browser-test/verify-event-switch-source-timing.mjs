@@ -72,6 +72,15 @@ async function waitForSwitch(target, baseline, timeoutMs = 30000) {
   throw new Error(`Event switch exceeded ${timeoutMs}ms: ${JSON.stringify({ target, baseline, current: await snapshot() })}`);
 }
 
+async function waitForActiveEvent(target, timeoutMs = 30000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if ((await snapshot()).activeEventKey === target) return { target, elapsedMs: Date.now() - startedAt };
+    await page.waitForTimeout(100);
+  }
+  throw new Error(`Active event did not switch within ${timeoutMs}ms: ${JSON.stringify({ target, current: await snapshot() })}`);
+}
+
 async function switchByCode(target) {
   const before = await snapshot();
   const input = page.locator("#adminEventCodeInput");
@@ -109,6 +118,10 @@ async function switchByRecent(target) {
   const select = page.locator("#recentAdminEventSelect");
   await select.waitFor({ state: "visible", timeout: 2000 });
   await select.selectOption(target);
+  const activeEventResult = await waitForActiveEvent(target);
+  if (!(activeEventResult.elapsedMs < 500)) {
+    throw new Error(`Recent event became active after ${activeEventResult.elapsedMs}ms; expected <500ms.`);
+  }
   await page.waitForFunction((count) => globalThis.__ticket109InteractionDurations?.switch.length > count, switchDurationCountBefore);
   const userDurationMs = await page.evaluate((count) => globalThis.__ticket109InteractionDurations.switch[count], switchDurationCountBefore);
   if (!(userDurationMs < 500)) {
@@ -126,7 +139,7 @@ async function switchByRecent(target) {
   if (!(switchDurationMs < 500)) {
     throw new Error(`Recent event switch took ${switchDurationMs}ms; expected <500ms.`);
   }
-  return { ...result, openDurationMs, switchDurationMs, userDurationMs };
+  return { ...result, activeEventElapsedMs: activeEventResult.elapsedMs, openDurationMs, switchDurationMs, userDurationMs };
 }
 
 try {
