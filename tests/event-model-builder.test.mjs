@@ -46,6 +46,11 @@ assert.equal(pridgeCalls, 1, "Deferred cached event construction should compute 
 assert.equal(deferred.teams[0].sources.pridge.trendEntries.length, 0);
 
 pridgeCalls = 0;
+const deferredComputation = context.EventModelBuilder.buildEventModelFromProviderBundle({ ...bundle, deferPridgeComputation: true });
+assert.equal(pridgeCalls, 0, "Interactive event refreshes must not synchronously solve pRidge.");
+assert.equal(deferredComputation.teams[0].sources.pridge.total, null);
+
+pridgeCalls = 0;
 const eager = context.EventModelBuilder.buildEventModelFromProviderBundle(bundle);
 assert.equal(pridgeCalls, 81, "Eager event construction should retain the existing cumulative trend behavior.");
 assert.equal(eager.teams[0].sources.pridge.trendEntries.length, 80);

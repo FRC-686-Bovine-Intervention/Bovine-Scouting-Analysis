@@ -253,7 +253,7 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(Number.isFinite(reapplied.teams[0].sources.pridge.components.tbaTotalAutoPoints), true);
 });
 
-await runTest("loadEventByCode can defer cumulative pRidge trends during an event switch refresh", async () => {
+await runTest("loadEventByCode can defer pRidge computation during an event switch refresh", async () => {
   const baseUrls = { tba: "https://tba.test/api", statbotics: "https://api.statbotics.io/v3" };
   let builtBundle;
   const context = loadBrowserContext([
@@ -283,10 +283,10 @@ await runTest("loadEventByCode can defer cumulative pRidge trends during an even
     tbaAuthKey: "unit-test-key",
     tbaBaseUrl: baseUrls.tba,
     statboticsBaseUrl: baseUrls.statbotics,
-    deferPridgeTrends: true,
+    deferPridgeComputation: true,
   });
 
-  assert.equal(builtBundle.deferPridgeTrends, true);
+  assert.equal(builtBundle.deferPridgeComputation, true);
 });
 
 await runTest("loadEventByCode falls back to the query-form Statbotics team_events endpoint after a 404", async () => {

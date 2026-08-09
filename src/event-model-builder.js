@@ -390,6 +390,7 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, tbaComponents, teamMatch
 
 function buildEventModelFromPayloads(payload) {
   const deferPridgeTrends = payload?.deferPridgeTrends === true;
+  const deferPridgeComputation = payload?.deferPridgeComputation === true;
   const explicitScouterMetricDefinitions = Array.isArray(payload?.scouterMetricDefinitions) ? payload.scouterMetricDefinitions : [];
   const explicitFormulaFieldDefinitions = Array.isArray(payload?.formulaFieldDefinitions) ? payload.formulaFieldDefinitions : [];
   const explicitDerivedMetricDefinitions = Array.isArray(payload?.derivedMetricDefinitions) ? payload.derivedMetricDefinitions : [];
@@ -431,7 +432,7 @@ function buildEventModelFromPayloads(payload) {
   const matches = normalizeMatches(payload.tbaMatches || []);
   let pridgeResult = null;
   let pridgeError = "";
-  if (typeof computeEventPridge === "function" && matches.length && (payload.statboticsTeamEvents || []).length) {
+  if (!deferPridgeComputation && typeof computeEventPridge === "function" && matches.length && (payload.statboticsTeamEvents || []).length) {
     try {
       pridgeResult = computeEventPridge(payload.tbaMatches || [], payload.statboticsTeamEvents || [], {
         responseName: "score",
@@ -442,7 +443,7 @@ function buildEventModelFromPayloads(payload) {
     }
   }
   const pridgeResponseResults = {};
-  pridgeResponseDefinitions.forEach((definition) => {
+  if (!deferPridgeComputation) pridgeResponseDefinitions.forEach((definition) => {
     if (typeof computeEventPridge !== "function" || !matches.length || !(payload.statboticsTeamEvents || []).length) return;
     try {
       const formulaMatches = buildFormulaMatches(payload.tbaMatches || [], definition);
@@ -479,7 +480,7 @@ function buildEventModelFromPayloads(payload) {
       },
     };
   });
-  if (!deferPridgeTrends && typeof computeEventPridge === "function" && matches.length && (payload.statboticsTeamEvents || []).length) {
+  if (!deferPridgeComputation && !deferPridgeTrends && typeof computeEventPridge === "function" && matches.length && (payload.statboticsTeamEvents || []).length) {
     const cumulativeByTeam = new Map(teamsWithPridge.map((team) => [team.number, []]));
     matches.forEach((match) => {
       try {
@@ -592,6 +593,7 @@ function buildEventModelFromProviderBundle(bundle) {
     statboticsTeamEvents: bundle.statboticsTeamEvents || [],
     statboticsTeamMatches: bundle.statboticsTeamMatches || [],
     deferPridgeTrends: bundle.deferPridgeTrends === true,
+    deferPridgeComputation: bundle.deferPridgeComputation === true,
     pridgeResponseDefinitions: bundle.pridgeResponseDefinitions || [],
     catalogSource: bundle.catalogSource || "dynamic-external",
   });

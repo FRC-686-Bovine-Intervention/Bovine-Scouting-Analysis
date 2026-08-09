@@ -342,6 +342,7 @@ async function loadEventByCode(eventCode, options = {}) {
     statboticsTeamEvents: statboticsTeamEventsResult.ok ? (statboticsTeamEventsResult.value?.payload || []) : [],
     statboticsTeamMatches: statboticsTeamMatchesResult.rows,
     deferPridgeTrends: options.deferPridgeTrends === true,
+    deferPridgeComputation: options.deferPridgeComputation === true,
     pridgeResponseDefinitions: options.pridgeResponseDefinitions || [],
     catalogSource: "dynamic-external",
   });
