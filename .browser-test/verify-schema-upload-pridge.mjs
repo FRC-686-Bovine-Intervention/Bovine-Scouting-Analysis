@@ -136,6 +136,29 @@ try {
   assert(!/Missing schema definition tbaTotal/i.test(result.renderedDiagnostics), `Rendered Schema Diagnostics still reports missing tbaTotal definitions: ${JSON.stringify(result)}`);
   assert(result.importedRows > 0, `Expected imported scouting rows: ${JSON.stringify(result)}`);
 
+  const exportedBaseline = await page.evaluate(() => {
+    __scoutingAppState.picklists = [{ id: "cached-main", name: "Cached Main", teams: [686] }];
+    __scoutingAppState.sortEquations = [{ id: "cached-sort", name: "Cached Sort", terms: [{ metric: "tbaTotalAutoPoints", direction: "desc" }] }];
+    __scoutingAppState.activePicklist = "cached-main";
+    __scoutingAppState.activeSortEquation = "cached-sort";
+    registerScoutingProfile(currentEvent(), {
+      ...(currentImportedProfileDefinition(currentEvent()) || {}),
+      derivedEquations: [{ id: "cachedEquation", name: "cachedEquation", formula: "sum(scouting.autoFuelPct)" }],
+    });
+    saveState();
+    return true;
+  });
+  assert(exportedBaseline, "Unable to seed cached schema state for baseline export.");
+  const baselineDownloadPromise = page.waitForEvent("download");
+  await page.locator('[data-view="adminDataQuality"]').first().click();
+  await page.getByRole("button", { name: "Create Schema Baseline" }).click();
+  const baselineDownload = await baselineDownloadPromise;
+  const downloadedBaseline = JSON.parse(fs.readFileSync(await baselineDownload.path(), "utf8"));
+  assert(downloadedBaseline.profile.derivedEquations.some((equation) => equation.name === "cachedEquation"), `Downloaded baseline omitted cached derived equations: ${JSON.stringify(downloadedBaseline)}`);
+  assert(downloadedBaseline.workspace.picklists.some((picklist) => picklist.id === "cached-main"), `Downloaded baseline omitted cached picklists: ${JSON.stringify(downloadedBaseline)}`);
+  assert(downloadedBaseline.workspace.sortEquations.some((equation) => equation.id === "cached-sort"), `Downloaded baseline omitted cached sort equations: ${JSON.stringify(downloadedBaseline)}`);
+  assert(downloadedBaseline.schema.pridgeResponseDefinitions.length === 3, `Downloaded baseline did not complete missing pRidge definitions: ${JSON.stringify(downloadedBaseline)}`);
+
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1200);
   await page.locator('[data-view="adminDataQuality"]').first().click();

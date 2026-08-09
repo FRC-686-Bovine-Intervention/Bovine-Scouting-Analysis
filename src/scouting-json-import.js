@@ -282,6 +282,7 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
           ? JSON.parse(JSON.stringify(schema.metricDiscovery))
           : null,
       },
+      workspace: validation.workspace || normalizedPayload.workspace || null,
       schemaVersion: normalizeText(schema.schemaId) || canonicalTemplateProfileId,
       rowCount: parsedRows.length,
       newRows: parsedRows.length,

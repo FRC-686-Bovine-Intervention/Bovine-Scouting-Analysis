@@ -78,6 +78,9 @@ function buildPridgeResponseBaseline(eventModel = {}, options = {}) {
       ],
     },
     profile: profile ? normalizeCanonicalProfile(profile) : null,
+    ...(options.workspace && typeof options.workspace === "object"
+      ? { workspace: JSON.parse(JSON.stringify(options.workspace)) }
+      : {}),
   };
 }
 
@@ -224,6 +227,9 @@ function normalizeCanonicalProfile(profile, schemaMeta = {}) {
   const profileLabel = normalizeText(profile?.label || profile?.name) || normalizeText(schemaMeta?.profileLabel) || profileId;
   const derivedEquations = Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : [];
   const legacyEquations = Array.isArray(profile?.equations) ? profile.equations : [];
+  const metricDiscovery = profile?.metricDiscovery && typeof profile.metricDiscovery === "object"
+    ? JSON.parse(JSON.stringify(profile.metricDiscovery))
+    : null;
   if (!profileId && !profileLabel && !derivedEquations.length && !legacyEquations.length) {
     return null;
   }
@@ -237,6 +243,7 @@ function normalizeCanonicalProfile(profile, schemaMeta = {}) {
     filters: (Array.isArray(profile?.filters) ? profile.filters : [])
       .map((definition, index) => normalizeProfileFilter(definition, index))
       .filter(Boolean),
+    ...(metricDiscovery ? { metricDiscovery } : {}),
   };
 }
 
@@ -319,8 +326,12 @@ function buildCanonicalSchemaArtifact(schemaPayload, options = {}) {
           versionKey: profile.versionKey,
           derivedEquations: profile.derivedEquations,
           filters: profile.filters,
+          ...(profile.metricDiscovery ? { metricDiscovery: profile.metricDiscovery } : {}),
         }
       : profile,
+    ...(normalized.workspace && typeof normalized.workspace === "object"
+      ? { workspace: JSON.parse(JSON.stringify(normalized.workspace)) }
+      : {}),
   };
 }
 
@@ -345,6 +356,9 @@ function normalizeCanonicalPayload(payload, schemaPayload = null) {
     ? schemaSource.schema
     : {};
   const profile = normalizeCanonicalProfile(selectSchemaProfile(schemaSource, schemaMeta), schemaMeta);
+  const workspace = schemaSource?.workspace && typeof schemaSource.workspace === "object" && !Array.isArray(schemaSource.workspace)
+    ? schemaSource.workspace
+    : null;
   const entries = Array.isArray(entriesPayload?.entries) ? entriesPayload.entries : null;
   return {
     entriesPayload,
@@ -353,6 +367,7 @@ function normalizeCanonicalPayload(payload, schemaPayload = null) {
     schemaMeta,
     schema,
     profile,
+    workspace,
     entries,
   };
 }
@@ -365,11 +380,12 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
   const schemaMeta = normalized.schemaMeta;
   const schema = normalized.schema;
   const profile = normalized.profile;
+  const workspace = normalized.workspace;
   const entries = normalized.entries;
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     errors.push("Canonical scouting entries JSON must be a JSON object.");
-    return { errors, warnings, meta, schemaMeta, schema, profile, entries, schemaFieldMap: new Map(), expectedFieldMap: new Map() };
+    return { errors, warnings, meta, schemaMeta, schema, profile, workspace, entries, schemaFieldMap: new Map(), expectedFieldMap: new Map() };
   }
 
   if (!payload?.meta || typeof payload.meta !== "object" || Array.isArray(payload.meta)) {
@@ -483,6 +499,7 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
       expectedScoutingFields: Array.isArray(schemaFieldEntries) ? schemaFieldEntries : [],
     },
     profile,
+    workspace,
     entries,
     schemaFieldMap,
     expectedFieldMap,

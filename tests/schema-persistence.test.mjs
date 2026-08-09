@@ -100,6 +100,7 @@ function loadAppContext(options = {}) {
       readAttachmentTextByPath: options.readAttachmentTextByPath || (async () => ""),
       adoptAttachmentForPath: options.adoptAttachmentForPath || (async () => false),
       removeAttachment: options.removeAttachment || (async () => true),
+      downloadTextFile: options.downloadTextFile || (() => ""),
       pathBasename:
         options.pathBasename
         || ((value) => String(value || "").trim().replace(/\\/g, "/").split("/").pop() || ""),
@@ -111,7 +112,7 @@ function loadAppContext(options = {}) {
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
     .replace(/\nbootstrapApp\(\);\s*/, "\n")
-    + "\nglobalThis.__activeEventTestApi = { applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, persistScoutingSubmissions, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
+    + "\nglobalThis.__activeEventTestApi = { applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, persistScoutingSubmissions, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -132,6 +133,40 @@ function loadAppContext(options = {}) {
   context.render = noop;
   return context;
 }
+
+await runTest("schema baseline downloads the cached profile, workspace, and complete pRidge definitions", async () => {
+  let downloadedText = "";
+  const context = loadAppContext({
+    downloadTextFile: (text) => {
+      downloadedText = text;
+      return "2026chcmp_schema-baseline.json";
+    },
+  });
+  const eventModel = context.eventCatalog[0];
+  const state = context.__scoutingAppState;
+  state.activeEventKey = eventModel.key;
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    label: "Current",
+    fields: [{ id: "fuel", label: "Fuel", type: "number", unit: "count" }],
+    derivedEquations: [{ id: "scoutingTotal", name: "scoutingTotal", formula: "sum(scouting.fuel)" }],
+    filters: [{ name: "usable", formula: "scouting.fuel > 0" }],
+    pridgeResponseDefinitions: [{ id: "tbaTotalAutoPoints", formula: "tba.autoPoints" }],
+  });
+  state.picklists = [{ id: "main", name: "Main", teams: [1] }];
+  state.sortEquations = [{ id: "sort-main", name: "Sort Main", terms: [{ metric: "scoutingTotal", direction: "desc" }] }];
+  state.activePicklist = "main";
+  state.activeSortEquation = "sort-main";
+
+  await context.__activeEventTestApi.createSchemaBaselineFile();
+  const artifact = JSON.parse(downloadedText);
+  assert.equal(artifact.profile.derivedEquations[0].name, "scoutingTotal");
+  assert.equal(artifact.profile.filters[0].name, "usable");
+  assert.deepEqual(artifact.workspace.picklists, state.picklists);
+  assert.deepEqual(artifact.workspace.sortEquations, state.sortEquations);
+  assert.equal(artifact.schema.pridgeResponseDefinitions.find((definition) => definition.id === "tbaTotalAutoPoints").formula, "tba.autoPoints");
+  assert.equal(artifact.schema.pridgeResponseDefinitions.length, 3);
+});
 
 await runTest("a clean catalog exposes only shared cached events instead of a packaged fallback", () => {
   const context = loadAppContext({

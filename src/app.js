@@ -2353,6 +2353,22 @@ function currentPridgeResponseDefinitions(eventModel = currentEvent()) {
   return Array.isArray(eventModel?.pridgeResponseDefinitions) ? eventModel.pridgeResponseDefinitions : [];
 }
 
+function schemaBaselinePridgeResponseDefinitions(eventModel, existingSchema = {}) {
+  const fallbackDefinitions = buildPridgeResponseBaseline(eventModel)?.schema?.pridgeResponseDefinitions || [];
+  const availableDefinitions = currentPridgeResponseDefinitions(eventModel);
+  const definitionsById = new Map(
+    availableDefinitions
+      .filter((definition) => normalizeText(definition?.id))
+      .map((definition) => [normalizeText(definition.id), definition]),
+  );
+  const existingDefinitions = existingSchema?.schema?.pridgeResponseDefinitions || existingSchema?.pridgeResponseDefinitions || [];
+  existingDefinitions.forEach((definition) => {
+    const id = normalizeText(definition?.id);
+    if (id && !definitionsById.has(id)) definitionsById.set(id, definition);
+  });
+  return fallbackDefinitions.map((definition) => definitionsById.get(definition.id) || definition);
+}
+
 function applyCurrentPridgeResponseDefinitions(eventModel = currentEvent()) {
   const definitions = currentPridgeResponseDefinitions(eventModel);
   if (!definitions.length) return eventModel;
@@ -2369,12 +2385,27 @@ async function createSchemaBaselineFile() {
       if (!schemaText) return {};
       try { return JSON.parse(schemaText); } catch { return {}; }
     })();
-    const existingProfile = existingSchema.profile || currentImportedProfileDefinition(eventModel) || null;
+    const existingProfile = currentImportedProfileDefinition(eventModel) || existingSchema.profile || null;
+    const existingWorkspace = existingSchema.workspace && typeof existingSchema.workspace === "object"
+      ? existingSchema.workspace
+      : {};
+    const cachedPicklists = Array.isArray(state.picklists) && state.picklists.length
+      ? state.picklists
+      : existingWorkspace.picklists;
+    const cachedSortEquations = Array.isArray(state.sortEquations) && state.sortEquations.length
+      ? state.sortEquations
+      : existingWorkspace.sortEquations;
     const artifact = buildPridgeResponseBaseline(eventModel, {
       expectedScoutingFields: existingSchema.schema?.expectedScoutingFields,
       profile: existingProfile,
-      pridgeResponseDefinitions: existingSchema.schema?.pridgeResponseDefinitions
-        || eventModel.pridgeResponseDefinitions,
+      pridgeResponseDefinitions: schemaBaselinePridgeResponseDefinitions(eventModel, existingSchema),
+      workspace: {
+        ...existingWorkspace,
+        picklists: cloneJsonValue(cachedPicklists || []),
+        sortEquations: cloneJsonValue(cachedSortEquations || []),
+        activePicklist: state.activePicklist || existingWorkspace.activePicklist || "",
+        activeSortEquation: state.activeSortEquation || existingWorkspace.activeSortEquation || "",
+      },
     });
     const suggestedName = `${normalizeText(eventModel.key) || "event"}_schema-baseline.json`;
     const text = JSON.stringify(artifact, null, 2);
@@ -6264,6 +6295,17 @@ function commitImportPreview(options = {}) {
     versionKey: preview.summary.profileDefinition?.versionKey,
     pridgeResponseDefinitions: importedPridgeResponseDefinitions,
   });
+  const importedWorkspace = preview.summary.workspace;
+  if (importedWorkspace && typeof importedWorkspace === "object") {
+    if (Array.isArray(importedWorkspace.picklists)) {
+      state.picklists = normalizePicklists(importedWorkspace.picklists, currentEvent());
+      state.activePicklist = resolvePicklistId(importedWorkspace.activePicklist, state.picklists) || state.picklists[0]?.id || "";
+    }
+    if (Array.isArray(importedWorkspace.sortEquations)) {
+      state.sortEquations = normalizeSortEquations(importedWorkspace.sortEquations, currentEvent());
+      state.activeSortEquation = resolveSortEquationId(importedWorkspace.activeSortEquation, state.sortEquations) || state.sortEquations[0]?.id || "";
+    }
+  }
   if (state.importDraftSource === "attached") {
     markCurrentScoutingAttachmentSuccess(preview, importedCsvText, { schemaJsonText: importedSchemaJsonText });
   }
