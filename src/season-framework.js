@@ -185,6 +185,7 @@ function buildMetrics(season) {
     return scoutingSchemaRuntime.buildMetricCatalog(season);
   }
   const scouterMetrics = scouterMetricDefinitions(season);
+  const pridgeResponseDefinitions = Array.isArray(season?.pridgeResponseDefinitions) ? season.pridgeResponseDefinitions : [];
   return [
     ...scouterMetrics.map((component) => ({
       id: `source:scouter:${component.id}`,
@@ -224,15 +225,16 @@ function buildMetrics(season) {
       shortLabel: sourceLabels.pridge,
       unit: "pts",
     },
-    ...(Array.isArray(season.pridgeComponentDefinitions) ? season.pridgeComponentDefinitions.map((component) => ({
-      id: `source:pridge:${component.id}`,
+    ...pridgeResponseDefinitions.map((definition) => ({
+      id: `source:pridge:${definition.id}`,
       kind: "source",
       sourceId: "pridge",
-      componentId: component.id,
-      label: `${sourceLabels.pridge} ${component.label || component.id}`,
-      shortLabel: component.label || component.id,
-      unit: component.unit || "pts",
-    })) : []),
+      componentId: definition.id,
+      label: `${sourceLabels.pridge} ${definition.label || definition.id}`,
+      shortLabel: definition.label || definition.id,
+      unit: definition.unit || "pts",
+      definition,
+    })),
     ...derivedMetricDefinitions(season).map((metricDefinition) => ({
       id: `derived:${metricDefinition.id}`,
       kind: "derived",
@@ -254,7 +256,8 @@ function buildCriteriaSources(season) {
     { id: "scouter", label: sourceLabels.scouter, components: scouterComponents },
     { id: "pridge", label: sourceLabels.pridge, components: [
       { id: "total", label: "Total" },
-      ...(Array.isArray(season.pridgeComponentDefinitions) ? season.pridgeComponentDefinitions.map((component) => ({ id: component.id, label: component.label || component.id })) : []),
+      ...(Array.isArray(season?.pridgeResponseDefinitions) ? season.pridgeResponseDefinitions : [])
+        .map((definition) => ({ id: definition.id, label: definition.label || definition.id })),
     ] },
     {
       id: "derived",

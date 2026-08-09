@@ -15,8 +15,7 @@ function buildSnapshotFingerprint(value) {
 
 function buildExternalSourceSnapshot(sourceId, eventModel = {}) {
   const scoringComponentIds = (eventModel.scoringComponents || []).map((component) => component.id);
-  const pridgeComponentIds = (eventModel.pridgeComponentDefinitions || []).map((component) => component.id);
-  const allPridgeComponentIds = [...new Set([...scoringComponentIds, ...pridgeComponentIds])];
+  const pridgeResponseIds = (eventModel.pridgeResponseDefinitions || []).map((definition) => definition.id);
   if (sourceId === "tba") {
     return {
       eventKey: eventModel.key,
@@ -48,11 +47,11 @@ function buildExternalSourceSnapshot(sourceId, eventModel = {}) {
     return {
       eventKey: eventModel.key,
       scoringComponents: scoringComponentIds,
-      pridgeComponents: allPridgeComponentIds,
+      pridgeResponseDefinitions: eventModel.pridgeResponseDefinitions || [],
       teams: (eventModel.teams || []).map((team) => ({
         number: team.number,
         total: team.sources?.pridge?.total,
-        components: Object.fromEntries(allPridgeComponentIds.map((componentId) => [componentId, team.sources?.pridge?.components?.[componentId] ?? null])),
+        components: Object.fromEntries([...scoringComponentIds, ...pridgeResponseIds].map((componentId) => [componentId, team.sources?.pridge?.components?.[componentId] ?? null])),
         trend: team.sources?.pridge?.trend || [],
       })),
     };

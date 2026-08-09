@@ -146,6 +146,9 @@ function metricFieldId(fieldDefinition) {
 
 function buildMetricCatalog(schemaOrEventModel = {}) {
   const scoringComponents = Array.isArray(schemaOrEventModel.scoringComponents) ? schemaOrEventModel.scoringComponents : [];
+  const pridgeResponseDefinitions = Array.isArray(schemaOrEventModel.pridgeResponseDefinitions)
+    ? schemaOrEventModel.pridgeResponseDefinitions
+    : [];
   return [
     ...scouterMetricDefinitions(schemaOrEventModel).map((component) => ({
       id: `source:scouter:${component.id}`,
@@ -185,15 +188,16 @@ function buildMetricCatalog(schemaOrEventModel = {}) {
       shortLabel: sourceLabels.pridge,
       unit: "pts",
     },
-    ...(Array.isArray(schemaOrEventModel.pridgeComponentDefinitions) ? schemaOrEventModel.pridgeComponentDefinitions.map((component) => ({
-      id: `source:pridge:${component.id}`,
+    ...pridgeResponseDefinitions.map((definition) => ({
+      id: `source:pridge:${definition.id}`,
       kind: "source",
       sourceId: "pridge",
-      componentId: component.id,
-      label: `${sourceLabels.pridge} ${component.label || component.id}`,
-      shortLabel: component.label || component.id,
-      unit: component.unit || "pts",
-    })) : []),
+      componentId: definition.id,
+      label: `${sourceLabels.pridge} ${definition.label || definition.id}`,
+      shortLabel: definition.label || definition.id,
+      unit: definition.unit || "pts",
+      definition,
+    })),
     ...derivedMetricDefinitions(schemaOrEventModel).map((metricDefinition) => ({
       id: `derived:${metricDefinition.id}`,
       kind: "derived",
