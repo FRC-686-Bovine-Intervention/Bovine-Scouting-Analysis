@@ -4415,17 +4415,29 @@ async function openSharedCachedEvent(eventKey, options = {}) {
   const persistedCachedWorkspace = readStoredJson(storageKeys.eventWorkspace, null, cachedEvent.key);
   const cachedProviderIsStale = persistedCachedWorkspace?.sources?.tba?.freshness === "stale"
     || persistedCachedWorkspace?.sources?.statbotics?.freshness === "stale";
-  if (inMemoryCachedEvent && !cachedProviderIsStale) {
+  if (inMemoryCachedEvent) {
     switchActiveEvent(inMemoryCachedEvent.key, {
       activeView: options.activeView || state.activeView,
       persistShared: options.persistShared === true,
       preserveImportDraft: true,
     });
     state.eventLookupResult = {
-      kind: "success",
-      message: `${inMemoryCachedEvent.key} opened from the shared Firestore cache already loaded in this browser.`,
+      kind: cachedProviderIsStale ? "warn" : "success",
+      message: cachedProviderIsStale
+        ? `${inMemoryCachedEvent.key} opened from the already-loaded cached snapshot. Provider data is stale; refreshing live sources.`
+        : `${inMemoryCachedEvent.key} opened from the already-loaded cached snapshot.`,
     };
     render();
+    if (cachedProviderIsStale && options.refreshStale !== false && state.tbaAuthKey) {
+      setTimeout(() => {
+        if (state.activeEventKey !== inMemoryCachedEvent.key) return;
+        void loadArbitraryEventCode(inMemoryCachedEvent.key, {
+          activeView: options.activeView || state.activeView,
+          allowDuplicate: true,
+          deferPridgeComputation: true,
+        });
+      }, 750);
+    }
     state.eventLookupPending = false;
     return true;
   }
