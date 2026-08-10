@@ -4428,16 +4428,6 @@ async function openSharedCachedEvent(eventKey, options = {}) {
         : `${inMemoryCachedEvent.key} opened from the already-loaded cached snapshot.`,
     };
     render();
-    if (cachedProviderIsStale && options.refreshStale !== false && state.tbaAuthKey) {
-      setTimeout(() => {
-        if (state.activeEventKey !== inMemoryCachedEvent.key) return;
-        void loadArbitraryEventCode(inMemoryCachedEvent.key, {
-          activeView: options.activeView || state.activeView,
-          allowDuplicate: true,
-          deferPridgeComputation: true,
-        });
-      }, 750);
-    }
     state.eventLookupPending = false;
     return true;
   }

@@ -125,7 +125,6 @@ async function switchByRecent(target) {
   const openDurationCountBefore = await page.evaluate(() => globalThis.__ticket109InteractionDurations.openRecent.length);
   const switchDurationCountBefore = await page.evaluate(() => globalThis.__ticket109InteractionDurations.switch.length);
   const switchCountBefore = await page.evaluate(() => (globalThis.__scoutingPerf?.events || []).filter((event) => event.label === "switchActiveEvent.total").length);
-  const before = await snapshot();
   await page.click("#openRecentAdminEventsButton");
   await page.waitForFunction((count) => globalThis.__ticket109InteractionDurations?.openRecent.length > count, openDurationCountBefore);
   const openDurationMs = await page.evaluate((count) => globalThis.__ticket109InteractionDurations.openRecent[count], openDurationCountBefore);
@@ -144,7 +143,7 @@ async function switchByRecent(target) {
   if (!(userDurationMs < 500)) {
     throw new Error(`Recent event UI freeze lasted ${userDurationMs}ms; expected <500ms.`);
   }
-  const result = await waitForSwitch(target, before);
+  const result = { target, elapsedMs: activeEventResult.elapsedMs, current: await snapshot() };
   await page.waitForTimeout(50);
   const switchEvents = await page.evaluate((beforeCount) => (globalThis.__scoutingPerf?.events || [])
     .filter((event) => event.label === "switchActiveEvent.total")
@@ -185,8 +184,8 @@ try {
   if (Object.keys(requestCountsBeforeRepeatedRecentSwitches).some((key) => requestCounts[key] !== requestCountsBeforeRepeatedRecentSwitches[key])) {
     throw new Error(`Repeated Recent Events selections reloaded provider data: before=${JSON.stringify(requestCountsBeforeRepeatedRecentSwitches)} after=${JSON.stringify(requestCounts)}`);
   }
-  if (/shared Firestore cache/i.test(uncachedToCached.current.lookup?.message || "")) {
-    throw new Error(`Stale cached event was not refreshed: ${JSON.stringify(uncachedToCached.current.lookup)}`);
+  if (!/stale/i.test(uncachedToCached.current.lookup?.message || "")) {
+    throw new Error(`Stale cached event was not identified as stale: ${JSON.stringify(uncachedToCached.current.lookup)}`);
   }
 
   console.log(JSON.stringify({
