@@ -156,12 +156,21 @@ function teamEventsFromEventModel(eventModel = {}) {
   }));
 }
 
-function applyPridgeResponseDefinitions(eventModel = {}, definitions = []) {
+function applyPridgeResponseDefinitions(eventModel = {}, definitions = [], options = {}) {
   const normalizedDefinitions = normalizePridgeResponseDefinitions({ pridgeResponseDefinitions: definitions });
   const rawMatches = rawMatchesFromEventModel(eventModel);
   const teamEvents = teamEventsFromEventModel(eventModel);
   const results = {};
-  if (!eventModel.pridgeComputationDeferred) normalizedDefinitions.forEach((definition) => {
+  const shouldCompute = !eventModel.pridgeComputationDeferred || options.force === true;
+  let totalResults = {};
+  if (shouldCompute && options.force === true && typeof computeEventPridge === "function") {
+    try {
+      totalResults = computeEventPridge(rawMatches, teamEvents, { responseName: "score", digits: 1 }).ratings || {};
+    } catch {
+      totalResults = {};
+    }
+  }
+  if (shouldCompute) normalizedDefinitions.forEach((definition) => {
     try {
       const formulaMatches = buildFormulaMatches(rawMatches, definition);
       if (formulaMatches.length) {
@@ -173,6 +182,7 @@ function applyPridgeResponseDefinitions(eventModel = {}, definitions = []) {
   });
   return {
     ...eventModel,
+    pridgeComputationDeferred: shouldCompute ? false : eventModel.pridgeComputationDeferred === true,
     pridgeResponseDefinitions: normalizedDefinitions,
     teams: (eventModel.teams || []).map((team) => ({
       ...team,
@@ -180,6 +190,9 @@ function applyPridgeResponseDefinitions(eventModel = {}, definitions = []) {
         ...team.sources,
         pridge: {
           ...(team.sources?.pridge || {}),
+          total: Number.isFinite(Number(totalResults[team.number]))
+            ? totalResults[team.number]
+            : team.sources?.pridge?.total ?? null,
           components: Object.fromEntries(normalizedDefinitions.map((definition) => [
             definition.id,
             results[definition.id]?.ratings?.[team.number] ?? null,

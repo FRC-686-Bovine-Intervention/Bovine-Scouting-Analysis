@@ -70,10 +70,13 @@ const hydrationDeferredEvent = {
     sources: { statbotics: { components: { "epa.stats.start": 1 } }, pridge: { components: {} } },
   })),
 };
-context.EventModelBuilder.applyPridgeResponseDefinitions(hydrationDeferredEvent, [
+const hydratedWithDefinitions = context.EventModelBuilder.applyPridgeResponseDefinitions(hydrationDeferredEvent, [
   { id: "epa.total_points", label: "pRidge total", formula: "tba.totalPoints" },
-]);
-assert.equal(pridgeCalls, 0, "Event hydration must retain deferred pRidge computation.");
+], { force: true });
+assert.equal(pridgeCalls, 2, "Applying schema definitions should hydrate deferred pRidge values.");
+assert.equal(hydratedWithDefinitions.pridgeComputationDeferred, false);
+assert.equal(hydratedWithDefinitions.teams[0].sources.pridge.total, 1);
+assert.equal(hydratedWithDefinitions.teams[0].sources.pridge.components["epa.total_points"], 1);
 
 pridgeCalls = 0;
 const eager = context.EventModelBuilder.buildEventModelFromProviderBundle(bundle);

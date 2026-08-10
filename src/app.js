@@ -672,6 +672,18 @@ function applyLoadedExternalSourceState(loadResult, options = {}) {
   Object.entries(loadResult?.sourceStates || {}).forEach(([sourceId, sourceState]) => {
     nextSources[sourceId] = mergeProviderSourceState(nextSources[sourceId], sourceState);
   });
+  const currentModel = currentEvent();
+  const hasComputedPridge = (currentModel?.teams || []).some((team) => Number.isFinite(Number(team?.sources?.pridge?.total)));
+  if (hasComputedPridge && nextSources.pridge?.status === "error") {
+    nextSources.pridge = {
+      ...nextSources.pridge,
+      status: "ready",
+      freshness: "fresh",
+      error: "",
+      lastSuccessfulAt: nextSources.pridge.lastAttemptedAt || nextSources.pridge.lastSuccessfulAt,
+      consecutiveFailures: 0,
+    };
+  }
   state.eventWorkspace = {
     ...seededWorkspace,
     sources: nextSources,
@@ -2420,7 +2432,7 @@ function schemaBaselinePridgeResponseDefinitions(eventModel, existingSchema = {}
 function applyCurrentPridgeResponseDefinitions(eventModel = currentEvent()) {
   const definitions = currentPridgeResponseDefinitions(eventModel);
   if (!definitions.length) return eventModel;
-  const nextEventModel = applyPridgeResponseDefinitions(eventModel, definitions);
+  const nextEventModel = applyPridgeResponseDefinitions(eventModel, definitions, { force: true });
   if (nextEventModel && nextEventModel !== eventModel) registerEventModel(nextEventModel);
   return nextEventModel || eventModel;
 }
