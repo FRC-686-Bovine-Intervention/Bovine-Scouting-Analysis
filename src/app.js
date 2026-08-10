@@ -527,7 +527,7 @@ function eventModelByKey(key) {
   if (eventIndex < 0) return null;
   const resolvedIndex = eventIndex;
   const storedEventModel = globalEventCatalog[resolvedIndex];
-  const eventModel = (storedEventModel?.catalogSource === "shared-cache" || storedEventModel?.catalogSource === "dynamic-external")
+  const eventModel = (storedEventModel?.catalogSource === "shared-cache" || storedEventModel?.catalogSource === "dynamic-external" || storedEventModel?.catalogSource === "snapshot")
     && storedEventModel?.pridgeComputationDeferred !== true
     ? { ...storedEventModel, pridgeComputationDeferred: true }
     : storedEventModel;
