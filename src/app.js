@@ -2350,7 +2350,12 @@ async function loadAttachedSchemaForDiagnostics() {
     const schema = parsed?.schema || parsed;
     const profile = parsed?.profile || {};
     const expectedFields = Array.isArray(schema?.expectedScoutingFields)
-      ? schema.expectedScoutingFields.map((field) => ({ id: normalizeText(field?.id || field), label: normalizeText(field?.label || field?.id || field) })).filter((field) => field.id)
+      ? schema.expectedScoutingFields.map((field) => normalizeScoutingProfileField({
+          id: normalizeText(field?.id || field),
+          label: normalizeText(field?.label || field?.id || field),
+          type: normalizeText(field?.type),
+          unit: normalizeText(field?.unit),
+        })).filter(Boolean)
       : [];
     const profileFields = expectedFields;
     registerScoutingProfile(currentEvent(), {
@@ -4551,7 +4556,7 @@ function registerScoutingProfile(eventModel, profile) {
         fields: Array.isArray(profile?.fields) ? profile.fields : (existingProfile?.fields || []),
         derivedEquations: Array.isArray(profile?.derivedEquations)
           ? profile.derivedEquations
-          : (existingProfile?.derivedEquations || []),
+          : (existingProfile?.derivedEquations || existingProfile?.equations || []),
         metricPresentation: profile?.metricPresentation && typeof profile.metricPresentation === "object"
           ? cloneJsonValue(profile.metricPresentation)
           : (existingProfile?.metricPresentation ? cloneJsonValue(existingProfile.metricPresentation) : undefined),
@@ -4560,8 +4565,8 @@ function registerScoutingProfile(eventModel, profile) {
           : (Array.isArray(existingProfile?.pridgeResponseDefinitions)
             ? cloneJsonValue(existingProfile.pridgeResponseDefinitions)
             : undefined),
-        ...(normalizeText(profile?.versionKey || profile?.versionId)
-          ? { versionKey: normalizeText(profile?.versionKey || profile?.versionId) }
+        ...(normalizeText(profile?.versionKey || profile?.versionId || existingProfile?.versionKey)
+          ? { versionKey: normalizeText(profile?.versionKey || profile?.versionId || existingProfile?.versionKey) }
           : {}),
       },
       ...existing.filter((entry) => entry.id !== profileId),
@@ -4967,7 +4972,7 @@ function normalizeScoutingProfileDefinition(profile) {
     label: scoutingProfileLabel(id, profile?.label || profile?.name || id),
     versionKey,
     fields,
-    equations,
+    derivedEquations: equations,
     ...(metricPresentation ? { metricPresentation } : {}),
     ...(pridgeResponseDefinitions.length ? { pridgeResponseDefinitions } : {}),
   };

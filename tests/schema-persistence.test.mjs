@@ -116,7 +116,7 @@ function loadAppContext(options = {}) {
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
     .replace(/\nbootstrapApp\(\);\s*/, "\n")
-    + "\nglobalThis.__activeEventTestApi = { applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, persistScoutingSubmissions, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
+    + "\nglobalThis.__activeEventTestApi = { applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, loadAttachedSchemaForDiagnostics, persistScoutingSubmissions, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -173,6 +173,69 @@ await runTest("schema baseline downloads the cached profile, workspace, and comp
   assert.equal("activeSortEquation" in artifact.workspace, false);
   assert.equal(artifact.schema.pridgeResponseDefinitions.find((definition) => definition.id === "tbaTotalAutoPoints").formula, "tba.autoPoints");
   assert.equal(artifact.schema.pridgeResponseDefinitions.length, 3);
+});
+
+await runTest("schema profile updates preserve every stored profile entry", () => {
+  const context = loadAppContext();
+  const eventModel = context.eventCatalog[0];
+  const state = context.__scoutingAppState;
+  state.activeEventKey = eventModel.key;
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    label: "Current",
+    fields: [{ id: "fuel", label: "Fuel", type: "number", unit: "count" }],
+    derivedEquations: [{ id: "scoutingTotal", name: "scoutingTotal", formula: "sum(scouting.fuel)" }],
+    metricPresentation: { blacklist: { tba: ["scoreBreakdown.rp"] } },
+    pridgeResponseDefinitions: [{ id: "tbaTotalAutoPoints", formula: "tba.autoPoints" }],
+    versionKey: "uploaded-schema-v7",
+  });
+
+  // A later schema load/update supplies fields and metadata but may omit the
+  // equation property. It must merge with the normalized profile already saved.
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    fields: [{ id: "fuel", label: "Fuel", type: "number", unit: "count" }],
+    metricPresentation: { blacklist: { tba: ["scoreBreakdown.rp"] } },
+    pridgeResponseDefinitions: [{ id: "tbaTotalAutoPoints", formula: "tba.autoPoints" }],
+  });
+
+  const profile = state.scoutingProfileCatalog[eventModel.key][0];
+  assert.equal(profile.derivedEquations.length, 1);
+  assert.equal(profile.derivedEquations[0].name, "scoutingTotal");
+  assert.equal(profile.versionKey, "uploaded-schema-v7");
+  assert.equal(JSON.stringify(profile.fields), JSON.stringify([{ id: "fuel", label: "Fuel", type: "number", unit: "count" }]));
+  assert.equal(JSON.stringify(profile.metricPresentation), JSON.stringify({ blacklist: { tba: ["scoreBreakdown.rp"] } }));
+  assert.equal(JSON.stringify(profile.pridgeResponseDefinitions), JSON.stringify([{ id: "tbaTotalAutoPoints", formula: "tba.autoPoints" }]));
+});
+
+await runTest("reloading a schema preserves field type and unit metadata", async () => {
+  const schemaText = JSON.stringify({
+    schema: {
+      expectedScoutingFields: [{ id: "fuel", label: "Fuel", type: "number", unit: "count" }],
+    },
+    profile: { id: "match-current-v2", derivedEquations: [] },
+  });
+  const context = loadAppContext({
+    readAttachmentText: async (attachmentId) => attachmentId.endsWith(":schema") ? schemaText : "",
+  });
+  const eventModel = context.eventCatalog[0];
+  const state = context.__scoutingAppState;
+  state.activeEventKey = eventModel.key;
+  state.eventWorkspace = context.EventWorkspace.createEventWorkspace(eventModel, {
+    activeScoutingAttachmentId: "scouting-schema-test",
+    sources: {
+      scouting: [{
+        attachmentId: "scouting-schema-test",
+        locationKind: "path",
+        location: { path: "scouting.csv", schemaPath: "schema.json" },
+        autoLoad: false,
+      }],
+    },
+  });
+
+  assert.equal(await context.__activeEventTestApi.loadAttachedSchemaForDiagnostics(), true);
+  const profile = state.scoutingProfileCatalog[eventModel.key][0];
+  assert.equal(JSON.stringify(profile.fields), JSON.stringify([{ id: "fuel", label: "Fuel", type: "number", unit: "count" }]));
 });
 
 await runTest("schema diagnostics ignore HTML response artifacts while preserving real added fields", () => {
