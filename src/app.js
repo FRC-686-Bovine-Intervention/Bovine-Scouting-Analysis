@@ -4411,7 +4411,7 @@ async function openSharedCachedEvent(eventKey, options = {}) {
   state.eventLookupResult = { kind: "info", message: `Opening ${cachedEvent.key} from the shared cache...` };
   render();
   const inMemoryCachedEvent = globalEventCatalog.find((eventModel) => eventModel?.key === cachedEvent.key
-    && (eventModel?.catalogSource === "shared-cache" || eventModel?.catalogSource === "dynamic-external"));
+    && (eventModel?.catalogSource === "shared-cache" || eventModel?.catalogSource === "dynamic-external" || eventModel?.catalogSource === "snapshot"));
   const persistedCachedWorkspace = readStoredJson(storageKeys.eventWorkspace, null, cachedEvent.key);
   const cachedProviderIsStale = persistedCachedWorkspace?.sources?.tba?.freshness === "stale"
     || persistedCachedWorkspace?.sources?.statbotics?.freshness === "stale";
