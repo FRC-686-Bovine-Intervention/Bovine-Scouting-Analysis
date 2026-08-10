@@ -4403,7 +4403,6 @@ async function loadCachedScoutingData(eventKey, api) {
 }
 
 async function openSharedCachedEvent(eventKey, options = {}) {
-  const startedAt = perfNow();
   const cachedEvent = sharedCachedEventByKey(eventKey);
   const api = globalThis.firebaseEventSourceCacheApi;
   const cachedEventLoader = globalThis.CachedEventLoader;
@@ -4413,7 +4412,10 @@ async function openSharedCachedEvent(eventKey, options = {}) {
   render();
   const inMemoryCachedEvent = globalEventCatalog.find((eventModel) => eventModel?.key === cachedEvent.key
     && (eventModel?.catalogSource === "shared-cache" || eventModel?.catalogSource === "dynamic-external"));
-  if (inMemoryCachedEvent) {
+  const persistedCachedWorkspace = readStoredJson(storageKeys.eventWorkspace, null, cachedEvent.key);
+  const cachedProviderIsStale = persistedCachedWorkspace?.sources?.tba?.freshness === "stale"
+    || persistedCachedWorkspace?.sources?.statbotics?.freshness === "stale";
+  if (inMemoryCachedEvent && !cachedProviderIsStale) {
     switchActiveEvent(inMemoryCachedEvent.key, {
       activeView: options.activeView || state.activeView,
       persistShared: options.persistShared === true,
@@ -4424,7 +4426,6 @@ async function openSharedCachedEvent(eventKey, options = {}) {
       message: `${inMemoryCachedEvent.key} opened from the shared Firestore cache already loaded in this browser.`,
     };
     render();
-    recordScoutingPerf("openSharedCachedEvent.inMemory", startedAt, { eventKey: inMemoryCachedEvent.key });
     state.eventLookupPending = false;
     return true;
   }
@@ -4450,7 +4451,6 @@ async function openSharedCachedEvent(eventKey, options = {}) {
       event: cachedEvent,
       loadSource: (sourceId) => api.loadEventSourceCache({ eventKey: cachedEvent.key, sourceId }),
     });
-    recordScoutingPerf("openSharedCachedEvent.rebuildCachedEvent", startedAt, { eventKey: cachedEvent.key });
     const registeredEvent = registerEventModel({
       ...result.eventModel,
       name: cachedEvent.name || result.eventModel.name,
@@ -4463,17 +4463,13 @@ async function openSharedCachedEvent(eventKey, options = {}) {
       persistShared: options.persistShared === true,
       preserveImportDraft: true,
     });
-    recordScoutingPerf("openSharedCachedEvent.switchActiveEvent", startedAt, { eventKey: registeredEvent.key });
     applyLoadedExternalSourceState({ ...result, eventModel: registeredEvent }, { render: false });
-    recordScoutingPerf("openSharedCachedEvent.applyLoadedExternalSourceState", startedAt, { eventKey: registeredEvent.key });
     await loadCachedScoutingData(registeredEvent.key, api);
-    recordScoutingPerf("openSharedCachedEvent.loadCachedScoutingData", startedAt, { eventKey: registeredEvent.key });
     state.eventLookupResult = {
       kind: result.warnings.length || result.cacheFreshness === "stale" ? "warn" : "success",
       message: `${registeredEvent.key} opened from the shared Firestore cache (${result.cacheFreshness}).${liveRefreshWarning ? ` Live refresh failed: ${liveRefreshWarning}` : ""}${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`,
     };
     render();
-    recordScoutingPerf("openSharedCachedEvent.total", startedAt, { eventKey: registeredEvent.key });
     return true;
   } catch (error) {
     state.eventLookupResult = { kind: "error", message: `Unable to open cached ${normalizeText(eventKey)}. ${error?.message || ""}`.trim() };
