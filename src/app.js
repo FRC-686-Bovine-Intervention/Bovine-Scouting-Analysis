@@ -1573,7 +1573,9 @@ async function applyRecentAdminEventSelection(value) {
   if (sharedCachedEventByKey(nextEventKey)) {
     return openSharedCachedEvent(nextEventKey, { activeView: "adminEventControl", persistShared: true });
   }
-  return switchActiveEvent(nextEventKey, { activeView: "adminEventControl" });
+  const switched = switchActiveEvent(nextEventKey, { activeView: "adminEventControl" });
+  if (switched) void refreshCurrentExternalSourcesImmediately();
+  return switched;
 }
 
 function readCurrentScoutingAttachmentDraftFromDom() {

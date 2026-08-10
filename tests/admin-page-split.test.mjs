@@ -14,6 +14,7 @@ function sectionBetween(startMarker, endMarker) {
 const quality = sectionBetween("function renderQuality()", "function renderSortBuilder()");
 const eventControl = sectionBetween("function renderAdminEventControl()", "function renderAdminDataQuality()");
 const eventCodeHandler = sectionBetween("async function applyAdminEventCodeDraft", "async function applyScoutingSourceInputChange");
+const recentEventHandler = sectionBetween("async function applyRecentAdminEventSelection", "function readCurrentScoutingAttachmentDraftFromDom");
 const dataQuality = sectionBetween("function renderAdminDataQuality()", "function renderAdminUserControl()");
 const userControl = sectionBetween("function renderAdminUserControl()", "function renderFlags(flags)");
 
@@ -34,6 +35,7 @@ assert.doesNotMatch(eventControl, /adminStatboticsBaseUrlInput/);
 assert.doesNotMatch(eventControl, /saveStatboticsBaseUrlButton/);
 assert.doesNotMatch(eventControl, /toggleAllSourcePollingButton|Pause Polling|Resume Polling/);
 assert.match(eventCodeHandler, /refreshCurrentExternalSourcesImmediately/);
+assert.match(recentEventHandler, /refreshCurrentExternalSourcesImmediately/);
 assert.match(source, /authFailureMessage\("TBA"/);
 assert.match(source, /authFailureMessage\("FIRST API"/);
 assert.match(eventControl, /Activity Log/);
