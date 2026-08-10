@@ -4406,6 +4406,22 @@ async function openSharedCachedEvent(eventKey, options = {}) {
   state.eventLookupPending = true;
   state.eventLookupResult = { kind: "info", message: `Opening ${cachedEvent.key} from the shared cache...` };
   render();
+  const inMemoryCachedEvent = globalEventCatalog.find((eventModel) => eventModel?.key === cachedEvent.key && eventModel?.catalogSource === "shared-cache");
+  if (inMemoryCachedEvent) {
+    switchActiveEvent(inMemoryCachedEvent.key, {
+      activeView: options.activeView || state.activeView,
+      persistShared: options.persistShared === true,
+      preserveImportDraft: true,
+    });
+    state.eventLookupResult = {
+      kind: "success",
+      message: `${inMemoryCachedEvent.key} opened from the shared Firestore cache already loaded in this browser.`,
+    };
+    render();
+    recordScoutingPerf("openSharedCachedEvent.inMemory", startedAt, { eventKey: inMemoryCachedEvent.key });
+    state.eventLookupPending = false;
+    return true;
+  }
   let liveRefreshWarning = "";
   try {
     if (options.refreshStale !== false && state.tbaAuthKey && cachedEventLoader.cacheFreshness) {
