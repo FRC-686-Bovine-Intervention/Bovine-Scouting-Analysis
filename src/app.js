@@ -4411,7 +4411,8 @@ async function openSharedCachedEvent(eventKey, options = {}) {
   state.eventLookupPending = true;
   state.eventLookupResult = { kind: "info", message: `Opening ${cachedEvent.key} from the shared cache...` };
   render();
-  const inMemoryCachedEvent = globalEventCatalog.find((eventModel) => eventModel?.key === cachedEvent.key && eventModel?.catalogSource === "shared-cache");
+  const inMemoryCachedEvent = globalEventCatalog.find((eventModel) => eventModel?.key === cachedEvent.key
+    && (eventModel?.catalogSource === "shared-cache" || eventModel?.catalogSource === "dynamic-external"));
   if (inMemoryCachedEvent) {
     switchActiveEvent(inMemoryCachedEvent.key, {
       activeView: options.activeView || state.activeView,
