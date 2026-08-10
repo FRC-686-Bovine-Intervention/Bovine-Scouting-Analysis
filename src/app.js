@@ -2835,7 +2835,29 @@ function currentProfileEquationList(eventModel = currentEvent()) {
 }
 
 function currentProfileFilterList(eventModel = currentEvent()) {
-  return currentProfileEquationList(eventModel);
+  const definitions = currentProfileEquationList(eventModel);
+  const teams = Array.isArray(eventModel?.teams) ? eventModel.teams : [];
+  if (!definitions.length || !teams.length) return [];
+
+  const evaluationCache = new Map();
+  const filterEvaluationCache = new Map();
+  const groupEvaluationCache = new Map();
+  const eventEvaluationCache = new Map();
+  return definitions.filter((definition) => {
+    let foundBooleanResult = false;
+    for (const team of teams) {
+      const result = evaluateEquationForTeam(team, definition.id, {
+        eventModel,
+        evaluationCache,
+        filterEvaluationCache,
+        groupEvaluationCache,
+        eventEvaluationCache,
+      }).result;
+      if (isErrorFormulaResult(result) || !isSeriesFormulaResult(result) || !metricEngine.isBooleanResult?.(result)) return false;
+      foundBooleanResult = true;
+    }
+    return foundBooleanResult;
+  });
 }
 
 function equationDefinitionById(id, eventModel = currentEvent()) {
