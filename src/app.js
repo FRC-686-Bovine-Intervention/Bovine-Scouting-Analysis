@@ -526,7 +526,12 @@ function eventModelByKey(key) {
   const eventIndex = globalEventCatalog.findIndex((eventModel) => eventModel.key === key);
   if (eventIndex < 0) return null;
   const resolvedIndex = eventIndex;
-  const eventModel = globalEventCatalog[resolvedIndex];
+  const storedEventModel = globalEventCatalog[resolvedIndex];
+  const eventModel = (storedEventModel?.catalogSource === "shared-cache" || storedEventModel?.catalogSource === "dynamic-external")
+    && storedEventModel?.pridgeComputationDeferred !== true
+    ? { ...storedEventModel, pridgeComputationDeferred: true }
+    : storedEventModel;
+  if (eventModel !== storedEventModel) globalEventCatalog[resolvedIndex] = eventModel;
   const hydrateEventModel = realEventDataApi.hydrateEventModel || ((value) => value);
   const hydratedEventModel = hydrateEventModel(eventModel);
   if (hydratedEventModel && hydratedEventModel !== eventModel) {
