@@ -94,7 +94,7 @@ function loadAppContext(options = {}) {
     clearTimeout,
     confirm: () => true,
     alert: noop,
-    fetch: async () => ({ ok: false, json: async () => ({}), text: async () => "" }),
+    fetch: async () => ({ ok: false, status: 404, json: async () => ({}), text: async () => "" }),
     LocalFileAccess: {
       supportsPersistentLocalFiles: options.supportsPersistentLocalFiles || (() => true),
       pickAttachmentFile: options.pickAttachmentFile || (async () => ({ attachmentId: "", path: "", name: "" })),
