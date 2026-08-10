@@ -3336,17 +3336,28 @@ function buildTeamFormulaContext(team, eventModel = currentEvent()) {
   );
   const scoutingByMatch = new Map(scoutingMatches.map((match) => [match.matchNumber, match]));
   const tbaByMatch = new Map(tbaMatchMetricsByTeam(Number(baseTeam.number), eventModel).map((entry) => [entry.matchNumber, entry]));
+  const statboticsByMatch = new Map((baseTeam.sources?.statbotics?.trendEntries || [])
+    .map((entry) => [Number(entry.key), { ["epa.post"]: Number(entry.value) }]));
+  const pridgeByMatch = new Map((baseTeam.sources?.pridge?.trendEntries || [])
+    .map((entry) => [Number(entry.key), { ["epa.total_points"]: Number(entry.value) }]));
   const teamSchedule = (eventModel.matches || [])
     .filter((match) => match.red.includes(baseTeam.number) || match.blue.includes(baseTeam.number))
     .map((match) => match.number)
     .sort((left, right) => left - right);
-  const rowMatchNumbers = (teamSchedule.length ? teamSchedule : [...new Set([...scoutingByMatch.keys(), ...tbaByMatch.keys()])]).sort(
+  const rowMatchNumbers = (teamSchedule.length ? teamSchedule : [...new Set([
+    ...scoutingByMatch.keys(),
+    ...tbaByMatch.keys(),
+    ...statboticsByMatch.keys(),
+    ...pridgeByMatch.keys(),
+  ])]).sort(
     (left, right) => left - right,
   );
   const matchRows = rowMatchNumbers.map((matchNumber) => ({
     matchNumber,
     scouting: scoutingByMatch.get(matchNumber) || null,
     tba: tbaByMatch.get(matchNumber) || null,
+    statbotics: statboticsByMatch.get(matchNumber) || null,
+    pridge: pridgeByMatch.get(matchNumber) || null,
   }));
   const context = {
     baseTeam,
@@ -3663,6 +3674,9 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
   }
   if (identifier.startsWith("statbotics.")) {
     const componentId = identifier.slice("statbotics.".length);
+    if (componentId === "epa.post") {
+      return formulaSeriesFromRows(formulaContext.matchRows, (row) => readFormulaPathValue(row.statbotics || {}, componentId));
+    }
     const candidateFieldIds = [componentId];
     for (const candidateFieldId of candidateFieldIds) {
       const overlayValue = readFormulaPathValue(formulaContext.overlayTeam.sources?.statbotics?.components || {}, candidateFieldId);
@@ -3672,6 +3686,9 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
   }
   if (identifier.startsWith("pridge.")) {
     const componentId = identifier.slice("pridge.".length);
+    if (componentId === "epa.total_points") {
+      return formulaSeriesFromRows(formulaContext.matchRows, (row) => readFormulaPathValue(row.pridge || {}, componentId));
+    }
     if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.total ?? Number.NaN);
     const components = formulaContext.overlayTeam.sources?.pridge?.components || {};
     const value = pridgeComponentCandidates(componentId)
@@ -7643,16 +7660,28 @@ function truthy(value) {
 }
 
 function renderSparkline(team, metric) {
-  const values = metricTrendValues(team, metric);
+  const entries = analysisSeriesEntriesForMetric(team, metric, {
+    window: currentScoutingWindow(),
+    recentMatchCount: currentRecentMatchCount(),
+  });
+  const values = entries.length ? entries.map((entry) => Number(entry.value)) : metricTrendValues(team, metric);
   if (!values.length || values.every((value) => Number(value || 0) === 0)) {
     return `<p class="muted">No ${escapeHtml(metric.label)} trend is available for this team yet.</p>`;
   }
+  const plotEntries = entries.length
+    ? entries
+    : values.map((value, index) => ({ key: index + 1, value }));
+  const matchNumbers = plotEntries.map((entry) => Number(entry.key)).filter(Number.isFinite);
+  const firstMatchNumber = matchNumbers[0] ?? 1;
+  const lastMatchNumber = matchNumbers.at(-1) ?? firstMatchNumber;
+  const matchRange = lastMatchNumber - firstMatchNumber || 1;
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
   const points = values
     .map((value, index) => {
-      const x = 16 + (index / Math.max(1, values.length - 1)) * 196;
+      const matchNumber = Number(plotEntries[index]?.key);
+      const x = 16 + ((matchNumber - firstMatchNumber) / matchRange) * 196;
       const y = 82 - ((value - min) / range) * 64;
       return `${x},${y}`;
     })
@@ -7668,11 +7697,14 @@ function renderSparkline(team, metric) {
       <polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="3" vector-effect="non-scaling-stroke"></polyline>
       ${values
         .map((value, index) => {
-          const x = 16 + (index / Math.max(1, values.length - 1)) * 196;
+          const matchNumber = Number(plotEntries[index]?.key);
+          const x = 16 + ((matchNumber - firstMatchNumber) / matchRange) * 196;
           const y = 82 - ((value - min) / range) * 64;
-          return `<circle cx="${x}" cy="${y}" r="2.6" fill="var(--accent-strong)"><title>Match ${index + 1}: ${value.toFixed(metric.unit === "%" ? 0 : 1)} ${metric.unit}</title></circle>`;
+          return `<circle cx="${x}" cy="${y}" r="2.6" fill="var(--accent-strong)"><title>Match ${matchNumber}: ${value.toFixed(metric.unit === "%" ? 0 : 1)} ${metric.unit}</title></circle>`;
         })
         .join("")}
+      <text x="16" y="97" text-anchor="start">${firstMatchNumber}</text>
+      <text x="212" y="97" text-anchor="end">${lastMatchNumber}</text>
     </svg>
   `;
 }

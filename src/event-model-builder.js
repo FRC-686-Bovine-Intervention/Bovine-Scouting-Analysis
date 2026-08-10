@@ -255,9 +255,9 @@ function statboticsMatchNumber(match) {
 
 function statboticsMatchEpa(match) {
   const candidates = [
+    match?.epa?.post,
     match?.epa?.total_points,
     match?.epa?.total,
-    match?.epa?.post,
     match?.epa,
   ];
   return candidates.map((value) => Number(value)).find((value) => Number.isFinite(value)) ?? null;
@@ -379,6 +379,9 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, tbaComponents, teamMatch
   const scouterFields = Array.isArray(scoutingSchema?.scouterMetricDefinitions) ? scoutingSchema.scouterMetricDefinitions : [];
   const emptyScouterComponents = Object.fromEntries(scouterFields.map((component) => [component.id, 0]));
   const statboticsTrendEntries = buildStatboticsTrendEntries(teamMatches);
+  if (statboticsTrendEntries.length) {
+    statboticsComponents["epa.post"] = statboticsTrendEntries.at(-1).value;
+  }
   return {
     number: Number(teamInfo.team_number),
     name: teamInfo.nickname || teamEvent?.team_name || `Team ${teamInfo.team_number}`,

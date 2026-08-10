@@ -151,19 +151,28 @@ async function loadStatboticsBundle(primaryBaseUrl, fallbackBaseUrl, normalizedE
 
 async function fetchStatboticsTeamMatchRows(statboticsBaseUrl, eventCode, matches, options = {}) {
   if (options.loadStatboticsMatchData === false) return { rows: [], responses: [] };
-  const collectionUrl = `${statboticsBaseUrl}/matches?event=${encodeURIComponent(eventCode)}`;
+  const teamMatchesUrl = `${statboticsBaseUrl}/team_matches?event=${encodeURIComponent(eventCode)}&limit=10000`;
   try {
-    const response = await fetchJson(collectionUrl, options);
+    const response = await fetchJson(teamMatchesUrl, options);
+    const rows = (Array.isArray(response.payload) ? response.payload : [])
+      .filter((match) => match?.comp_level === "qm" || /_qm\d+$/i.test(String(match?.match || match?.key || "")))
+      .filter((match) => Number.isFinite(Number(match?.team)));
+    return { rows, responses: [response] };
+  } catch {
+    // Older/fallback Statbotics hosts may not expose the team-matches route.
+  }
+  try {
+    const response = await fetchJson(`${statboticsBaseUrl}/matches?event=${encodeURIComponent(eventCode)}`, options);
     const rows = (Array.isArray(response.payload) ? response.payload : [])
       .filter((match) => match?.comp_level === "qm")
       .flatMap((match) => Object.entries(match?.epas || {}).map(([team, epa]) => ({
         team: Number(team),
         match: match.key,
-        epa: { total_points: epa?.epa, breakdown: epa },
+        epa: { total_points: epa?.epa, post: epa?.post_epa ?? epa?.post, breakdown: epa },
       })));
     return { rows, responses: [response] };
   } catch {
-    // Older/fallback Statbotics hosts may not expose the collection route.
+    // Older/fallback Statbotics hosts may not expose either collection route.
   }
   const requests = (Array.isArray(matches) ? matches : [])
     .filter((match) => match?.comp_level === "qm" && (match?.key || Number.isFinite(Number(match?.match_number))))

@@ -44,11 +44,20 @@ const bundle = {
   tbaTeams: [1, 2, 3, 4, 5, 6].map((team_number) => ({ team_number, nickname: `Team ${team_number}` })),
   tbaMatches: matches,
   statboticsTeamEvents: [1, 2, 3, 4, 5, 6].map((team) => ({ team })),
+  statboticsTeamMatches: [
+    { team: 1, match: "2019chcmp_qm1", epa: { total_points: 8.5 } },
+    { team: 1, match: "2019chcmp_qm3", epa: { total_points: 10.25 } },
+  ],
 };
 
 const deferred = context.EventModelBuilder.buildEventModelFromProviderBundle({ ...bundle, deferPridgeTrends: true });
 assert.equal(pridgeCalls, 1, "Deferred cached event construction should compute totals without cumulative trends.");
 assert.equal(deferred.teams[0].sources.pridge.trendEntries.length, 0);
+assert.deepEqual(JSON.parse(JSON.stringify(deferred.teams[0].sources.statbotics.trendEntries)), [
+  { key: 1, value: 8.5 },
+  { key: 3, value: 10.25 },
+]);
+assert.equal(deferred.teams[0].sources.statbotics.components["epa.post"], 10.25);
 
 pridgeCalls = 0;
 const deferredComputation = context.EventModelBuilder.buildEventModelFromProviderBundle({ ...bundle, deferPridgeComputation: true });
