@@ -2810,8 +2810,20 @@ function availableMetricSourceOrder(metric) {
   return ["scouter", "scouting", "tba", "statbotics", "pridge"].indexOf(metric?.sourceId) + 1 || 99;
 }
 
+function availableMetricIdentifierSourceOrder(identifier) {
+  const sourceId = String(identifier || "").split(".", 1)[0];
+  return { scouting: 1, tba: 2, statbotics: 3, pridge: 4 }[sourceId] || 0;
+}
+
 function orderedRankableMetrics(eventModel = currentEvent()) {
   return [...currentRankableMetrics(eventModel)].sort((left, right) =>
+    availableMetricSourceOrder(left) - availableMetricSourceOrder(right)
+    || metricTokenLabel(left).localeCompare(metricTokenLabel(right)),
+  );
+}
+
+function orderedMetrics(eventModel = currentEvent()) {
+  return [...runtimeMetricsForEventModel(eventModel)].sort((left, right) =>
     availableMetricSourceOrder(left) - availableMetricSourceOrder(right)
     || metricTokenLabel(left).localeCompare(metricTokenLabel(right)),
   );
@@ -3002,7 +3014,7 @@ function pridgeComponentCandidates(componentId) {
 }
 
 function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
-  return [
+  const entries = [
     ...currentProfileDerivedEquationDefinitions(eventModel).map((definition) => ({ id: definition.name })),
     ...currentAvailableScoutingFieldDefinitions(eventModel).map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
     ...currentAvailableTbaFormulaIdentifiers(eventModel).map((id) => ({ id })),
@@ -3011,7 +3023,11 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
     ...runtimeMetricsForEventModel(eventModel)
       .filter((metric) => metric.kind === "source" && metric.sourceId === "pridge" && metric.componentId !== "total")
       .map((metric) => ({ id: `pridge.${pridgeFormulaComponentId(metric.componentId)}` })),
-  ].filter((entry, index, entries) => entries.findIndex((candidate) => candidate.id === entry.id) === index);
+  ].filter((entry, index, allEntries) => allEntries.findIndex((candidate) => candidate.id === entry.id) === index);
+  return entries.sort((left, right) => {
+    return availableMetricIdentifierSourceOrder(left.id) - availableMetricIdentifierSourceOrder(right.id)
+      || left.id.localeCompare(right.id);
+  });
 }
 
 function currentMetricDiscoverySchemaPayload() {
@@ -7446,7 +7462,7 @@ function renderTeams() {
 }
 
 function renderTeamDetail(team) {
-  const detailTrendMetrics = currentMetrics().filter((metric) => metricUsesMatchDistribution(team, metric));
+  const detailTrendMetrics = orderedMetrics().filter((metric) => metricUsesMatchDistribution(team, metric));
   const detailSelectedMetric = detailTrendMetrics.find((metric) => metric.id === state.teamDetailMetric) || null;
   const detailScoutingConfidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
   const detailOprMetric = metricById("source:tba:opr.total");
@@ -8449,7 +8465,7 @@ function renderPicklistBuilder() {
             <span class="muted">Metric</span>
             <select id="picklistCompareMetricSelect" aria-label="Picklist comparison metric">
               <option value="" ${comparisonMetric ? "" : "selected"}>Select a metric</option>
-              ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
+              ${orderedMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
             </select>
           </label>
           <label class="team-trend-metric">
@@ -8554,7 +8570,7 @@ function renderCriteriaTerm(term, index, count) {
         Metric
         <select class="term-metric" data-term-index="${index}">
           <option value="" ${metric ? "" : "selected"}>Select a metric</option>
-          ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === metric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
+          ${orderedMetrics().map((item) => `<option value="${item.id}" ${item.id === metric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
         </select>
       </label>
       ${index === count - 1 && count < 5 ? `<button class="icon-button add-term-button" id="addCriteriaTerm" title="Add component" aria-label="Add component">+</button>` : `<span class="operator-spacer"></span>`}
@@ -9758,10 +9774,7 @@ function openFormulaHelpTab() {
 }
 
 function analysisMetricOptions() {
-  const metrics = currentMetrics();
-  const derived = metrics.filter((metric) => metric.kind === "derived");
-  const nonDerived = metrics.filter((metric) => metric.kind !== "derived");
-  return [...derived, ...nonDerived];
+  return orderedMetrics();
 }
 
 function longestSharedPrefix(values) {
