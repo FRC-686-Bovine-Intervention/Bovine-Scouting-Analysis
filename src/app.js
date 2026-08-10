@@ -6784,7 +6784,7 @@ function filterStatusForTeam(team, filterId, eventModel = currentEvent()) {
   return null;
 }
 
-function applyAnalysisPredicateToEntries(team, entries, eventModel = currentEvent()) {
+function applyAnalysisFilterToEntries(team, entries, eventModel = currentEvent()) {
   const definition = activeAnalysisFilter(eventModel);
   const normalizedEntries = Array.isArray(entries) ? entries : [];
   if (!definition || !normalizedEntries.length) return normalizedEntries;
@@ -7568,7 +7568,7 @@ function analysisSeriesEntriesForMetric(team, metric, options = {}) {
   if (metric?.kind === "derived" && metric.definition?.expression) {
     const evaluation = derivedMetricEvaluation(team, metric, options);
     const normalizedEntries = filterResultEntries(evaluation.result).filter((entry) => Number.isFinite(Number(entry.value)));
-    const filteredEntries = applyAnalysisPredicateToEntries(team, normalizedEntries, currentEvent());
+    const filteredEntries = applyAnalysisFilterToEntries(team, normalizedEntries, currentEvent());
     return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
   }
   if (metric.kind === "source" && metric.sourceId === "tba" && metric.granularity === "match") {
@@ -7578,14 +7578,14 @@ function analysisSeriesEntriesForMetric(team, metric, options = {}) {
         value: Number(row?.[metric.componentId]),
       }))
       .filter((entry) => Number.isFinite(entry.value));
-    const filteredEntries = applyAnalysisPredicateToEntries(team, entries, currentEvent());
+    const filteredEntries = applyAnalysisFilterToEntries(team, entries, currentEvent());
     return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
   }
   if (metric.kind === "source" && Array.isArray(team.sources?.[metric.sourceId]?.trendEntries)) {
     const entries = team.sources[metric.sourceId].trendEntries
       .map((entry) => ({ key: Number(entry.key), value: Number(entry.value) }))
       .filter((entry) => Number.isFinite(entry.key) && Number.isFinite(entry.value));
-    const filteredEntries = applyAnalysisPredicateToEntries(team, entries, currentEvent());
+    const filteredEntries = applyAnalysisFilterToEntries(team, entries, currentEvent());
     return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
   }
   const aggregatedMatches = aggregateSubmissionMatches(
@@ -7601,7 +7601,7 @@ function analysisSeriesEntriesForMetric(team, metric, options = {}) {
     value: metric.componentId === "total" ? match.total : Number(match.components?.[metric.componentId]),
   }));
   const normalizedEntries = entries.filter((entry) => Number.isFinite(Number(entry.value)));
-  const filteredEntries = applyAnalysisPredicateToEntries(team, normalizedEntries, currentEvent());
+  const filteredEntries = applyAnalysisFilterToEntries(team, normalizedEntries, currentEvent());
   return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
 }
 
@@ -7738,8 +7738,8 @@ function renderSparkline(team, metric) {
 
 function renderAnalysis() {
   const selection = analysisSelectionModel();
-  const predicateOptions = currentProfileFilterList();
-  const activePredicate = activeAnalysisFilter();
+  const filterOptions = currentProfileFilterList();
+  const activeFilter = activeAnalysisFilter();
   if (!selection) {
     return `
       <div class="toolbar">
@@ -7751,10 +7751,10 @@ function renderAnalysis() {
           </select>
         </label>
         <label>
-          Predicate
+          Filter
           <select id="analysisFilterSelect">
             <option value="" ${state.activeAnalysisFilterId ? "" : "selected"}>All Matches</option>
-            ${predicateOptions.map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
+            ${filterOptions.map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
           </select>
         </label>
       </div>
@@ -7798,14 +7798,14 @@ function renderAnalysis() {
         </select>
       </label>
       <label>
-        Predicate
+        Filter
         <select id="analysisFilterSelect">
           <option value="" ${state.activeAnalysisFilterId ? "" : "selected"}>All Matches</option>
-          ${predicateOptions.map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
+          ${filterOptions.map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
         </select>
       </label>
       <div class="stat"><span>Event Average</span><strong>${eventAverage.toFixed(1)} ${selection.unit}</strong></div>
-      ${activePredicate ? `<div class="stat"><span>Predicate</span><strong>${escapeHtml(activePredicate.name)}</strong></div>` : ""}
+      ${activeFilter ? `<div class="stat"><span>Filter</span><strong>${escapeHtml(activeFilter.name)}</strong></div>` : ""}
       ${renderBoxPlotLegend()}
     </div>
     <div class="analysis-chart" style="margin-top: 8px;">
