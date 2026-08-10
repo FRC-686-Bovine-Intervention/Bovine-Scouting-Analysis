@@ -7497,7 +7497,7 @@ function renderTeamDetail(team) {
               <span class="muted">Metric</span>
               <select id="teamDetailMetricSelect" aria-label="Team detail metric">
                 <option value="" ${detailSelectedMetric ? "" : "selected"}>Select a metric</option>
-                ${detailTrendMetrics.map((item) => `<option value="${item.id}" ${item.id === detailSelectedMetric?.id ? "selected" : ""}>${item.label}</option>`).join("")}
+                ${detailTrendMetrics.map((item) => `<option value="${item.id}" ${item.id === detailSelectedMetric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
               </select>
             </label>
             <label class="team-trend-metric">
