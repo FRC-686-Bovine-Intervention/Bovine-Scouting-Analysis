@@ -67,6 +67,18 @@ runTest("commitScoutingImport can replace existing submissions for source-of-tru
   );
 });
 
+runTest("previewScoutingImport rejects an HTML response before it becomes scouting data", () => {
+  const context = loadBrowserContext(["src/scouting-source-utils.js", "src/import-foundation.js"]);
+  const preview = context.ImportFoundation.previewScoutingImport({
+    csvText: "<!doctype html><html><head><script>window.p = {};</script></head><body>Access denied</body></html>",
+    eventModel: { season: 2026, key: "2026chcmp", formulaFieldDefinitions: [] },
+    activeEventKey: "2026chcmp",
+  });
+
+  assert.equal(preview.ok, false);
+  assert.match(preview.errors[0], /HTML document instead of CSV/i);
+});
+
 runTest("previewScoutingImport uses event-owned field definitions without SeasonFramework", () => {
   const context = loadBrowserContext(["src/scouting-source-utils.js", "src/import-foundation.js"]);
   const eventModel = {

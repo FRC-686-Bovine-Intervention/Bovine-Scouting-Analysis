@@ -1,20 +1,15 @@
 {
   "meta": {
     "format": "frc-scouting-analysis/v1",
-    "sourceApp": "legacy-sheet-translator",
+    "sourceApp": "Bovine Scouting Analysis",
     "templateProfileId": "canonical-json-v1",
-    "profileLabel": "Canonical JSON",
-    "translationVersion": "2026-thin-v2"
+    "profileLabel": "Schema baseline",
+    "translationVersion": "",
+    "season": 2026,
+    "eventKey": "2026chcmp"
   },
   "schema": {
     "schemaId": "2026-match-v1",
-    "metricPresentation": {
-      "blacklistComment": "Patterns match the full, case-sensitive flattened field ID; * is the only wildcard and matches any characters, including dots (for example, scoreBreakdown.autoReef.*.node* matches scoreBreakdown.autoReef.topRow.nodeA).",
-      "blacklist": {
-        "tba": [],
-        "statbotics": []
-      }
-    },
     "expectedScoutingFields": [
       "autoFuelPct",
       "transitionFuelPct",
@@ -49,6 +44,34 @@
       "endgameSecondaryRole",
       "teleopClimbAttempt",
       "overallNotes"
+    ],
+    "pridgeResponseDefinitions": [
+      {
+        "id": "tbaTotalAutoPoints",
+        "label": "TBA total auto points",
+        "unit": "pts",
+        "formula": "tba.totalAutoPoints",
+        "comments": "Replace with this season's alliance auto total from TBA score_breakdown."
+      },
+      {
+        "id": "tbaTotalTeleopPoints",
+        "label": "TBA total teleop points",
+        "unit": "pts",
+        "formula": "tba.totalTeleopPoints",
+        "comments": "Replace with this season's alliance teleop total from TBA score_breakdown."
+      },
+      {
+        "id": "tbaTotalEndgamePoints",
+        "label": "TBA total endgame points",
+        "unit": "pts",
+        "formula": "tba.totalTowerPoints",
+        "comments": "Replace with this season's alliance endgame total; confirm that climbs or other endgame actions are included."
+      }
+    ],
+    "comments": [
+      "Use one definition for each stable tbaTotal* id.",
+      "Map formulas per season using only numeric alliance-level TBA score_breakdown fields.",
+      "Check Schema Diagnostics after loading live TBA data; unknown tba.* identifiers mean the formula does not match this event's available metrics."
     ]
   },
   "profile": {
@@ -219,6 +242,132 @@
       {
         "name": "totalFuelScored",
         "formula": "autoFuelTeam + transitionFuelTeam + shift1FuelTeam + shift2FuelTeam + shift3FuelTeam + shift4FuelTeam + endgameFuelTeam"
+      }
+    ]
+  },
+  "workspace": {
+    "picklists": [
+      {
+        "id": "pick-first-pick",
+        "name": "First Pick",
+        "teams": [
+          449,
+          2106,
+          9072,
+          11415,
+          836,
+          619,
+          4099,
+          1908,
+          1731,
+          5338,
+          422,
+          346,
+          1629,
+          686,
+          1086,
+          1727,
+          401,
+          2199,
+          888,
+          5549,
+          122,
+          540,
+          3136,
+          8592,
+          614,
+          10224,
+          3748,
+          1262,
+          2537,
+          4472,
+          1389,
+          2890,
+          4541,
+          620,
+          5243,
+          11318,
+          5804,
+          2377,
+          10004,
+          5724,
+          10679,
+          3939,
+          1895,
+          339,
+          1719,
+          3361,
+          3258,
+          9033,
+          11425,
+          2068,
+          8590,
+          5587,
+          2421,
+          1111,
+          4638
+        ]
+      },
+      {
+        "id": "pick-backup-live",
+        "name": "Backup / Live Sources",
+        "teams": [
+          449,
+          2106,
+          11415,
+          9072,
+          836,
+          1908,
+          4099,
+          5338,
+          1731,
+          619,
+          346,
+          422,
+          686,
+          1629,
+          122,
+          1727,
+          401,
+          5549,
+          1086,
+          540,
+          2199,
+          3136,
+          888,
+          8592,
+          614,
+          10224,
+          3748,
+          1262,
+          4472,
+          2537,
+          620,
+          1389,
+          5243,
+          4541,
+          2890,
+          2377,
+          11318,
+          10004,
+          3939,
+          5724,
+          5804,
+          339,
+          1895,
+          10679,
+          3361,
+          1719,
+          11425,
+          3258,
+          2068,
+          8590,
+          2421,
+          1111,
+          9033,
+          5587,
+          4638
+        ]
       }
     ]
   }

@@ -52,6 +52,8 @@ async function snapshot() {
     const sources = state?.eventWorkspace?.sources || {};
     return {
       activeEventKey: window.__scoutingActiveEventKey,
+      workspaceEventKey: state?.eventWorkspace?.eventKey || "",
+      adminEventCode: document.querySelector("#adminEventCodeInput")?.value || "",
       pending: state?.eventLookupPending,
       lookup: state?.eventLookupResult,
       tba: sources.tba?.lastAttemptedAt || sources.tba?.lastSuccessfulAt || "",
@@ -60,16 +62,40 @@ async function snapshot() {
   });
 }
 
+function assertLoadedEvent(target, current, context) {
+  const loaded = current.activeEventKey === target
+    && current.workspaceEventKey === target
+    && current.adminEventCode === target
+    && (!current.lookup || current.lookup.kind !== "error");
+  if (!loaded) {
+    throw new Error(`Requested event ${target} was not successfully loaded during ${context}: ${JSON.stringify(current)}`);
+  }
+}
+
 async function waitForSwitch(target, baseline, timeoutMs = 30000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const current = await snapshot();
-    if (current.activeEventKey === target && current.tba && current.statbotics && (!baseline || current.tba !== baseline.tba || current.statbotics !== baseline.statbotics)) {
+    if (current.activeEventKey === target && current.workspaceEventKey === target && current.adminEventCode === target && current.tba && current.statbotics && (!baseline || current.tba !== baseline.tba || current.statbotics !== baseline.statbotics)) {
+      assertLoadedEvent(target, current, "event switch");
       return { target, elapsedMs: Date.now() - startedAt, current };
     }
     await page.waitForTimeout(100);
   }
   throw new Error(`Event switch exceeded ${timeoutMs}ms: ${JSON.stringify({ target, baseline, current: await snapshot() })}`);
+}
+
+async function waitForActiveEvent(target, timeoutMs = 30000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const current = await snapshot();
+    if (current.activeEventKey === target) {
+      assertLoadedEvent(target, current, "Recent Events selection");
+      return { target, elapsedMs: Date.now() - startedAt };
+    }
+    await page.waitForTimeout(100);
+  }
+  throw new Error(`Active event did not switch within ${timeoutMs}ms: ${JSON.stringify({ target, current: await snapshot() })}`);
 }
 
 async function switchByCode(target) {
@@ -82,12 +108,54 @@ async function switchByCode(target) {
 }
 
 async function switchByRecent(target) {
-  const before = await snapshot();
+  await page.evaluate(() => {
+    if (globalThis.__ticket109InteractionDurations) return;
+    globalThis.__ticket109InteractionDurations = { openRecent: [], switch: [] };
+    document.addEventListener("click", (event) => {
+      if (!event.target?.closest?.("#openRecentAdminEventsButton")) return;
+      const startedAt = performance.now();
+      setTimeout(() => globalThis.__ticket109InteractionDurations.openRecent.push(Number((performance.now() - startedAt).toFixed(1))), 0);
+    }, true);
+    document.addEventListener("change", (event) => {
+      if (event.target?.id !== "recentAdminEventSelect") return;
+      const startedAt = performance.now();
+      setTimeout(() => globalThis.__ticket109InteractionDurations.switch.push(Number((performance.now() - startedAt).toFixed(1))), 0);
+    }, true);
+  });
+  const openDurationCountBefore = await page.evaluate(() => globalThis.__ticket109InteractionDurations.openRecent.length);
+  const switchDurationCountBefore = await page.evaluate(() => globalThis.__ticket109InteractionDurations.switch.length);
+  const switchCountBefore = await page.evaluate(() => (globalThis.__scoutingPerf?.events || []).filter((event) => event.label === "switchActiveEvent.total").length);
   await page.click("#openRecentAdminEventsButton");
+  await page.waitForFunction((count) => globalThis.__ticket109InteractionDurations?.openRecent.length > count, openDurationCountBefore);
+  const openDurationMs = await page.evaluate((count) => globalThis.__ticket109InteractionDurations.openRecent[count], openDurationCountBefore);
+  if (!(openDurationMs < 500)) {
+    throw new Error(`Opening Recent Events froze the UI for ${openDurationMs}ms; expected <500ms.`);
+  }
   const select = page.locator("#recentAdminEventSelect");
   await select.waitFor({ state: "visible", timeout: 2000 });
   await select.selectOption(target);
-  return waitForSwitch(target, before);
+  const activeEventResult = await waitForActiveEvent(target);
+  if (!(activeEventResult.elapsedMs < 500)) {
+    throw new Error(`Recent event became active after ${activeEventResult.elapsedMs}ms; expected <500ms.`);
+  }
+  await page.waitForFunction((count) => globalThis.__ticket109InteractionDurations?.switch.length > count, switchDurationCountBefore);
+  const userDurationMs = await page.evaluate((count) => globalThis.__ticket109InteractionDurations.switch[count], switchDurationCountBefore);
+  if (!(userDurationMs < 500)) {
+    throw new Error(`Recent event UI freeze lasted ${userDurationMs}ms; expected <500ms.`);
+  }
+  const result = { target, elapsedMs: activeEventResult.elapsedMs, current: await snapshot() };
+  await page.waitForTimeout(50);
+  const switchEvents = await page.evaluate((beforeCount) => (globalThis.__scoutingPerf?.events || [])
+    .filter((event) => event.label === "switchActiveEvent.total")
+    .slice(beforeCount), switchCountBefore);
+  if (!switchEvents.length) {
+    throw new Error("Recent event selection did not activate the requested event.");
+  }
+  const switchDurationMs = Math.max(...switchEvents.map((event) => Number(event.durationMs)));
+  if (!(switchDurationMs < 500)) {
+    throw new Error(`Recent event switch took ${switchDurationMs}ms; expected <500ms.`);
+  }
+  return { ...result, activeEventElapsedMs: activeEventResult.elapsedMs, openDurationMs, switchDurationMs, userDurationMs };
 }
 
 try {
@@ -109,18 +177,22 @@ try {
   await page.waitForFunction(() => window.__scoutingAppState?.tbaAuthKeySavePending === false, { timeout: 10000 });
   const localToUncached = await switchByCode(uncachedEventKey);
   const uncachedToCached = await switchByRecent("2026cached");
-  if (requestCounts.tbaEvent !== 1 || requestCounts.statboticsEvent !== 1 || requestCounts.cachedTbaEvent < 1 || requestCounts.cachedStatboticsEvent < 1) {
-    throw new Error(`Duplicate provider loads detected: ${JSON.stringify(requestCounts)}`);
+  const requestCountsBeforeRepeatedRecentSwitches = { ...requestCounts };
+  const cachedToLocalRecent = await switchByRecent("2026local");
+  const localToCachedRecent = await switchByRecent("2026cached");
+  const cachedToLocalRecentAgain = await switchByRecent("2026local");
+  if (Object.keys(requestCountsBeforeRepeatedRecentSwitches).some((key) => requestCounts[key] !== requestCountsBeforeRepeatedRecentSwitches[key])) {
+    throw new Error(`Repeated Recent Events selections reloaded provider data: before=${JSON.stringify(requestCountsBeforeRepeatedRecentSwitches)} after=${JSON.stringify(requestCounts)}`);
   }
-  if (/shared Firestore cache/i.test(uncachedToCached.current.lookup?.message || "")) {
-    throw new Error(`Stale cached event was not refreshed: ${JSON.stringify(uncachedToCached.current.lookup)}`);
+  if (!/stale/i.test(uncachedToCached.current.lookup?.message || "")) {
+    throw new Error(`Stale cached event was not identified as stale: ${JSON.stringify(uncachedToCached.current.lookup)}`);
   }
 
   console.log(JSON.stringify({
     pass: true,
-    cutoffMs: 30000,
+    cutoffMs: 500,
     requestCounts,
-    transitions: [cachedToLocal, localToCached, localToUncached, uncachedToCached],
+    transitions: [cachedToLocal, localToCached, localToUncached, uncachedToCached, cachedToLocalRecent, localToCachedRecent, cachedToLocalRecentAgain],
   }, null, 2));
 } finally {
   await browser.close();

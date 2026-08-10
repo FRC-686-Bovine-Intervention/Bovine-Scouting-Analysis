@@ -54,7 +54,7 @@ runTest("generic metric catalog exposes provider totals and schema-driven scouti
   assert.equal(metrics.some((metric) => metric.id === "source:scouter:overallDriver"), true);
   assert.equal(metrics.some((metric) => metric.id === "source:statbotics:auto"), true);
   assert.equal(metrics.some((metric) => metric.id === "source:opr:total"), false);
-  assert.equal(metrics.some((metric) => metric.id === "source:pridge:total"), true);
+  assert.equal(metrics.some((metric) => metric.id === "source:pridge:epa.total_points"), true);
   assert.equal(metrics.some((metric) => metric.id === "derived:fuelContributionAvg"), true);
   assert.equal(metrics.some((metric) => metric.id === "derived:defenseImpact"), false);
   assert.equal(metrics.some((metric) => metric.id === "derived:consistency"), false);

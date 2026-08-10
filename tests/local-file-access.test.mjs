@@ -58,6 +58,42 @@ function createMemoryStorage() {
 }
 
 async function main() {
+  await runTest("downloadTextFile provides a browser fallback when native save pickers are unavailable", async () => {
+    let clicked = false;
+    let createdBlob = null;
+    const link = {
+      style: {},
+      click() { clicked = true; },
+      remove() {},
+    };
+    const context = loadBrowserContext(["src/local-file-access.js"]);
+    const filename = context.LocalFileAccess.downloadTextFile("{\"ok\":true}", "baseline.json", {
+      Blob: class FakeBlob { constructor(parts, options) { createdBlob = { parts, options }; } },
+      URL: { createObjectURL() { return "blob:test"; }, revokeObjectURL() {} },
+      document: { createElement() { return link; }, body: { appendChild() {} } },
+    });
+    assert.equal(filename, "baseline.json");
+    assert.equal(clicked, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(createdBlob.parts)), ["{\"ok\":true}"]);
+    assert.equal(createdBlob.options.type, "application/json");
+  });
+
+  await runTest("downloadTextFile falls back to a data URL without Blob APIs", async () => {
+    const link = {
+      style: {},
+      click() {},
+      remove() {},
+    };
+    const context = loadBrowserContext(["src/local-file-access.js"]);
+    context.LocalFileAccess.downloadTextFile("{\"fallback\":true}", "baseline.json", {
+      document: { createElement() { return link; }, body: { appendChild() {} } },
+      URL: {},
+    });
+    assert.equal(link.download, "baseline.json");
+    assert.match(link.href, /^data:application\/json;charset=utf-8,/);
+    assert.equal(decodeURIComponent(link.href.split(",", 2)[1]), "{\"fallback\":true}");
+  });
+
   await runTest("pickAttachmentFile persists the chosen handle and returns a display path", async () => {
     const storage = createMemoryStorage();
     const context = loadBrowserContext(["src/local-file-access.js"]);

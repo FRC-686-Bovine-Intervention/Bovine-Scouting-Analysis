@@ -77,6 +77,86 @@ runTest("buildCanonicalSchemaForEventModel uses event-owned field definitions wi
   assert.equal(schema.expectedScoutingFields.some((field) => field === "driverTag"), true);
 });
 
+runTest("buildPridgeResponseBaseline emits stable phase formulas and diagnostics validate TBA identifiers", () => {
+  const context = loadBrowserContext(["src/metric-engine.js", "src/scouting-json-schema.js"]);
+  const baseline = context.ScoutingJsonSchema.buildPridgeResponseBaseline({ season: 2026, key: "2026chcmp", formulaFieldDefinitions: [] });
+  const definitions = baseline.schema.pridgeResponseDefinitions;
+  assert.deepEqual(JSON.parse(JSON.stringify(definitions.map((definition) => definition.id))), [
+    "tbaTotalAutoPoints",
+    "tbaTotalTeleopPoints",
+    "tbaTotalEndgamePoints",
+  ]);
+  assert.equal(definitions[0].formula, "tba.totalAutoPoints");
+  assert.equal(baseline.schema.comments.length > 0, true);
+
+  const diagnostics = context.ScoutingJsonSchema.diagnosePridgeResponseDefinitions(definitions, [
+    "tba.totalAutoPoints",
+    "tba.totalTeleopPoints",
+    "tba.endGameTowerPoints",
+  ]);
+  assert.equal(diagnostics.hasIssues, false);
+  const missing = context.ScoutingJsonSchema.diagnosePridgeResponseDefinitions(definitions, ["tba.totalAutoPoints"]);
+  assert.equal(missing.hasIssues, true);
+  assert.match(missing.invalid[0].failures.join(" "), /not available/);
+});
+
+runTest("buildPridgeResponseBaseline preserves an existing schema field list and profile equations", () => {
+  const context = loadBrowserContext(["src/metric-engine.js", "src/scouting-json-schema.js"]);
+  const baseline = context.ScoutingJsonSchema.buildPridgeResponseBaseline(
+    { season: 2026, key: "2026chcmp", formulaFieldDefinitions: [] },
+    {
+      expectedScoutingFields: ["autoFuelPct", "startingPosition"],
+      profile: {
+        id: "existing-profile",
+        label: "Existing Profile",
+        derivedEquations: [{ name: "fuelTotal", formula: "sum" }],
+      },
+    },
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(baseline.schema.expectedScoutingFields)), ["autoFuelPct", "startingPosition"]);
+  assert.equal(baseline.profile.id, "existing-profile");
+  assert.equal(baseline.profile.derivedEquations[0].name, "fuelTotal");
+});
+
+runTest("schema artifacts emit only the portable contract members", () => {
+  const context = loadBrowserContext(["src/scouting-json-schema.js"]);
+  const artifact = context.ScoutingJsonSchema.buildCanonicalSchemaArtifact({
+    meta: { format: "frc-scouting-analysis/v1", templateProfileId: "profile-1" },
+    schema: {
+      schemaId: "2027-match-v1",
+      expectedScoutingFields: ["fuel"],
+      metricPresentation: { blacklist: { tba: ["total*"], statbotics: ["epa"] } },
+      metricDiscovery: { blacklist: { tba: ["legacy"] } },
+      fields: [{ id: "fuel", label: "runtime metadata" }],
+    },
+    profile: {
+      id: "profile-1",
+      label: "Profile",
+      versionKey: "v1",
+      derivedEquations: [{ id: "fuelTotal", formula: "sum(scouting.fuel)", usage: "metric" }],
+      filters: [{ name: "legacyFilter", formula: "true" }],
+      metricDiscovery: { blacklist: { statbotics: ["legacy"] } },
+    },
+    workspace: {
+      picklists: [{ id: "main", teams: [1] }],
+      activePicklist: "main",
+      sortEquations: [{ id: "legacy-sort" }],
+    },
+  }, { eventModel: { season: 2027, formulaFieldDefinitions: [{ id: "fuel" }] } });
+
+  assert.deepEqual(artifact.schema.expectedScoutingFields, ["fuel"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(artifact.schema.metricPresentation)), { blacklist: { tba: ["total*"], statbotics: ["epa"] } });
+  assert.equal("fields" in artifact.schema, false);
+  assert.equal("metricDiscovery" in artifact.schema, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(artifact.profile.derivedEquations)), [{ name: "fuelTotal", formula: "sum(scouting.fuel)" }]);
+  assert.equal("filters" in artifact.profile, false);
+  assert.equal("metricDiscovery" in artifact.profile, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(artifact.workspace)), { picklists: [{ id: "main", teams: [1] }] });
+  assert.equal("activePicklist" in artifact.workspace, false);
+  assert.equal("activeSortEquation" in artifact.workspace, false);
+  assert.equal("sortEquations" in artifact.workspace, false);
+});
+
 runTest("validateCanonicalSchema accepts fixture-backed canonical scouting JSON", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
   const eventModel = buildEventModel(context);
@@ -98,6 +178,22 @@ runTest("validateCanonicalSchema rejects missing schema.expectedScoutingFields w
   const validation = context.ScoutingJsonSchema.validateCanonicalSchema(payload, eventModel, "2026chcmp", schemaPayload);
 
   assert.equal(validation.errors.some((error) => error.includes("schema.expectedScoutingFields must be an array")), true);
+});
+
+runTest("validateCanonicalSchema rejects runtime field metadata in the portable contract", () => {
+  const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-json-schema.js"]);
+  const eventModel = buildEventModel(context);
+  const validation = context.ScoutingJsonSchema.validateCanonicalSchema({
+    meta: { format: "frc-scouting-analysis/v1", season: 2026, eventKey: "2026chcmp", entryType: "match" },
+    schema: {
+      schemaId: "2026-match-v1",
+      expectedScoutingFields: [{ id: "autoFuelPct", label: "Auto Fuel %", type: "number" }],
+    },
+    entries: [],
+  }, eventModel, "2026chcmp");
+
+  assert.equal(validation.errors.length, 1);
+  assert.match(validation.errors[0], /must be a non-empty string field id/);
 });
 
 runTest("validateCanonicalSchema accepts split entries and schema artifacts", () => {

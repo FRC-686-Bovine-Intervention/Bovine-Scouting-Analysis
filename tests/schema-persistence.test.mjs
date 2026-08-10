@@ -4,6 +4,18 @@ import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
 
+const appSourceForSchemaLoadAssertion = fs.readFileSync(path.resolve("src/app.js"), "utf8");
+assert.match(appSourceForSchemaLoadAssertion, /loadPreparedScoutingSheet\(csvText, profileId, \{[\s\S]*schemaJsonText,[\s\S]*importDraftSource: "attached"/);
+assert.match(appSourceForSchemaLoadAssertion, /const schemaJsonText = await readAttachedScoutingSchemaText\(attachment, attachmentLoad, sourceUrl\)\.catch\(\(\) => ""\);[\s\S]*cacheActiveRawScoutingSource\(csvText, requestUrl,[\s\S]*schemaJsonText,[\s\S]*schemaSource: attachmentLoad\.schemaPath \|\| attachmentLoad\.schemaUrl/);
+assert.match(appSourceForSchemaLoadAssertion, /async function cacheScoutingSchemaArtifacts\(schemaJsonText,[\s\S]*sourceId: "scouting-schema"[\s\S]*api\.saveEventSourceCache/);
+assert.match(appSourceForSchemaLoadAssertion, /state\.importSchemaJsonText = schemaJsonText;[\s\S]*cacheScoutingSchemaArtifacts\(schemaJsonText, schemaPath \|\| schemaUrl/);
+assert.match(appSourceForSchemaLoadAssertion, /state\.importSchemaJsonText = schemaArtifactText;[\s\S]*cacheScoutingSchemaArtifacts\([\s\S]*selectedSchema\.path[\s\S]*selectedLink\.path/);
+assert.match(appSourceForSchemaLoadAssertion, /const selectedProfileDefinitions = currentImportedProfileDefinition\(eventModel\)\?\.pridgeResponseDefinitions;[\s\S]*const profileDefinitions = Array\.isArray\(selectedProfileDefinitions\)/);
+assert.match(appSourceForSchemaLoadAssertion, /const importedPridgeResponseDefinitions = currentPridgeResponseDefinitions\(currentEvent\(\)\);[\s\S]*pridgeResponseDefinitions: importedPridgeResponseDefinitions/);
+assert.match(appSourceForSchemaLoadAssertion, /const pridgeResponseDefinitions = Array\.isArray\(profile\?\.pridgeResponseDefinitions\)[\s\S]*pridgeResponseDefinitions \}/);
+assert.match(appSourceForSchemaLoadAssertion, /const localById = new Map\(localProfiles\.map\(\(profile\) => \[profile\.id, profile\]\)\);[\s\S]*localProfile\.pridgeResponseDefinitions/);
+assert.match(appSourceForSchemaLoadAssertion, /eventScopedProfiles\(eventModel\)\.find\(\(profile\) => Array\.isArray\(profile\?\.pridgeResponseDefinitions\)/);
+
 async function runTest(name, fn) {
   try {
     await fn();
@@ -92,6 +104,7 @@ function loadAppContext(options = {}) {
       readAttachmentTextByPath: options.readAttachmentTextByPath || (async () => ""),
       adoptAttachmentForPath: options.adoptAttachmentForPath || (async () => false),
       removeAttachment: options.removeAttachment || (async () => true),
+      downloadTextFile: options.downloadTextFile || (() => ""),
       pathBasename:
         options.pathBasename
         || ((value) => String(value || "").trim().replace(/\\/g, "/").split("/").pop() || ""),
@@ -103,7 +116,7 @@ function loadAppContext(options = {}) {
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
     .replace(/\nbootstrapApp\(\);\s*/, "\n")
-    + "\nglobalThis.__activeEventTestApi = { applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, persistScoutingSubmissions, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
+    + "\nglobalThis.__activeEventTestApi = { applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, loadAttachedSchemaForDiagnostics, persistScoutingSubmissions, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -124,6 +137,133 @@ function loadAppContext(options = {}) {
   context.render = noop;
   return context;
 }
+
+await runTest("schema baseline downloads the cached profile, workspace, and complete pRidge definitions", async () => {
+  let downloadedText = "";
+  const context = loadAppContext({
+    downloadTextFile: (text) => {
+      downloadedText = text;
+      return "2026chcmp_schema-baseline.json";
+    },
+  });
+  const eventModel = context.eventCatalog[0];
+  const state = context.__scoutingAppState;
+  state.activeEventKey = eventModel.key;
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    label: "Current",
+    fields: [{ id: "fuel", label: "Fuel", type: "number", unit: "count" }],
+    derivedEquations: [{ id: "scoutingTotal", name: "scoutingTotal", formula: "sum(scouting.fuel)" }],
+    filters: [{ name: "usable", formula: "scouting.fuel > 0" }],
+    pridgeResponseDefinitions: [{ id: "tbaTotalAutoPoints", formula: "tba.autoPoints" }],
+  });
+  state.picklists = [{ id: "main", name: "Main", teams: [1] }];
+  state.sortEquations = [{ id: "sort-main", name: "Sort Main", terms: [{ metric: "scoutingTotal", direction: "desc" }] }];
+  state.activePicklist = "main";
+  state.activeSortEquation = "sort-main";
+
+  await context.__activeEventTestApi.createSchemaBaselineFile();
+  const artifact = JSON.parse(downloadedText);
+  assert.deepEqual(artifact.schema.expectedScoutingFields, ["fuel"]);
+  assert.equal(artifact.profile.derivedEquations[0].name, "scoutingTotal");
+  assert.equal("filters" in artifact.profile, false);
+  assert.deepEqual(artifact.workspace.picklists, state.picklists);
+  assert.equal("sortEquations" in artifact.workspace, false);
+  assert.equal("activePicklist" in artifact.workspace, false);
+  assert.equal("activeSortEquation" in artifact.workspace, false);
+  assert.equal(artifact.schema.pridgeResponseDefinitions.find((definition) => definition.id === "tbaTotalAutoPoints").formula, "tba.autoPoints");
+  assert.equal(artifact.schema.pridgeResponseDefinitions.length, 3);
+});
+
+await runTest("schema profile updates preserve every stored profile entry", () => {
+  const context = loadAppContext();
+  const eventModel = context.eventCatalog[0];
+  const state = context.__scoutingAppState;
+  state.activeEventKey = eventModel.key;
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    label: "Current",
+    fields: [{ id: "fuel", label: "Fuel", type: "number", unit: "count" }],
+    derivedEquations: [{ id: "scoutingTotal", name: "scoutingTotal", formula: "sum(scouting.fuel)" }],
+    metricPresentation: { blacklist: { tba: ["scoreBreakdown.rp"] } },
+    pridgeResponseDefinitions: [{ id: "tbaTotalAutoPoints", formula: "tba.autoPoints" }],
+    versionKey: "uploaded-schema-v7",
+  });
+
+  // A later schema load/update supplies fields and metadata but may omit the
+  // equation property. It must merge with the normalized profile already saved.
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    fields: [{ id: "fuel", label: "Fuel", type: "number", unit: "count" }],
+    metricPresentation: { blacklist: { tba: ["scoreBreakdown.rp"] } },
+    pridgeResponseDefinitions: [{ id: "tbaTotalAutoPoints", formula: "tba.autoPoints" }],
+  });
+
+  const profile = state.scoutingProfileCatalog[eventModel.key][0];
+  assert.equal(profile.derivedEquations.length, 1);
+  assert.equal(profile.derivedEquations[0].name, "scoutingTotal");
+  assert.equal(profile.versionKey, "uploaded-schema-v7");
+  assert.equal(JSON.stringify(profile.fields), JSON.stringify([{ id: "fuel", label: "Fuel", type: "number", unit: "count" }]));
+  assert.equal(JSON.stringify(profile.metricPresentation), JSON.stringify({ blacklist: { tba: ["scoreBreakdown.rp"] } }));
+  assert.equal(JSON.stringify(profile.pridgeResponseDefinitions), JSON.stringify([{ id: "tbaTotalAutoPoints", formula: "tba.autoPoints" }]));
+});
+
+await runTest("reloading a schema preserves field type and unit metadata", async () => {
+  const schemaText = JSON.stringify({
+    schema: {
+      expectedScoutingFields: [{ id: "fuel", label: "Fuel", type: "number", unit: "count" }],
+    },
+    profile: { id: "match-current-v2", derivedEquations: [] },
+  });
+  const context = loadAppContext({
+    readAttachmentText: async (attachmentId) => attachmentId.endsWith(":schema") ? schemaText : "",
+  });
+  const eventModel = context.eventCatalog[0];
+  const state = context.__scoutingAppState;
+  state.activeEventKey = eventModel.key;
+  state.eventWorkspace = context.EventWorkspace.createEventWorkspace(eventModel, {
+    activeScoutingAttachmentId: "scouting-schema-test",
+    sources: {
+      scouting: [{
+        attachmentId: "scouting-schema-test",
+        locationKind: "path",
+        location: { path: "scouting.csv", schemaPath: "schema.json" },
+        autoLoad: false,
+      }],
+    },
+  });
+
+  assert.equal(await context.__activeEventTestApi.loadAttachedSchemaForDiagnostics(), true);
+  const profile = state.scoutingProfileCatalog[eventModel.key][0];
+  assert.equal(JSON.stringify(profile.fields), JSON.stringify([{ id: "fuel", label: "Fuel", type: "number", unit: "count" }]));
+});
+
+await runTest("schema diagnostics ignore HTML response artifacts while preserving real added fields", () => {
+  const context = loadAppContext({ schemaFields: [{ id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" }] });
+  const eventModel = context.eventCatalog[0];
+  const state = context.__scoutingAppState;
+  state.activeEventKey = eventModel.key;
+  context.registerScoutingProfile(eventModel, {
+    id: "match-current-v2",
+    label: "Current",
+    fields: [{ id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" }],
+  });
+  state.scoutingSubmissions = [{
+    eventKey: eventModel.key,
+    matchNumber: 1,
+    teamNumber: 1,
+    alliance: "red",
+    rawMetrics: {
+      autoFuelPct: 50,
+      robotStatus: "Good",
+      doctypeHtmlHtmlLangEnUsHeadScriptNonceExampleWindowPpConfigProductName26981: "unexpected",
+    },
+  }];
+
+  const diagnostics = context.currentScoutingDiagnosticsState().currentDiagnostics.schemaDiff;
+  assert.equal(diagnostics.added.some((field) => field.id === "robotStatus"), true);
+  assert.equal(diagnostics.added.some((field) => field.id.includes("doctypeHtml")), false);
+});
 
 await runTest("a clean catalog exposes only shared cached events instead of a packaged fallback", () => {
   const context = loadAppContext({
@@ -1224,7 +1364,7 @@ await runTest("provider metric catalogs apply default and schema blacklists with
   const state = context.__scoutingAppState;
   const eventModel = context.eventCatalog[0];
   state.activeEventKey = eventModel.key;
-  const metricDiscovery = {
+  const metricPresentation = {
     blacklist: {
       tba: [
         "scoreBreakdown.autoReef.*.node*",
@@ -1235,7 +1375,7 @@ await runTest("provider metric catalogs apply default and schema blacklists with
   };
   state.importSchemaJsonText = JSON.stringify({
     schema: {
-      metricDiscovery,
+      metricPresentation,
     },
   });
   context.registerScoutingProfile(eventModel, {
@@ -1247,7 +1387,7 @@ await runTest("provider metric catalogs apply default and schema blacklists with
       type: "number",
       unit: "count",
     }],
-    metricDiscovery,
+    metricPresentation,
   });
   state.importSchemaJsonText = "";
 
@@ -1259,6 +1399,9 @@ await runTest("provider metric catalogs apply default and schema blacklists with
   assert.equal(identifiers.includes("tba.foulPoints"), true);
   assert.equal(identifiers.includes("statbotics.team_name"), false);
   assert.equal(identifiers.includes("statbotics.epa.total_points"), true);
+  assert.equal(context.metricTokenLabel({ kind: "source", sourceId: "pridge", componentId: "epa.breakdown.auto_points" }), "pridge.epa.breakdown.auto_points");
+  assert.equal(context.metricTokenLabel({ kind: "source", sourceId: "pridge", componentId: "tbaTotalAutoPoints" }), "pridge.epa.breakdown.auto_points");
+  assert.equal(identifiers.includes("pridge.epa.total_points"), true);
   assert.equal(
     context.metricTokenLabel({
       kind: "source",

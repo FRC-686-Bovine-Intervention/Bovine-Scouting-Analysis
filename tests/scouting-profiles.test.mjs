@@ -95,10 +95,10 @@ runTest("materializeEventScopedProfileCatalog projects legacy season profiles on
   });
 });
 
-runTest("metric discovery blacklist keeps Statbotics raw provider fields discoverable", () => {
+runTest("metric discovery blacklist hides default and schema-blacklisted provider fields", () => {
   const schemaPayload = {
     schema: {
-      metricDiscovery: {
+      metricPresentation: {
         blacklist: {
           tba: [
             "scoreBreakdown.autoReef.*.node*",
@@ -132,7 +132,7 @@ runTest("metric discovery blacklist keeps Statbotics raw provider fields discove
   );
   assert.equal(
     scoutingProfiles.isProviderMetricDiscoverable("statbotics", "country", schemaPayload),
-    true,
+    false,
   );
   assert.equal(
     scoutingProfiles.isProviderMetricDiscoverable("statbotics", "epa.breakdown.auto_points", schemaPayload),
@@ -142,7 +142,7 @@ runTest("metric discovery blacklist keeps Statbotics raw provider fields discove
 
 runTest("metric discovery globs are case-sensitive full matches with star as the only wildcard", () => {
   const schemaPayload = {
-    metricDiscovery: {
+    metricPresentation: {
       blacklist: {
         tba: [
           "scoreBreakdown.autoReef.*.node*",

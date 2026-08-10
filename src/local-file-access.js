@@ -403,6 +403,29 @@ async function readAttachmentText(attachmentId, deps = {}) {
   return withAttachmentPermission(handle, "read", deps, () => readTextFromHandleFile(handle));
 }
 
+function downloadTextFile(text, filename, deps = {}) {
+  const documentRef = deps.document || globalThis.document;
+  const urlRef = deps.URL || globalThis.URL;
+  const BlobCtor = deps.Blob || globalThis.Blob;
+  if (!documentRef?.createElement) {
+    throw new Error("Browser downloads are unavailable.");
+  }
+  const link = documentRef.createElement("a");
+  const content = String(text || "");
+  const hasObjectUrl = BlobCtor && typeof urlRef?.createObjectURL === "function";
+  const objectUrl = hasObjectUrl
+    ? urlRef.createObjectURL(new BlobCtor([content], { type: "application/json" }))
+    : `data:application/json;charset=utf-8,${encodeURIComponent(content)}`;
+  link.href = objectUrl;
+  link.download = normalizeText(filename) || "schema-baseline.json";
+  link.style.display = "none";
+  documentRef.body?.appendChild(link);
+  link.click();
+  link.remove();
+  if (hasObjectUrl && typeof urlRef.revokeObjectURL === "function") urlRef.revokeObjectURL(objectUrl);
+  return link.download;
+}
+
 async function findAttachmentRecordByPath(sourcePath, deps = {}) {
   const normalizedSourcePath = normalizeText(sourcePath);
   if (!normalizedSourcePath) return null;
@@ -499,6 +522,7 @@ async function clearAllScoutingSubmissions(deps = {}) {
 
 globalThis.LocalFileAccess = {
   buildPickerTypes,
+  downloadTextFile,
   createIndexedDbKeyValueStorage,
   normalizePathKey,
   pathBasename,

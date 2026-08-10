@@ -65,6 +65,7 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   };
   const context = loadBrowserContext([
     "src/legacy-scouting-schema-seeds.js",
+    "src/metric-engine.js",
     "src/season-framework.js",
     "src/prior-ridge.js",
     "src/event-model-builder.js",
@@ -91,6 +92,10 @@ await runTest("loadEventByCode builds an event model and ready provider states f
           red: { team_keys: ["frc111", "frc222", "frc333"], score: 180 },
           blue: { team_keys: ["frc444", "frc555", "frc666"], score: 150 },
         },
+        score_breakdown: {
+          red: { totalAutoPoints: 30, totalTeleopPoints: 100, endGameTowerPoints: 50 },
+          blue: { totalAutoPoints: 20, totalTeleopPoints: 90, endGameTowerPoints: 40 },
+        },
       },
     ],
     [`${baseUrls.tba}/event/2026test/rankings`]: {
@@ -107,6 +112,9 @@ await runTest("loadEventByCode builds an event model and ready provider states f
       ccwms: { frc111: 41.4, frc222: 36.6, frc333: 33.7, frc444: 25.7, frc555: 23.4, frc666: 19.3 },
     },
     [`${baseUrls.statbotics}/event/2026test`]: { year: 2026, status: "In Progress" },
+    [`${baseUrls.statbotics}/matches?event=2026test`]: [
+      { comp_level: "qm", key: "2026test_qm1", match_number: 1, epas: { 111: { epa: 40.25 } } },
+    ],
     [`${baseUrls.statbotics}/team_events/event/2026test`]: [
       {
         team: 111,
@@ -163,6 +171,11 @@ await runTest("loadEventByCode builds an event model and ready provider states f
         record: { qual: { count: 12, rank: 24, rps_per_match: 1.5 } },
       },
     ],
+    [`${baseUrls.statbotics}/team_match/111/2026test_qm1`]: {
+      team: 111,
+      match: "2026test_qm1",
+      epa: { total_points: 40.25 },
+    },
   });
 
   const result = await context.ExternalEventLoader.loadEventByCode("2026test", {
@@ -170,6 +183,11 @@ await runTest("loadEventByCode builds an event model and ready provider states f
     tbaAuthKey: "unit-test-key",
     tbaBaseUrl: baseUrls.tba,
     timestamp: "2026-07-12T13:00:00Z",
+    pridgeResponseDefinitions: [
+      { id: "tbaTotalAutoPoints", label: "TBA total auto points", formula: "tba.totalAutoPoints" },
+      { id: "tbaTotalTeleopPoints", label: "TBA total teleop points", formula: "tba.totalTeleopPoints" },
+      { id: "tbaTotalEndgamePoints", label: "TBA total endgame points", formula: "tba.endGameTowerPoints" },
+    ],
   });
 
   assert.equal(result.eventModel.key, "2026test");
@@ -195,7 +213,10 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.eventModel.teams[0].sources.statbotics.components["epa.stats.pre_elim"], 43);
   assert.equal(result.eventModel.teams[0].sources.statbotics.components["record.qual.rank"], 4);
   assert.equal(Array.isArray(result.eventModel.teams[0].sources.statbotics.trend), true);
-  assert.equal(result.eventModel.teams[0].sources.statbotics.trend.length, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].sources.statbotics.trend)), [40.25]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].sources.statbotics.trendEntries)), [{ key: 1, value: 40.25 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[1].sources.statbotics.trend)), []);
+  assert.equal(result.eventModel.teams[0].sources.pridge.trendEntries.length, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].derived || {})), {});
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.seedSortEquations || [])), []);
   assert.equal(result.eventModel.seedPicklists[1].name, "Backup / Live Sources");
@@ -212,7 +233,60 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.tba || "").startsWith("fnv1a:"));
   assert.ok(String(result.sourceStates.pridge.provenance.inputFingerprints?.statbotics || "").startsWith("fnv1a:"));
   assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.total), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components["epa.total_points"]), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components["epa.breakdown.total_points"]), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components["epa.breakdown.auto_points"]), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components["epa.breakdown.teleop_points"]), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components["epa.breakdown.endgame_points"]), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components.tbaTotalAutoPoints), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components.tbaTotalTeleopPoints), true);
+  assert.equal(Number.isFinite(result.eventModel.teams[0].sources.pridge.components.tbaTotalEndgamePoints), true);
+  assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:tbaTotalEndgamePoints"), true);
+  assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:epa.breakdown.auto_points"), true);
+  assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:epa.breakdown.endgame_points"), true);
+  assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:epa.total_points"), true);
   assert.equal(result.warnings.length, 0);
+
+  const reapplied = context.EventModelBuilder.applyPridgeResponseDefinitions(result.eventModel, [
+    { id: "tbaTotalAutoPoints", label: "TBA total auto points", formula: "tba.totalAutoPoints" },
+  ]);
+  assert.equal(Number.isFinite(reapplied.teams[0].sources.pridge.components.tbaTotalAutoPoints), true);
+});
+
+await runTest("loadEventByCode can defer pRidge computation during an event switch refresh", async () => {
+  const baseUrls = { tba: "https://tba.test/api", statbotics: "https://api.statbotics.io/v3" };
+  let builtBundle;
+  const context = loadBrowserContext([
+    "src/external-source-snapshots.js",
+    "src/external-event-loader.js",
+  ], {
+    EventModelBuilder: {
+      buildEventModelFromProviderBundle: (bundle) => {
+        builtBundle = bundle;
+        return { key: bundle.key, teams: [], matches: [] };
+      },
+    },
+  });
+  const fetchImpl = createFetchStub({
+    [`${baseUrls.tba}/event/2017chcmp`]: { key: "2017chcmp", year: 2017, name: "Championship" },
+    [`${baseUrls.tba}/event/2017chcmp/teams`]: [],
+    [`${baseUrls.tba}/event/2017chcmp/matches`]: [],
+    [`${baseUrls.tba}/event/2017chcmp/rankings`]: {},
+    [`${baseUrls.tba}/event/2017chcmp/oprs`]: {},
+    [`${baseUrls.statbotics}/event/2017chcmp`]: { event: "2017chcmp", year: 2017 },
+    [`${baseUrls.statbotics}/team_events/event/2017chcmp`]: [],
+    [`${baseUrls.statbotics}/matches?event=2017chcmp`]: [],
+  });
+
+  await context.ExternalEventLoader.loadEventByCode("2017chcmp", {
+    fetchImpl,
+    tbaAuthKey: "unit-test-key",
+    tbaBaseUrl: baseUrls.tba,
+    statboticsBaseUrl: baseUrls.statbotics,
+    deferPridgeComputation: true,
+  });
+
+  assert.equal(builtBundle.deferPridgeComputation, true);
 });
 
 await runTest("loadEventByCode falls back to the query-form Statbotics team_events endpoint after a 404", async () => {

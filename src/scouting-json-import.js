@@ -5,12 +5,12 @@ const requiredIdentityFields = scoutingJsonSchema.requiredEntryIdentityFields ||
 const contextualEntryMetricIds = new Set(scoutingJsonSchema.contextualEntryMetricIds || ["scoutUser", "station", "defensePlayed", "robotStatus", "notes"]);
 const canonicalFormatId = scoutingJsonSchema.canonicalFormatId || "frc-scouting-analysis/v1";
 const canonicalTemplateProfileId = scoutingJsonSchema.canonicalTemplateProfileId || "canonical-json-v1";
-const buildCanonicalSchemaForEventModel = scoutingJsonSchema.buildCanonicalSchemaForEventModel || (() => ({ schemaId: canonicalTemplateProfileId, fields: [] }));
+const buildCanonicalSchemaForEventModel = scoutingJsonSchema.buildCanonicalSchemaForEventModel || (() => ({ schemaId: canonicalTemplateProfileId, expectedScoutingFields: [] }));
 const normalizeCanonicalProfile = scoutingJsonSchema.normalizeCanonicalProfile || ((profile, schemaMeta = {}) => ({
   id: String(profile?.id || profile?.profileId || schemaMeta?.templateProfileId || canonicalTemplateProfileId).trim(),
   label: String(profile?.label || profile?.name || schemaMeta?.profileLabel || profile?.id || canonicalTemplateProfileId).trim(),
   versionKey: String(profile?.versionKey || profile?.versionId || "").trim(),
-  derivedEquations: Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : []),
+  derivedEquations: Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : [],
 }));
 const normalizeCanonicalPayload = scoutingJsonSchema.normalizeCanonicalPayload || ((payload, schemaPayload = null) => ({
   meta: payload?.meta || {},
@@ -188,10 +188,8 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
   const expectedSchema = buildCanonicalSchemaForEventModel(eventModel);
   const schemaFieldDefinitions = Array.isArray(schema.expectedScoutingFields) && schema.expectedScoutingFields.length
     ? schema.expectedScoutingFields
-    : (Array.isArray(schema.fields) && schema.fields.length
-      ? schema.fields
-      : expectedSchema.expectedScoutingFields);
-  const fieldIds = new Set(schemaFieldDefinitions.map((fieldDefinition) => normalizeText(fieldDefinition?.id)).filter(Boolean));
+    : expectedSchema.expectedScoutingFields;
+  const fieldIds = new Set(schemaFieldDefinitions.map((fieldDefinition) => schemaFieldName(fieldDefinition)).filter(Boolean));
   const schemaFieldMap = validation.schemaFieldMap || new Map();
   const parsedRows = [];
 
@@ -278,10 +276,11 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
         ...profileDefinition,
         id: profileIdOverride || normalizeText(profileDefinition?.id) || normalizeText(schemaMeta.templateProfileId) || normalizeText(meta.templateProfileId) || canonicalTemplateProfileId,
         label: profileLabelOverride || normalizeText(profileDefinition?.label) || normalizeText(schemaMeta.profileLabel) || normalizeText(meta.profileLabel) || "Canonical Scouting JSON",
-        metricDiscovery: schema?.metricDiscovery && typeof schema.metricDiscovery === "object"
-          ? JSON.parse(JSON.stringify(schema.metricDiscovery))
+        metricPresentation: schema?.metricPresentation && typeof schema.metricPresentation === "object"
+          ? JSON.parse(JSON.stringify(schema.metricPresentation))
           : null,
       },
+      workspace: validation.workspace || normalizedPayload.workspace || null,
       schemaVersion: normalizeText(schema.schemaId) || canonicalTemplateProfileId,
       rowCount: parsedRows.length,
       newRows: parsedRows.length,

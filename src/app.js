@@ -22,6 +22,7 @@ const toDisplaySeasonLabel = globalThis.FrcSeasonMetadata?.toDisplaySeasonLabel 
 const commitScoutingImport = importFoundation.commitScoutingImport;
 const buildSampleCsv = importFoundation.buildSampleCsv;
 const previewScoutingImport = importFoundation.previewScoutingImport;
+const isHtmlDocumentText = importFoundation.isHtmlDocumentText || (() => false);
 const buildExternalSourceSnapshot = externalSourceSnapshots.buildExternalSourceSnapshot || ((sourceId, eventModel) => ({ eventKey: eventModel?.key, sourceId }));
 const buildExternalSnapshotFingerprint = externalSourceSnapshots.buildSnapshotFingerprint || ((value) => JSON.stringify(value || null));
 const seedWorkspaceExternalSourceFingerprints = externalSourceSnapshots.seedExternalSourceFingerprints || ((workspace) => workspace);
@@ -39,6 +40,14 @@ const writeLocalAttachmentText = localFileAccess.writeAttachmentText || (async (
 });
 const createLocalAttachmentFile = localFileAccess.createAttachmentFile || (async () => {
   throw new Error("Persistent local scouting files are unavailable in this browser.");
+});
+const downloadLocalTextFile = localFileAccess.downloadTextFile || ((text, filename) => {
+  const link = document.createElement("a");
+  link.href = `data:application/json;charset=utf-8,${encodeURIComponent(String(text || ""))}`;
+  link.download = String(filename || "schema-baseline.json");
+  link.click();
+  link.remove();
+  return link.download;
 });
 const clearLocalAttachmentFile = localFileAccess.removeAttachment || (async () => false);
 const readPersistedScoutingSubmissions = localFileAccess.readScoutingSubmissions || (async () => null);
@@ -60,6 +69,9 @@ const buildCanonicalSchemaArtifact = scoutingJsonSchema.buildCanonicalSchemaArti
   schema: schemaPayload?.schema || {},
   profile: schemaPayload?.profile || {},
 }));
+const buildPridgeResponseBaseline = scoutingJsonSchema.buildPridgeResponseBaseline || (() => ({}));
+const diagnosePridgeResponseDefinitions = scoutingJsonSchema.diagnosePridgeResponseDefinitions || (() => ({ entries: [], hasIssues: false }));
+const applyPridgeResponseDefinitions = (globalThis.EventModelBuilder || {}).applyPridgeResponseDefinitions || ((eventModel) => eventModel);
 const defaultRefreshPolicyForSource = sourceRefresh.defaultPolicyForSource || (() => ({ baseIntervalMs: 60 * 1000, staleAfterMs: 5 * 60 * 1000, maxBackoffMs: 20 * 60 * 1000 }));
 const freshnessForSource = sourceRefresh.freshnessForSource || ((source) => source?.freshness || "unknown");
 const sourceStatusBadgeClassName = sourceRefresh.sourceStatusBadgeClassName || ((status) => {
@@ -514,7 +526,12 @@ function eventModelByKey(key) {
   const eventIndex = globalEventCatalog.findIndex((eventModel) => eventModel.key === key);
   if (eventIndex < 0) return null;
   const resolvedIndex = eventIndex;
-  const eventModel = globalEventCatalog[resolvedIndex];
+  const storedEventModel = globalEventCatalog[resolvedIndex];
+  const eventModel = (storedEventModel?.catalogSource === "shared-cache" || storedEventModel?.catalogSource === "dynamic-external" || storedEventModel?.catalogSource === "snapshot")
+    && storedEventModel?.pridgeComputationDeferred !== true
+    ? { ...storedEventModel, pridgeComputationDeferred: true }
+    : storedEventModel;
+  if (eventModel !== storedEventModel) globalEventCatalog[resolvedIndex] = eventModel;
   const hydrateEventModel = realEventDataApi.hydrateEventModel || ((value) => value);
   const hydratedEventModel = hydrateEventModel(eventModel);
   if (hydratedEventModel && hydratedEventModel !== eventModel) {
@@ -1080,12 +1097,14 @@ function currentSchemaArtifactSeed(profileDefinition, eventModel = currentEvent(
 }
 
 function canonicalSchemaProfileDefinition(profileDefinition = {}) {
+  const runtimeEquations = Array.isArray(profileDefinition?.derivedEquations)
+    ? profileDefinition.derivedEquations
+    : (Array.isArray(profileDefinition?.equations) ? profileDefinition.equations : []);
   return {
     id: normalizeText(profileDefinition?.id || profileDefinition?.profileId),
     label: normalizeText(profileDefinition?.label || profileDefinition?.name),
     versionKey: normalizeText(profileDefinition?.versionKey || profileDefinition?.versionId),
-    derivedEquations: cloneJsonValue(profileDefinition?.derivedEquations || profileDefinition?.equations || []),
-    filters: cloneJsonValue(profileDefinition?.filters || []),
+    derivedEquations: cloneJsonValue(runtimeEquations),
   };
 }
 
@@ -1196,7 +1215,10 @@ function maybeAutoloadScoutingAttachment() {
   const eventModel = currentEvent();
   const attachmentId = currentScoutingAttachment()?.attachmentId || "";
   const autoloadToken = `${eventModel.key}:${attachmentId}`;
-  if (!shouldAutoLoadEventWorkspaceScoutingAttachment(currentEventWorkspace(), eventModel, state.scoutingSubmissions)) return;
+  if (!shouldAutoLoadEventWorkspaceScoutingAttachment(currentEventWorkspace(), eventModel, state.scoutingSubmissions)) {
+    void loadAttachedSchemaForDiagnostics();
+    return;
+  }
   if (attemptedScoutingAutoloadToken === autoloadToken) return;
   if (pendingScoutingAutoloadToken === autoloadToken) return;
   pendingScoutingAutoloadToken = autoloadToken;
@@ -1504,6 +1526,7 @@ async function chooseLocalScoutingSchemaFile() {
     );
     render();
     pushActivity(`Bound local scouting schema file ${selected.path} to ${attachment.label || attachment.attachmentId}.`);
+    await loadAttachedSchemaForDiagnostics();
     if (shouldDeferInferredLocalScoutingLoad(nextSource, attachment)) {
       pushActivity(`Set scouting data to ${localAttachmentPathBasename(nextSource)}. Use Scouting Data Browse to authorize that local file before loading.`);
       return;
@@ -1533,6 +1556,7 @@ async function deleteScoutingAttachment(attachmentId) {
 async function applyRecentAdminEventSelection(value) {
   const nextEventKey = normalizeText(value);
   if (!nextEventKey) return false;
+  if (nextEventKey === state.activeEventKey) return true;
   state.adminRecentEventsOpen = false;
   if (sharedCachedEventByKey(nextEventKey)) {
     return openSharedCachedEvent(nextEventKey, { activeView: "adminEventControl", persistShared: true });
@@ -2180,6 +2204,13 @@ function currentAvailableScoutingFieldDefinitions(eventModel = currentEvent()) {
   return currentFormulaFieldDefinitions(eventModel).filter((fieldDefinition) => !scoringComponentIds.has(fieldDefinition.id));
 }
 
+function isLikelyHtmlArtifactScoutingField(fieldDefinition) {
+  const fieldId = normalizeText(fieldDefinition?.id || fieldDefinition);
+  if (!fieldId) return false;
+  return /doctypehtml|htmllang|scriptnonce|windowppconfig|productname\d/i.test(fieldId)
+    || (fieldId.length > 120 && /html|script|nonce|window/i.test(fieldId));
+}
+
 function currentObservedScoutingFieldDefinitions(eventModel = currentEvent()) {
   const submissions = currentScoutingSubmissions();
   if (!submissions.length) return [];
@@ -2194,7 +2225,7 @@ function currentObservedScoutingFieldDefinitions(eventModel = currentEvent()) {
     },
     submissions,
     schemaFields: [],
-  });
+  }).filter((fieldDefinition) => !isLikelyHtmlArtifactScoutingField(fieldDefinition));
 }
 
 function currentImportSchemaFields() {
@@ -2221,22 +2252,16 @@ function currentProfileMetricScopeKey(eventModel = currentEvent()) {
   return importedProfileScopeKey(eventModel) || preferredScoutingProfileIdForEvent(eventModel);
 }
 
-function isPredicateEquationDefinition(definition) {
-  return normalizeText(definition?.usage).toLowerCase() === "predicate";
-}
-
 function currentProfileDerivedEquationDefinitions(eventModel = currentEvent()) {
-  return currentProfileEquationList(eventModel)
-    .filter((definition) => !isPredicateEquationDefinition(definition))
-    .map((definition) => ({
-      id: definition.name,
-      name: definition.name,
-      label: definition.name,
-      unit: definition.unit || "pts",
-      expression: definition.formula,
-      formula: "expression",
-      source: "profile_equation",
-    }));
+  return currentProfileEquationList(eventModel).map((definition) => ({
+    id: definition.name,
+    name: definition.name,
+    label: definition.name,
+    unit: definition.unit || "pts",
+    expression: definition.formula,
+    formula: "expression",
+    source: "profile_equation",
+  }));
 }
 
 function currentDerivedMetricDefinitions(eventModel = currentEvent()) {
@@ -2271,11 +2296,193 @@ function currentScoutingDiagnosticsState() {
         sortEquations: state.sortEquations.filter((equation) => !isProtectedSortEquation(equation)),
       })
     : null;
+  const pridgeDiagnostics = diagnosePridgeResponseDefinitions(
+    currentPridgeResponseDefinitions(),
+    currentAvailableTbaFormulaIdentifiers(),
+  );
   return {
     committedFields,
     currentDiagnostics,
     pendingDiagnostics,
+    pridgeDiagnostics,
   };
+}
+
+async function cacheScoutingSchemaArtifacts(schemaJsonText, schemaSource = "", schemaLinkText = "", schemaLinkSource = "") {
+  const api = globalThis.firebaseEventSourceCacheApi;
+  if (!api || globalThis.firebaseUserRole !== "admin" || !normalizeText(schemaJsonText)) return false;
+  try {
+    await api.saveEventSourceCache({
+      event: currentEvent(),
+      workspace: currentEventWorkspace(),
+      artifacts: [{
+        sourceId: "scouting-schema",
+        rawText: schemaJsonText,
+        sourceUrl: schemaSource,
+        contentType: "application/json",
+        status: 200,
+        fetchedAt: new Date().toISOString(),
+      }, ...(normalizeText(schemaLinkText) ? [{
+        sourceId: "scouting-schema-link",
+        rawText: schemaLinkText,
+        sourceUrl: schemaLinkSource,
+        contentType: "application/json",
+        status: 200,
+        fetchedAt: new Date().toISOString(),
+      }] : [])],
+    });
+    return true;
+  } catch (error) {
+    console.warn("Unable to cache scouting schema artifacts", error);
+    return false;
+  }
+}
+
+async function loadAttachedSchemaForDiagnostics() {
+  const attachment = currentScoutingAttachment();
+  const schemaPath = normalizeText(attachment?.location?.schemaPath);
+  const schemaUrl = normalizeText(attachment?.location?.schemaUrl);
+  const usableSchemaUrl = /^https?:\/\//i.test(schemaUrl) ? schemaUrl : "";
+  if (!attachment?.attachmentId || (!schemaPath && !usableSchemaUrl)) return false;
+  try {
+    const schemaJsonText = await readAttachedScoutingSchemaText(attachment, { schemaPath, schemaUrl: usableSchemaUrl }, currentScoutingSourceUrl());
+    const parsed = JSON.parse(schemaJsonText);
+    const schema = parsed?.schema || parsed;
+    const profile = parsed?.profile || {};
+    const expectedFields = Array.isArray(schema?.expectedScoutingFields)
+      ? schema.expectedScoutingFields.map((field) => normalizeScoutingProfileField({
+          id: normalizeText(field?.id || field),
+          label: normalizeText(field?.label || field?.id || field),
+          type: normalizeText(field?.type),
+          unit: normalizeText(field?.unit),
+        })).filter(Boolean)
+      : [];
+    const profileFields = expectedFields;
+    registerScoutingProfile(currentEvent(), {
+      id: profile?.id || attachment.profileId || defaultScoutingProfileId,
+      label: profile?.label || attachment.profileLabel,
+      ...(profileFields.length ? { fields: profileFields } : {}),
+      derivedEquations: profile?.derivedEquations || [],
+      metricPresentation: schema?.metricPresentation,
+      pridgeResponseDefinitions: schema?.pridgeResponseDefinitions || parsed?.pridgeResponseDefinitions,
+      versionKey: profile?.versionKey,
+    });
+    state.importSchemaJsonText = schemaJsonText;
+    const schemaLinkText = attachment?.location?.schemaLinkPath
+      ? await readLocalAttachmentTextByPath(attachment.location.schemaLinkPath).catch(() => "")
+      : "";
+    await cacheScoutingSchemaArtifacts(schemaJsonText, schemaPath || schemaUrl, schemaLinkText, attachment?.location?.schemaLinkPath || "");
+    applyCurrentPridgeResponseDefinitions();
+    saveState();
+    render();
+    return true;
+  } catch (error) {
+    console.warn("Unable to load the bound scouting schema for diagnostics", error);
+    return false;
+  }
+}
+
+function currentPridgeResponseDefinitions(eventModel = currentEvent()) {
+  const schemaText = normalizeText(state.importSchemaJsonText);
+  if (schemaText) {
+    try {
+      const parsed = JSON.parse(schemaText);
+      const definitions = parsed?.schema?.pridgeResponseDefinitions || parsed?.pridgeResponseDefinitions;
+      if (Array.isArray(definitions)) return definitions;
+    } catch {
+      // Keep diagnostics useful while the schema editor contains invalid JSON.
+    }
+  }
+  const selectedProfileDefinitions = currentImportedProfileDefinition(eventModel)?.pridgeResponseDefinitions;
+  const profileDefinitions = Array.isArray(selectedProfileDefinitions) && selectedProfileDefinitions.length
+    ? selectedProfileDefinitions
+    : eventScopedProfiles(eventModel).find((profile) => Array.isArray(profile?.pridgeResponseDefinitions) && profile.pridgeResponseDefinitions.length)?.pridgeResponseDefinitions;
+  if (Array.isArray(profileDefinitions) && profileDefinitions.length) return profileDefinitions;
+  return Array.isArray(eventModel?.pridgeResponseDefinitions) ? eventModel.pridgeResponseDefinitions : [];
+}
+
+function schemaBaselinePridgeResponseDefinitions(eventModel, existingSchema = {}) {
+  const fallbackDefinitions = buildPridgeResponseBaseline(eventModel)?.schema?.pridgeResponseDefinitions || [];
+  const availableDefinitions = currentPridgeResponseDefinitions(eventModel);
+  const definitionsById = new Map(
+    availableDefinitions
+      .filter((definition) => normalizeText(definition?.id))
+      .map((definition) => [normalizeText(definition.id), definition]),
+  );
+  const existingDefinitions = existingSchema?.schema?.pridgeResponseDefinitions || existingSchema?.pridgeResponseDefinitions || [];
+  existingDefinitions.forEach((definition) => {
+    const id = normalizeText(definition?.id);
+    if (id && !definitionsById.has(id)) definitionsById.set(id, definition);
+  });
+  return fallbackDefinitions.map((definition) => definitionsById.get(definition.id) || definition);
+}
+
+function applyCurrentPridgeResponseDefinitions(eventModel = currentEvent()) {
+  const definitions = currentPridgeResponseDefinitions(eventModel);
+  if (!definitions.length) return eventModel;
+  const nextEventModel = applyPridgeResponseDefinitions(eventModel, definitions);
+  if (nextEventModel && nextEventModel !== eventModel) registerEventModel(nextEventModel);
+  return nextEventModel || eventModel;
+}
+
+async function createSchemaBaselineFile() {
+  const eventModel = currentEvent();
+  try {
+    const existingSchema = (() => {
+      const schemaText = normalizeText(state.importSchemaJsonText);
+      if (!schemaText) return {};
+      try { return JSON.parse(schemaText); } catch { return {}; }
+    })();
+    const existingProfile = currentImportedProfileDefinition(eventModel) || existingSchema.profile || null;
+    const existingWorkspace = existingSchema.workspace && typeof existingSchema.workspace === "object"
+      ? existingSchema.workspace
+      : {};
+    const cachedPicklists = Array.isArray(state.picklists) && state.picklists.length
+      ? state.picklists
+      : existingWorkspace.picklists;
+    const cachedExpectedScoutingFields = Array.isArray(existingSchema.schema?.expectedScoutingFields)
+      && existingSchema.schema.expectedScoutingFields.length
+      ? existingSchema.schema.expectedScoutingFields
+      : (Array.isArray(existingProfile?.fields) ? existingProfile.fields : []);
+    const artifact = buildPridgeResponseBaseline(eventModel, {
+      expectedScoutingFields: cachedExpectedScoutingFields,
+      profile: canonicalSchemaProfileDefinition(existingProfile),
+      pridgeResponseDefinitions: schemaBaselinePridgeResponseDefinitions(eventModel, existingSchema),
+      workspace: {
+        picklists: cloneJsonValue(cachedPicklists || []),
+      },
+    });
+    const suggestedName = `${normalizeText(eventModel.key) || "event"}_schema-baseline.json`;
+    const text = JSON.stringify(artifact, null, 2);
+    const locationRef = globalThis.location || {};
+    const nativeSaveAvailable = typeof globalThis.showSaveFilePicker === "function"
+      && String(locationRef.protocol || "").toLowerCase() !== "file:"
+      && globalThis.isSecureContext !== false;
+    let savedPath = suggestedName;
+    if (nativeSaveAvailable) {
+      const selected = await createLocalAttachmentFile({
+        attachmentId: `schema-baseline:${normalizeText(eventModel.key) || "event"}`,
+        format: "scouting-json",
+        suggestedName,
+        requestWriteAccess: true,
+      });
+      await writeLocalAttachmentText(selected.attachmentId, text);
+      savedPath = selected.path || suggestedName;
+    } else {
+      downloadLocalTextFile(text, suggestedName);
+    }
+    pushActivity(`Created schema baseline ${savedPath} with tbaTotal* pRidge response formulas.`);
+    setImportError("");
+    state.importSchemaJsonText = text;
+    applyCurrentPridgeResponseDefinitions(eventModel);
+    saveState();
+    render();
+    return true;
+  } catch (error) {
+    setImportError(`Unable to create the schema baseline file. ${error?.message || "Choose a writable local path and retry."}`);
+    render();
+    return false;
+  }
 }
 
 function cloneJsonValue(value) {
@@ -2426,13 +2633,11 @@ function currentScoutingSchemaReconciliationModel() {
           : currentAvailableScoutingFieldDefinitions())) || [],
     ),
     derivedEquations: draftDerivedEquations,
-    filters: cloneJsonValue(currentProfileFilterList()),
   };
   const resolvedDiagnostics = buildScoutingDependencyDiagnostics({
     previousFields: diagnosticsState.committedFields.length ? diagnosticsState.committedFields : currentAvailableScoutingFieldDefinitions(),
     currentFields: draftProfileDefinition.fields,
     equations: draftDerivedEquations,
-    filters: draftProfileDefinition.filters,
     sortEquations: state.sortEquations.filter((equation) => !isProtectedSortEquation(equation)),
   });
 
@@ -2454,7 +2659,10 @@ function applyScoutingSchemaResolutionDraft(model = currentScoutingSchemaReconci
     label: model.draftProfileDefinition.label,
     versionKey: model.draftProfileDefinition.versionKey,
     derivedEquations: cloneJsonValue(model.draftProfileDefinition.derivedEquations || []),
-    filters: cloneJsonValue(model.draftProfileDefinition.filters || []),
+    pridgeResponseDefinitions: cloneJsonValue(
+      model.draftProfileDefinition.pridgeResponseDefinitions
+        || currentPridgeResponseDefinitions(currentEvent()),
+    ),
   };
   if (importSummary) {
     state.importResult.summary = {
@@ -2468,8 +2676,8 @@ function applyScoutingSchemaResolutionDraft(model = currentScoutingSchemaReconci
     label: nextProfileDefinition.label || importSummary?.profileLabel || currentProfileMetricScopeKey(currentEvent()),
     fields: model.draftProfileDefinition.fields,
     derivedEquations: nextProfileDefinition.derivedEquations,
-    filters: nextProfileDefinition.filters,
-    metricDiscovery: nextProfileDefinition.metricDiscovery,
+    metricPresentation: nextProfileDefinition.metricPresentation,
+    pridgeResponseDefinitions: nextProfileDefinition.pridgeResponseDefinitions,
   });
   return true;
 }
@@ -2577,8 +2785,7 @@ function currentProfileEquationList(eventModel = currentEvent()) {
 }
 
 function currentProfileFilterList(eventModel = currentEvent()) {
-  return [...(currentImportedProfileDefinition(eventModel)?.filters || [])]
-    .sort((left, right) => left.name.localeCompare(right.name));
+  return currentProfileEquationList(eventModel);
 }
 
 function equationDefinitionById(id, eventModel = currentEvent()) {
@@ -2586,7 +2793,7 @@ function equationDefinitionById(id, eventModel = currentEvent()) {
 }
 
 function profileFilterDefinitionById(id, eventModel = currentEvent()) {
-  return currentProfileFilterList(eventModel).find((definition) => definition.name === id || definition.id === id) || null;
+  return equationDefinitionById(id, eventModel);
 }
 
 function sanitizeFormulaReferenceToken(value, fallback = "value") {
@@ -2627,28 +2834,10 @@ function uniqueProfileEquationName(requestedName, existingDefinitions = [], fall
   return candidate;
 }
 
-function profileFilterReferenceEntries(eventModel = currentEvent()) {
-  const counts = new Map();
-  return currentProfileFilterList(eventModel).map((definition) => {
-    const baseToken = sanitizeFormulaReferenceToken(definition.id || definition.name);
-    const nextCount = (counts.get(baseToken) || 0) + 1;
-    counts.set(baseToken, nextCount);
-    return {
-      token: `filter.${nextCount === 1 ? baseToken : `${baseToken}_${nextCount}`}`,
-      definition,
-    };
-  });
-}
-
-function profileFilterDefinitionByReference(reference, eventModel = currentEvent()) {
-  const normalizedReference = String(reference || "").toLowerCase();
-  return profileFilterReferenceEntries(eventModel).find((entry) => entry.token.toLowerCase() === normalizedReference)?.definition || null;
-}
-
 function ensureActiveDerivedEquation(eventModel = currentEvent()) {
   const definitions = currentProfileEquationList(eventModel);
   if (definitions.some((definition) => definition.id === state.activeDerivedEquationId)) return state.activeDerivedEquationId;
-  state.activeDerivedEquationId = definitions.find((definition) => !isPredicateEquationDefinition(definition))?.id || definitions[0]?.id || "";
+  state.activeDerivedEquationId = definitions[0]?.id || "";
   return state.activeDerivedEquationId;
 }
 
@@ -2743,6 +2932,12 @@ async function saveSchemaArtifactAsNewFiles({
     { render: false },
   );
   state.importSchemaJsonText = schemaArtifactText;
+  await cacheScoutingSchemaArtifacts(
+    schemaArtifactText,
+    selectedSchema.path,
+    linkArtifactText,
+    selectedLink.path,
+  );
   pushActivity(`Saved a new schema profile ${selectedSchema.path} and schema link ${selectedLink.path} for ${normalizedScoutingSource}.`);
   return {
     schemaSource: selectedSchema.path,
@@ -2752,14 +2947,33 @@ async function saveSchemaArtifactAsNewFiles({
   };
 }
 
+const PRIDGE_FORMULA_COMPONENT_ALIASES = Object.freeze({
+  tbaTotalAutoPoints: "epa.breakdown.auto_points",
+  tbaTotalTeleopPoints: "epa.breakdown.teleop_points",
+  tbaTotalEndgamePoints: "epa.breakdown.endgame_points",
+});
+
+function pridgeFormulaComponentId(componentId) {
+  return PRIDGE_FORMULA_COMPONENT_ALIASES[componentId] || componentId;
+}
+
+function pridgeComponentCandidates(componentId) {
+  const legacyComponentId = Object.entries(PRIDGE_FORMULA_COMPONENT_ALIASES)
+    .find(([, alias]) => alias === componentId)?.[0];
+  return legacyComponentId ? [componentId, legacyComponentId] : [componentId];
+}
+
 function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
   return [
     ...currentProfileDerivedEquationDefinitions(eventModel).map((definition) => ({ id: definition.name })),
     ...currentAvailableScoutingFieldDefinitions(eventModel).map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
     ...currentAvailableTbaFormulaIdentifiers(eventModel).map((id) => ({ id })),
     ...currentAvailableStatboticsFormulaIdentifiers(eventModel).map((id) => ({ id })),
-    { id: "pridge.total" },
-  ];
+    { id: "pridge.epa.total_points" },
+    ...runtimeMetricsForEventModel(eventModel)
+      .filter((metric) => metric.kind === "source" && metric.sourceId === "pridge" && metric.componentId !== "total")
+      .map((metric) => ({ id: `pridge.${pridgeFormulaComponentId(metric.componentId)}` })),
+  ].filter((entry, index, entries) => entries.findIndex((candidate) => candidate.id === entry.id) === index);
 }
 
 function currentMetricDiscoverySchemaPayload() {
@@ -2772,8 +2986,8 @@ function currentMetricDiscoverySchemaPayload() {
     }
   }
   const profileDefinition = currentImportedProfileDefinition(currentEvent());
-  return profileDefinition?.metricDiscovery
-    ? { schema: { metricDiscovery: cloneJsonValue(profileDefinition.metricDiscovery) } }
+  return profileDefinition?.metricPresentation
+    ? { schema: { metricPresentation: cloneJsonValue(profileDefinition.metricPresentation) } }
     : {};
 }
 
@@ -2841,16 +3055,16 @@ function tbaMatchMetricsByTeam(teamNumber, eventModel = currentEvent()) {
     cache.set(
       normalizedTeamNumber,
       (eventModel.matches || [])
-        .filter((match) => match.red.includes(normalizedTeamNumber) || match.blue.includes(normalizedTeamNumber))
+        .filter((match) => (match.red || []).includes(normalizedTeamNumber) || (match.blue || []).includes(normalizedTeamNumber))
         .map((match) => {
-          const allianceKey = match.red.includes(normalizedTeamNumber) ? "red" : "blue";
+          const allianceKey = (match.red || []).includes(normalizedTeamNumber) ? "red" : "blue";
           const breakdown = match.scoreBreakdown?.[allianceKey] || null;
           const flattenedBreakdown = Object.fromEntries(flattenTbaScalarEntries(breakdown || {}));
           return {
             matchNumber: match.number,
             allianceKey,
-            allianceTeams: allianceKey === "red" ? match.red : match.blue,
-            allTeams: [...match.red, ...match.blue],
+            allianceTeams: allianceKey === "red" ? (match.red || []) : (match.blue || []),
+            allTeams: [...(match.red || []), ...(match.blue || [])],
             ...flattenedBreakdown,
           };
         })
@@ -3232,6 +3446,7 @@ function evaluateGroupFormulaForContext(groupRequest, formulaContext, evaluation
   const peerSeriesResultCache = new Map();
   const peerFilterResultCache = new Map();
   const evaluateGroup = ({ name, seriesAst, scopeId, filterAst, parentOptions }, context) => {
+    let filterValidationError = "";
     const recentEntryCount = Number(parentOptions?.recentEntryCount) || currentRecentMatchCount();
     const cacheKey = [
       context?.eventModel?.key || "",
@@ -3294,12 +3509,18 @@ function evaluateGroupFormulaForContext(groupRequest, formulaContext, evaluation
           filterResult = peerFilterCache.get(filterAst);
         }
         if (isErrorFormulaResult(filterResult)) return [];
+        if (filterResult && !metricEngine.isBooleanResult?.(filterResult)) {
+          filterValidationError = "Optional filter arguments must evaluate to boolean values; numeric/non-boolean formulas are not valid filters.";
+          return [];
+        }
         if (filterResult && !extractSeriesEntryValue(filterResult, row.matchNumber)) return [];
         return [extractSeriesEntryValue(seriesResult, row.matchNumber)];
       });
       return { key: row.matchNumber, value: aggregateGroupValues(name, peerValues) };
     });
-    const result = { kind: "series", granularity: "match", entries };
+    const result = filterValidationError
+      ? { kind: "error", granularity: "invalid", error: filterValidationError }
+      : { kind: "series", granularity: "match", entries };
     groupEvaluationCache.set(cacheKey, result);
     return result;
   };
@@ -3384,6 +3605,11 @@ function evaluateEventFormulaForContext(eventRequest, formulaContext, evaluation
           eventEvaluationCache.set(cacheKey, result);
           return result;
         }
+        if (!metricEngine.isBooleanResult?.(filterResult)) {
+          const result = { kind: "error", error: "Optional filter arguments must evaluate to boolean values; numeric/non-boolean formulas are not valid filters." };
+          eventEvaluationCache.set(cacheKey, result);
+          return result;
+        }
         include = Number(normalizedFilter.value) !== 0;
       }
       if (!include) continue;
@@ -3435,21 +3661,11 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
   if (identifier.startsWith("pridge.")) {
     const componentId = identifier.slice("pridge.".length);
     if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.total ?? Number.NaN);
-    return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.components?.[componentId] ?? Number.NaN);
-  }
-  if (identifier.startsWith("filter.")) {
-    const referencedFilter = profileFilterDefinitionByReference(identifier, formulaContext.eventModel);
-    if (!referencedFilter) return null;
-    return evaluateSeasonFilterDefinitionForTeam(formulaContext.baseTeam, referencedFilter, {
-      eventModel: formulaContext.eventModel,
-      formulaContext,
-      evaluationCache: filterEvaluationCache,
-      evaluationStack: filterEvaluationStack,
-      equationEvaluationCache: evaluationCache,
-      equationEvaluationStack: evaluationStack,
-      groupEvaluationCache,
-      eventEvaluationCache,
-    }).result;
+    const components = formulaContext.overlayTeam.sources?.pridge?.components || {};
+    const value = pridgeComponentCandidates(componentId)
+      .map((candidate) => components[candidate])
+      .find((candidate) => candidate !== null && candidate !== undefined && candidate !== "");
+    return formulaScalarValue(value ?? Number.NaN);
   }
   const referencedEquation = equationDefinitionById(identifier, formulaContext.eventModel);
   if (!referencedEquation) return null;
@@ -4060,6 +4276,14 @@ function rawSourceDisplayText(artifact = state.rawSourceCacheArtifact) {
   return rawText;
 }
 
+function isRawSourceSchemaArtifact(sourceId) {
+  const normalizedSourceId = normalizeText(sourceId).toLowerCase();
+  return normalizedSourceId === "scouting-schema"
+    || normalizedSourceId === "scouting-schema-link"
+    || normalizedSourceId.endsWith(":schema")
+    || normalizedSourceId.endsWith(":schema-link");
+}
+
 async function selectRawSourceCacheEvent(eventKey) {
   if (!isAdmin()) return;
   const api = globalThis.firebaseEventSourceCacheApi;
@@ -4191,6 +4415,26 @@ async function openSharedCachedEvent(eventKey, options = {}) {
   state.eventLookupPending = true;
   state.eventLookupResult = { kind: "info", message: `Opening ${cachedEvent.key} from the shared cache...` };
   render();
+  const inMemoryCachedEvent = globalEventCatalog.find((eventModel) => eventModel?.key === cachedEvent.key);
+  const persistedCachedWorkspace = readStoredJson(storageKeys.eventWorkspace, null, cachedEvent.key);
+  const cachedProviderIsStale = persistedCachedWorkspace?.sources?.tba?.freshness === "stale"
+    || persistedCachedWorkspace?.sources?.statbotics?.freshness === "stale";
+  if (inMemoryCachedEvent) {
+    switchActiveEvent(inMemoryCachedEvent.key, {
+      activeView: options.activeView || state.activeView,
+      persistShared: options.persistShared === true,
+      preserveImportDraft: true,
+    });
+    state.eventLookupResult = {
+      kind: cachedProviderIsStale ? "warn" : "success",
+      message: cachedProviderIsStale
+        ? `${inMemoryCachedEvent.key} opened from the already-loaded cached snapshot. Provider data is stale; refreshing live sources.`
+        : `${inMemoryCachedEvent.key} opened from the already-loaded cached snapshot.`,
+    };
+    render();
+    state.eventLookupPending = false;
+    return true;
+  }
   let liveRefreshWarning = "";
   try {
     if (options.refreshStale !== false && state.tbaAuthKey && cachedEventLoader.cacheFreshness) {
@@ -4200,6 +4444,7 @@ async function openSharedCachedEvent(eventKey, options = {}) {
           const refreshed = await loadArbitraryEventCode(cachedEvent.key, {
             activeView: options.activeView || state.activeView,
             allowDuplicate: true,
+            deferPridgeComputation: true,
           });
           if (refreshed) return true;
           liveRefreshWarning = state.eventLookupResult?.message || `Unable to refresh ${cachedEvent.key} from external providers.`;
@@ -4311,13 +4556,17 @@ function registerScoutingProfile(eventModel, profile) {
         fields: Array.isArray(profile?.fields) ? profile.fields : (existingProfile?.fields || []),
         derivedEquations: Array.isArray(profile?.derivedEquations)
           ? profile.derivedEquations
-          : (Array.isArray(profile?.equations) ? profile.equations : (existingProfile?.derivedEquations || existingProfile?.equations || [])),
-        filters: Array.isArray(profile?.filters) ? profile.filters : (existingProfile?.filters || []),
-        metricDiscovery: profile?.metricDiscovery && typeof profile.metricDiscovery === "object"
-          ? cloneJsonValue(profile.metricDiscovery)
-          : (existingProfile?.metricDiscovery ? cloneJsonValue(existingProfile.metricDiscovery) : undefined),
-        ...(normalizeText(profile?.versionKey || profile?.versionId)
-          ? { versionKey: normalizeText(profile?.versionKey || profile?.versionId) }
+          : (existingProfile?.derivedEquations || existingProfile?.equations || []),
+        metricPresentation: profile?.metricPresentation && typeof profile.metricPresentation === "object"
+          ? cloneJsonValue(profile.metricPresentation)
+          : (existingProfile?.metricPresentation ? cloneJsonValue(existingProfile.metricPresentation) : undefined),
+        pridgeResponseDefinitions: Array.isArray(profile?.pridgeResponseDefinitions)
+          ? cloneJsonValue(profile.pridgeResponseDefinitions)
+          : (Array.isArray(existingProfile?.pridgeResponseDefinitions)
+            ? cloneJsonValue(existingProfile.pridgeResponseDefinitions)
+            : undefined),
+        ...(normalizeText(profile?.versionKey || profile?.versionId || existingProfile?.versionKey)
+          ? { versionKey: normalizeText(profile?.versionKey || profile?.versionId || existingProfile?.versionKey) }
           : {}),
       },
       ...existing.filter((entry) => entry.id !== profileId),
@@ -4333,7 +4582,15 @@ async function syncSharedProfilesForEvent(eventKey = state.activeEventKey) {
   try {
     const sharedProfiles = await api.loadEventProfiles(eventKey);
     if (sharedProfiles.length) {
-      state.scoutingProfileCatalog = normalizeScoutingProfileCatalog({ ...state.scoutingProfileCatalog, [eventKey]: sharedProfiles });
+      const localProfiles = normalizeScoutingProfileCatalog(state.scoutingProfileCatalog)[eventKey] || [];
+      const localById = new Map(localProfiles.map((profile) => [profile.id, profile]));
+      const mergedProfiles = sharedProfiles.map((profile) => {
+        const localProfile = localById.get(profile?.id);
+        return Array.isArray(profile?.pridgeResponseDefinitions) || !Array.isArray(localProfile?.pridgeResponseDefinitions)
+          ? profile
+          : { ...profile, pridgeResponseDefinitions: cloneJsonValue(localProfile.pridgeResponseDefinitions) };
+      });
+      state.scoutingProfileCatalog = normalizeScoutingProfileCatalog({ ...state.scoutingProfileCatalog, [eventKey]: mergedProfiles });
       saveState();
       renderSafely();
       return true;
@@ -4403,8 +4660,9 @@ function hydrateEventState(eventKey) {
   state.adminEventCodeDraft = resolvedEventKey;
   state.adminRecentEventsOpen = false;
   globalThis.__scoutingActiveEventKey = state.activeEventKey;
-  const eventModel = currentEvent();
-  ensureEventScopedScoutingProfiles(eventModel);
+  const initialEventModel = currentEvent();
+  ensureEventScopedScoutingProfiles(initialEventModel);
+  const eventModel = applyCurrentPridgeResponseDefinitions(currentEvent());
   void syncSharedProfilesForEvent(resolvedEventKey);
   void syncSharedSubmissionsForEvent(resolvedEventKey);
   state.eventWorkspace = createEventWorkspace(eventModel, readStoredJson(storageKeys.eventWorkspace, null, resolvedEventKey));
@@ -4573,6 +4831,8 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     const loadResult = await loadExternalEventByCode(normalizedEventCode, {
       tbaAuthKey: state.tbaAuthKey,
       statboticsBaseUrl: state.statboticsBaseUrl,
+      deferPridgeTrends: options.deferPridgeTrends === true,
+      deferPridgeComputation: options.deferPridgeComputation === true,
     });
     const registeredEvent = registerEventModel(loadResult.eventModel);
     await refreshSharedSeasonMetadata();
@@ -4675,52 +4935,15 @@ function normalizeEquationDefinitions(definitions) {
   (definitions || []).forEach((definition, index) => {
     const name = canonicalProfileEquationName(definition, `equation_${index + 1}`);
     const formula = String(definition?.formula || "");
-    const usage = normalizeText(definition?.usage).toLowerCase() === "predicate" ? "predicate" : "metric";
     if (!name || seen.has(name)) return;
     seen.add(name);
     nextDefinitions.push({
       id: name,
       name,
       formula: canonicalizeStoredFormula(formula, "0"),
-      usage,
     });
   });
   return nextDefinitions;
-}
-
-function normalizeFilterDefinitions(definitions) {
-  const seen = new Set();
-  const nextDefinitions = [];
-  (definitions || []).forEach((definition, index) => {
-    const name = canonicalProfileEquationName(definition, `filter_${index + 1}`);
-    if (!name || seen.has(name)) return;
-    seen.add(name);
-    nextDefinitions.push({
-      id: name,
-      name,
-      formula: canonicalizeStoredFormula(String(definition?.formula || "").trim() || "0 > 1", "0 > 1"),
-    });
-  });
-  return nextDefinitions;
-}
-
-function predicateEquationDefinitionsFromFilters(definitions) {
-  return normalizeFilterDefinitions(definitions).map((definition) => ({
-    ...definition,
-    unit: "bool",
-    usage: "predicate",
-  }));
-}
-
-function filterDefinitionsFromPredicateEquations(definitions) {
-  return normalizeFilterDefinitions(
-    (definitions || [])
-      .filter((definition) => isPredicateEquationDefinition(definition))
-      .map((definition) => ({
-        name: definition.name,
-        formula: definition.formula,
-      })),
-  );
 }
 
 function normalizeScoutingProfileDefinition(profile) {
@@ -4731,29 +4954,27 @@ function normalizeScoutingProfileDefinition(profile) {
         .map((fieldDefinition) => normalizeScoutingProfileField(fieldDefinition))
         .filter(Boolean)
     : [];
-  const equations = normalizeEquationDefinitions([
-    ...(Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : (Array.isArray(profile?.equations) ? profile.equations : [])),
-    ...predicateEquationDefinitionsFromFilters(profile?.filters),
-  ]);
-  const filters = filterDefinitionsFromPredicateEquations(equations);
+  const equations = normalizeEquationDefinitions(Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : []);
   const versionKey = normalizeText(profile?.versionKey || profile?.versionId)
     || buildNormalizedScoutingProfileVersionKey({
       id,
       fields,
       equations,
-      filters,
     });
-  const metricDiscovery = profile?.metricDiscovery && typeof profile.metricDiscovery === "object"
-    ? cloneJsonValue(profile.metricDiscovery)
+  const metricPresentation = profile?.metricPresentation && typeof profile.metricPresentation === "object"
+    ? cloneJsonValue(profile.metricPresentation)
     : null;
+  const pridgeResponseDefinitions = Array.isArray(profile?.pridgeResponseDefinitions)
+    ? cloneJsonValue(profile.pridgeResponseDefinitions)
+    : [];
   return {
     id,
     label: scoutingProfileLabel(id, profile?.label || profile?.name || id),
     versionKey,
     fields,
-    equations,
-    filters,
-    ...(metricDiscovery ? { metricDiscovery } : {}),
+    derivedEquations: equations,
+    ...(metricPresentation ? { metricPresentation } : {}),
+    ...(pridgeResponseDefinitions.length ? { pridgeResponseDefinitions } : {}),
   };
 }
 
@@ -4776,7 +4997,7 @@ function normalizeScoutingProfileCatalog(catalog) {
 function normalizeLegacyFilterCatalog(catalog) {
   const normalized = { seasons: {} };
   Object.entries(catalog?.seasons || {}).forEach(([seasonKey, definitions]) => {
-    normalized.seasons[String(seasonKey)] = normalizeFilterDefinitions(definitions);
+    normalized.seasons[String(seasonKey)] = normalizeEquationDefinitions(definitions);
   });
   return normalized;
 }
@@ -4800,7 +5021,7 @@ function migrateLegacyScopedConfigIntoProfiles(profileCatalog, legacyEquationCat
         derivedEquations: [],
       }];
     const legacyEquations = normalizeEquationDefinitions(legacyEquationCatalog?.seasons?.[seasonKey] || []);
-    const legacyPredicateEquations = predicateEquationDefinitionsFromFilters(legacyFilterCatalog?.seasons?.[seasonKey] || []);
+    const legacyPredicateEquations = normalizeEquationDefinitions(legacyFilterCatalog?.seasons?.[seasonKey] || []);
     migrated[seasonKey] = baseProfiles.map((profile) => ({
       ...profile,
       derivedEquations: normalizeEquationDefinitions(
@@ -4839,9 +5060,6 @@ function sharedWorkspaceStateSnapshot() {
   return {
     eventWorkspace: cloneJsonValue(state.eventWorkspace || {}),
     picklists: cloneJsonValue(state.picklists || []),
-    sortEquations: cloneJsonValue(state.sortEquations || []),
-    activePicklist: state.activePicklist,
-    activeSortEquation: state.activeSortEquation,
   };
 }
 
@@ -4866,9 +5084,9 @@ async function syncSharedWorkspaceForEvent(eventKey = state.activeEventKey) {
       const eventModel = currentEvent();
       state.eventWorkspace = createEventWorkspace(eventModel, shared.eventWorkspace || {});
       state.picklists = normalizePicklists(shared.picklists, eventModel);
-      state.sortEquations = normalizeSortEquations(shared.sortEquations, eventModel);
-      state.activePicklist = resolvePicklistId(shared.activePicklist, state.picklists) || state.picklists[0]?.id || "";
-      state.activeSortEquation = resolveSortEquationId(shared.activeSortEquation, state.sortEquations) || state.sortEquations[0]?.id || "";
+      state.activePicklist = state.picklists.some((picklist) => picklist.id === state.activePicklist)
+        ? state.activePicklist
+        : state.picklists[0]?.id || "";
       saveState();
       renderSafely();
       return true;
@@ -5162,6 +5380,7 @@ function updateSortEquation(id, updater) {
 function normalizeLegacyMetricId(id) {
   const normalizedId = String(id || "");
   if (normalizedId.startsWith("source:epa:")) return `source:statbotics:${normalizedId.slice("source:epa:".length)}`;
+  if (normalizedId === "source:pridge:total") return "source:pridge:epa.total_points";
   return normalizedId;
 }
 
@@ -5170,8 +5389,8 @@ function termsFromLegacyWeights(weights = {}) {
     .filter(([, weight]) => Number(weight) !== 0)
     .map(([id, weight]) => {
       const metricId = {
-        pridge: "source:pridge:total",
-        "source:pridge:total": "source:pridge:total",
+        pridge: "source:pridge:epa.total_points",
+        "source:pridge:total": "source:pridge:epa.total_points",
       }[id] || normalizeLegacyMetricId(id);
       return metricId ? { operator: "+", weight: Number(weight), metricId } : null;
     })
@@ -5216,6 +5435,13 @@ function rankTeamsByTerms(terms) {
 }
 
 function scoreTeamByEquation(team, equation) {
+  if (equation?.formula) {
+    const evaluation = evaluateEquationForTeam(team, equation.id, { eventModel: currentEvent() });
+    const aggregate = formulaResultForEventAggregate(evaluation.result);
+    if (!aggregate.valid) return Number.NaN;
+    const numericValue = Number(aggregate.value);
+    return Number.isFinite(numericValue) ? numericValue : Number.NaN;
+  }
   if (equation.metricId) return teamMetricValue(team, metricById(equation.metricId));
   return scoreTeamByTerms(team, equation.terms);
 }
@@ -5268,7 +5494,7 @@ function metricTokenLabel(metric) {
   if (metric.kind === "source" && (metric.sourceId === "scouting" || metric.sourceId === "scouter")) return `scouting.${metric.componentId}`;
   if (metric.kind === "source" && metric.sourceId === "tba") return `tba.${metric.componentId}`;
   if (metric.kind === "source" && metric.sourceId === "statbotics") return `statbotics.${metric.componentId}`;
-  if (metric.kind === "source" && metric.sourceId === "pridge" && metric.componentId === "total") return "pridge.total";
+  if (metric.kind === "source" && metric.sourceId === "pridge") return `pridge.${pridgeFormulaComponentId(metric.componentId)}`;
   return metric.label || metric.id || "";
 }
 
@@ -5891,7 +6117,8 @@ function renderSchemaReconciliationCards(model = currentScoutingSchemaReconcilia
           <div
             data-schema-map-options="${escapeAttribute(entry.fieldDefinition.id)}"
             hidden
-            style="min-width:420px; margin-top:8px;"
+            class="schema-map-options"
+            style="margin-top:8px;"
           >
             <select
               data-schema-added-remap-select="${escapeAttribute(entry.fieldDefinition.id)}"
@@ -5910,8 +6137,8 @@ function renderSchemaReconciliationCards(model = currentScoutingSchemaReconcilia
         `
         : "";
       const actions = `
-        <span style="margin-left:auto; display:flex; flex-direction:column; align-items:flex-end;">
-          <span class="button-row" style="justify-content:flex-end; align-items:center; flex-wrap:nowrap; gap:8px;">
+        <span class="schema-reconciliation-actions" style="margin-left:auto; display:flex; flex-direction:column; align-items:flex-end;">
+          <span class="button-row" style="justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:8px;">
             ${mapAction}
             <button
               type="button"
@@ -5946,7 +6173,8 @@ function renderSchemaReconciliationCards(model = currentScoutingSchemaReconcilia
           <div
             data-schema-removed-map-options="${escapeAttribute(entry.fieldDefinition.id)}"
             hidden
-            style="min-width:420px; margin-top:8px;"
+            class="schema-map-options"
+            style="margin-top:8px;"
           >
             <select
               data-schema-removed-remap-select="${escapeAttribute(entry.fieldDefinition.id)}"
@@ -5968,8 +6196,8 @@ function renderSchemaReconciliationCards(model = currentScoutingSchemaReconcilia
         <div class="issue-row danger">
           <strong>Removed ${escapeHtml(entry.fieldDefinition.id)}</strong>
           <span>${escapeHtml(entry.fieldDefinition.label || entry.fieldDefinition.id)} no longer exists in the imported scouting file.</span>
-          <span style="margin-left:auto; display:flex; flex-direction:column; align-items:flex-end;">
-            <span class="button-row" style="justify-content:flex-end; align-items:center; flex-wrap:nowrap; gap:8px;">
+          <span class="schema-reconciliation-actions" style="margin-left:auto; display:flex; flex-direction:column; align-items:flex-end;">
+            <span class="button-row" style="justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:8px;">
               ${mapAction}
               <button
                 type="button"
@@ -6084,6 +6312,7 @@ function commitImportPreview(options = {}) {
   const preview = state.importResult;
   const importedCsvText = state.importCsvText;
   const importedSchemaJsonText = state.importSchemaJsonText;
+  const importedPridgeResponseDefinitions = currentPridgeResponseDefinitions(currentEvent());
   const replaceExisting = currentScoutingImportShouldReplace();
   const committed = commitScoutingImport({
     preview,
@@ -6103,11 +6332,20 @@ function commitImportPreview(options = {}) {
     id: preview.summary.profileId,
     label: preview.summary.profileLabel,
     fields: preview.summary.schemaFields,
-    derivedEquations: preview.summary.profileDefinition?.derivedEquations || preview.summary.profileDefinition?.equations,
-    filters: preview.summary.profileDefinition?.filters,
-    metricDiscovery: preview.summary.profileDefinition?.metricDiscovery,
+    derivedEquations: preview.summary.profileDefinition?.derivedEquations || [],
+    metricPresentation: preview.summary.profileDefinition?.metricPresentation,
     versionKey: preview.summary.profileDefinition?.versionKey,
+    pridgeResponseDefinitions: importedPridgeResponseDefinitions,
   });
+  const importedWorkspace = preview.summary.workspace;
+  if (importedWorkspace && typeof importedWorkspace === "object") {
+    if (Array.isArray(importedWorkspace.picklists)) {
+      state.picklists = normalizePicklists(importedWorkspace.picklists, currentEvent());
+      if (!state.picklists.some((picklist) => picklist.id === state.activePicklist)) {
+        state.activePicklist = state.picklists[0]?.id || "";
+      }
+    }
+  }
   if (state.importDraftSource === "attached") {
     markCurrentScoutingAttachmentSuccess(preview, importedCsvText, { schemaJsonText: importedSchemaJsonText });
   }
@@ -6192,6 +6430,7 @@ function loadPreparedScoutingJson(jsonText, options = {}) {
   }
   state.importCsvText = jsonText;
   state.importSchemaJsonText = options.schemaJsonText || "";
+  applyCurrentPridgeResponseDefinitions();
   state.importSelectedProfileId = "canonical-json-v1";
   state.importDraftSource = options.importDraftSource || "";
   state.importResult = previewScoutingJsonImport({
@@ -6214,6 +6453,12 @@ function loadPreparedScoutingJson(jsonText, options = {}) {
 }
 
 function loadPreparedScoutingSheet(csvText, profileId = "", options = {}) {
+  if (isHtmlDocumentText(csvText)) {
+    setImportError("The scouting source returned an HTML document instead of CSV data. Check the sheet URL, sharing permissions, and export endpoint.");
+    markCurrentScoutingAttachmentFailure("Scouting source returned HTML instead of CSV data.");
+    render();
+    return;
+  }
   if (typeof sharedTranslateEventSheetToCanonical === "function") {
     const translated = sharedTranslateEventSheetToCanonical(currentEvent(), csvText, {
       templateProfileId: profileId,
@@ -6361,6 +6606,7 @@ async function loadScoutingData(options = {}) {
       const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
       loadPreparedScoutingSheet(csvText, profileId, {
         ...options,
+        schemaJsonText,
         importDraftSource: "attached",
       });
     } catch (error) {
@@ -6383,10 +6629,20 @@ async function loadScoutingData(options = {}) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const rawBytes = new Uint8Array(await response.arrayBuffer());
     const csvText = new TextDecoder().decode(rawBytes);
-    await cacheActiveRawScoutingSource(csvText, requestUrl, response.headers.get("content-type") || "text/csv", rawBytes);
+    const schemaJsonText = await readAttachedScoutingSchemaText(attachment, attachmentLoad, sourceUrl).catch(() => "");
+    const schemaLinkText = attachment?.location?.schemaLinkPath
+      ? await readLocalAttachmentTextByPath(attachment.location.schemaLinkPath).catch(() => "")
+      : "";
+    await cacheActiveRawScoutingSource(csvText, requestUrl, response.headers.get("content-type") || "text/csv", rawBytes, {
+      schemaJsonText,
+      schemaSource: attachmentLoad.schemaPath || attachmentLoad.schemaUrl,
+      schemaLinkText,
+      schemaLinkSource: attachment?.location?.schemaLinkPath || "",
+    });
     const profileId = eventWorkspaceProfileId(currentEventWorkspace()) || "";
     loadPreparedScoutingSheet(csvText, profileId, {
       ...options,
+      schemaJsonText,
       importDraftSource: "attached",
     });
   } catch (error) {
@@ -6430,10 +6686,6 @@ function filterResultEntries(filterResult) {
   return Array.isArray(filterResult?.entries) ? filterResult.entries : [];
 }
 
-function seriesResultLooksBoolean(result) {
-  return filterResultEntries(result).every((entry) => Number.isNaN(Number(entry.value)) || [0, 1].includes(Number(entry.value)));
-}
-
 function evaluateSeasonFilterDefinitionForTeam(team, definition, options = {}) {
   const eventModel = options.eventModel || currentEvent();
   const formulaContext = options.formulaContext || buildTeamFormulaContext(team, eventModel);
@@ -6470,7 +6722,7 @@ function filterStatusForTeam(team, filterId, eventModel = currentEvent()) {
   if (!isSeriesFormulaResult(evaluation.result)) {
     return { label: "Event Only", severity: "warn", detail: "Filters must evaluate to a match-level result." };
   }
-  if (!seriesResultLooksBoolean(evaluation.result)) {
+  if (!metricEngine.isBooleanResult?.(evaluation.result)) {
     return { label: "Non-Boolean", severity: "warn", detail: "Filters must resolve to true/false style values such as `metric > 0`." };
   }
   return null;
@@ -6481,7 +6733,7 @@ function applyAnalysisPredicateToEntries(team, entries, eventModel = currentEven
   const normalizedEntries = Array.isArray(entries) ? entries : [];
   if (!definition || !normalizedEntries.length) return normalizedEntries;
   const evaluation = evaluateSeasonFilterForTeam(team, definition.id, { eventModel });
-  if (isErrorFormulaResult(evaluation.result) || !isSeriesFormulaResult(evaluation.result) || !seriesResultLooksBoolean(evaluation.result)) {
+  if (isErrorFormulaResult(evaluation.result) || !isSeriesFormulaResult(evaluation.result) || !metricEngine.isBooleanResult?.(evaluation.result)) {
     return [];
   }
   const includeByMatch = new Map(filterResultEntries(evaluation.result).map((entry) => [Number(entry.key), truthy(entry.value)]));
@@ -7142,7 +7394,7 @@ function renderTeamDetail(team) {
   const detailSelectedMetric = detailTrendMetrics.find((metric) => metric.id === state.teamDetailMetric) || null;
   const detailScoutingConfidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
   const detailOprMetric = metricById("source:tba:opr.total");
-  const detailPridgeMetric = metricById("source:pridge:total");
+  const detailPridgeMetric = metricById("source:pridge:epa.total_points");
   return `
     <article class="card">
         <div class="section-heading">
@@ -7236,7 +7488,11 @@ function metricUsesMatchDistribution(team, metric, options = {}) {
     const evaluation = derivedMetricEvaluation(team, metric, options);
     return isSeriesFormulaResult(evaluation.result);
   }
-  return metric.kind === "source" && (metric.sourceId === "scouter" || (metric.sourceId === "tba" && metric.granularity === "match"));
+  return metric.kind === "source" && (
+    metric.sourceId === "scouter"
+    || (metric.sourceId === "tba" && metric.granularity === "match")
+    || Array.isArray(team.sources?.[metric.sourceId]?.trendEntries) && team.sources[metric.sourceId].trendEntries.length > 0
+  );
 }
 
 function applyCurrentScoutingWindowToEntries(entries) {
@@ -7266,6 +7522,13 @@ function analysisSeriesEntriesForMetric(team, metric, options = {}) {
         value: Number(row?.[metric.componentId]),
       }))
       .filter((entry) => Number.isFinite(entry.value));
+    const filteredEntries = applyAnalysisPredicateToEntries(team, entries, currentEvent());
+    return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
+  }
+  if (metric.kind === "source" && Array.isArray(team.sources?.[metric.sourceId]?.trendEntries)) {
+    const entries = team.sources[metric.sourceId].trendEntries
+      .map((entry) => ({ key: Number(entry.key), value: Number(entry.value) }))
+      .filter((entry) => Number.isFinite(entry.key) && Number.isFinite(entry.value));
     const filteredEntries = applyAnalysisPredicateToEntries(team, entries, currentEvent());
     return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
   }
@@ -8678,6 +8941,8 @@ function renderRawSourceCacheViewer() {
   const artifact = state.rawSourceCacheArtifact;
   const manifest = artifact?.manifest || null;
   const events = state.sharedCachedEvents;
+  const schemaSources = state.rawSourceCacheSources.filter((source) => isRawSourceSchemaArtifact(source.sourceId));
+  const payloadSources = state.rawSourceCacheSources.filter((source) => !isRawSourceSchemaArtifact(source.sourceId));
   const metadata = manifest ? [
     ["Provider / source", manifest.sourceId], ["Source URL", manifest.sourceUrl || "Not recorded"], ["Retrieved", manifest.fetchedAt || "Not recorded"],
     ["Content type", manifest.contentType || "Not recorded"], ["HTTP status", manifest.status ?? "Not recorded"], ["Fingerprint", manifest.fingerprint || "Not recorded"],
@@ -8687,7 +8952,8 @@ function renderRawSourceCacheViewer() {
     <div class="section-heading"><div><h2>Raw Source Cache</h2><p class="muted">Administrator debugging view. Rendering never changes the persisted payload.</p></div></div>
     <div class="admin-form-grid">
       <label>Cached Event<select id="rawSourceCacheEventSelect" aria-label="Cached event for raw source viewer" ${state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a shared cached event</option>${events.map((event) => `<option value="${escapeAttribute(event.key)}" ${event.key === state.rawSourceCacheEventKey ? "selected" : ""}>${escapeHtml(`${event.key} | ${displayEventName(event)}`)}</option>`).join("")}</select></label>
-      <label>Source Artifact<select id="rawSourceCacheSourceSelect" aria-label="Cached source artifact" ${!state.rawSourceCacheEventKey || state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a source artifact</option>${state.rawSourceCacheSources.map((source) => `<option value="${escapeAttribute(source.sourceId)}" ${source.sourceId === state.rawSourceCacheSourceId ? "selected" : ""}>${escapeHtml(source.sourceId)}</option>`).join("")}</select></label>
+      <label>Source Artifact<select id="rawSourceCacheSourceSelect" aria-label="Cached source artifact" ${!state.rawSourceCacheEventKey || state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a source artifact</option>${payloadSources.map((source) => `<option value="${escapeAttribute(source.sourceId)}" ${source.sourceId === state.rawSourceCacheSourceId ? "selected" : ""}>${escapeHtml(source.sourceId)}</option>`).join("")}</select></label>
+      <label>Schema Artifact<select id="rawSourceCacheSchemaSelect" aria-label="Cached schema artifact" ${!state.rawSourceCacheEventKey || state.rawSourceCacheLoading ? "disabled" : ""}><option value="">Choose a cached schema artifact</option>${schemaSources.map((source) => `<option value="${escapeAttribute(source.sourceId)}" ${source.sourceId === state.rawSourceCacheSourceId ? "selected" : ""}>${escapeHtml(source.sourceId === "scouting-schema" ? "Scouting schema" : "Schema link")}</option>`).join("")}</select></label>
       ${state.rawSourceCacheStatus ? `<div class="issue-row ${artifact ? "" : state.rawSourceCacheSourceId ? "danger" : ""}">${escapeHtml(state.rawSourceCacheStatus)}</div>` : ""}
       ${metadata.length ? `<div class="attachment-metadata-grid">${metadata.map(([label, value]) => `<div><strong>${escapeHtml(label)}</strong><span class="muted">${escapeHtml(String(value))}</span></div>`).join("")}</div>` : ""}
       ${artifact ? `<div class="admin-actions"><button type="button" id="copyRawSourceCacheButton">Copy Raw</button><button type="button" id="downloadRawSourceCacheButton">Download Raw</button></div><textarea id="rawSourceCachePreview" class="admin-textarea raw-source-cache-preview" aria-label="Raw source preview" readonly spellcheck="false">${escapeHtml(rawSourceDisplayText(artifact))}</textarea>` : ""}
@@ -8708,7 +8974,8 @@ function renderAdminEventControl() {
   const sourceStatusIssues = issues.filter((issue) => issue !== mismatchMessage);
   const diagnosticsState = currentScoutingDiagnosticsState();
   const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
-  const diagnosticsNonEmpty = schemaDiffHasChanges(diagnosticsSelection.diagnostics?.schemaDiff);
+  const diagnosticsNonEmpty = schemaDiffHasChanges(diagnosticsSelection.diagnostics?.schemaDiff)
+    || Boolean(diagnosticsState.pridgeDiagnostics?.hasIssues);
   const reviewNonEmpty = reviewGroups.length > 0;
   return `
     <div class="grid">
@@ -8774,7 +9041,7 @@ function renderAdminEventControl() {
               </label>
               <label>
                 Scouting Profile
-                <div class="admin-actions admin-field-row">
+                <div class="admin-actions admin-field-row schema-source-row">
                   <input
                     id="importSchemaSourceUrl"
                     class="admin-input"
@@ -8784,6 +9051,7 @@ function renderAdminEventControl() {
                     aria-label="Scouting profile source"
                     spellcheck="false"
                   />
+                  <button type="button" id="createSchemaBaselineButton">Download</button>
                   <button type="button" id="chooseLocalScoutingSchemaFileButton" ${localAttachmentFilesSupported() ? "" : "disabled"}>Browse</button>
                 </div>
               </label>
@@ -8874,7 +9142,6 @@ function renderAdminEventControl() {
           </div>
         </article>
       </div>
-      ${renderRawSourceCacheViewer()}
       <div class="grid cols-2">
         <article class="card">
           <div class="section-heading">
@@ -8915,6 +9182,7 @@ function renderAdminDataQuality() {
   return `<div class="grid cols-2">
     <article class="card">
       <h2>Schema Diagnostics</h2>
+      ${renderPridgeResponseDiagnostics(diagnosticsState.pridgeDiagnostics)}
       ${reconciliationModel ? renderSchemaReconciliationCards(reconciliationModel) : renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
       ${reconciliationModel ? `<div class="button-row">
         <button type="button" id="updateCurrentSchemaFromDiagnosticsButton"${reconciliationModel.readyToPersist ? "" : " disabled"}>Update Current Schema</button>
@@ -8931,6 +9199,15 @@ function renderAdminDataQuality() {
       <div class="review-group-list">${reviewGroups.length ? reviewGroups.map(renderSubmissionGroup).join("") : `<div class="empty-state">No duplicate or flagged submissions are waiting for admin action.</div>`}</div>
     </article>
   </div>`;
+}
+
+function renderPridgeResponseDiagnostics(diagnostics) {
+  if (!diagnostics?.hasIssues) return `<div class="issue-row good"><strong>pRidge response formulas</strong><span>All three tbaTotal* definitions are present and match available TBA metrics.</span></div>`;
+  return `<div class="issue-list">${(diagnostics.entries || []).map((entry) => {
+    const failures = entry.failures || [];
+    if (!failures.length) return `<div class="issue-row good"><strong>${escapeHtml(entry.id)}</strong><span>${escapeHtml(entry.formula)}</span></div>`;
+    return `<div class="issue-row danger"><strong>${escapeHtml(entry.id)}</strong><span>${escapeHtml(failures.join(" "))}</span></div>`;
+  }).join("")}</div>`;
 }
 
 function renderAdminUserControl() {
@@ -9805,22 +10082,12 @@ function bindViewEvents() {
     state.adminRecentEventsOpen = !state.adminRecentEventsOpen;
     render();
   });
-  document.querySelector("#recentAdminEventSelect")?.addEventListener("input", async (event) => {
-    await applyRecentAdminEventSelection(event.target.value);
-  });
   document.querySelector("#recentAdminEventSelect")?.addEventListener("change", async (event) => {
-    await applyRecentAdminEventSelection(event.target.value);
-  });
-  document.querySelector("#recentAdminEventSelect")?.addEventListener("dblclick", async (event) => {
-    await applyRecentAdminEventSelection(event.target.value);
-  });
-  document.querySelector("#recentAdminEventSelect")?.addEventListener("keydown", async (event) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
     await applyRecentAdminEventSelection(event.target.value);
   });
   document.querySelector("#rawSourceCacheEventSelect")?.addEventListener("change", (event) => { void selectRawSourceCacheEvent(event.target.value); });
   document.querySelector("#rawSourceCacheSourceSelect")?.addEventListener("change", (event) => { void selectRawSourceCacheArtifact(event.target.value); });
+  document.querySelector("#rawSourceCacheSchemaSelect")?.addEventListener("change", (event) => { void selectRawSourceCacheArtifact(event.target.value); });
   document.querySelector("#copyRawSourceCacheButton")?.addEventListener("click", () => { void copyRawSourceCacheArtifact(); });
   document.querySelector("#downloadRawSourceCacheButton")?.addEventListener("click", downloadRawSourceCacheArtifact);
   document.querySelector("#adminEventCodeInput")?.addEventListener("input", (event) => {
@@ -9868,6 +10135,9 @@ function bindViewEvents() {
   });
   document.querySelector("#chooseLocalScoutingSchemaFileButton")?.addEventListener("click", async () => {
     await chooseLocalScoutingSchemaFile();
+  });
+  document.querySelector("#createSchemaBaselineButton")?.addEventListener("click", async () => {
+    await createSchemaBaselineFile();
   });
   document.querySelectorAll("[data-schema-added-new]").forEach((element) => {
     element.addEventListener("click", () => {

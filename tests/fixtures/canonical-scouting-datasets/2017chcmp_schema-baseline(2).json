@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "format": "frc-scouting-analysis/v1",
+    "sourceApp": "Bovine Scouting Analysis",
+    "templateProfileId": "canonical-json-v1",
+    "profileLabel": "Schema baseline",
+    "translationVersion": "",
+    "season": 2017,
+    "eventKey": "2017chcmp"
+  },
+  "schema": {
+    "schemaId": "2017-match-v1",
+    "expectedScoutingFields": [],
+    "pridgeResponseDefinitions": [
+      {
+        "id": "tbaTotalAutoPoints",
+        "label": "TBA total auto points",
+        "unit": "pts",
+        "formula": "tba.autoPoints",
+        "comments": "Replace with this season's alliance auto total from TBA score_breakdown."
+      },
+      {
+        "id": "tbaTotalTeleopPoints",
+        "label": "TBA total teleop points",
+        "unit": "pts",
+        "formula": "tba.teleopPoints",
+        "comments": "Replace with this season's alliance teleop total from TBA score_breakdown."
+      },
+      {
+        "id": "tbaTotalEndgamePoints",
+        "label": "TBA total endgame points",
+        "unit": "pts",
+        "formula": "0",
+        "comments": "Replace with this season's alliance endgame total; confirm that climbs or other endgame actions are included."
+      }
+    ],
+    "comments": [
+      "Use one definition for each stable tbaTotal* id.",
+      "Map formulas per season using only numeric alliance-level TBA score_breakdown fields.",
+      "Check Schema Diagnostics after loading live TBA data; unknown tba.* identifiers mean the formula does not match this event's available metrics."
+    ]
+  },
+  "profile": {
+    "id": "canonical-json-v1",
+    "label": "Canonical JSON",
+    "versionKey": "canonical-json-v1|e567884c",
+    "derivedEquations": []
+  }
+}

@@ -81,7 +81,7 @@ async function verifyAvailableMetricsCatalog(page) {
     const availableMetrics = currentDerivedAvailableMetrics(currentEvent()).map((entry) => entry.id);
     return {
       availableMetrics,
-      hasPridgeTotal: availableMetrics.includes("pridge.total"),
+      hasPridgeTotal: availableMetrics.includes("pridge.epa.total_points"),
       hasDerivedEquationReference: availableMetrics.includes("autoFuelTeam"),
       hasRealTbaMetric: availableMetrics.includes("tba.hubScore.autoPoints"),
       hasRealScoutingMetric: availableMetrics.includes("scouting.autoFuelPct"),
@@ -91,7 +91,7 @@ async function verifyAvailableMetricsCatalog(page) {
         availableMetrics.findIndex((metric) => metric.startsWith("scouting.")),
         availableMetrics.findIndex((metric) => metric.startsWith("tba.")),
         availableMetrics.findIndex((metric) => metric.startsWith("statbotics.")),
-        availableMetrics.indexOf("pridge.total"),
+        availableMetrics.indexOf("pridge.epa.total_points"),
       ],
     };
   });
@@ -194,7 +194,7 @@ try {
   console.log(JSON.stringify(result, null, 2));
 
   assert(result.tbaFuel.ok, "At least one 2026 TBA fuel identifier still has no finite values.");
-  assert(result.availableCatalog.hasPridgeTotal, "Available Metrics should list pridge.total.");
+  assert(result.availableCatalog.hasPridgeTotal, "Available Metrics should list pridge.epa.total_points.");
   assert(result.availableCatalog.hasDerivedEquationReference, "Available Metrics should list existing derived equations.");
   assert(result.availableCatalog.hasRealTbaMetric, "Available Metrics should include real TBA identifiers.");
   assert(result.availableCatalog.hasRealScoutingMetric, "Available Metrics should include real scouting identifiers.");

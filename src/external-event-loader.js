@@ -149,6 +149,45 @@ async function loadStatboticsBundle(primaryBaseUrl, fallbackBaseUrl, normalizedE
   }
 }
 
+async function fetchStatboticsTeamMatchRows(statboticsBaseUrl, eventCode, matches, options = {}) {
+  if (options.loadStatboticsMatchData === false) return { rows: [], responses: [] };
+  const collectionUrl = `${statboticsBaseUrl}/matches?event=${encodeURIComponent(eventCode)}`;
+  try {
+    const response = await fetchJson(collectionUrl, options);
+    const rows = (Array.isArray(response.payload) ? response.payload : [])
+      .filter((match) => match?.comp_level === "qm")
+      .flatMap((match) => Object.entries(match?.epas || {}).map(([team, epa]) => ({
+        team: Number(team),
+        match: match.key,
+        epa: { total_points: epa?.epa, breakdown: epa },
+      })));
+    return { rows, responses: [response] };
+  } catch {
+    // Older/fallback Statbotics hosts may not expose the collection route.
+  }
+  const requests = (Array.isArray(matches) ? matches : [])
+    .filter((match) => match?.comp_level === "qm" && (match?.key || Number.isFinite(Number(match?.match_number))))
+    .flatMap((match) => [
+      ...(match.alliances?.red?.team_keys || []),
+      ...(match.alliances?.blue?.team_keys || []),
+    ].map((teamKey) => ({
+      teamKey: String(teamKey).replace(/^frc/i, ""),
+      matchKey: match.key || `${eventCode}_qm${Number(match.match_number)}`,
+    })));
+  const settled = await Promise.all(requests.map(async ({ teamKey, matchKey }) => {
+    try {
+      const response = await fetchJson(`${statboticsBaseUrl}/team_match/${teamKey}/${matchKey}`, options);
+      return { ok: true, response, payload: response.payload };
+    } catch {
+      return { ok: false };
+    }
+  }));
+  return {
+    rows: settled.filter((result) => result.ok).map((result) => result.payload),
+    responses: settled.filter((result) => result.ok).map((result) => result.response),
+  };
+}
+
 function buildReadySourceState(sourceId, eventModel, timestamp, options = {}) {
   return {
     sourceId,
@@ -280,6 +319,9 @@ async function loadEventByCode(eventCode, options = {}) {
   const statboticsTeamEventsResult = statboticsResult.ok
     ? { ok: true, value: statboticsResult.value.teamEvents }
     : { ok: false, error: statboticsResult.error };
+  const statboticsTeamMatchesResult = statboticsResult.ok && tbaMatchesResult.ok
+    ? await fetchStatboticsTeamMatchRows(statboticsResult.value.baseUrl, normalizedEventCode, tbaMatchesResult.value.payload, options)
+    : { rows: [], responses: [] };
 
   if (!tbaEventResult.ok) throw new Error(formatProviderError("The Blue Alliance event lookup failed", tbaEventResult.error));
   if (!tbaTeamsResult.ok) throw new Error(formatProviderError("The Blue Alliance team lookup failed", tbaTeamsResult.error));
@@ -298,6 +340,10 @@ async function loadEventByCode(eventCode, options = {}) {
     tbaTeamStats: tbaTeamStatsResult.ok ? (tbaTeamStatsResult.value?.payload || {}) : {},
     statboticsEvent: statboticsEventResult.ok ? (statboticsEventResult.value?.payload || {}) : {},
     statboticsTeamEvents: statboticsTeamEventsResult.ok ? (statboticsTeamEventsResult.value?.payload || []) : [],
+    statboticsTeamMatches: statboticsTeamMatchesResult.rows,
+    deferPridgeTrends: options.deferPridgeTrends === true,
+    deferPridgeComputation: options.deferPridgeComputation === true,
+    pridgeResponseDefinitions: options.pridgeResponseDefinitions || [],
     catalogSource: "dynamic-external",
   });
 
@@ -383,6 +429,7 @@ async function loadEventByCode(eventCode, options = {}) {
     warnings,
     rawSourceArtifacts: [
       ["tba-event", tbaEventResult], ["tba-teams", tbaTeamsResult], ["tba-matches", tbaMatchesResult], ["tba-rankings", tbaRankingsResult], ["tba-oprs", tbaTeamStatsResult], ["statbotics-event", statboticsEventResult], ["statbotics-team-events", statboticsTeamEventsResult],
+      ["statbotics-matches", statboticsTeamMatchesResult.responses[0] ? { ok: true, value: statboticsTeamMatchesResult.responses[0] } : { ok: false }],
     ].filter(([, result]) => result.ok).map(([sourceId, result]) => ({
       sourceId,
       rawText: result.value.rawText,

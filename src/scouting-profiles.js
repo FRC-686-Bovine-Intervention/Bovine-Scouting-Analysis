@@ -37,16 +37,27 @@ const defaultMetricDiscoveryBlacklist = Object.freeze({
     "scoreBreakdown.rp",
   ]),
   statbotics: Object.freeze([
+    "country",
+    "district",
+    "event",
     "event_name",
+    "first_event",
+    "state",
+    "status",
+    "team",
     "team_name",
+    "time",
+    "type",
+    "week",
+    "year",
   ]),
 });
 
 function metricDiscoveryBlacklist(schemaPayload = {}, sourceId = "") {
   const normalizedSourceId = normalizeText(sourceId);
-  const metricDiscovery = schemaPayload?.schema?.metricDiscovery || schemaPayload?.metricDiscovery || {};
-  const schemaPatterns = Array.isArray(metricDiscovery?.blacklist?.[normalizedSourceId])
-    ? metricDiscovery.blacklist[normalizedSourceId]
+  const metricPresentation = schemaPayload?.schema?.metricPresentation || schemaPayload?.metricPresentation || {};
+  const schemaPatterns = Array.isArray(metricPresentation?.blacklist?.[normalizedSourceId])
+    ? metricPresentation.blacklist[normalizedSourceId]
     : [];
   return [
     ...(defaultMetricDiscoveryBlacklist[normalizedSourceId] || []),
@@ -107,19 +118,11 @@ function buildProfileVersionKey(profile = {}) {
     .map((definition) => ({
       name: canonicalProfileEquationName(definition),
       formula: normalizeText(definition?.formula),
-      usage: normalizeText(definition?.usage),
-    }))
-    .filter((definition) => definition.name);
-  const normalizedFilters = (Array.isArray(profile?.filters) ? profile.filters : [])
-    .map((definition) => ({
-      name: canonicalProfileEquationName(definition, "filter"),
-      formula: normalizeText(definition?.formula),
     }))
     .filter((definition) => definition.name);
   const fingerprint = fnv1aHash(JSON.stringify(stableValue({
     fields: normalizedFields,
     equations: normalizedEquations,
-    filters: normalizedFilters,
   })));
   return `${profileId}|${fingerprint}`;
 }

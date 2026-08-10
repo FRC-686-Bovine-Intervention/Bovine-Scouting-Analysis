@@ -146,6 +146,9 @@ function metricFieldId(fieldDefinition) {
 
 function buildMetricCatalog(schemaOrEventModel = {}) {
   const scoringComponents = Array.isArray(schemaOrEventModel.scoringComponents) ? schemaOrEventModel.scoringComponents : [];
+  const pridgeResponseDefinitions = Array.isArray(schemaOrEventModel.pridgeResponseDefinitions)
+    ? schemaOrEventModel.pridgeResponseDefinitions
+    : [];
   return [
     ...scouterMetricDefinitions(schemaOrEventModel).map((component) => ({
       id: `source:scouter:${component.id}`,
@@ -177,14 +180,24 @@ function buildMetricCatalog(schemaOrEventModel = {}) {
       })),
     ]),
     {
-      id: "source:pridge:total",
+      id: "source:pridge:epa.total_points",
       kind: "source",
       sourceId: "pridge",
-      componentId: "total",
+      componentId: "epa.total_points",
       label: sourceLabels.pridge,
       shortLabel: sourceLabels.pridge,
       unit: "pts",
     },
+    ...pridgeResponseDefinitions.map((definition) => ({
+      id: `source:pridge:${definition.id}`,
+      kind: "source",
+      sourceId: "pridge",
+      componentId: definition.id,
+      label: `${sourceLabels.pridge} ${definition.label || definition.id}`,
+      shortLabel: definition.label || definition.id,
+      unit: definition.unit || "pts",
+      definition,
+    })),
     ...derivedMetricDefinitions(schemaOrEventModel).map((metricDefinition) => ({
       id: `derived:${metricDefinition.id}`,
       kind: "derived",

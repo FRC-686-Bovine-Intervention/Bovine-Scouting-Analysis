@@ -185,6 +185,7 @@ function buildMetrics(season) {
     return scoutingSchemaRuntime.buildMetricCatalog(season);
   }
   const scouterMetrics = scouterMetricDefinitions(season);
+  const pridgeResponseDefinitions = Array.isArray(season?.pridgeResponseDefinitions) ? season.pridgeResponseDefinitions : [];
   return [
     ...scouterMetrics.map((component) => ({
       id: `source:scouter:${component.id}`,
@@ -216,14 +217,24 @@ function buildMetrics(season) {
       })),
     ]),
     {
-      id: "source:pridge:total",
+      id: "source:pridge:epa.total_points",
       kind: "source",
       sourceId: "pridge",
-      componentId: "total",
+      componentId: "epa.total_points",
       label: sourceLabels.pridge,
       shortLabel: sourceLabels.pridge,
       unit: "pts",
     },
+    ...pridgeResponseDefinitions.map((definition) => ({
+      id: `source:pridge:${definition.id}`,
+      kind: "source",
+      sourceId: "pridge",
+      componentId: definition.id,
+      label: `${sourceLabels.pridge} ${definition.label || definition.id}`,
+      shortLabel: definition.label || definition.id,
+      unit: definition.unit || "pts",
+      definition,
+    })),
     ...derivedMetricDefinitions(season).map((metricDefinition) => ({
       id: `derived:${metricDefinition.id}`,
       kind: "derived",
@@ -243,7 +254,11 @@ function buildCriteriaSources(season) {
   return [
     { id: "statbotics", label: sourceLabels.statbotics, components: scoringComponents },
     { id: "scouter", label: sourceLabels.scouter, components: scouterComponents },
-    { id: "pridge", label: sourceLabels.pridge, components: [{ id: "total", label: "Total" }] },
+    { id: "pridge", label: sourceLabels.pridge, components: [
+      { id: "epa.total_points", label: "EPA total points" },
+      ...(Array.isArray(season?.pridgeResponseDefinitions) ? season.pridgeResponseDefinitions : [])
+        .map((definition) => ({ id: definition.id, label: definition.label || definition.id })),
+    ] },
     {
       id: "derived",
       label: sourceLabels.derived,

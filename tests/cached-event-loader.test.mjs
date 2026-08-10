@@ -3,7 +3,8 @@ import fs from "node:fs";
 import vm from "node:vm";
 
 const source = fs.readFileSync(new URL("../src/cached-event-loader.js", import.meta.url), "utf8");
-const context = { globalThis: { EventModelBuilder: { buildEventModelFromProviderBundle: (bundle) => ({ key: bundle.key, season: bundle.year, name: bundle.tbaEvent.name, teams: bundle.tbaTeams, matches: bundle.tbaMatches, catalogSource: bundle.catalogSource }) } }, TextDecoder };
+let builtBundle;
+const context = { globalThis: { EventModelBuilder: { buildEventModelFromProviderBundle: (bundle) => { builtBundle = bundle; return { key: bundle.key, season: bundle.year, name: bundle.tbaEvent.name, teams: bundle.tbaTeams, matches: bundle.tbaMatches, catalogSource: bundle.catalogSource }; } } }, TextDecoder };
 vm.runInNewContext(source, context);
 const sourceData = {
   "tba-event": { rawText: '{"year":2025,"name":"Championship"}', manifest: { sourceId: "tba-event", fetchedAt: "2025-01-01T00:00:00.000Z", fingerprint: "event" } },
@@ -16,6 +17,8 @@ const sourceData = {
 };
 const result = await context.globalThis.CachedEventLoader.rebuildCachedEvent({ event: { key: "2025chcmp", season: 2025 }, loadSource: async (sourceId) => sourceData[sourceId], now: Date.parse("2025-01-01T00:20:00.000Z") });
 assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel)), { key: "2025chcmp", season: 2025, name: "Championship", teams: [{ team_number: 686 }], matches: [], catalogSource: "shared-cache" });
+assert.equal(builtBundle.deferPridgeTrends, true);
+assert.equal(builtBundle.deferPridgeComputation, true);
 assert.equal(result.cacheFreshness, "stale");
 assert.match(result.sourceStates.tba.notes, /stale/);
 await assert.rejects(() => context.globalThis.CachedEventLoader.rebuildCachedEvent({ event: { key: "2025chcmp" }, loadSource: async (sourceId) => sourceId === "tba-matches" ? Promise.reject(new Error("offline cache miss")) : sourceData[sourceId] }), /tba-matches data is unavailable/);

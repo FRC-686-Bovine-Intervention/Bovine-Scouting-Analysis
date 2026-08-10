@@ -7,6 +7,24 @@ const buildMetricCatalog =
   || seasonFramework.buildMetrics
   || ((eventModel) => eventModel?.metrics || []);
 const computeEventPridge = priorRidge.computeEventPridge;
+const PRIDGE_RESPONSE_IDS = new Set([
+  "tbaTotalAutoPoints",
+  "tbaTotalTeleopPoints",
+  "tbaTotalEndgamePoints",
+  "epa.total_points",
+  "epa.breakdown.total_points",
+  "epa.breakdown.auto_points",
+  "epa.breakdown.teleop_points",
+  "epa.breakdown.endgame_points",
+]);
+
+const PRIDGE_EPA_RESPONSE_CANDIDATES = [
+  ["epa.total_points", ["totalPoints"]],
+  ["epa.breakdown.total_points", ["totalPoints"]],
+  ["epa.breakdown.auto_points", ["totalAutoPoints", "autoPoints"]],
+  ["epa.breakdown.teleop_points", ["totalTeleopPoints", "teleopPoints"]],
+  ["epa.breakdown.endgame_points", ["endGameTowerPoints", "endGameBargePoints", "endGamePoints", "endgamePoints"]],
+];
 
 function round(value, digits = 1) {
   return Number(Number(value || 0).toFixed(digits));
@@ -22,6 +40,155 @@ function parseJson(text, fallback) {
 
 function normalizeText(value) {
   return String(value || "").trim();
+}
+
+function normalizePridgeResponseDefinitions(payload) {
+  const definitions = [
+    ...(Array.isArray(payload?.pridgeResponseDefinitions) ? payload.pridgeResponseDefinitions : []),
+    ...(Array.isArray(payload?.formulaFieldDefinitions) ? payload.formulaFieldDefinitions : []),
+  ];
+  const seen = new Set();
+  return definitions.filter((definition) => {
+    const id = normalizeText(definition?.id);
+    const formula = normalizeText(definition?.formula);
+    if (!PRIDGE_RESPONSE_IDS.has(id) || !formula || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  }).map((definition) => ({
+    ...definition,
+    id: normalizeText(definition.id),
+    label: normalizeText(definition.label) || normalizeText(definition.id),
+    unit: normalizeText(definition.unit) || "pts",
+    formula: normalizeText(definition.formula),
+  }));
+}
+
+function buildLivePridgeEpaResponseDefinitions(rawMatches) {
+  const qualificationMatches = (Array.isArray(rawMatches) ? rawMatches : [])
+    .filter((match) => match?.comp_level === "qm");
+  return PRIDGE_EPA_RESPONSE_CANDIDATES.flatMap(([id, candidates]) => {
+    const field = candidates.find((candidate) => qualificationMatches.some((match) => {
+      const values = [match?.score_breakdown?.red?.[candidate], match?.score_breakdown?.blue?.[candidate]];
+      return values.some((value) => Number.isFinite(Number(value)));
+    }));
+    if (!field && id === "epa.total_points") {
+      return [{ id, label: "pRidge EPA total points", unit: "pts", formula: "tba.totalPoints" }];
+    }
+    if (!field && id === "epa.breakdown.total_points") {
+      return [{ id, label: "pRidge EPA breakdown total points", unit: "pts", formula: "tba.totalPoints" }];
+    }
+    return field ? [{ id, label: `pRidge ${id.replace("epa.", "EPA ").replaceAll(".", " ")}`, unit: "pts", formula: `tba.${field}` }] : [];
+  });
+}
+
+function mergePridgeResponseDefinitions(rawMatches, definitions) {
+  const merged = [...(Array.isArray(definitions) ? definitions : []), ...buildLivePridgeEpaResponseDefinitions(rawMatches)];
+  const seen = new Set();
+  return merged.filter((definition) => {
+    const id = normalizeText(definition?.id);
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+function readPath(source, path) {
+  return String(path || "").split(".").reduce((value, segment) => {
+    if (value === null || value === undefined || !segment) return undefined;
+    return value[segment];
+  }, source);
+}
+
+function evaluateAllianceFormula(formula, breakdown) {
+  const metricEngine = globalThis.MetricEngine || {};
+  if (typeof metricEngine.evaluateFormulaExpression !== "function") return null;
+  const result = metricEngine.evaluateFormulaExpression(formula, {
+    resolveIdentifier(identifier) {
+      const name = normalizeText(identifier);
+      if (!name.startsWith("tba.")) return metricEngine.errorResult?.(`Only tba.* fields are available in pRidge response formulas.`);
+      const value = readPath(breakdown, name.slice(4));
+      if (value === null || value === undefined || value === "") return metricEngine.errorResult?.(`TBA field ${name} is unavailable.`);
+      const numericValue = Number(value);
+      return Number.isFinite(numericValue)
+        ? metricEngine.scalarResult(numericValue, "match")
+        : metricEngine.errorResult?.(`TBA field ${name} is not numeric.`);
+    },
+  });
+  const value = Number(result?.value);
+  return result?.kind === "error" || !Number.isFinite(value) ? null : value;
+}
+
+function buildFormulaMatches(rawMatches, definition) {
+  return rawMatches.map((match) => {
+    const redScore = evaluateAllianceFormula(definition.formula, match.score_breakdown?.red);
+    const blueScore = evaluateAllianceFormula(definition.formula, match.score_breakdown?.blue);
+    if (!Number.isFinite(redScore) || !Number.isFinite(blueScore)) return null;
+    return {
+      ...match,
+      alliances: {
+        ...match.alliances,
+        red: { ...match.alliances?.red, score: redScore },
+        blue: { ...match.alliances?.blue, score: blueScore },
+      },
+    };
+  }).filter(Boolean);
+}
+
+function rawMatchesFromEventModel(eventModel = {}) {
+  return (eventModel.matches || []).map((match) => ({
+    comp_level: "qm",
+    match_number: match.number,
+    alliances: {
+      red: { team_keys: (match.red || []).map((team) => `frc${team}`), score: match.redScore },
+      blue: { team_keys: (match.blue || []).map((team) => `frc${team}`), score: match.blueScore },
+    },
+    score_breakdown: {
+      red: cloneBreakdown(match.scoreBreakdown?.red),
+      blue: cloneBreakdown(match.scoreBreakdown?.blue),
+    },
+  }));
+}
+
+function teamEventsFromEventModel(eventModel = {}) {
+  return (eventModel.teams || []).map((team) => ({
+    team: team.number,
+    epa: { stats: { start: team.sources?.statbotics?.components?.["epa.stats.start"] } },
+  }));
+}
+
+function applyPridgeResponseDefinitions(eventModel = {}, definitions = []) {
+  const normalizedDefinitions = normalizePridgeResponseDefinitions({ pridgeResponseDefinitions: definitions });
+  const rawMatches = rawMatchesFromEventModel(eventModel);
+  const teamEvents = teamEventsFromEventModel(eventModel);
+  const results = {};
+  if (!eventModel.pridgeComputationDeferred) normalizedDefinitions.forEach((definition) => {
+    try {
+      const formulaMatches = buildFormulaMatches(rawMatches, definition);
+      if (formulaMatches.length) {
+        results[definition.id] = computeEventPridge(formulaMatches, teamEvents, { responseName: "score", digits: 1 });
+      }
+    } catch {
+      // Keep the response unavailable when the active event lacks required live inputs.
+    }
+  });
+  return {
+    ...eventModel,
+    pridgeResponseDefinitions: normalizedDefinitions,
+    teams: (eventModel.teams || []).map((team) => ({
+      ...team,
+      sources: {
+        ...team.sources,
+        pridge: {
+          ...(team.sources?.pridge || {}),
+          components: Object.fromEntries(normalizedDefinitions.map((definition) => [
+            definition.id,
+            results[definition.id]?.ratings?.[team.number] ?? null,
+          ])),
+        },
+      },
+    })),
+    metrics: buildMetricCatalog({ ...eventModel, pridgeResponseDefinitions: normalizedDefinitions }),
+  };
 }
 
 function providerPathSegment(segment) {
@@ -63,6 +230,32 @@ function flattenStatboticsScalarEntries(value, prefix = "") {
   }
   const scalar = scalarTbaValue(value);
   return prefix && scalar !== null ? [[prefix, scalar]] : [];
+}
+
+function statboticsMatchNumber(match) {
+  const direct = Number(match?.match_number ?? match?.matchNumber);
+  if (Number.isFinite(direct)) return direct;
+  const key = String(match?.match || match?.match_key || match?.key || "");
+  const suffix = key.match(/_(?:qm|ef|qf|sf|f)(\d+)$/i);
+  return suffix ? Number(suffix[1]) : null;
+}
+
+function statboticsMatchEpa(match) {
+  const candidates = [
+    match?.epa?.total_points,
+    match?.epa?.total,
+    match?.epa?.post,
+    match?.epa,
+  ];
+  return candidates.map((value) => Number(value)).find((value) => Number.isFinite(value)) ?? null;
+}
+
+function buildStatboticsTrendEntries(teamMatches) {
+  return (Array.isArray(teamMatches) ? teamMatches : [])
+    .map((match) => ({ matchNumber: statboticsMatchNumber(match), value: statboticsMatchEpa(match) }))
+    .filter((entry) => Number.isFinite(entry.matchNumber) && Number.isFinite(entry.value))
+    .sort((left, right) => left.matchNumber - right.matchNumber)
+    .map((entry) => ({ key: entry.matchNumber, value: entry.value }));
 }
 
 function sourceValue(team, sourceId, componentId = "total") {
@@ -165,13 +358,14 @@ function buildTbaEventComponents(rankingEntry, tbaStatEntries = []) {
   return components;
 }
 
-function buildTeam(teamInfo, teamEvent, scoutingSchema, tbaComponents) {
+function buildTeam(teamInfo, teamEvent, scoutingSchema, tbaComponents, teamMatches = []) {
   const statboticsTotal = Number(teamEvent?.epa?.total_points || 0);
   const statboticsComponents = Object.fromEntries(
     flattenStatboticsScalarEntries(teamEvent || {}).filter(([fieldId]) => fieldId !== "team_name" && fieldId !== "event_name"),
   );
   const scouterFields = Array.isArray(scoutingSchema?.scouterMetricDefinitions) ? scoutingSchema.scouterMetricDefinitions : [];
   const emptyScouterComponents = Object.fromEntries(scouterFields.map((component) => [component.id, 0]));
+  const statboticsTrendEntries = buildStatboticsTrendEntries(teamMatches);
   return {
     number: Number(teamInfo.team_number),
     name: teamInfo.nickname || teamEvent?.team_name || `Team ${teamInfo.team_number}`,
@@ -181,7 +375,12 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, tbaComponents) {
     record: teamEvent?.record ? { ...teamEvent.record } : {},
     sources: {
       scouter: { total: 0, components: emptyScouterComponents, trend: [], componentTrend: Object.fromEntries(scouterFields.map((component) => [component.id, []])) },
-      statbotics: { total: round(statboticsTotal), components: { ...statboticsComponents }, trend: [] },
+      statbotics: {
+        total: round(statboticsTotal),
+        components: { ...statboticsComponents },
+        trend: statboticsTrendEntries.map((entry) => entry.value),
+        trendEntries: statboticsTrendEntries,
+      },
       tba: { total: null, components: { ...(tbaComponents || {}) }, trend: [] },
       pridge: { total: null, components: {}, trend: [] },
     },
@@ -190,17 +389,30 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, tbaComponents) {
 }
 
 function buildEventModelFromPayloads(payload) {
+  const deferPridgeTrends = payload?.deferPridgeTrends === true;
+  const deferPridgeComputation = payload?.deferPridgeComputation === true;
   const explicitScouterMetricDefinitions = Array.isArray(payload?.scouterMetricDefinitions) ? payload.scouterMetricDefinitions : [];
   const explicitFormulaFieldDefinitions = Array.isArray(payload?.formulaFieldDefinitions) ? payload.formulaFieldDefinitions : [];
   const explicitDerivedMetricDefinitions = Array.isArray(payload?.derivedMetricDefinitions) ? payload.derivedMetricDefinitions : [];
+  const pridgeResponseDefinitions = normalizePridgeResponseDefinitions({
+    pridgeResponseDefinitions: mergePridgeResponseDefinitions(payload?.tbaMatches, payload?.pridgeResponseDefinitions),
+  });
   const eventSchema = {
     scoringComponents: [],
     scouterMetricDefinitions: explicitScouterMetricDefinitions,
     formulaFieldDefinitions: explicitFormulaFieldDefinitions,
     derivedMetricDefinitions: explicitDerivedMetricDefinitions,
+    pridgeResponseDefinitions,
     scoringMatrixPresets: Array.isArray(payload?.scoringMatrixPresets) ? payload.scoringMatrixPresets : [],
   };
   const teamEventsByNumber = new Map((payload.statboticsTeamEvents || []).map((teamEvent) => [Number(teamEvent.team), teamEvent]));
+  const teamMatchesByNumber = new Map();
+  (payload.statboticsTeamMatches || []).forEach((teamMatch) => {
+    const teamNumber = Number(teamMatch?.team);
+    if (!Number.isFinite(teamNumber)) return;
+    if (!teamMatchesByNumber.has(teamNumber)) teamMatchesByNumber.set(teamNumber, []);
+    teamMatchesByNumber.get(teamNumber).push(teamMatch);
+  });
   const rankingsByTeamNumber = buildRankingMap(payload.tbaRankings);
   const tbaTeamStats = payload.tbaTeamStats || {};
   const teams = (payload.tbaTeams || [])
@@ -213,13 +425,14 @@ function buildEventModelFromPayloads(payload) {
         buildTbaEventComponents(rankingsByTeamNumber.get(teamNumber) || null, [
           ...buildTbaTeamStatEntries(tbaTeamStats, teamNumber),
         ]),
+        teamMatchesByNumber.get(teamNumber) || [],
       );
     })
     .sort((left, right) => left.number - right.number);
   const matches = normalizeMatches(payload.tbaMatches || []);
   let pridgeResult = null;
   let pridgeError = "";
-  if (typeof computeEventPridge === "function" && matches.length && (payload.statboticsTeamEvents || []).length) {
+  if (!deferPridgeComputation && typeof computeEventPridge === "function" && matches.length && (payload.statboticsTeamEvents || []).length) {
     try {
       pridgeResult = computeEventPridge(payload.tbaMatches || [], payload.statboticsTeamEvents || [], {
         responseName: "score",
@@ -229,21 +442,68 @@ function buildEventModelFromPayloads(payload) {
       pridgeError = String(error?.message || "Unable to compute pRidge.");
     }
   }
+  const pridgeResponseResults = {};
+  if (!deferPridgeComputation) pridgeResponseDefinitions.forEach((definition) => {
+    if (typeof computeEventPridge !== "function" || !matches.length || !(payload.statboticsTeamEvents || []).length) return;
+    try {
+      const formulaMatches = buildFormulaMatches(payload.tbaMatches || [], definition);
+      if (formulaMatches.length) {
+        pridgeResponseResults[definition.id] = computeEventPridge(formulaMatches, payload.statboticsTeamEvents || [], {
+          responseName: "score",
+          digits: 1,
+        });
+      }
+    } catch (error) {
+      pridgeError = pridgeError || `${definition.id}: ${String(error?.message || "Unable to compute pRidge response.")}`;
+    }
+  });
   const teamsWithPridge = teams.map((team) => {
     const total = pridgeResult?.ratings?.[team.number] ?? null;
+    const responseComponents = Object.fromEntries(pridgeResponseDefinitions.map((definition) => [
+      definition.id,
+      pridgeResponseResults[definition.id]?.ratings?.[team.number] ?? null,
+    ]));
+    if (Number.isFinite(Number(total))) {
+      responseComponents["epa.total_points"] = total;
+      responseComponents["epa.breakdown.total_points"] = total;
+    }
     return {
       ...team,
       sources: {
         ...team.sources,
         pridge: {
           total,
-          components: {},
+          components: responseComponents,
           trend: [],
+          trendEntries: [],
         },
       },
     };
   });
+  if (!deferPridgeComputation && !deferPridgeTrends && typeof computeEventPridge === "function" && matches.length && (payload.statboticsTeamEvents || []).length) {
+    const cumulativeByTeam = new Map(teamsWithPridge.map((team) => [team.number, []]));
+    matches.forEach((match) => {
+      try {
+        const result = computeEventPridge((payload.tbaMatches || []).filter((candidate) => {
+          const number = Number(candidate?.match_number);
+          return candidate?.comp_level === "qm" && Number.isFinite(number) && number <= Number(match.number);
+        }), payload.statboticsTeamEvents || [], { responseName: "score", digits: 1 });
+        cumulativeByTeam.forEach((entries, teamNumber) => {
+          const value = result.ratings?.[teamNumber];
+          if (Number.isFinite(Number(value))) entries.push({ key: match.number, value: Number(value) });
+        });
+      } catch {
+        // A partial event can be temporarily underdetermined; leave that point unavailable.
+      }
+    });
+    teamsWithPridge.forEach((team) => {
+      const trendEntries = cumulativeByTeam.get(team.number) || [];
+      team.sources.pridge.trendEntries = trendEntries;
+      team.sources.pridge.trend = trendEntries.map((entry) => entry.value);
+    });
+  }
   return {
+    pridgeComputationDeferred: deferPridgeComputation,
     key: payload.key,
     name: payload.tbaEvent?.name || payload.statboticsEvent?.name || payload.key,
     season: payload.year,
@@ -255,6 +515,7 @@ function buildEventModelFromPayloads(payload) {
     scouterMetricDefinitions: explicitScouterMetricDefinitions,
     formulaFieldDefinitions: explicitFormulaFieldDefinitions,
     derivedMetricDefinitions: explicitDerivedMetricDefinitions,
+    pridgeResponseDefinitions,
     metrics: buildMetricCatalog(eventSchema),
     teams: teamsWithPridge,
     teamNumbers: teamsWithPridge.map((team) => team.number),
@@ -312,6 +573,8 @@ function buildEventModelFromSnapshot(snapshot) {
     tbaTeamStats: parseJson(snapshot.tbaTeamStatsText || snapshot.tbaOprsText, {}),
     statboticsEvent: parseJson(snapshot.statboticsEventText, {}),
     statboticsTeamEvents: parseJson(snapshot.statboticsTeamEventsText, []),
+    statboticsTeamMatches: parseJson(snapshot.statboticsTeamMatchesText, []),
+    pridgeResponseDefinitions: parseJson(snapshot.pridgeResponseDefinitionsText, []),
     catalogSource: snapshot.catalogSource || "snapshot",
   });
 }
@@ -329,11 +592,16 @@ function buildEventModelFromProviderBundle(bundle) {
     tbaTeamStats: bundle.tbaTeamStats || bundle.tbaOprs || {},
     statboticsEvent: bundle.statboticsEvent || {},
     statboticsTeamEvents: bundle.statboticsTeamEvents || [],
+    statboticsTeamMatches: bundle.statboticsTeamMatches || [],
+    deferPridgeTrends: bundle.deferPridgeTrends === true,
+    deferPridgeComputation: bundle.deferPridgeComputation === true,
+    pridgeResponseDefinitions: bundle.pridgeResponseDefinitions || [],
     catalogSource: bundle.catalogSource || "dynamic-external",
   });
 }
 
 globalThis.EventModelBuilder = {
+  applyPridgeResponseDefinitions,
   buildEventModelFromProviderBundle,
   buildEventModelFromSnapshot,
 };

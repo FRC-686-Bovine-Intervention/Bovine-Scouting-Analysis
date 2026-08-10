@@ -78,14 +78,16 @@ const sourceCatalogStore = createEventSourceCacheStore({
   firestore: {
     collection: (...path) => ({ path }), doc: (...path) => ({ path }), setDoc: async () => {}, writeBatch: () => ({}), serverTimestamp: () => "server-time",
     getDocs: async (reference) => ({ metadata: { fromCache: false }, docs: [
-      { data: () => ({ sourceId: "tba-event", activeVersion: "version-a" }) },
-      { data: () => ({ sourceId: "scouting-data", activeVersion: "version-b" }) },
+      { id: "tba-event", data: () => ({ sourceId: "tba-event", activeVersion: "version-a" }) },
+      { id: "scouting-data", data: () => ({ sourceId: "scouting-data", activeVersion: "version-b" }) },
+      { id: "scouting-schema", data: () => ({ activeVersion: "version-c" }) },
+      { id: "scouting-schema-link", data: () => ({ activeVersion: "version-d" }) },
     ] }),
   },
 });
 assert.deepEqual(JSON.parse(JSON.stringify(await sourceCatalogStore.listEventSourceCacheSources({ eventKey: "2025CHCMP" }))), {
   fromCache: false,
-  sources: [{ sourceId: "scouting-data" }, { sourceId: "tba-event" }],
+  sources: [{ sourceId: "scouting-data" }, { sourceId: "scouting-schema" }, { sourceId: "scouting-schema-link" }, { sourceId: "tba-event" }],
 });
 console.log("PASS lists cached source artifacts for an event without reading payload chunks");
 

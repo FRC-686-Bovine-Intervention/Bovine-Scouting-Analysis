@@ -163,7 +163,7 @@ runTest("previewScoutingJsonImport preserves string-only expectedScoutingFields 
   );
 });
 
-runTest("previewScoutingJsonImport carries schema metricDiscovery into the imported profile definition", () => {
+runTest("previewScoutingJsonImport carries schema metricPresentation into the imported profile definition", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
   const eventModel = {
     season: 2025,
@@ -206,7 +206,7 @@ runTest("previewScoutingJsonImport carries schema metricDiscovery into the impor
       },
       schema: {
         schemaId: "2025-match-v1",
-        metricDiscovery: {
+        metricPresentation: {
           blacklist: {
             tba: [
               "scoreBreakdown.autoReef.*.node*",
@@ -229,7 +229,7 @@ runTest("previewScoutingJsonImport carries schema metricDiscovery into the impor
 
   assert.equal(preview.ok, true);
   assert.deepEqual(
-    JSON.parse(JSON.stringify(preview.summary.profileDefinition.metricDiscovery)),
+    JSON.parse(JSON.stringify(preview.summary.profileDefinition.metricPresentation)),
     {
       blacklist: {
         tba: [
@@ -479,10 +479,7 @@ runTest("previewScoutingJsonImport honors payload schema fields instead of forci
       },
       schema: {
         schemaId: "2026-match-drifted",
-        fields: [
-          { id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" },
-          { id: "customDriverTag", label: "Driver Tag", type: "string", unit: "text" },
-        ],
+        expectedScoutingFields: ["autoFuelPct", "customDriverTag"],
       },
       entries: [
         {
@@ -506,10 +503,7 @@ runTest("previewScoutingJsonImport honors payload schema fields instead of forci
       },
       schema: {
         schemaId: "2026-match-drifted",
-        fields: [
-          { id: "autoFuelPct", label: "Auto Fuel %", type: "number", unit: "%" },
-          { id: "customDriverTag", label: "Driver Tag", type: "string", unit: "text" },
-        ],
+        expectedScoutingFields: ["autoFuelPct", "customDriverTag"],
       },
     }),
     eventModel,
@@ -676,10 +670,7 @@ runTest("previewScoutingJsonImport surfaces profile equations from schema artifa
         id: "canonical-json-v1",
         label: "Canonical JSON",
         derivedEquations: [
-          { id: "scoutingTotal", name: "Scouting Total", formula: "scouting.auto + scouting.cycle + scouting.endgame" },
-        ],
-        filters: [
-          { id: "shareGate", name: "Share Gate", formula: "scouting.autoFuelPct > 0" },
+          { name: "scoutingTotal", formula: "scouting.auto + scouting.cycle + scouting.endgame" },
         ],
       },
     }),
@@ -692,6 +683,5 @@ runTest("previewScoutingJsonImport surfaces profile equations from schema artifa
   assert.equal(preview.summary.profileDefinition.id, "canonical-json-v1");
   assert.equal(preview.summary.profileDefinition.derivedEquations.length, 1);
   assert.equal(preview.summary.profileDefinition.derivedEquations[0].name, "scoutingTotal");
-  assert.equal(preview.summary.profileDefinition.filters.length, 1);
-  assert.equal(preview.summary.profileDefinition.filters[0].name, "shareGate");
+  assert.equal("filters" in preview.summary.profileDefinition, false);
 });

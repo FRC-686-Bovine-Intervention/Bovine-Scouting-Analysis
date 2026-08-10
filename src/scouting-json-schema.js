@@ -6,9 +6,131 @@ const requiredEntryIdentityFields = ["matchNumber", "teamNumber", "alliance"];
 const requiredEntriesMetaFields = ["format", "season", "eventKey", "entryType"];
 const requiredSchemaMetaFields = ["format"];
 const contextualEntryMetricIds = ["scoutUser", "station", "defensePlayed", "robotStatus", "notes"];
+const pridgeResponseIds = [
+  "tbaTotalAutoPoints",
+  "tbaTotalTeleopPoints",
+  "tbaTotalEndgamePoints",
+];
 
 function normalizeText(value) {
   return String(value || "").trim();
+}
+
+function normalizePridgeResponseDefinitions(definitions = []) {
+  return (Array.isArray(definitions) ? definitions : [])
+    .map((definition) => ({
+      id: normalizeText(definition?.id),
+      label: normalizeText(definition?.label) || normalizeText(definition?.id),
+      unit: normalizeText(definition?.unit) || "pts",
+      formula: normalizeText(definition?.formula),
+      comments: normalizeText(definition?.comments),
+    }))
+    .filter((definition) => pridgeResponseIds.includes(definition.id));
+}
+
+function normalizeMetricPresentation(value) {
+  const blacklist = value?.blacklist;
+  if (!blacklist || typeof blacklist !== "object" || Array.isArray(blacklist)) return null;
+  const normalized = {};
+  ["tba", "statbotics"].forEach((provider) => {
+    if (Array.isArray(blacklist[provider])) {
+      normalized[provider] = blacklist[provider].map(normalizeText).filter(Boolean);
+    }
+  });
+  return Object.keys(normalized).length ? { blacklist: normalized } : null;
+}
+
+function normalizeWorkspace(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return {
+    picklists: Array.isArray(value.picklists) ? JSON.parse(JSON.stringify(value.picklists)) : [],
+  };
+}
+
+function buildPridgeResponseBaseline(eventModel = {}, options = {}) {
+  const schemaId = normalizeText(options.schemaId) || `${eventModel?.season || "season"}-match-v1`;
+  const profile = options.profile && typeof options.profile === "object" ? options.profile : null;
+  const expectedScoutingFields = Array.isArray(options.expectedScoutingFields) && options.expectedScoutingFields.length
+    ? options.expectedScoutingFields
+    : buildCanonicalSchemaForEventModel(eventModel, { schemaId }).expectedScoutingFields;
+  return {
+    meta: {
+      ...buildCanonicalSchemaMeta({
+        sourceApp: "Bovine Scouting Analysis",
+        templateProfileId: options.templateProfileId || canonicalTemplateProfileId,
+        profileLabel: options.profileLabel || "Schema baseline",
+        translationVersion: options.translationVersion,
+      }),
+      season: Number(eventModel?.season || 0),
+      eventKey: normalizeText(eventModel?.key),
+    },
+    schema: {
+      schemaId,
+      expectedScoutingFields: expectedScoutingFields.map((field) => normalizeText(field?.id || field)).filter(Boolean),
+      pridgeResponseDefinitions: normalizePridgeResponseDefinitions(options.pridgeResponseDefinitions || [
+        {
+          id: "tbaTotalAutoPoints",
+          label: "TBA total auto points",
+          unit: "pts",
+          formula: "tba.totalAutoPoints",
+          comments: "Replace with this season's alliance auto total from TBA score_breakdown.",
+        },
+        {
+          id: "tbaTotalTeleopPoints",
+          label: "TBA total teleop points",
+          unit: "pts",
+          formula: "tba.totalTeleopPoints",
+          comments: "Replace with this season's alliance teleop total from TBA score_breakdown.",
+        },
+        {
+          id: "tbaTotalEndgamePoints",
+          label: "TBA total endgame points",
+          unit: "pts",
+          formula: "tba.endGameTowerPoints",
+          comments: "Replace with this season's alliance endgame total; confirm that climbs or other endgame actions are included.",
+        },
+      ]),
+      comments: [
+        "Use one definition for each stable tbaTotal* id.",
+        "Map formulas per season using only numeric alliance-level TBA score_breakdown fields.",
+        "Check Schema Diagnostics after loading live TBA data; unknown tba.* identifiers mean the formula does not match this event's available metrics.",
+      ],
+    },
+    profile: profile ? normalizeCanonicalProfile(profile) : null,
+    ...(normalizeWorkspace(options.workspace) ? { workspace: normalizeWorkspace(options.workspace) } : {}),
+  };
+}
+
+function diagnosePridgeResponseDefinitions(definitions = [], availableTbaIdentifiers = []) {
+  const normalized = normalizePridgeResponseDefinitions(definitions);
+  const available = new Set((availableTbaIdentifiers || []).map(normalizeText).filter(Boolean));
+  const metricEngine = globalThis.MetricEngine || {};
+  const collectIdentifiers = metricEngine.collectFormulaIdentifiers || ((formula) => {
+    const matches = String(formula || "").match(/\btba\.[A-Za-z0-9_.]+\b/g) || [];
+    return new Set(matches);
+  });
+  const byId = new Map(normalized.map((definition) => [definition.id, definition]));
+  const entries = pridgeResponseIds.map((id) => {
+    const definition = byId.get(id);
+    const failures = [];
+    if (!definition) {
+      failures.push(`Missing schema definition ${id}.`);
+    } else {
+      const parsed = metricEngine.parseFormulaExpression?.(definition.formula);
+      if (parsed?.error) failures.push(`${id}: ${parsed.error}`);
+      [...collectIdentifiers(parsed?.ast || definition.formula)].forEach((identifier) => {
+        if (!String(identifier).startsWith("tba.")) return;
+        if (!available.has(identifier)) failures.push(`${id}: TBA metric ${identifier} is not available in the current event.`);
+      });
+    }
+    return { id, label: definition?.label || id, formula: definition?.formula || "", failures };
+  });
+  return {
+    entries,
+    missing: entries.filter((entry) => entry.failures.some((failure) => failure.startsWith("Missing schema definition"))),
+    invalid: entries.filter((entry) => entry.failures.length && !entry.failures.some((failure) => failure.startsWith("Missing schema definition"))),
+    hasIssues: entries.some((entry) => entry.failures.length > 0),
+  };
 }
 
 function sanitizeProfileIdentifier(value, fallback = "value") {
@@ -87,20 +209,11 @@ function normalizeSchemaField(fieldDefinition, expectedField = null) {
 }
 
 function normalizeProfileEquation(definition, index = 0) {
-  const name = canonicalProfileEquationName(definition, `equation_${index + 1}`);
+  const name = normalizeText(definition?.name) || canonicalProfileEquationName(definition, `equation_${index + 1}`);
   if (!name) return null;
   return {
     name,
-    formula: normalizeText(definition?.formula || definition?.expression),
-  };
-}
-
-function normalizeProfileFilter(definition, index = 0) {
-  const name = canonicalProfileEquationName(definition, `filter_${index + 1}`);
-  if (!name) return null;
-  return {
-    name,
-    formula: normalizeText(definition?.formula || definition?.expression),
+    formula: normalizeText(definition?.formula),
   };
 }
 
@@ -121,19 +234,15 @@ function normalizeCanonicalProfile(profile, schemaMeta = {}) {
   const profileId = normalizeText(profile?.id || profile?.profileId) || normalizeText(schemaMeta?.templateProfileId);
   const profileLabel = normalizeText(profile?.label || profile?.name) || normalizeText(schemaMeta?.profileLabel) || profileId;
   const derivedEquations = Array.isArray(profile?.derivedEquations) ? profile.derivedEquations : [];
-  const legacyEquations = Array.isArray(profile?.equations) ? profile.equations : [];
-  if (!profileId && !profileLabel && !derivedEquations.length && !legacyEquations.length) {
+  if (!profileId && !profileLabel && !derivedEquations.length) {
     return null;
   }
   return {
     id: profileId || canonicalTemplateProfileId,
     label: profileLabel || profileId || canonicalTemplateProfileId,
     versionKey: normalizeText(profile?.versionKey || profile?.versionId),
-    derivedEquations: (derivedEquations.length ? derivedEquations : legacyEquations)
+    derivedEquations: derivedEquations
       .map((definition, index) => normalizeProfileEquation(definition, index))
-      .filter(Boolean),
-    filters: (Array.isArray(profile?.filters) ? profile.filters : [])
-      .map((definition, index) => normalizeProfileFilter(definition, index))
       .filter(Boolean),
   };
 }
@@ -190,7 +299,7 @@ function buildCanonicalSchemaArtifact(schemaPayload, options = {}) {
   ) || normalizeCanonicalProfile(null, normalized.schemaMeta);
   const schemaFieldEntries = Array.isArray(normalized.schema?.expectedScoutingFields) && normalized.schema.expectedScoutingFields.length
     ? normalized.schema.expectedScoutingFields
-    : (Array.isArray(normalized.schema?.fields) ? normalized.schema.fields : []);
+    : [];
   const schema = schemaFieldEntries.length
     ? {
         ...normalized.schema,
@@ -200,6 +309,9 @@ function buildCanonicalSchemaArtifact(schemaPayload, options = {}) {
           .filter(Boolean),
       }
     : buildCanonicalSchemaForEventModel(eventModel, { schemaId: resolvedSchemaId });
+  const { fields: _legacyFields, metricDiscovery: _legacyMetricDiscovery, ...schemaContract } = schema;
+  const metricPresentation = normalizeMetricPresentation(normalized.schema?.metricPresentation);
+  const pridgeResponseDefinitions = normalizePridgeResponseDefinitions(normalized.schema?.pridgeResponseDefinitions);
   return {
     meta: {
       ...normalized.schemaMeta,
@@ -209,16 +321,21 @@ function buildCanonicalSchemaArtifact(schemaPayload, options = {}) {
       profileLabel: normalizeText(profile?.label || normalized.schemaMeta?.profileLabel),
       translationVersion: normalizeText(normalized.schemaMeta?.translationVersion),
     },
-    schema,
+    schema: {
+      ...schemaContract,
+      ...(metricPresentation ? { metricPresentation } : {}),
+      ...(pridgeResponseDefinitions.length ? { pridgeResponseDefinitions } : {}),
+      ...(Array.isArray(normalized.schema?.comments) ? { comments: normalized.schema.comments.map(normalizeText).filter(Boolean) } : {}),
+    },
     profile: profile
       ? {
           id: profile.id,
           label: profile.label,
           versionKey: profile.versionKey,
           derivedEquations: profile.derivedEquations,
-          filters: profile.filters,
         }
       : profile,
+    ...(normalizeWorkspace(normalized.workspace) ? { workspace: normalizeWorkspace(normalized.workspace) } : {}),
   };
 }
 
@@ -243,6 +360,7 @@ function normalizeCanonicalPayload(payload, schemaPayload = null) {
     ? schemaSource.schema
     : {};
   const profile = normalizeCanonicalProfile(selectSchemaProfile(schemaSource, schemaMeta), schemaMeta);
+  const workspace = normalizeWorkspace(schemaSource?.workspace);
   const entries = Array.isArray(entriesPayload?.entries) ? entriesPayload.entries : null;
   return {
     entriesPayload,
@@ -251,6 +369,7 @@ function normalizeCanonicalPayload(payload, schemaPayload = null) {
     schemaMeta,
     schema,
     profile,
+    workspace,
     entries,
   };
 }
@@ -263,11 +382,12 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
   const schemaMeta = normalized.schemaMeta;
   const schema = normalized.schema;
   const profile = normalized.profile;
+  const workspace = normalized.workspace;
   const entries = normalized.entries;
 
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     errors.push("Canonical scouting entries JSON must be a JSON object.");
-    return { errors, warnings, meta, schemaMeta, schema, profile, entries, schemaFieldMap: new Map(), expectedFieldMap: new Map() };
+    return { errors, warnings, meta, schemaMeta, schema, profile, workspace, entries, schemaFieldMap: new Map(), expectedFieldMap: new Map() };
   }
 
   if (!payload?.meta || typeof payload.meta !== "object" || Array.isArray(payload.meta)) {
@@ -314,7 +434,7 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
   if (!schemaId) {
     errors.push("Canonical scouting schema JSON schema.schemaId is required.");
   }
-  const schemaFieldEntries = Array.isArray(schema.expectedScoutingFields) ? schema.expectedScoutingFields : schema.fields;
+  const schemaFieldEntries = schema.expectedScoutingFields;
   if (!Array.isArray(schemaFieldEntries)) {
     errors.push("Canonical scouting schema JSON schema.expectedScoutingFields must be an array.");
   }
@@ -335,6 +455,10 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
 
   if (Array.isArray(schemaFieldEntries)) {
     schemaFieldEntries.forEach((field, index) => {
+      if (typeof field !== "string" || !normalizeText(field)) {
+        errors.push(`Schema expectedScoutingFields entry ${index + 1} must be a non-empty string field id.`);
+        return;
+      }
       const fieldId = canonicalSchemaFieldName(field);
       const expectedField = expectedFieldMap.get(fieldId) || null;
       const normalizedField = normalizeSchemaField(field, expectedField);
@@ -348,11 +472,8 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
         errors.push(`Schema field ${fieldId} is duplicated.`);
         return;
       }
-      if (!fieldType) {
-        errors.push(`Schema field ${fieldId} is missing type.`);
-      } else if (!["number", "string"].includes(fieldType)) {
-        errors.push(`Schema field ${fieldId} has unsupported type ${fieldType}.`);
-      }
+      if (!fieldType) errors.push(`Schema field ${fieldId} is missing type.`);
+      else if (!["number", "string"].includes(fieldType)) errors.push(`Schema field ${fieldId} has unsupported type ${fieldType}.`);
       schemaFieldMap.set(fieldId, {
         id: fieldId,
         label: fieldLabel || fieldId,
@@ -381,6 +502,7 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
       expectedScoutingFields: Array.isArray(schemaFieldEntries) ? schemaFieldEntries : [],
     },
     profile,
+    workspace,
     entries,
     schemaFieldMap,
     expectedFieldMap,
@@ -398,6 +520,10 @@ globalThis.ScoutingJsonSchema = {
   inferCanonicalFieldType,
   normalizeCanonicalProfile,
   normalizeCanonicalPayload,
+  buildPridgeResponseBaseline,
+  diagnosePridgeResponseDefinitions,
+  normalizePridgeResponseDefinitions,
+  pridgeResponseIds,
   contextualEntryMetricIds,
   requiredEntryIdentityFields,
   validateCanonicalSchema,

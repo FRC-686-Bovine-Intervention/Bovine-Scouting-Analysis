@@ -12,6 +12,6 @@
   "profile": {
     "id": "canonical-json-v1",
     "label": "Canonical JSON",
-    "equations": []
+    "derivedEquations": []
   }
 }
