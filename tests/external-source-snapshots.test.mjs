@@ -117,6 +117,22 @@ runTest("seedExternalSourceFingerprints fills missing external baselines without
   assert.notEqual(seeded, workspace);
 });
 
+runTest("seedExternalSourcePolling resets external schedules from the activation time", () => {
+  const context = loadBrowserContext(["src/source-refresh.js", "src/external-source-snapshots.js"], { Date });
+  const workspace = {
+    sources: {
+      tba: { sourceId: "tba", nextPollAt: "2099-01-01T00:00:00Z", pollingEnabled: true },
+      statbotics: { sourceId: "statbotics", nextPollAt: "2026-07-11T12:00:00Z", pollingEnabled: true },
+      pridge: { sourceId: "pridge", nextPollAt: "2099-01-01T00:00:00Z", pollingEnabled: false },
+    },
+  };
+  const seeded = context.ExternalSourceSnapshots.seedExternalSourcePolling(workspace, Date.parse("2026-07-11T12:00:00Z"));
+
+  assert.equal(seeded.sources.tba.nextPollAt, "2026-07-11T12:00:10.000Z");
+  assert.equal(seeded.sources.statbotics.nextPollAt, "2026-07-11T12:00:10.000Z");
+  assert.equal(seeded.sources.pridge.nextPollAt, "2099-01-01T00:00:00Z");
+});
+
 runTest("buildSnapshotFingerprint is stable for unchanged provider snapshots", () => {
   const context = loadBrowserContext(["src/external-source-snapshots.js"]);
   const snapshot = {

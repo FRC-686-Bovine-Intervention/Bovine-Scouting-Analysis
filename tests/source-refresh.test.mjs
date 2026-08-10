@@ -73,6 +73,17 @@ runTest("source refresh policy only polls when due", () => {
   );
 });
 
+runTest("source refresh policy seeds the first external poll shortly after activation", () => {
+  const context = loadBrowserContext(["src/source-refresh.js"]);
+  const policy = context.SourceRefresh.defaultPolicyForSource({ kind: "external", sourceId: "tba" });
+  const now = Date.parse("2026-07-11T12:00:00Z");
+
+  assert.equal(
+    context.SourceRefresh.computeInitialNextPollAt({ kind: "external", sourceId: "tba" }, policy, now),
+    "2026-07-11T12:00:10.000Z",
+  );
+});
+
 runTest("source refresh policy normalizes visible source statuses to ready, stale, and error", () => {
   const context = loadBrowserContext(["src/source-refresh.js"]);
   const policy = context.SourceRefresh.defaultPolicyForSource({ kind: "scouting", sourceId: "attachment-1" });

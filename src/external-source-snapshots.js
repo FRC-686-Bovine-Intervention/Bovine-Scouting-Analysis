@@ -82,9 +82,28 @@ function seedExternalSourceFingerprints(workspace, eventModel = {}) {
   };
 }
 
+function seedExternalSourcePolling(workspace, now = Date.now()) {
+  const sourceRefresh = globalThis.SourceRefresh || {};
+  const currentSources = workspace?.sources || {};
+  const nextSources = { ...currentSources };
+  let changed = false;
+  ["tba", "statbotics", "pridge"].forEach((sourceId) => {
+    const source = currentSources[sourceId];
+    if (!source || source.pollingEnabled === false) return;
+    const policy = sourceRefresh.defaultPolicyForSource?.({ kind: "external", sourceId });
+    const nextPollAt = sourceRefresh.computeInitialNextPollAt?.({ kind: "external", sourceId }, policy, now);
+    if (!nextPollAt || source.nextPollAt === nextPollAt) return;
+    nextSources[sourceId] = { ...source, nextPollAt };
+    changed = true;
+  });
+  if (!changed) return workspace;
+  return { ...workspace, sources: nextSources };
+}
+
 globalThis.ExternalSourceSnapshots = {
   buildSnapshotFingerprint,
   buildExternalSourceSnapshot,
   seedExternalSourceFingerprints,
+  seedExternalSourcePolling,
 };
 })();

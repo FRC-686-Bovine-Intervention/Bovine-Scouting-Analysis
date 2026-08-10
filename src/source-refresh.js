@@ -30,6 +30,11 @@ function computeNextPollAt(source, policy, now = Date.now()) {
   return new Date(lastAttempt + computeBackoffMs(policy, source?.consecutiveFailures)).toISOString();
 }
 
+function computeInitialNextPollAt(source, policy, now = Date.now()) {
+  const delayMs = source?.kind === "scouting" ? 5 * 1000 : 10 * 1000;
+  return new Date(now + delayMs).toISOString();
+}
+
 function freshnessForSource(source, policy, now = Date.now()) {
   if (normalizeText(source?.status) === "error") return "stale";
   const lastSuccessfulAt = Date.parse(normalizeText(source?.lastSuccessfulAt) || "");
@@ -60,6 +65,7 @@ function shouldPollSource(source, policy, now = Date.now()) {
 
 globalThis.SourceRefresh = {
   computeNextPollAt,
+  computeInitialNextPollAt,
   defaultPolicyForSource,
   freshnessForSource,
   sourceStatusBadgeClassName,

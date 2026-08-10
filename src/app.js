@@ -26,6 +26,7 @@ const isHtmlDocumentText = importFoundation.isHtmlDocumentText || (() => false);
 const buildExternalSourceSnapshot = externalSourceSnapshots.buildExternalSourceSnapshot || ((sourceId, eventModel) => ({ eventKey: eventModel?.key, sourceId }));
 const buildExternalSnapshotFingerprint = externalSourceSnapshots.buildSnapshotFingerprint || ((value) => JSON.stringify(value || null));
 const seedWorkspaceExternalSourceFingerprints = externalSourceSnapshots.seedExternalSourceFingerprints || ((workspace) => workspace);
+const seedWorkspaceExternalSourcePolling = externalSourceSnapshots.seedExternalSourcePolling || ((workspace) => workspace);
 const localAttachmentFilesSupported = localFileAccess.supportsPersistentLocalFiles || (() => false);
 const pickLocalAttachmentFile = localFileAccess.pickAttachmentFile || (async () => {
   throw new Error("Persistent local scouting files are unavailable in this browser.");
@@ -635,6 +636,7 @@ function mergeProviderSourceState(currentSource = {}, nextSource = {}) {
   return {
     ...currentSource,
     ...nextSource,
+    nextPollAt: normalizeText(nextSource.nextPollAt) || normalizeText(currentSource.nextPollAt),
     provenance: {
       ...(currentSource.provenance || {}),
       ...(nextSource.provenance || {}),
@@ -667,7 +669,7 @@ function applyLoadedExternalSourceState(loadResult, options = {}) {
   const eventModel = loadResult?.eventModel || currentEvent();
   const eventKey = normalizeText(eventModel?.key) || state.activeEventKey;
   const storedWorkspace = readStoredJson(storageKeys.eventWorkspace, null, eventKey);
-  const seededWorkspace = createEventWorkspace(eventModel, storedWorkspace);
+  const seededWorkspace = seedWorkspaceExternalSourcePolling(createEventWorkspace(eventModel, storedWorkspace));
   const nextSources = { ...(seededWorkspace.sources || {}) };
   Object.entries(loadResult?.sourceStates || {}).forEach(([sourceId, sourceState]) => {
     nextSources[sourceId] = mergeProviderSourceState(nextSources[sourceId], sourceState);
@@ -1263,8 +1265,27 @@ function maybePollActiveScoutingAttachment() {
 }
 
 function maybePollExternalSources() {
-  if (currentEvent()?.catalogSource === "dynamic-external") return;
   const workspace = currentEventWorkspace();
+  if (currentEvent()?.catalogSource === "dynamic-external") {
+    const due = ["tba", "statbotics", "pridge"].some((sourceId) => {
+      const source = workspace.sources?.[sourceId];
+      return source && source.pollingEnabled !== false && shouldPollRefreshSource(
+        source,
+        defaultRefreshPolicyForSource({ kind: "external", sourceId }),
+        Date.now(),
+      );
+    });
+    if (!due || pendingExternalRefreshSourceIds.has("dynamic-external")) return;
+    pendingExternalRefreshSourceIds.add("dynamic-external");
+    Promise.resolve(refreshDataSource("tba", { trigger: "poll" }))
+      .catch((error) => {
+        console.error("Polling live external sources failed", error);
+      })
+      .finally(() => {
+        pendingExternalRefreshSourceIds.delete("dynamic-external");
+      });
+    return;
+  }
   ["tba", "statbotics", "pridge"].forEach((sourceId) => {
     const source = workspace.sources?.[sourceId];
     if (!source || source.pollingEnabled === false || pendingExternalRefreshSourceIds.has(sourceId)) return;
@@ -1336,7 +1357,10 @@ async function refreshAllDataSources() {
 }
 
 async function refreshCurrentExternalSourcesImmediately() {
-  if (currentEvent()?.catalogSource === "dynamic-external") return;
+  if (currentEvent()?.catalogSource === "dynamic-external") {
+    await refreshDataSource("tba");
+    return;
+  }
   await Promise.all(["tba", "statbotics", "pridge"].map((sourceId) => refreshDataSource(sourceId)));
 }
 
@@ -4697,7 +4721,8 @@ function hydrateEventState(eventKey) {
   void syncSharedProfilesForEvent(resolvedEventKey);
   void syncSharedSubmissionsForEvent(resolvedEventKey);
   state.eventWorkspace = createEventWorkspace(eventModel, readStoredJson(storageKeys.eventWorkspace, null, resolvedEventKey));
-  const seededWorkspace = seedWorkspaceExternalSourceFingerprints(state.eventWorkspace, eventModel);
+  const fingerprintedWorkspace = seedWorkspaceExternalSourceFingerprints(state.eventWorkspace, eventModel);
+  const seededWorkspace = seedWorkspaceExternalSourcePolling(fingerprintedWorkspace);
   const repairedWorkspaceFingerprints = seededWorkspace !== state.eventWorkspace;
   state.eventWorkspace = seededWorkspace;
   state.activeView = normalizeView(readStoredItem(storageKeys.activeView, resolvedEventKey));
