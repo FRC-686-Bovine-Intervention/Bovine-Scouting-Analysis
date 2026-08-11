@@ -228,6 +228,7 @@ select {
 
 .app-shell {
   min-height: 0;
+  height: 0;
   flex: 1;
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
@@ -2275,6 +2276,7 @@ button.pill {
 @media (max-width: 860px) {
   .app-shell {
     grid-template-columns: 1fr;
+    height: auto;
   }
 
   .sidebar {
