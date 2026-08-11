@@ -20,7 +20,15 @@ if (-not $nodeCommand) {
     throw "Node.js is required to seed the Firebase emulators. Install Node.js or add node.exe to PATH before running this script."
   }
 }
-$firebaseCommand = Get-Command firebase -ErrorAction Stop
+$firebaseCommand = Get-Command firebase -ErrorAction SilentlyContinue
+if (-not $firebaseCommand) {
+  $installedFirebase = Join-Path ${env:APPDATA} "npm\firebase.cmd"
+  if (Test-Path -LiteralPath $installedFirebase) {
+    $firebaseCommand = Get-Command $installedFirebase
+  } else {
+    throw "Firebase CLI is required to start the local emulators. Install firebase-tools or add firebase.cmd to PATH before running this script."
+  }
+}
 $javaCommand = Get-Command java -ErrorAction SilentlyContinue
 if (-not $javaCommand) {
   $bundledJava = Get-ChildItem "C:\Program Files\Eclipse Adoptium" -Recurse -Filter java.exe -ErrorAction SilentlyContinue | Select-Object -First 1
