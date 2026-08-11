@@ -8306,7 +8306,8 @@ function renderMatchup() {
   const selections = normalizeMatchupMetricSelections(matchupMetrics);
   const selectedMetrics = selections.filter(Boolean).map((id) => matchupMetrics.find((metric) => metric.id === id)).filter(Boolean);
   const comparisonModels = selectedMetrics.map((metric) => matchupMetricModel(match, metric));
-  const sharedScale = Math.max(...comparisonModels.map((model) => model.maximumTotal), 0);
+  const actualScoreModel = matchupActualScoreModel(match);
+  const sharedScale = Math.max(...comparisonModels.map((model) => model.maximumTotal), actualScoreModel?.maximumTotal || 0);
   return `
     <div class="section-heading matchup-heading">
       <div>
@@ -8327,6 +8328,7 @@ function renderMatchup() {
       <div class="matchup-match-number" aria-label="${escapeAttribute(matchupMatchLabel(match))}">${escapeHtml(matchupMatchLabel(match))}</div>
       ${renderMatchupAllianceCard("Blue Alliance", match.blue, "blue")}
     </div>
+    ${actualScoreModel ? renderMatchupActualScoreCard(actualScoreModel, state.matchupNormalization === "shared" ? sharedScale : null) : ""}
     <div class="matchup-metric-cards">
       ${selections.map((metricId, index) => {
         const metric = metricId ? matchupMetrics.find((entry) => entry.id === metricId) : null;
@@ -8402,6 +8404,35 @@ function matchupMetricModel(match, metric) {
   const redTotal = red.reduce((sum, entry) => sum + entry.numericValue, 0);
   const blueTotal = blue.reduce((sum, entry) => sum + entry.numericValue, 0);
   return { metric, red, blue, redTotal, blueTotal, maximumTotal: Math.max(redTotal, blueTotal) };
+}
+
+function matchupActualScoreModel(match) {
+  if (match?.hasScore === false) return null;
+  const redScore = Number(match?.redScore);
+  const blueScore = Number(match?.blueScore);
+  if (!Number.isFinite(redScore) || !Number.isFinite(blueScore) || (match?.hasScore !== true && (redScore < 0 || blueScore < 0))) return null;
+  const redTotal = Math.max(0, redScore);
+  const blueTotal = Math.max(0, blueScore);
+  return { redTotal, blueTotal, maximumTotal: Math.max(redTotal, blueTotal) };
+}
+
+function renderMatchupActualScoreCard(model, sharedScale) {
+  const scale = sharedScale || model.maximumTotal;
+  const renderBar = (total, color) => `<div class="matchup-bar-row">
+    <div class="matchup-stacked-bar" aria-label="${color} alliance actual score">
+      <span class="matchup-actual-bar ${color}" style="width: ${scale ? (total / scale) * 100 : 0}%"></span>
+    </div>
+    <strong class="matchup-bar-total">${escapeHtml(String(total))}</strong>
+  </div>`;
+  return `<div class="matchup-actual-score">
+    <article class="matchup-metric-card">
+      <div class="matchup-score-label">Actual Score</div>
+      <div class="matchup-bars">
+        ${renderBar(model.redTotal, "red")}
+        ${renderBar(model.blueTotal, "blue")}
+      </div>
+    </article>
+  </div>`;
 }
 
 function renderMatchupMetricCard(match, metric, index, model, sharedScale, metrics) {

@@ -1211,6 +1211,11 @@ select {
   margin-top: 24px;
 }
 
+.matchup-actual-score {
+  width: calc((100% - 14px) / 2);
+  margin: 24px auto 0;
+}
+
 .matchup-alliances,
 .matchup-metric-cards {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1274,6 +1279,21 @@ select {
 .matchup-bar-segment.blue.matchup-team-rank-2 { background: #5f86d8; color: #fff; }
 .matchup-alliance-card.blue .matchup-team-rank-3,
 .matchup-bar-segment.blue.matchup-team-rank-3 { background: #bfdbfe; color: #1e3a8a; }
+
+.matchup-actual-bar {
+  min-width: 0;
+  transition: width 160ms ease;
+}
+
+.matchup-actual-bar.red { background: #991b1b; }
+.matchup-actual-bar.blue { background: #1e3a8a; }
+
+.matchup-score-label {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  font-weight: 800;
+}
 
 .matchup-metric-card select,
 .matchup-normalization select { min-width: min(360px, 70vw); }
@@ -2316,6 +2336,10 @@ button.pill {
   .matchup-alliances,
   .matchup-metric-cards {
     grid-template-columns: 1fr;
+  }
+
+  .matchup-actual-score {
+    width: 100%;
   }
 
   .matchup-metric-card select,
