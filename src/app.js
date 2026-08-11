@@ -478,6 +478,7 @@ let pendingScoutingAutoloadToken = "";
 let attemptedScoutingAutoloadToken = "";
 const pendingExternalRefreshSourceIds = new Set();
 let sourceRefreshIntervalId = null;
+let sharedCachedEventOpenSequence = 0;
 let scoutingSubmissionRevision = 0;
 let scoutingSubmissionLoadSequence = 0;
 let allianceSourceScrollbarResizeObserver = null;
@@ -4657,6 +4658,8 @@ async function loadCachedScoutingData(eventKey, api) {
 }
 
 async function openSharedCachedEvent(eventKey, options = {}) {
+  const openSequence = ++sharedCachedEventOpenSequence;
+  const isCurrentOpen = () => openSequence === sharedCachedEventOpenSequence;
   const cachedEvent = sharedCachedEventByKey(eventKey);
   const api = globalThis.firebaseEventSourceCacheApi;
   const cachedEventLoader = globalThis.CachedEventLoader;
@@ -4674,14 +4677,16 @@ async function openSharedCachedEvent(eventKey, options = {}) {
       persistShared: options.persistShared === true,
       preserveImportDraft: true,
     });
-    state.eventLookupResult = {
-      kind: cachedProviderIsStale ? "warn" : "success",
-      message: cachedProviderIsStale
-        ? `${inMemoryCachedEvent.key} opened from the already-loaded cached snapshot. Provider data is stale; refreshing live sources.`
-        : `${inMemoryCachedEvent.key} opened from the already-loaded cached snapshot.`,
-    };
-    render();
-    state.eventLookupPending = false;
+    if (isCurrentOpen()) {
+      state.eventLookupResult = {
+        kind: cachedProviderIsStale ? "warn" : "success",
+        message: cachedProviderIsStale
+          ? `${inMemoryCachedEvent.key} opened from the already-loaded cached snapshot. Provider data is stale; refreshing live sources.`
+          : `${inMemoryCachedEvent.key} opened from the already-loaded cached snapshot.`,
+      };
+    }
+    if (isCurrentOpen()) render();
+    if (isCurrentOpen()) state.eventLookupPending = false;
     return true;
   }
   let liveRefreshWarning = "";
@@ -4720,19 +4725,25 @@ async function openSharedCachedEvent(eventKey, options = {}) {
     });
     applyLoadedExternalSourceState({ ...result, eventModel: registeredEvent }, { render: false });
     await loadCachedScoutingData(registeredEvent.key, api);
-    state.eventLookupResult = {
-      kind: result.warnings.length || result.cacheFreshness === "stale" ? "warn" : "success",
-      message: `${registeredEvent.key} opened from the shared Firestore cache (${result.cacheFreshness}).${liveRefreshWarning ? ` Live refresh failed: ${liveRefreshWarning}` : ""}${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`,
-    };
-    render();
+    if (isCurrentOpen()) {
+      state.eventLookupResult = {
+        kind: result.warnings.length || result.cacheFreshness === "stale" ? "warn" : "success",
+        message: `${registeredEvent.key} opened from the shared Firestore cache (${result.cacheFreshness}).${liveRefreshWarning ? ` Live refresh failed: ${liveRefreshWarning}` : ""}${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`,
+      };
+    }
+    if (isCurrentOpen()) render();
     return true;
   } catch (error) {
-    state.eventLookupResult = { kind: "error", message: `Unable to open cached ${normalizeText(eventKey)}. ${error?.message || ""}`.trim() };
-    render();
+    if (isCurrentOpen()) {
+      state.eventLookupResult = { kind: "error", message: `Unable to open cached ${normalizeText(eventKey)}. ${error?.message || ""}`.trim() };
+      render();
+    }
     return false;
   } finally {
-    state.eventLookupPending = false;
-    render();
+    if (isCurrentOpen()) {
+      state.eventLookupPending = false;
+      render();
+    }
   }
 }
 

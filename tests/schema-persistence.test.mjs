@@ -116,7 +116,7 @@ function loadAppContext(options = {}) {
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
     .replace(/\nbootstrapApp\(\);\s*/, "\n")
-    + "\nglobalThis.__activeEventTestApi = { applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, loadAttachedSchemaForDiagnostics, persistScoutingSubmissions, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
+    + "\nglobalThis.__activeEventTestApi = { applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -321,6 +321,47 @@ await runTest("a persisted shared cached event restores without a packaged catal
   assert.equal(context.__scoutingAppState.activeEventKey, cachedEvent.key);
   assert.equal(context.eventCatalog.length, 1);
   assert.equal(context.eventCatalog[0].catalogSource, "shared-cache");
+});
+
+await runTest("an older cached-event failure cannot overwrite a newer successful open", async () => {
+  const context = loadAppContext({ eventCatalog: [] });
+  const cachedEvent = { key: "2025race", season: 2025, name: "Cached Race", seasonLabel: "Reefscape" };
+  const eventModel = {
+    ...cachedEvent,
+    seasonLabel: "",
+    teams: [{ number: 1, name: "Cached Team", flags: [], matches: [], sources: {}, derived: {} }],
+    teamNumbers: [1],
+    matches: [{ number: 1, red: [1], blue: [], redScore: 0, blueScore: 0, winningAlliance: "", scoreBreakdown: null }],
+    matchesComplete: 1,
+    scoringComponents: [],
+    metrics: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    dataSources: [],
+  };
+  context.__scoutingAppState.sharedCachedEvents = [cachedEvent];
+  context.firebaseEventSourceCacheApi = { loadEventSourceCache: async () => { throw new Error("No cached source is available for this event."); } };
+  let rebuildCount = 0;
+  context.CachedEventLoader = {
+    rebuildCachedEvent: async () => {
+      rebuildCount += 1;
+      if (rebuildCount === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        throw new Error("older open failed");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      return { eventModel, sourceStates: {}, warnings: [], cacheFreshness: "fresh" };
+    },
+  };
+
+  const olderOpen = context.__activeEventTestApi.openSharedCachedEvent(cachedEvent.key);
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  const newerOpen = context.__activeEventTestApi.openSharedCachedEvent(cachedEvent.key);
+  assert.equal(await newerOpen, true);
+  assert.equal(await olderOpen, false);
+  assert.equal(context.__scoutingAppState.eventLookupResult.kind, "success");
+  assert.match(context.__scoutingAppState.eventLookupResult.message, /opened from the shared Firestore cache/i);
 });
 
 await runTest("admin event changes are shared and members adopt the shared event without writing it", async () => {
