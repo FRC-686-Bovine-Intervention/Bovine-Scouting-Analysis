@@ -2270,6 +2270,11 @@ function currentDataSources() {
     };
   });
   const activeAttachment = currentScoutingAttachment();
+  const activeAttachmentLabel = normalizeText(activeAttachment?.label);
+  const defaultScoutingLabelMatch = activeAttachmentLabel.match(/^(.*)\s+Scouting$/i);
+  const scoutingSourceName = defaultScoutingLabelMatch
+    ? `${toDisplayEventLabel(defaultScoutingLabelMatch[1])} Scouting`
+    : toDisplayEventLabel(activeAttachmentLabel || "Scouting Data");
   const scoutingPolicy = defaultRefreshPolicyForSource({ kind: "scouting", sourceId: activeAttachment?.attachmentId });
   const scoutingStats = [
     { label: "Rows", value: state.scoutingSubmissions.length },
@@ -2295,7 +2300,7 @@ function currentDataSources() {
   return [
     {
       sourceId: "scouting",
-      name: activeAttachment?.label || "Scouting Data",
+      name: scoutingSourceName,
       status: visibleStatusForSource(activeAttachment || {}, scoutingPolicy, now),
       freshness: freshnessForSource(activeAttachment || {}, scoutingPolicy, now),
       notes: activeAttachment?.error || `${detectedScoutingSourceLabel(workspace, event)} | ${currentScoutingSourceUrl() || "No scouting source configured."}`,

@@ -117,7 +117,7 @@ function loadAppContext(options = {}) {
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
     .replace(/\nbootstrapApp\(\);\s*/, "\n")
-    + "\nglobalThis.__activeEventTestApi = { applyAdminEventCodeDraft, applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, loadArbitraryEventCode, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, refreshDataSource, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
+    + "\nglobalThis.__activeEventTestApi = { applyAdminEventCodeDraft, applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, currentDataSources, loadArbitraryEventCode, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, refreshDataSource, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -129,6 +129,7 @@ function loadAppContext(options = {}) {
     "src/scouting-json-import.js",
     "src/scouting-profiles.js",
     "src/event-workspace.js",
+    "src/frc-season-metadata.js",
   ].forEach((relativePath) => {
     const source = fs.readFileSync(path.join(workspaceRoot, relativePath), "utf8");
     vm.runInNewContext(source, context, { filename: path.join(workspaceRoot, relativePath) });
@@ -174,6 +175,34 @@ await runTest("schema baseline downloads the cached profile, workspace, and comp
   assert.equal("activeSortEquation" in artifact.workspace, false);
   assert.equal(artifact.schema.pridgeResponseDefinitions.find((definition) => definition.id === "tbaTotalAutoPoints").formula, "tba.autoPoints");
   assert.equal(artifact.schema.pridgeResponseDefinitions.length, 3);
+});
+
+await runTest("the scouting source card removes event trademark and sponsorship decoration", () => {
+  const eventModel = {
+    key: "2026chcmp",
+    season: 2026,
+    seasonLabel: "2026 Rebuilt™ Presented By Haas",
+    name: "FIRST Chesapeake District Championship presented by C-CAM, VSU, Go Tec, and NASA",
+    teams: [],
+    teamNumbers: [],
+    matches: [],
+    dataSources: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    sheet: null,
+  };
+  const context = loadAppContext({ eventCatalog: [eventModel] });
+  context.__scoutingAppState.activeEventKey = eventModel.key;
+  context.hydrateEventState(eventModel.key);
+
+  const scoutingSource = context.__activeEventTestApi.currentDataSources().find((source) => source.sourceId === "scouting");
+  assert.equal(
+    scoutingSource.name,
+    "FIRST Chesapeake District Championship Scouting",
+    JSON.stringify({ event: context.currentEvent(), attachment: context.currentScoutingAttachment() }),
+  );
+  assert.doesNotMatch(scoutingSource.name, /presented by|sponsored by|[™®℠]/i);
 });
 
 await runTest("schema profile updates preserve every stored profile entry", () => {
