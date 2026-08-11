@@ -215,6 +215,7 @@ await runTest("loadEventByCode builds an event model and ready provider states f
     blue: [444, 555, 666],
     redScore: 200,
     blueScore: 190,
+    hasScore: true,
     winningAlliance: "",
     scoreBreakdown: null,
   });

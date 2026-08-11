@@ -488,6 +488,7 @@ const scoutingPerf = globalThis.__scoutingPerf || { events: [] };
 globalThis.__scoutingPerf = scoutingPerf;
 
 const app = document.querySelector("#app");
+let scheduleFocusPending = false;
 installGlobalRecoveryGuards();
 
 function perfNow() {
@@ -520,6 +521,7 @@ function bootstrapApp() {
     hydrateEventState(state.activeEventKey);
     recordScoutingPerf("bootstrap.hydrateEventState", hydrateStartedAt, { eventKey: state.activeEventKey });
     document.documentElement.dataset.theme = state.theme;
+    scheduleFocusPending = state.activeView === "schedule";
     const renderStartedAt = perfNow();
     renderSafely();
     recordScoutingPerf("bootstrap.renderSafely", renderStartedAt, { eventKey: state.activeEventKey, activeView: state.activeView });
@@ -7029,8 +7031,10 @@ function toggleTheme() {
 function setView(view, options = {}) {
   const { recordHistory = true } = options;
   if (!canView(view)) view = "teams";
+  const enteringSchedule = view === "schedule" && state.activeView !== "schedule";
   if (recordHistory && state.activeView !== view) pushViewHistory();
   state.activeView = view;
+  if (enteringSchedule) scheduleFocusPending = true;
   state.contextMenu = null;
   state.inlineRename = null;
   saveState();
@@ -7125,6 +7129,15 @@ function render() {
   `;
 
   bindShellEvents();
+  focusScheduleLastPlayed();
+}
+
+function focusScheduleLastPlayed() {
+  if (!scheduleFocusPending || state.activeView !== "schedule") return;
+  scheduleFocusPending = false;
+  const row = document.querySelector("[data-schedule-last-played=\"true\"]");
+  if (!row || typeof row.scrollIntoView !== "function") return;
+  requestAnimationFrame(() => row.scrollIntoView({ block: "center", behavior: "auto" }));
 }
 
 function renderNoEventLoaded() {
@@ -8240,25 +8253,49 @@ function renderChartRow(team, selection, dist, globalMin, globalMax, eventAverag
   `;
 }
 
+function scheduleMatchGroup(match) {
+  return match?.compLevel === "qm" ? "quals" : "playoffs";
+}
+
+function matchHasScore(match) {
+  if (match?.hasScore !== undefined) return match.hasScore === true;
+  return Number(match?.redScore) >= 0 && Number(match?.blueScore) >= 0;
+}
+
+function scheduleRow(match, lastPlayedMatch) {
+  const isLastPlayed = lastPlayedMatch && matchIdentity(match) === matchIdentity(lastPlayedMatch);
+  return `
+    <article class="match-row" data-match-row="${escapeAttribute(matchIdentity(match))}"${isLastPlayed ? ' data-schedule-last-played="true"' : ""} title="Open ${escapeAttribute(matchupMatchLabel(match))} matchup">
+      <button class="match-link" data-match="${escapeAttribute(matchIdentity(match))}">${escapeHtml(matchupMatchLabel(match))}</button>
+      <span class="alliance red">${match.red.map((team) => `<button class="pill team-pill" data-team="${team}">${team}</button>`).join("")}</span>
+      <span class="alliance blue">${match.blue.map((team) => `<button class="pill team-pill" data-team="${team}">${team}</button>`).join("")}</span>
+    </article>
+  `;
+}
+
+function renderScheduleSection(label, matches, lastPlayedMatch, open) {
+  return `
+    <details class="schedule-section"${open ? " open" : ""}>
+      <summary><span>${label}</span><span class="muted">${matches.length} matches</span></summary>
+      <div class="grid">${matches.map((match) => scheduleRow(match, lastPlayedMatch)).join("")}</div>
+    </details>
+  `;
+}
+
 function renderSchedule() {
+  const matches = currentMatches();
+  const qualifications = matches.filter((match) => scheduleMatchGroup(match) === "quals");
+  const playoffs = matches.filter((match) => scheduleMatchGroup(match) === "playoffs");
+  const lastPlayedMatch = matches.filter(matchHasScore).at(-1) || null;
   return `
     <div class="section-heading">
       <div>
         <h2>Match Schedule</h2>
       </div>
     </div>
-    <div class="grid">
-      ${currentMatches()
-        .map(
-          (match) => `
-        <article class="match-row" data-match-row="${escapeAttribute(matchIdentity(match))}" title="Open ${escapeAttribute(matchupMatchLabel(match))} matchup">
-          <button class="match-link" data-match="${escapeAttribute(matchIdentity(match))}">${escapeHtml(matchupMatchLabel(match))}</button>
-          <span class="alliance red">${match.red.map((team) => `<button class="pill team-pill" data-team="${team}">${team}</button>`).join("")}</span>
-          <span class="alliance blue">${match.blue.map((team) => `<button class="pill team-pill" data-team="${team}">${team}</button>`).join("")}</span>
-        </article>
-      `,
-        )
-        .join("")}
+    <div class="schedule-sections">
+      ${renderScheduleSection("Qualifications", qualifications, lastPlayedMatch, playoffs.length === 0)}
+      ${playoffs.length ? renderScheduleSection("Playoffs", playoffs, lastPlayedMatch, true) : ""}
     </div>
   `;
 }

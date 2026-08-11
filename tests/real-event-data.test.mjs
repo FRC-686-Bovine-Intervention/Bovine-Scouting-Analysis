@@ -105,6 +105,7 @@ runTest("real event model preserves qualification alliance scores and score brea
     blue: [444, 555, 666],
     redScore: 180,
     blueScore: 140,
+    hasScore: true,
     winningAlliance: "red",
     scoreBreakdown: {
       red: { auto_points: 30, teleop_points: 110, endgame_points: 40, transition_fuel: 10 },
@@ -120,6 +121,7 @@ runTest("real event model preserves qualification alliance scores and score brea
     blue: [444, 555, 666],
     redScore: 0,
     blueScore: 0,
+    hasScore: true,
     winningAlliance: "blue",
     scoreBreakdown: null,
   });

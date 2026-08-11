@@ -321,23 +321,28 @@ function normalizeMatches(matches) {
   return matches
     .filter((match) => supportedLevels.has(String(match?.comp_level || "").toLowerCase()))
     .sort((left, right) => matchSortValue(left) - matchSortValue(right))
-    .map((match) => ({
-      id: String(match.key || `${match.comp_level || "qm"}-${match.set_number || 0}-${match.match_number || 0}`),
-      compLevel: String(match.comp_level || "qm").toLowerCase(),
-      setNumber: Number(match.set_number) || 0,
-      number: Number(match.match_number),
-      red: (match.alliances?.red?.team_keys || []).map((teamKey) => Number(String(teamKey).replace("frc", ""))).filter(Number.isFinite),
-      blue: (match.alliances?.blue?.team_keys || []).map((teamKey) => Number(String(teamKey).replace("frc", ""))).filter(Number.isFinite),
-      redScore: Number(match.alliances?.red?.score || 0),
-      blueScore: Number(match.alliances?.blue?.score || 0),
-      winningAlliance: match.winning_alliance || "",
-      scoreBreakdown: match.score_breakdown
-        ? {
-            red: cloneBreakdown(match.score_breakdown.red),
-            blue: cloneBreakdown(match.score_breakdown.blue),
-          }
-        : null,
-    }))
+    .map((match) => {
+      const redScore = Number(match.alliances?.red?.score);
+      const blueScore = Number(match.alliances?.blue?.score);
+      return {
+        id: String(match.key || `${match.comp_level || "qm"}-${match.set_number || 0}-${match.match_number || 0}`),
+        compLevel: String(match.comp_level || "qm").toLowerCase(),
+        setNumber: Number(match.set_number) || 0,
+        number: Number(match.match_number),
+        red: (match.alliances?.red?.team_keys || []).map((teamKey) => Number(String(teamKey).replace("frc", ""))).filter(Number.isFinite),
+        blue: (match.alliances?.blue?.team_keys || []).map((teamKey) => Number(String(teamKey).replace("frc", ""))).filter(Number.isFinite),
+        redScore: Number.isFinite(redScore) ? redScore : 0,
+        blueScore: Number.isFinite(blueScore) ? blueScore : 0,
+        hasScore: Number.isFinite(redScore) && Number.isFinite(blueScore) && redScore >= 0 && blueScore >= 0,
+        winningAlliance: match.winning_alliance || "",
+        scoreBreakdown: match.score_breakdown
+          ? {
+              red: cloneBreakdown(match.score_breakdown.red),
+              blue: cloneBreakdown(match.score_breakdown.blue),
+            }
+          : null,
+      };
+    })
     .filter((match) => match.red.length === 3 && match.blue.length === 3);
 }
 

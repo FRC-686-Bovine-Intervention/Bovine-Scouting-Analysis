@@ -83,6 +83,7 @@ assert.deepEqual(playoffEvent.matches.slice(-2).map((match) => ({ id: match.id, 
   { id: "2019chcmp_qf1m1", compLevel: "qf", setNumber: 1, number: 1 },
   { id: "2019chcmp_sf1m1", compLevel: "sf", setNumber: 1, number: 1 },
 ]);
+assert.equal(playoffEvent.matches.at(-2).hasScore, true);
 console.log("PASS event model includes playoff matches with stable identities");
 
 const deferred = context.EventModelBuilder.buildEventModelFromProviderBundle({ ...bundle, deferPridgeTrends: true });
