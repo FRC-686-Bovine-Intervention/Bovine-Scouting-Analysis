@@ -163,7 +163,14 @@ try {
   await page.fill("#firebaseEmailInput", "admin@example.test");
   await page.fill("#firebasePasswordInput", "local-admin-password");
   await page.click("#firebaseLoginButton");
-  await page.waitForSelector(".app-shell", { state: "visible", timeout: 15000 });
+  try {
+    await page.waitForSelector(".app-shell", { state: "visible", timeout: 15000 });
+  } catch (error) {
+    const cachedEventSelect = page.locator("#sharedCachedEventSelect");
+    if (!(await cachedEventSelect.isVisible().catch(() => false))) throw error;
+    await cachedEventSelect.selectOption("2026cached");
+    await page.waitForSelector(".app-shell", { state: "visible", timeout: 15000 });
+  }
   await page.click('[data-view="adminEventControl"]');
   await page.waitForSelector("#adminEventCodeInput", { state: "visible", timeout: 10000 });
   await page.waitForFunction(() => window.__scoutingAppState?.sharedCachedEvents?.some((event) => event.key === "2026cached"), { timeout: 10000 });
