@@ -1649,6 +1649,12 @@ button.pill {
   gap: 8px;
 }
 
+.picklist-metric-selector {
+  max-height: min(50vh, 420px);
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
 .picklist-loader-group h3 {
   margin: 0;
   font-size: 0.85rem;

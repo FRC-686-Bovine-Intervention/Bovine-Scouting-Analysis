@@ -9101,7 +9101,7 @@ function renderAlliance() {
               )
               .join("")}
           </div>
-          <div class="picklist-loader-group">
+          <div class="picklist-loader-group picklist-metric-selector">
             <h3>Metrics</h3>
             ${orderedRankableMetrics()
               .map(
