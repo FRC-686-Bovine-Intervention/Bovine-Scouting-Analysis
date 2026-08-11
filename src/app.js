@@ -313,6 +313,20 @@ const defaultMatchupMetricIds = [
   "source:statbotics:epa.teleop_points",
   "source:statbotics:epa.endgame_points",
 ];
+const defaultMatchupMetricDefinitions = defaultMatchupMetricIds.map((id) => {
+  const componentId = id.slice("source:statbotics:".length);
+  return {
+    id,
+    kind: "source",
+    sourceId: "statbotics",
+    componentId,
+    label: `Statbotics ${componentId}`,
+    shortLabel: componentId,
+    unit: "pts",
+    granularity: "event",
+    type: "number",
+  };
+});
 const protectedEpaSortEquation = {
   id: protectedEpaSortId,
   name: "Statbotics",
@@ -2113,7 +2127,9 @@ function currentMetrics() {
 }
 
 function statboticsEpaMetric(eventModel = currentEvent()) {
-  return runtimeMetricsForEventModel(eventModel).find((metric) => metric.id === defaultStatboticsMetricId) || null;
+  return runtimeMetricsForEventModel(eventModel).find((metric) => metric.id === defaultStatboticsMetricId)
+    || defaultMatchupMetricDefinitions.find((metric) => metric.id === defaultStatboticsMetricId)
+    || null;
 }
 
 function formatMetricValueForDisplay(metric, value) {
@@ -8243,7 +8259,7 @@ function renderMatchup() {
   const match = currentMatches().find((item) => item.number === state.selectedMatch) || currentMatches()[0];
   const matchupMetrics = currentMatchupMetrics();
   const selections = normalizeMatchupMetricSelections(matchupMetrics);
-  const selectedMetrics = selections.filter(Boolean).map((id) => metricById(id)).filter(Boolean);
+  const selectedMetrics = selections.filter(Boolean).map((id) => matchupMetrics.find((metric) => metric.id === id)).filter(Boolean);
   const comparisonModels = selectedMetrics.map((metric) => matchupMetricModel(match, metric));
   const sharedScale = Math.max(...comparisonModels.map((model) => model.maximumTotal), 0);
   return `
@@ -8268,7 +8284,7 @@ function renderMatchup() {
     </div>
     <div class="matchup-metric-cards">
       ${selections.map((metricId, index) => {
-        const metric = metricId ? metricById(metricId) : null;
+        const metric = metricId ? matchupMetrics.find((entry) => entry.id === metricId) : null;
         return renderMatchupMetricCard(match, metric, index, comparisonModels.find((model) => model.metric?.id === metric?.id), state.matchupNormalization === "shared" ? sharedScale : null, matchupMetrics);
       }).join("")}
     </div>
@@ -8285,7 +8301,9 @@ function matchupMatchLabel(match) {
 }
 
 function currentMatchupMetrics() {
-  return orderedMetrics().filter((metric) => metric && metric.type !== "text");
+  const metrics = orderedMetrics().filter((metric) => metric && metric.type !== "text");
+  const availableIds = new Set(metrics.map((metric) => metric.id));
+  return [...metrics, ...defaultMatchupMetricDefinitions.filter((metric) => !availableIds.has(metric.id))];
 }
 
 function normalizeMatchupMetricSelections(metrics = currentMatchupMetrics()) {
