@@ -215,7 +215,7 @@ async function measurePairwiseMoves(page) {
   for (let index = 0; index < 20; index += 1) {
     const beforeOrder = await page.locator("[data-builder-team]").evaluateAll((buttons) => buttons.map((button) => button.dataset.builderTeam).join(","));
     const startedAt = performance.now();
-    await page.keyboard.press(index % 2 ? "Shift+ArrowUp" : "Shift+ArrowDown");
+    await page.keyboard.press(index % 2 ? "Control+ArrowUp" : "Shift+ArrowDown");
     await page.waitForFunction((previousOrder) => (
       document.querySelectorAll("[data-builder-team]")?.length > 0
       && [...document.querySelectorAll("[data-builder-team]")].map((button) => button.dataset.builderTeam).join(",") !== previousOrder
@@ -225,11 +225,28 @@ async function measurePairwiseMoves(page) {
 
   const overBudget = moveDurations.filter((duration) => duration > 100);
   assert.deepEqual(overBudget, [], `Pairwise moves exceeded 100 ms: ${JSON.stringify(overBudget)}`);
+  const savedOrder = await page.locator("[data-builder-team]").evaluateAll((buttons) => buttons.map((button) => button.dataset.builderTeam).join(","));
+  await page.locator("[data-pairwise-save]").click();
+  await page.locator("[data-current-picklist]").click({ button: "right" });
+  await page.waitForSelector("[data-pairwise-start]", { state: "visible" });
+  const afterSaveOrder = await page.locator("[data-builder-team]").evaluateAll((buttons) => buttons.map((button) => button.dataset.builderTeam).join(","));
+  assert.equal(afterSaveOrder, savedOrder, "Save did not commit the pairwise order.");
+
+  await page.locator("[data-pairwise-start]").click();
+  const beforeCancelOrder = await page.locator("[data-builder-team]").evaluateAll((buttons) => buttons.map((button) => button.dataset.builderTeam).join(","));
+  await page.keyboard.press("Shift+ArrowDown");
+  await page.locator("[data-pairwise-cancel]").click();
+  await page.locator("[data-current-picklist]").click({ button: "right" });
+  await page.waitForSelector("[data-pairwise-start]", { state: "visible" });
+  const afterCancelOrder = await page.locator("[data-builder-team]").evaluateAll((buttons) => buttons.map((button) => button.dataset.builderTeam).join(","));
+  assert.equal(afterCancelOrder, beforeCancelOrder, "Cancel changed the persisted pairwise order.");
   return {
     count: moveDurations.length,
     durationsMs: moveDurations,
     maxMs: Math.max(...moveDurations),
     medianMs: moveDurations.slice().sort((left, right) => left - right)[Math.floor(moveDurations.length / 2)],
+    saveVerified: true,
+    cancelVerified: true,
   };
 }
 
