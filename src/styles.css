@@ -404,11 +404,23 @@ select {
   cursor: pointer;
   font-size: 1.05rem;
   font-weight: 700;
-  list-style-position: inside;
+  list-style: none;
 }
 
-.schedule-section > summary::marker {
+.schedule-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.schedule-section > summary::before {
+  content: ">";
+  display: inline-block;
+  width: 1em;
   color: var(--accent-strong);
+  transition: transform 120ms ease;
+}
+
+.schedule-section[open] > summary::before {
+  transform: rotate(90deg);
 }
 
 .grid {
@@ -1154,15 +1166,16 @@ select {
 }
 
 .match-row {
-  grid-template-columns: 90px 1fr 1fr;
+  grid-template-columns: 140px 1fr 1fr;
   align-items: center;
 }
 
 .match-link {
-  width: 64px;
+  width: 140px;
   font-weight: 800;
   position: relative;
   z-index: 1;
+  white-space: nowrap;
 }
 
 .match-nav {
