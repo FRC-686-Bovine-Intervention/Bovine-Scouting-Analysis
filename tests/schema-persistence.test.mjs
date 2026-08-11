@@ -431,6 +431,11 @@ await runTest("admin event changes are shared and members adopt the shared event
   context.__activeEventTestApi.switchActiveEvent("2024mdsev");
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(savedEventKeys, ["2024mdsev"]);
+  sharedEventListener("2026chcmp");
+  assert.equal(state.activeEventKey, "2024mdsev");
+  await new Promise((resolve) => setTimeout(resolve, 5100));
+  sharedEventListener("2026chcmp");
+  assert.equal(state.activeEventKey, "2024mdsev");
 
   context.firebaseUserRole = "member";
   sharedEventListener("2026chcmp");

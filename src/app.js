@@ -4782,6 +4782,7 @@ function startSharedActiveEventSync() {
     if (globalThis.firebaseUserRole !== "admin") pendingUserSharedActiveEventKey = "";
     if (pendingUserSharedActiveEventKey) {
       if (sharedEventKey !== pendingUserSharedActiveEventKey) return;
+      pendingUserSharedActiveEventKey = "";
     }
     if (!sharedEventKey) {
       persistSharedActiveEvent(state.activeEventKey);
@@ -5062,9 +5063,6 @@ function switchActiveEvent(eventKey, options = {}) {
     saveState();
     if (options.persistShared !== false) {
       pendingUserSharedActiveEventKey = resolvedEventKey;
-      setTimeout(() => {
-        if (pendingUserSharedActiveEventKey === resolvedEventKey) pendingUserSharedActiveEventKey = "";
-      }, 5000);
       persistSharedActiveEvent(resolvedEventKey);
     }
     if (options.rerunImportPreview) {
