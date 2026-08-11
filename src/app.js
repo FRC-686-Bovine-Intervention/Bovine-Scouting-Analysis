@@ -479,6 +479,7 @@ let attemptedScoutingAutoloadToken = "";
 const pendingExternalRefreshSourceIds = new Set();
 let sourceRefreshIntervalId = null;
 let sharedCachedEventOpenSequence = 0;
+let eventLoadSequence = 0;
 let scoutingSubmissionRevision = 0;
 let scoutingSubmissionLoadSequence = 0;
 let allianceSourceScrollbarResizeObserver = null;
@@ -1738,7 +1739,7 @@ async function applyAdminEventCodeDraft(value, options = {}) {
     if (switched) void refreshCurrentExternalSourcesImmediately();
     return switched;
   }
-  return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl" });
+  return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl", allowDuplicate: true });
 }
 
 async function applyScoutingSourceInputChange(options = {}) {
@@ -4666,7 +4667,8 @@ async function loadCachedScoutingData(eventKey, api) {
 
 async function openSharedCachedEvent(eventKey, options = {}) {
   const openSequence = ++sharedCachedEventOpenSequence;
-  const isCurrentOpen = () => openSequence === sharedCachedEventOpenSequence;
+  const selectionSequence = ++eventLoadSequence;
+  const isCurrentOpen = () => openSequence === sharedCachedEventOpenSequence && selectionSequence === eventLoadSequence;
   const cachedEvent = sharedCachedEventByKey(eventKey);
   const api = globalThis.firebaseEventSourceCacheApi;
   const cachedEventLoader = globalThis.CachedEventLoader;
@@ -5116,6 +5118,8 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     return false;
   }
   if (!options.allowDuplicate && state.eventLookupPending && state.adminEventCodeDraft === normalizedEventCode) return false;
+  const loadSequence = ++eventLoadSequence;
+  const isCurrentLoad = () => loadSequence === eventLoadSequence;
   state.eventLookupPending = true;
   state.eventLookupResult = { kind: "info", message: `Loading ${normalizedEventCode} from external providers...` };
   render();
@@ -5126,6 +5130,7 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
       deferPridgeTrends: options.deferPridgeTrends === true,
       deferPridgeComputation: options.deferPridgeComputation === true,
     });
+    if (!isCurrentLoad()) return false;
     const registeredEvent = registerEventModel(loadResult.eventModel);
     await refreshSharedSeasonMetadata();
     subscribeSharedSeasonMetadata();
@@ -5176,6 +5181,7 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     render();
     return true;
   } catch (error) {
+    if (!isCurrentLoad()) return false;
     markTbaAuthFailure(error);
     markFrcApiAuthFailure(error);
     state.eventLookupResult = {
@@ -5185,8 +5191,10 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     render();
     return false;
   } finally {
-    state.eventLookupPending = false;
-    render();
+    if (isCurrentLoad()) {
+      state.eventLookupPending = false;
+      render();
+    }
   }
 }
 

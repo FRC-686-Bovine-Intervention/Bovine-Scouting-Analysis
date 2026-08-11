@@ -439,6 +439,42 @@ await runTest("duplicate event-code submissions do not start overlapping cached 
   assert.equal(rebuildCount, 1);
 });
 
+await runTest("an older live event load cannot switch back after a newer load wins", async () => {
+  const makeEvent = (key) => ({
+    key,
+    season: Number(key.slice(0, 4)),
+    name: key,
+    seasonLabel: "",
+    teams: [{ number: 1, name: "Live Team", flags: [], matches: [], sources: {}, derived: {} }],
+    teamNumbers: [1],
+    matches: [],
+    matchesComplete: 0,
+    scoringComponents: [],
+    metrics: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    dataSources: [],
+  });
+  const context = loadAppContext({
+    eventCatalog: [],
+    ExternalEventLoader: {
+      loadEventByCode: async (eventCode) => {
+        await new Promise((resolve) => setTimeout(resolve, eventCode === "2026chcmp" ? 25 : 1));
+        return { eventModel: makeEvent(eventCode), sourceStates: {}, warnings: [], rawSourceArtifacts: [] };
+      },
+      normalizeEventCode: (value) => String(value || "").trim().toLowerCase(),
+    },
+  });
+
+  const olderLoad = context.__activeEventTestApi.applyAdminEventCodeDraft("2026chcmp");
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  const newerLoad = context.__activeEventTestApi.applyAdminEventCodeDraft("2025chcmp");
+  assert.equal(await newerLoad, true);
+  assert.equal(await olderLoad, false);
+  assert.equal(context.__scoutingAppState.activeEventKey, "2025chcmp");
+});
+
 await runTest("admin event changes are shared and members adopt the shared event without writing it", async () => {
   let sharedEventListener = null;
   const savedEventKeys = [];
