@@ -1178,6 +1178,11 @@ select {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.matchup-alliances {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+}
+
 .matchup-alliance-card,
 .matchup-metric-card {
   border: 1px solid var(--line);
@@ -1185,6 +1190,19 @@ select {
   background: var(--panel);
   box-shadow: var(--shadow);
   padding: 16px;
+}
+
+.matchup-match-number {
+  display: grid;
+  place-items: center;
+  min-width: 82px;
+  min-height: 82px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 1.5rem;
+  font-weight: 900;
 }
 
 .matchup-team-row {

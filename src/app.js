@@ -8263,6 +8263,7 @@ function renderMatchup() {
     </div>
     <div class="matchup-alliances">
       ${renderMatchupAllianceCard("Red Alliance", match.red, "red")}
+      <div class="matchup-match-number" aria-label="Match Q${match.number}">Q${match.number}</div>
       ${renderMatchupAllianceCard("Blue Alliance", match.blue, "blue")}
     </div>
     <div class="matchup-metric-cards">

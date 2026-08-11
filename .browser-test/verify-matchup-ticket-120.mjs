@@ -56,6 +56,7 @@ try {
       selectedMetrics: [...document.querySelectorAll("[data-matchup-metric]")].map((node) => node.value),
       bars: document.querySelectorAll(".matchup-stacked-bar").length,
       redFirst: document.querySelector(".matchup-alliance-card.red .matchup-team")?.textContent.trim(),
+      matchNumber: document.querySelector(".matchup-match-number")?.textContent.trim(),
     };
   });
   assert.deepEqual(result.allianceNames, ["2 Bravo", "3 Charlie", "1 Alpha", "4 Delta", "5 Echo", "6 Foxtrot"]);
@@ -69,6 +70,7 @@ try {
   ]);
   assert.equal(result.bars, 8, "Each selected metric should render red and blue stacked bars.");
   assert.match(result.redFirst, /2 Bravo/);
+  assert.equal(result.matchNumber, "Q1");
   assert.equal(result.epaOptionLabel, "statbotics.epa.total_points", "Metric selectors should use the canonical raw metric token label.");
 } finally {
   await browser.close();
