@@ -125,7 +125,34 @@ async function installObservers(page) {
   });
 }
 
+async function installInteractionFixture(page) {
+  await page.evaluate(() => {
+    const state = globalThis.__scoutingAppState;
+    const eventKey = state?.activeEventKey;
+    if (!state || !eventKey) throw new Error("The app did not expose an active local event.");
+
+    const profiles = Array.isArray(state.scoutingProfileCatalog?.[eventKey])
+      ? state.scoutingProfileCatalog[eventKey]
+      : [];
+    const profile = profiles[0] || {
+      id: "ticket132-local-profile",
+      label: "Ticket 132 local profile",
+      fields: [],
+      derivedEquations: [],
+    };
+    profile.derivedEquations = Array.from({ length: 24 }, (_, index) => ({
+      id: `ticket132Equation${String(index + 1).padStart(2, "0")}`,
+      name: `ticket132Equation${String(index + 1).padStart(2, "0")}`,
+      formula: "0",
+    }));
+    state.scoutingProfileCatalog = { ...state.scoutingProfileCatalog, [eventKey]: [profile] };
+    state.activeDerivedEquationId = profile.derivedEquations[0].id;
+    globalThis.render?.();
+  });
+}
+
 async function measureListInteraction(page) {
+  await installInteractionFixture(page);
   await page.click('[data-view="derivedBuilder"]');
   const list = page.locator('[data-builder-list-scroll="derived:equations"]');
   await list.waitFor({ state: "visible" });

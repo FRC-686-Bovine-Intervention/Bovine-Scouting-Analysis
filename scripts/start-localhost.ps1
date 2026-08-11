@@ -10,6 +10,16 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $pidFile = Join-Path $repoRoot ".localhost-server.$Port.pid"
 $emulatorPidFile = Join-Path $repoRoot ".firebase-emulators.pid"
 $pythonCommand = Get-Command python -ErrorAction Stop
+$nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+if (-not $nodeCommand) {
+  $installedNode = Join-Path ${env:ProgramFiles} "nodejs\node.exe"
+  if (Test-Path -LiteralPath $installedNode) {
+    $nodeCommand = Get-Command $installedNode
+    $env:Path = "$(Split-Path -Parent $installedNode);$env:Path"
+  } else {
+    throw "Node.js is required to seed the Firebase emulators. Install Node.js or add node.exe to PATH before running this script."
+  }
+}
 $firebaseCommand = Get-Command firebase -ErrorAction Stop
 $javaCommand = Get-Command java -ErrorAction SilentlyContinue
 if (-not $javaCommand) {
@@ -59,9 +69,13 @@ if (-not $emulatorProcess) {
   $seeded = $false
   for ($attempt = 0; $attempt -lt 20 -and -not $seeded; $attempt++) {
     Start-Sleep -Milliseconds 500
-    & node (Join-Path $repoRoot "scripts\seed-firebase-emulators.mjs") 2>$null
+    $seedOutput = & $nodeCommand.Source (Join-Path $repoRoot "scripts\seed-firebase-emulators.mjs") 2>&1
     $seeded = ($LASTEXITCODE -eq 0)
   }
-  if (-not $seeded) { throw "Firebase emulators did not become ready. Localhost startup stopped before allowing app use." }
+  if (-not $seeded) {
+    $details = ($seedOutput | Out-String).Trim()
+    if ($details) { Write-Error $details }
+    throw "Firebase emulators did not become ready. Localhost startup stopped before allowing app use."
+  }
 }
 Write-Output "Localhost server ready for $repoRoot at http://$HostAddress`:$Port/index.html (PID $($serverProcess.Id))."
