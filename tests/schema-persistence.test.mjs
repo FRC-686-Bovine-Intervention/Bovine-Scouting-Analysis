@@ -117,7 +117,7 @@ function loadAppContext(options = {}) {
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
     .replace(/\nbootstrapApp\(\);\s*/, "\n")
-    + "\nglobalThis.__activeEventTestApi = { applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
+    + "\nglobalThis.__activeEventTestApi = { applyAdminEventCodeDraft, applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -397,7 +397,7 @@ await runTest("a cached event with missing TBA artifacts falls back to a live lo
     rebuildCachedEvent: async () => { throw new Error("Cached tba-event data is unavailable: No cached source is available for this event."); },
   };
 
-  assert.equal(await context.__activeEventTestApi.openSharedCachedEvent(cachedEvent.key), true);
+  assert.equal(await context.__activeEventTestApi.applyAdminEventCodeDraft(cachedEvent.key), true);
   assert.equal(context.__scoutingAppState.activeEventKey, cachedEvent.key);
   assert.equal(context.__scoutingAppState.eventLookupResult.kind, "success");
   assert.match(context.__scoutingAppState.eventLookupResult.message, /loaded from external providers/i);

@@ -1726,7 +1726,9 @@ async function applyAdminEventCodeDraft(value, options = {}) {
   }
   state.adminEventCodeDraft = normalizedEventCode;
   if (sharedCachedEventByKey(normalizedEventCode)) {
-    return openSharedCachedEvent(normalizedEventCode, { activeView: "adminEventControl", persistShared: true });
+    const opened = await openSharedCachedEvent(normalizedEventCode, { activeView: "adminEventControl", persistShared: true });
+    if (opened) return true;
+    return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl", allowDuplicate: true });
   }
   if (globalEventCatalog.some((eventModel) => eventModel?.key === normalizedEventCode)) {
     const switched = switchActiveEvent(normalizedEventCode, { activeView: "adminEventControl" });
