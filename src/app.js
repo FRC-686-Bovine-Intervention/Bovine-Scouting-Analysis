@@ -7054,7 +7054,7 @@ function render() {
       <aside class="sidebar">
         <div class="brand-row">
           <div>
-            <p class="eyebrow">FRC</p>
+            <p class="eyebrow">Bovine</p>
             <h1>Scouting Analysis</h1>
           </div>
           <button class="icon-button" id="menuToggle" title="${state.menuExpanded ? "Collapse menu" : "Expand menu"}" aria-label="${state.menuExpanded ? "Collapse menu" : "Expand menu"}">
