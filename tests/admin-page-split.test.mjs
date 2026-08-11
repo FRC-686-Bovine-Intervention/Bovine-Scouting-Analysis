@@ -57,6 +57,7 @@ assert.match(dataQuality, /return `<div class="grid cols-2">/);
 assert.match(dataQuality, /Schema Diagnostics/);
 assert.match(dataQuality, /Duplicate Review/);
 assert.doesNotMatch(userControl, /renderRawSourceCacheViewer\(\)/);
+assert.match(userControl, /renderPerformanceDiagnostics/);
 assert.match(source, /raw-source-cache-preview/);
 assert.doesNotMatch(source, /Readable Preview/);
 assert.match(userControl, /renderAccessManagement\(\)/);

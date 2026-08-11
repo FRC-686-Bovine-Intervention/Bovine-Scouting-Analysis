@@ -8017,7 +8017,6 @@ function calculateAnalysisResult(selection) {
 function scheduleAnalysisCalculation(selection, key) {
   if (pendingAnalysisCalculation?.key === key) return;
   pendingAnalysisCalculation = { key };
-  globalThis.__analysisPerf = globalThis.__analysisPerf || { calculations: 0, cacheHits: 0 };
   setTimeout(() => {
     if (state.activeView !== "analysis" || analysisResultKey(selection) !== key) {
       if (pendingAnalysisCalculation?.key === key) pendingAnalysisCalculation = null;
@@ -8034,7 +8033,6 @@ function scheduleAnalysisCalculation(selection, key) {
       const result = calculateAnalysisResult(selection);
       analysisResultCache.set(key, result);
       lastAnalysisResult = { key, result };
-      globalThis.__analysisPerf.calculations += 1;
       incrementScoutingPerfCounter("analysisCalculations");
       recordScoutingPerf("analysis.calculation", calculationStartedAt, { metricId: selection.metric?.id || "", cached: false });
     } catch (error) {
@@ -8075,8 +8073,6 @@ function renderAnalysis() {
   const cached = analysisResultCache.get(key);
   const analysisPending = !cached;
   if (cached) {
-    globalThis.__analysisPerf = globalThis.__analysisPerf || { calculations: 0, cacheHits: 0 };
-    globalThis.__analysisPerf.cacheHits += 1;
     incrementScoutingPerfCounter("analysisCacheHits");
   } else {
     incrementScoutingPerfCounter("analysisCacheMisses");

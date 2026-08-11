@@ -136,25 +136,25 @@ async function verifyDeferredAnalysis(page) {
   await page.waitForFunction(() => globalThis.__scoutingAppState?.activeView === "teams");
   await page.evaluate(() => { globalThis.__scoutingAppState.activeView = "analysis"; render(); });
   await page.waitForFunction(() => globalThis.__scoutingAppState?.activeView === "analysis");
-  await page.waitForFunction(() => Number(globalThis.__analysisPerf?.calculations || 0) >= 1, null, { timeout: 15000 });
-  const firstCalculationCount = await page.evaluate(() => globalThis.__analysisPerf?.calculations || 0);
+  await page.waitForFunction(() => Number(globalThis.scoutingPerfDiagnostics?.snapshot?.().counters?.analysisCalculations || 0) >= 1, null, { timeout: 15000 });
+  const firstCalculationCount = await page.evaluate(() => globalThis.scoutingPerfDiagnostics?.snapshot?.().counters?.analysisCalculations || 0);
   const alternateMetric = metricValues.find((value) => value !== metricValues[0]);
   if (alternateMetric) {
     await page.selectOption("#metricSelect", alternateMetric);
-    await page.waitForFunction((count) => Number(globalThis.__analysisPerf?.calculations || 0) === count + 1, firstCalculationCount, { timeout: 15000 });
+    await page.waitForFunction((count) => Number(globalThis.scoutingPerfDiagnostics?.snapshot?.().counters?.analysisCalculations || 0) === count + 1, firstCalculationCount, { timeout: 15000 });
   } else {
     const filterValues = await page.locator("#analysisFilterSelect option").evaluateAll((options) => options.map((option) => option.value).filter(Boolean));
     assertCondition(filterValues.length > 0, "Analysis did not expose a second metric or filter to invalidate its cache.");
     await page.selectOption("#analysisFilterSelect", filterValues[0]);
-    await page.waitForFunction((count) => Number(globalThis.__analysisPerf?.calculations || 0) === count + 1, firstCalculationCount, { timeout: 15000 });
+    await page.waitForFunction((count) => Number(globalThis.scoutingPerfDiagnostics?.snapshot?.().counters?.analysisCalculations || 0) === count + 1, firstCalculationCount, { timeout: 15000 });
   }
-  const afterMetricChangeCount = await page.evaluate(() => globalThis.__analysisPerf?.calculations || 0);
+  const afterMetricChangeCount = await page.evaluate(() => globalThis.scoutingPerfDiagnostics?.snapshot?.().counters?.analysisCalculations || 0);
   await page.evaluate(() => { globalThis.__scoutingAppState.activeView = "teams"; render(); });
   await page.waitForFunction(() => globalThis.__scoutingAppState?.activeView === "teams");
   await page.evaluate(() => { globalThis.__scoutingAppState.activeView = "analysis"; render(); });
   await page.waitForFunction(() => globalThis.__scoutingAppState?.activeView === "analysis");
   await page.waitForTimeout(100);
-  const finalCalculationCount = await page.evaluate(() => globalThis.__analysisPerf?.calculations || 0);
+  const finalCalculationCount = await page.evaluate(() => globalThis.scoutingPerfDiagnostics?.snapshot?.().counters?.analysisCalculations || 0);
   assertCondition(finalCalculationCount === afterMetricChangeCount, "Analysis recalculated after returning to a cached metric.");
   return { firstCalculationCount, afterMetricChangeCount, finalCalculationCount, cacheReused: true };
 }
