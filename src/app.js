@@ -4734,6 +4734,15 @@ async function openSharedCachedEvent(eventKey, options = {}) {
     if (isCurrentOpen()) render();
     return true;
   } catch (error) {
+    if (isCurrentOpen() && state.tbaAuthKey && /No cached source is available/i.test(error?.message || "")) {
+      const liveLoaded = await loadArbitraryEventCode(eventKey, {
+        activeView: options.activeView || "adminEventControl",
+        allowDuplicate: true,
+        deferPridgeTrends: true,
+        deferPridgeComputation: true,
+      });
+      if (liveLoaded) return true;
+    }
     if (isCurrentOpen()) {
       state.eventLookupResult = { kind: "error", message: `Unable to open cached ${normalizeText(eventKey)}. ${error?.message || ""}`.trim() };
       render();

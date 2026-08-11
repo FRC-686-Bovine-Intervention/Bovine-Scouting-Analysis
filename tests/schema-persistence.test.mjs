@@ -70,6 +70,7 @@ function loadAppContext(options = {}) {
     URL,
     URLSearchParams,
     eventCatalog,
+    ExternalEventLoader: options.ExternalEventLoader || {},
     localStorage: {
       getItem: (key) => storedValues.has(String(key)) ? storedValues.get(String(key)) : null,
       setItem: (key, value) => storedValues.set(String(key), String(value)),
@@ -362,6 +363,44 @@ await runTest("an older cached-event failure cannot overwrite a newer successful
   assert.equal(await olderOpen, false);
   assert.equal(context.__scoutingAppState.eventLookupResult.kind, "success");
   assert.match(context.__scoutingAppState.eventLookupResult.message, /opened from the shared Firestore cache/i);
+});
+
+await runTest("a cached event with missing TBA artifacts falls back to a live load", async () => {
+  const cachedEvent = { key: "2024mdsev", season: 2024, name: "Cached Severn", seasonLabel: "2024" };
+  const eventModel = {
+    ...cachedEvent,
+    seasonLabel: "",
+    teams: [{ number: 1, name: "Live Team", flags: [], matches: [], sources: {}, derived: {} }],
+    teamNumbers: [1],
+    matches: [],
+    matchesComplete: 0,
+    scoringComponents: [],
+    metrics: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    dataSources: [],
+  };
+  const context = loadAppContext({
+    eventCatalog: [],
+    ExternalEventLoader: {
+      loadEventByCode: async () => ({ eventModel, sourceStates: {}, warnings: [], rawSourceArtifacts: [] }),
+      normalizeEventCode: (value) => String(value || "").trim().toLowerCase(),
+    },
+  });
+  context.__scoutingAppState.sharedCachedEvents = [cachedEvent];
+  context.__scoutingAppState.tbaAuthKey = "configured";
+  context.firebaseEventSourceCacheApi = {
+    loadEventSourceCache: async () => { throw new Error("Cached tba-event data is unavailable: No cached source is available for this event."); },
+  };
+  context.CachedEventLoader = {
+    rebuildCachedEvent: async () => { throw new Error("Cached tba-event data is unavailable: No cached source is available for this event."); },
+  };
+
+  assert.equal(await context.__activeEventTestApi.openSharedCachedEvent(cachedEvent.key), true);
+  assert.equal(context.__scoutingAppState.activeEventKey, cachedEvent.key);
+  assert.equal(context.__scoutingAppState.eventLookupResult.kind, "success");
+  assert.match(context.__scoutingAppState.eventLookupResult.message, /loaded from external providers/i);
 });
 
 await runTest("admin event changes are shared and members adopt the shared event without writing it", async () => {
