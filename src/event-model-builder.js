@@ -135,7 +135,7 @@ function buildFormulaMatches(rawMatches, definition) {
 }
 
 function rawMatchesFromEventModel(eventModel = {}) {
-  return (eventModel.matches || []).map((match) => ({
+  return (eventModel.matches || []).filter((match) => (match?.compLevel || "qm") === "qm").map((match) => ({
     comp_level: "qm",
     match_number: match.number,
     alliances: {
@@ -249,7 +249,7 @@ function statboticsMatchNumber(match) {
   const direct = Number(match?.match_number ?? match?.matchNumber);
   if (Number.isFinite(direct)) return direct;
   const key = String(match?.match || match?.match_key || match?.key || "");
-  const suffix = key.match(/_(?:qm|ef|qf|sf|f)(\d+)$/i);
+  const suffix = key.match(/_(?:qm|ef|qf|sf|f)(?:\d+m)?(\d+)$/i);
   return suffix ? Number(suffix[1]) : null;
 }
 
@@ -261,6 +261,13 @@ function statboticsMatchEpa(match) {
     match?.epa,
   ];
   return candidates.map((value) => Number(value)).find((value) => Number.isFinite(value)) ?? null;
+}
+
+function statboticsMatchLevel(match) {
+  const explicit = String(match?.comp_level || "").toLowerCase();
+  if (explicit) return explicit;
+  const key = String(match?.match || match?.match_key || match?.key || "");
+  return key.match(/_(qm|ef|qf|sf|f)\d+(?:m\d+)?$/i)?.[1].toLowerCase() || "";
 }
 
 function buildStatboticsTrendEntries(teamMatches) {
@@ -301,7 +308,7 @@ function buildSeedPicklists(teams) {
 
 function matchSortValue(match) {
   const compOrder = { qm: 0, ef: 1, qf: 2, sf: 3, f: 4 };
-  return (compOrder[match.comp_level] || 9) * 1000 + Number(match.match_number || 0) * 10 + Number(match.set_number || 0);
+  return (compOrder[match.comp_level] ?? 9) * 1000 + Number(match.match_number || 0) * 10 + Number(match.set_number || 0);
 }
 
 function cloneBreakdown(breakdown) {
@@ -310,10 +317,14 @@ function cloneBreakdown(breakdown) {
 }
 
 function normalizeMatches(matches) {
+  const supportedLevels = new Set(["qm", "ef", "qf", "sf", "f"]);
   return matches
-    .filter((match) => match?.comp_level === "qm")
+    .filter((match) => supportedLevels.has(String(match?.comp_level || "").toLowerCase()))
     .sort((left, right) => matchSortValue(left) - matchSortValue(right))
     .map((match) => ({
+      id: String(match.key || `${match.comp_level || "qm"}-${match.set_number || 0}-${match.match_number || 0}`),
+      compLevel: String(match.comp_level || "qm").toLowerCase(),
+      setNumber: Number(match.set_number) || 0,
       number: Number(match.match_number),
       red: (match.alliances?.red?.team_keys || []).map((teamKey) => Number(String(teamKey).replace("frc", ""))).filter(Number.isFinite),
       blue: (match.alliances?.blue?.team_keys || []).map((teamKey) => Number(String(teamKey).replace("frc", ""))).filter(Number.isFinite),
@@ -378,7 +389,8 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, tbaComponents, teamMatch
   );
   const scouterFields = Array.isArray(scoutingSchema?.scouterMetricDefinitions) ? scoutingSchema.scouterMetricDefinitions : [];
   const emptyScouterComponents = Object.fromEntries(scouterFields.map((component) => [component.id, 0]));
-  const statboticsTrendEntries = buildStatboticsTrendEntries(teamMatches);
+  const statboticsTrendEntries = buildStatboticsTrendEntries(teamMatches.filter((match) => statboticsMatchLevel(match) === "qm"));
+  const statboticsPlayoffTrendEntries = buildStatboticsTrendEntries(teamMatches.filter((match) => ["ef", "qf", "sf", "f"].includes(statboticsMatchLevel(match))));
   if (statboticsTrendEntries.length) {
     statboticsComponents["epa.post"] = statboticsTrendEntries.at(-1).value;
   }
@@ -396,6 +408,7 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, tbaComponents, teamMatch
         components: { ...statboticsComponents },
         trend: statboticsTrendEntries.map((entry) => entry.value),
         trendEntries: statboticsTrendEntries,
+        playoffTrendEntries: statboticsPlayoffTrendEntries,
       },
       tba: { total: null, components: { ...(tbaComponents || {}) }, trend: [] },
       pridge: { total: null, components: {}, trend: [] },
@@ -446,11 +459,12 @@ function buildEventModelFromPayloads(payload) {
     })
     .sort((left, right) => left.number - right.number);
   const matches = normalizeMatches(payload.tbaMatches || []);
+  const qualificationMatches = (payload.tbaMatches || []).filter((match) => match?.comp_level === "qm");
   let pridgeResult = null;
   let pridgeError = "";
   if (!deferPridgeComputation && typeof computeEventPridge === "function" && matches.length && (payload.statboticsTeamEvents || []).length) {
     try {
-      pridgeResult = computeEventPridge(payload.tbaMatches || [], payload.statboticsTeamEvents || [], {
+      pridgeResult = computeEventPridge(qualificationMatches, payload.statboticsTeamEvents || [], {
         responseName: "score",
         digits: 1,
       });
@@ -462,7 +476,7 @@ function buildEventModelFromPayloads(payload) {
   if (!deferPridgeComputation) pridgeResponseDefinitions.forEach((definition) => {
     if (typeof computeEventPridge !== "function" || !matches.length || !(payload.statboticsTeamEvents || []).length) return;
     try {
-      const formulaMatches = buildFormulaMatches(payload.tbaMatches || [], definition);
+      const formulaMatches = buildFormulaMatches(qualificationMatches, definition);
       if (formulaMatches.length) {
         pridgeResponseResults[definition.id] = computeEventPridge(formulaMatches, payload.statboticsTeamEvents || [], {
           responseName: "score",
@@ -498,7 +512,7 @@ function buildEventModelFromPayloads(payload) {
   });
   if (!deferPridgeComputation && !deferPridgeTrends && typeof computeEventPridge === "function" && matches.length && (payload.statboticsTeamEvents || []).length) {
     const cumulativeByTeam = new Map(teamsWithPridge.map((team) => [team.number, []]));
-    matches.forEach((match) => {
+    matches.filter((match) => match.compLevel === "qm").forEach((match) => {
       try {
         const result = computeEventPridge((payload.tbaMatches || []).filter((candidate) => {
           const number = Number(candidate?.match_number);

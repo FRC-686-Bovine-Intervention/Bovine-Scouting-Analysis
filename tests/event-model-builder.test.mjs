@@ -50,6 +50,41 @@ const bundle = {
   ],
 };
 
+const playoffBundle = {
+  ...bundle,
+  tbaMatches: [
+    ...bundle.tbaMatches,
+    {
+      comp_level: "qf",
+      set_number: 1,
+      match_number: 1,
+      key: "2019chcmp_qf1m1",
+      alliances: {
+        red: { team_keys: ["frc1", "frc3", "frc5"], score: 120 },
+        blue: { team_keys: ["frc2", "frc4", "frc6"], score: 110 },
+      },
+    },
+    {
+      comp_level: "sf",
+      set_number: 1,
+      match_number: 1,
+      key: "2019chcmp_sf1m1",
+      alliances: {
+        red: { team_keys: ["frc1", "frc3", "frc5"], score: 130 },
+        blue: { team_keys: ["frc2", "frc4", "frc6"], score: 125 },
+      },
+    },
+  ],
+};
+
+const playoffEvent = context.EventModelBuilder.buildEventModelFromProviderBundle({ ...playoffBundle, deferPridgeComputation: true });
+assert.equal(playoffEvent.matches.length, 82);
+assert.deepEqual(playoffEvent.matches.slice(-2).map((match) => ({ id: match.id, compLevel: match.compLevel, setNumber: match.setNumber, number: match.number })), [
+  { id: "2019chcmp_qf1m1", compLevel: "qf", setNumber: 1, number: 1 },
+  { id: "2019chcmp_sf1m1", compLevel: "sf", setNumber: 1, number: 1 },
+]);
+console.log("PASS event model includes playoff matches with stable identities");
+
 const deferred = context.EventModelBuilder.buildEventModelFromProviderBundle({ ...bundle, deferPridgeTrends: true });
 assert.equal(pridgeCalls, 1, "Deferred cached event construction should compute totals without cumulative trends.");
 assert.equal(deferred.teams[0].sources.pridge.trendEntries.length, 0);

@@ -151,11 +151,14 @@ async function loadStatboticsBundle(primaryBaseUrl, fallbackBaseUrl, normalizedE
 
 async function fetchStatboticsTeamMatchRows(statboticsBaseUrl, eventCode, matches, options = {}) {
   if (options.loadStatboticsMatchData === false) return { rows: [], responses: [] };
+  const supportedLevels = new Set(["qm", "ef", "qf", "sf", "f"]);
+  const isSupportedMatch = (match) => supportedLevels.has(String(match?.comp_level || "").toLowerCase())
+    || /_(?:qm|ef|qf|sf|f)\d+(?:m\d+)?$/i.test(String(match?.match || match?.key || ""));
   const teamMatchesUrl = `${statboticsBaseUrl}/team_matches?event=${encodeURIComponent(eventCode)}&limit=10000`;
   try {
     const response = await fetchJson(teamMatchesUrl, options);
     const rows = (Array.isArray(response.payload) ? response.payload : [])
-      .filter((match) => match?.comp_level === "qm" || /_qm\d+$/i.test(String(match?.match || match?.key || "")))
+      .filter(isSupportedMatch)
       .filter((match) => Number.isFinite(Number(match?.team)));
     return { rows, responses: [response] };
   } catch {
@@ -164,7 +167,7 @@ async function fetchStatboticsTeamMatchRows(statboticsBaseUrl, eventCode, matche
   try {
     const response = await fetchJson(`${statboticsBaseUrl}/matches?event=${encodeURIComponent(eventCode)}`, options);
     const rows = (Array.isArray(response.payload) ? response.payload : [])
-      .filter((match) => match?.comp_level === "qm")
+      .filter(isSupportedMatch)
       .flatMap((match) => Object.entries(match?.epas || {}).map(([team, epa]) => ({
         team: Number(team),
         match: match.key,
@@ -175,7 +178,7 @@ async function fetchStatboticsTeamMatchRows(statboticsBaseUrl, eventCode, matche
     // Older/fallback Statbotics hosts may not expose either collection route.
   }
   const requests = (Array.isArray(matches) ? matches : [])
-    .filter((match) => match?.comp_level === "qm" && (match?.key || Number.isFinite(Number(match?.match_number))))
+    .filter((match) => isSupportedMatch(match) && (match?.key || Number.isFinite(Number(match?.match_number))))
     .flatMap((match) => [
       ...(match.alliances?.red?.team_keys || []),
       ...(match.alliances?.blue?.team_keys || []),

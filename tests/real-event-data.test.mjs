@@ -92,11 +92,14 @@ runTest("real event model preserves qualification alliance scores and score brea
     ? context.RealEventData.hydrateEventModel(catalogEntry)
     : catalogEntry;
   assert.ok(eventModel, "Event model should be created");
-  assert.equal(eventModel.matchesComplete, 1);
-  assert.equal(eventModel.matches.length, 1);
+  assert.equal(eventModel.matchesComplete, 2);
+  assert.equal(eventModel.matches.length, 2);
   assert.equal(Array.isArray(eventModel.scoringMatrixPresets), true);
   assert.equal(eventModel.scoringMatrixPresets.length, 0);
   assert.deepEqual(JSON.parse(JSON.stringify(eventModel.matches[0])), {
+    id: "qm-1-1",
+    compLevel: "qm",
+    setNumber: 1,
     number: 1,
     red: [111, 222, 333],
     blue: [444, 555, 666],
@@ -107,6 +110,18 @@ runTest("real event model preserves qualification alliance scores and score brea
       red: { auto_points: 30, teleop_points: 110, endgame_points: 40, transition_fuel: 10 },
       blue: { auto_points: 20, teleop_points: 95, endgame_points: 25, transition_fuel: 8 },
     },
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(eventModel.matches[1])), {
+    id: "sf-1-1",
+    compLevel: "sf",
+    setNumber: 1,
+    number: 1,
+    red: [111, 222, 333],
+    blue: [444, 555, 666],
+    redScore: 0,
+    blueScore: 0,
+    winningAlliance: "blue",
+    scoreBreakdown: null,
   });
 });
 

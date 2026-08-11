@@ -382,7 +382,7 @@ const state = {
   teamDetailMetric: "",
   picklistCompareMetric: "",
   selectedTeam: initialEvent.teams[0]?.number || 0,
-  selectedMatch: initialEvent.matches[0]?.number || 0,
+  selectedMatch: initialEvent.matches[0]?.id || initialEvent.matches[0]?.number || 0,
   matchupMetricSelections: [...defaultMatchupMetricIds],
   matchupNormalization: "shared",
   menuExpanded: readStoredItem(storageKeys.menuExpanded) === "true",
@@ -2106,6 +2106,16 @@ function currentTeams() {
 
 function currentMatches() {
   return currentEvent().matches;
+}
+
+function matchIdentity(match) {
+  return String(match?.id || `${match?.compLevel || "qm"}-${match?.setNumber || 0}-${match?.number || 0}`);
+}
+
+function findMatchBySelection(selection) {
+  const selected = String(selection ?? "");
+  return currentMatches().find((match) => matchIdentity(match) === selected)
+    || currentMatches().find((match) => Number.isFinite(Number(selection)) && match.number === Number(selection));
 }
 
 function runtimeMetricsForEventModel(eventModel = currentEvent()) {
@@ -4813,7 +4823,7 @@ function hydrateEventState(eventKey) {
   state.teamDetailMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.teamDetailMetric, resolvedEventKey), eventModel);
   state.picklistCompareMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.picklistCompareMetric, resolvedEventKey), eventModel);
   state.selectedTeam = Number(readStoredItem(storageKeys.selectedTeam, resolvedEventKey)) || eventModel.teams[0]?.number || 0;
-  state.selectedMatch = Number(readStoredItem(storageKeys.selectedMatch, resolvedEventKey)) || eventModel.matches[0]?.number || 0;
+  state.selectedMatch = readStoredItem(storageKeys.selectedMatch, resolvedEventKey) || eventModel.matches[0]?.id || eventModel.matches[0]?.number || 0;
   state.picklists = normalizePicklists(readStoredJson(storageKeys.picklists, eventModel.seedPicklists, resolvedEventKey), eventModel);
   state.sortEquations = normalizeSortEquations(readStoredJson(storageKeys.sortEquations, eventModel.seedSortEquations, resolvedEventKey), eventModel);
   state.activePicklist = resolvePicklistId(readStoredItem(storageKeys.activePicklist, resolvedEventKey), state.picklists) || state.picklists[0]?.id || "";
@@ -4865,7 +4875,7 @@ function hydrateEventState(eventKey) {
     state.loadedSources = [`picklist:${state.picklists[0].id}`];
   }
   state.selectedTeam = teamByNumber(state.selectedTeam)?.number || eventModel.teams[0]?.number || 0;
-  state.selectedMatch = currentMatches().some((match) => match.number === state.selectedMatch) ? state.selectedMatch : eventModel.matches[0]?.number || 0;
+  state.selectedMatch = matchIdentity(findMatchBySelection(state.selectedMatch) || eventModel.matches[0]);
   state.contextMenu = null;
   state.inlineRename = null;
   state.picklistSelectedTeam = null;
@@ -7002,9 +7012,7 @@ function goBack(fallbackView = "teams") {
   if (previous) {
     state.activeView = canView(previous.view) ? previous.view : fallbackView;
     state.selectedTeam = teamByNumber(previous.selectedTeam)?.number || currentEvent().teams[0].number;
-    state.selectedMatch = currentMatches().some((match) => match.number === previous.selectedMatch)
-      ? previous.selectedMatch
-      : currentEvent().matches[0].number;
+    state.selectedMatch = matchIdentity(findMatchBySelection(previous.selectedMatch) || currentEvent().matches[0]);
   } else {
     state.activeView = fallbackView;
   }
@@ -8243,8 +8251,8 @@ function renderSchedule() {
       ${currentMatches()
         .map(
           (match) => `
-        <article class="match-row" data-match-row="${match.number}" title="Open Q${match.number} matchup">
-          <button class="match-link" data-match="${match.number}">Q${match.number}</button>
+        <article class="match-row" data-match-row="${escapeAttribute(matchIdentity(match))}" title="Open ${escapeAttribute(matchupMatchLabel(match))} matchup">
+          <button class="match-link" data-match="${escapeAttribute(matchIdentity(match))}">${escapeHtml(matchupMatchLabel(match))}</button>
           <span class="alliance red">${match.red.map((team) => `<button class="pill team-pill" data-team="${team}">${team}</button>`).join("")}</span>
           <span class="alliance blue">${match.blue.map((team) => `<button class="pill team-pill" data-team="${team}">${team}</button>`).join("")}</span>
         </article>
@@ -8256,7 +8264,7 @@ function renderSchedule() {
 }
 
 function renderMatchup() {
-  const match = currentMatches().find((item) => item.number === state.selectedMatch) || currentMatches()[0];
+  const match = findMatchBySelection(state.selectedMatch) || currentMatches()[0];
   const matchupMetrics = currentMatchupMetrics();
   const selections = normalizeMatchupMetricSelections(matchupMetrics);
   const selectedMetrics = selections.filter(Boolean).map((id) => matchupMetrics.find((metric) => metric.id === id)).filter(Boolean);
@@ -8295,6 +8303,8 @@ function matchupMatchLabel(match) {
   const competitionLevel = normalizeText(match?.compLevel || match?.comp_level).toLowerCase();
   const matchNumber = Number(match?.number ?? match?.matchNumber ?? match?.match_number);
   const setNumber = Number(match?.setNumber ?? match?.set_number);
+  if (competitionLevel === "ef") return `Eighths ${Number.isFinite(setNumber) && setNumber > 0 ? `${setNumber}-` : ""}${matchNumber}`;
+  if (competitionLevel === "qf") return `Quarters ${Number.isFinite(setNumber) && setNumber > 0 ? `${setNumber}-` : ""}${matchNumber}`;
   if (competitionLevel === "sf") return `Semis ${Number.isFinite(setNumber) && setNumber > 0 ? `${setNumber}-` : ""}${matchNumber}`;
   if (competitionLevel === "f") return `Finals ${Number.isFinite(setNumber) && setNumber > 0 ? `${setNumber}-` : ""}${matchNumber}`;
   return `Qual ${matchNumber}`;
@@ -8380,15 +8390,15 @@ function renderMatchupMetricCard(match, metric, index, model, sharedScale, metri
 
 function renderMatchNavigator(match, includeBack) {
   const matches = currentMatches();
-  const matchIndex = matches.findIndex((item) => item.number === match.number);
+  const matchIndex = matches.findIndex((item) => matchIdentity(item) === matchIdentity(match));
   const prevMatch = matches[matchIndex - 1];
   const nextMatch = matches[matchIndex + 1];
   return `
     <div class="match-nav">
       ${includeBack ? `<button data-history-back="schedule">Back</button>` : ""}
-      <button class="icon-button" data-match-nav="${prevMatch?.number || ""}" ${prevMatch ? "" : "disabled"} title="Previous match" aria-label="Previous match">&lt;</button>
-      <strong>Q${match.number}</strong>
-      <button class="icon-button" data-match-nav="${nextMatch?.number || ""}" ${nextMatch ? "" : "disabled"} title="Next match" aria-label="Next match">&gt;</button>
+      <button class="icon-button" data-match-nav="${prevMatch ? escapeAttribute(matchIdentity(prevMatch)) : ""}" ${prevMatch ? "" : "disabled"} title="Previous match" aria-label="Previous match">&lt;</button>
+      <strong>${escapeHtml(matchupMatchLabel(match))}</strong>
+      <button class="icon-button" data-match-nav="${nextMatch ? escapeAttribute(matchIdentity(nextMatch)) : ""}" ${nextMatch ? "" : "disabled"} title="Next match" aria-label="Next match">&gt;</button>
     </div>
   `;
 }
@@ -10438,7 +10448,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-match]").forEach((element) => {
     element.addEventListener("click", () => {
       pushViewHistory();
-      state.selectedMatch = Number(element.dataset.match);
+      state.selectedMatch = element.dataset.match;
       state.activeView = "matchup";
       saveState();
       render();
@@ -10448,7 +10458,7 @@ function bindViewEvents() {
     element.addEventListener("click", () => {
       if (!element.dataset.matchNav) return;
       pushViewHistory();
-      state.selectedMatch = Number(element.dataset.matchNav);
+      state.selectedMatch = element.dataset.matchNav;
       state.activeView = "matchup";
       saveState();
       render();
@@ -10457,7 +10467,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-match-row]").forEach((element) => {
     element.addEventListener("click", () => {
       pushViewHistory();
-      state.selectedMatch = Number(element.dataset.matchRow);
+      state.selectedMatch = element.dataset.matchRow;
       state.activeView = "matchup";
       saveState();
       render();

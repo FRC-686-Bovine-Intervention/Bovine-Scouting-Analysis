@@ -97,6 +97,16 @@ await runTest("loadEventByCode builds an event model and ready provider states f
           blue: { totalAutoPoints: 20, totalTeleopPoints: 90, endGameTowerPoints: 40 },
         },
       },
+      {
+        comp_level: "qf",
+        set_number: 1,
+        match_number: 1,
+        key: "2026test_qf1m1",
+        alliances: {
+          red: { team_keys: ["frc111", "frc222", "frc333"], score: 200 },
+          blue: { team_keys: ["frc444", "frc555", "frc666"], score: 190 },
+        },
+      },
     ],
     [`${baseUrls.tba}/event/2026test/rankings`]: {
       rankings: [
@@ -114,6 +124,7 @@ await runTest("loadEventByCode builds an event model and ready provider states f
     [`${baseUrls.statbotics}/event/2026test`]: { year: 2026, status: "In Progress" },
     [`${baseUrls.statbotics}/team_matches?event=2026test&limit=10000`]: [
       { team: 111, match: "2026test_qm1", epa: { total_points: 40.25, post: 41.75 } },
+      { team: 111, match: "2026test_qf1m1", epa: { total_points: 44.25, post: 45.75 } },
     ],
     [`${baseUrls.statbotics}/team_events/event/2026test`]: [
       {
@@ -194,7 +205,23 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.eventModel.catalogSource, "dynamic-external");
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.scouterMetricDefinitions || [])), []);
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.formulaFieldDefinitions || [])), []);
-  assert.equal(result.eventModel.matches.length, 1);
+  assert.equal(result.eventModel.matches.length, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.matches[1])), {
+    id: "2026test_qf1m1",
+    compLevel: "qf",
+    setNumber: 1,
+    number: 1,
+    red: [111, 222, 333],
+    blue: [444, 555, 666],
+    redScore: 200,
+    blueScore: 190,
+    winningAlliance: "",
+    scoreBreakdown: null,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].sources.statbotics.trendEntries)), [{ key: 1, value: 41.75 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].sources.statbotics.playoffTrendEntries)), [
+    { key: 1, value: 45.75 },
+  ]);
   assert.equal(result.eventModel.teams.length, 6);
   assert.equal(result.eventModel.teams[0].eventRank, undefined);
   assert.equal(result.eventModel.teams[0].record.qual.wins, undefined);
