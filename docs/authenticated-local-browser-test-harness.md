@@ -50,3 +50,22 @@ The harness accepts `SCOUTING_APP_URL`, `FIREBASE_LOCAL_ADMIN_EMAIL`, `FIREBASE_
 Failures are prefixed with an actionable code: `EMULATOR_UNAVAILABLE`, `APP_UNAVAILABLE`, `AUTHENTICATION_FAILED`, `AUTHORIZATION_FAILED`, `ADMIN_PAGE_UNAVAILABLE`, `DERIVED_BUILDER_UNAVAILABLE`, `DERIVED_HELP_UNAVAILABLE`, `DERIVED_HELP_NOT_SCROLLABLE`, `DERIVED_HELP_REGRESSION`, or `DERIVED_HELP_CLICK_FAILED`. The message includes the failing service, rendered status/body text when available, and the local command or role document to check.
 
 To verify event-code switching and source timing, run `node .browser-test/verify-event-switch-source-timing.mjs` with the local stack and emulators running. It exercises cached-to-cached, cached-to-local, local-to-uncached, and uncached-to-cached transitions through the real Enter-key interaction. The uncached provider responses are mocked in the browser, and every transition must complete within 30 seconds.
+
+## User navigation latency validation
+
+The source-timing harness above does not measure the full user-visible render cost of a large event. For that, run:
+
+```powershell
+$env:PLAYWRIGHT_EXECUTABLE_PATH = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+node .browser-test/validate-user-navigation-latency.mjs
+```
+
+This drives the real Admin flow and records a pass/fail timing report for:
+
+- opening the Recent Events list;
+- switching from `2022chcmp` to `2026chcmp` through that list;
+- switching back to the source event, so the transition is measured in both directions;
+- opening Derived Equation Builder after the event switch; and
+- page errors emitted during the sequence.
+
+The default budgets are 1 second to open Recent Events, 5 seconds per event switch, and 1.5 seconds to open Derived Equation Builder. Override the event keys or budgets with `VALIDATION_FROM_EVENT`, `VALIDATION_TO_EVENT`, `VALIDATION_RECENT_OPEN_BUDGET_MS`, `VALIDATION_EVENT_SWITCH_BUDGET_MS`, and `VALIDATION_DERIVED_PAGE_BUDGET_MS` when validating a different seeded dataset.
