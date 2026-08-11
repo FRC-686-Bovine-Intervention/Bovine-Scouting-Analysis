@@ -8875,10 +8875,11 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         minScore: options.minScore,
         maxScore: options.maxScore,
         sortDirection: options.sortDirection,
+        compareIndex: options.compareIndex,
         extraClass: picked,
         draggable: !picked,
         dragData: picked ? "" : String(team.number),
-        dataAttribute: options.navigation ? `data-team="${team.number}"` : "",
+        dataAttribute: options.navigation ? `data-team="${team.number}"` : options.allianceTeam ? `data-alliance-team="${team.number}"` : "",
       })
     : renderTeamTile(team, index, {
         compact: true,
@@ -8888,10 +8889,11 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         colorScore: options.colorScore,
         minScore: options.minScore,
         maxScore: options.maxScore,
+        compareIndex: options.compareIndex,
         extraClass: picked,
         draggable: !picked,
         dragData: picked ? "" : String(team.number),
-        dataAttribute: options.navigation ? `data-team="${team.number}"` : "",
+        dataAttribute: options.navigation ? `data-team="${team.number}"` : options.allianceTeam ? `data-alliance-team="${team.number}"` : "",
       });
   return content;
 }
@@ -8988,6 +8990,8 @@ function renderAlliance() {
                       renderPicklistTile(team.number, teamIndex, null, {
                         static: true,
                         navigation: false,
+                        allianceTeam: true,
+                        compareIndex: compareSlotIndexForTeam(team.number),
                         showScore: column.type === "metric",
                         score: column.scores?.[teamIndex],
                         colorScore: column.scores?.[teamIndex],
@@ -10823,6 +10827,15 @@ function bindViewEvents() {
       if (!changed) return;
       state.builderFocus.picklistBuilder = "teams";
       state.picklistSelectedTeam = wasCompared && state.picklistSelectedTeam === teamNumber ? null : teamNumber;
+      saveState();
+      render();
+    });
+  });
+  document.querySelectorAll("[data-alliance-team]").forEach((tile) => {
+    tile.addEventListener("click", () => {
+      const teamNumber = Number(tile.dataset.allianceTeam);
+      const changed = togglePicklistCompareTeam(teamNumber);
+      if (!changed) return;
       saveState();
       render();
     });
