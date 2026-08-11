@@ -1337,20 +1337,29 @@ function ensureSourceRefreshLoop() {
 }
 
 async function refreshDataSource(sourceId, options = {}) {
+  const startedAt = perfNow();
+  const trigger = options.trigger || "manual";
+  recordScoutingPerf("background.refresh.start", startedAt, {
+    sourceId,
+    trigger,
+    activeView: state.activeView,
+    activeEventKey: state.activeEventKey,
+  });
   if (sourceId === "scouting") {
     saveCurrentScoutingAttachmentDraftFromDom({ render: false });
     await loadScoutingData({ autoCommit: true, scoutingImportSource: "manual-refresh", skipUnchanged: true, importDraftSource: "attached" });
+    recordScoutingPerf("background.refresh.end", startedAt, { sourceId, trigger, changed: null, activeView: state.activeView });
     return;
   }
   if (currentEvent()?.catalogSource === "dynamic-external") {
     await loadArbitraryEventCode(currentEvent().key, {
       activeView: state.activeView,
     });
+    recordScoutingPerf("background.refresh.end", startedAt, { sourceId, trigger, changed: true, activeView: state.activeView });
     return;
   }
   const event = currentEvent();
   const label = { tba: "The Blue Alliance", statbotics: "Statbotics", pridge: "pRidge" }[sourceId] || sourceId;
-  const trigger = options.trigger || "manual";
   const snapshot = buildExternalSourceSnapshot(sourceId, event);
   const nextFingerprint = buildExternalSnapshotFingerprint(snapshot);
   const didChange = nextFingerprint !== currentExternalSourceFingerprint(sourceId);
@@ -1371,6 +1380,12 @@ async function refreshDataSource(sourceId, options = {}) {
   }
   saveState();
   render();
+  recordScoutingPerf("background.refresh.end", startedAt, {
+    sourceId,
+    trigger,
+    changed: didChange,
+    activeView: state.activeView,
+  });
 }
 
 async function refreshAllDataSources() {
@@ -4726,6 +4741,7 @@ function registerScoutingProfile(eventModel, profile) {
 }
 
 async function syncSharedProfilesForEvent(eventKey = state.activeEventKey) {
+  const startedAt = perfNow();
   const api = globalThis.firebaseProfileApi;
   if (!api || !globalThis.firebaseCurrentUser || !eventKey) return false;
   try {
@@ -4742,6 +4758,7 @@ async function syncSharedProfilesForEvent(eventKey = state.activeEventKey) {
       state.scoutingProfileCatalog = normalizeScoutingProfileCatalog({ ...state.scoutingProfileCatalog, [eventKey]: mergedProfiles });
       saveState();
       renderSafely();
+      recordScoutingPerf("background.sync.end", startedAt, { path: "profiles", changed: true, activeEventKey: eventKey });
       return true;
     }
     if (globalThis.firebaseUserRole === "admin") {
@@ -4749,8 +4766,10 @@ async function syncSharedProfilesForEvent(eventKey = state.activeEventKey) {
       await Promise.all(localProfiles.map((profile) => api.saveEventProfile(eventKey, profile)));
       console.info(`Seeded ${localProfiles.length} profile(s) to Firestore for ${eventKey}.`);
     }
+    recordScoutingPerf("background.sync.end", startedAt, { path: "profiles", changed: false, activeEventKey: eventKey });
   } catch (error) {
     console.warn(`Unable to sync shared profiles for ${eventKey}; keeping local profiles.`, error);
+    recordScoutingPerf("background.sync.error", startedAt, { path: "profiles", activeEventKey: eventKey, error: error?.message || String(error || "") });
   }
   return false;
 }
@@ -4778,6 +4797,7 @@ function backfillScoutingProfilesFromSubmissions(eventModel = currentEvent()) {
 }
 
 async function syncSharedSubmissionsForEvent(eventKey = state.activeEventKey) {
+  const startedAt = perfNow();
   const api = globalThis.firebaseSubmissionApi;
   const user = globalThis.firebaseCurrentUser;
   if (!api || !user) return false;
@@ -4790,15 +4810,18 @@ async function syncSharedSubmissionsForEvent(eventKey = state.activeEventKey) {
       backfillScoutingProfilesFromSubmissions(currentEvent());
       saveState();
       renderSafely();
+      recordScoutingPerf("background.sync.end", startedAt, { path: "submissions", changed: true, activeEventKey: resolvedEventKey });
       return true;
     }
     if (globalThis.firebaseUserRole === "admin" && state.scoutingSubmissions.length) {
       await api.saveEventSubmissions(resolvedEventKey, state.scoutingSubmissions);
       console.info(`Seeded ${state.scoutingSubmissions.length} scouting submission(s) to Firestore for ${resolvedEventKey}.`);
+      recordScoutingPerf("background.sync.end", startedAt, { path: "submissions", changed: true, activeEventKey: resolvedEventKey });
       return true;
     }
   } catch (error) {
     console.warn(`Unable to sync shared submissions for ${resolvedEventKey}; keeping local data.`, error);
+    recordScoutingPerf("background.sync.error", startedAt, { path: "submissions", activeEventKey: resolvedEventKey, error: error?.message || String(error || "") });
   }
   return false;
 }
