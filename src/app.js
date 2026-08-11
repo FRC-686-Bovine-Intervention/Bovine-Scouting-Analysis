@@ -8269,7 +8269,7 @@ function renderMatchup() {
 }
 
 function currentMatchupMetrics() {
-  return currentMetrics().filter((metric) => metric && metric.type !== "text" && metric.granularity === "event");
+  return orderedMetrics().filter((metric) => metric && metric.type !== "text");
 }
 
 function normalizeMatchupMetricSelections(metrics = currentMatchupMetrics()) {
@@ -8299,11 +8299,10 @@ function matchupOrderedTeams(teamNumbers) {
 
 function renderMatchupAllianceCard(title, teamNumbers, color) {
   const teams = matchupOrderedTeams(teamNumbers);
-  return `<article class="matchup-alliance-card ${color}">
-    <h3>${title}</h3>
+  return `<article class="matchup-alliance-card ${color}" aria-label="${escapeAttribute(title)}">
     <div class="matchup-team-row">
       ${teams.map((team, index) => `<button class="matchup-team matchup-team-rank-${index + 1}" data-team="${team.number}">
-        <strong>${escapeHtml(team.name || "Unnamed team")}</strong>
+        <strong>${escapeHtml(`${team.number} ${team.name || "Unnamed team"}`)}</strong>
         ${renderDrivetrainBadge(team)}
       </button>`).join("")}
     </div>
@@ -8325,27 +8324,22 @@ function matchupMetricModel(match, metric) {
 }
 
 function renderMatchupMetricCard(match, metric, index, model, sharedScale, metrics) {
-  const options = metrics.map((entry) => `<option value="${escapeAttribute(entry.id)}" ${entry.id === metric?.id ? "selected" : ""}>${escapeHtml(entry.label || entry.id)}</option>`).join("");
+  const options = metrics.map((entry) => `<option value="${escapeAttribute(entry.id)}" ${entry.id === metric?.id ? "selected" : ""}>${escapeHtml(metricTokenLabel(entry))}</option>`).join("");
   if (!metric || !model) return `<article class="matchup-metric-card matchup-metric-placeholder">
-    <label>Choose a comparison metric
-      <select data-matchup-metric="${index}"><option value="">Select a metric</option>${options}</select>
-    </label>
+    <select data-matchup-metric="${index}" aria-label="Choose comparison metric"><option value="">Select a metric</option>${options}</select>
   </article>`;
   const scale = sharedScale || model.maximumTotal;
-  const renderBar = (label, entries, total, color) => `<div class="matchup-bar-row">
-    <span class="matchup-bar-label">${label}</span>
-    <div class="matchup-stacked-bar" aria-label="${escapeAttribute(`${label} ${metric.label}`)}">
+  const renderBar = (entries, total, color) => `<div class="matchup-bar-row">
+    <div class="matchup-stacked-bar" aria-label="${escapeAttribute(`${color} alliance ${metricTokenLabel(metric)}`)}">
       ${entries.map((entry, teamIndex) => `<span class="matchup-bar-segment ${color} matchup-team-rank-${teamIndex + 1}" style="width: ${scale ? (entry.numericValue / scale) * 100 : 0}%" title="${escapeAttribute(`${entry.team.name}: ${formatMetricValueForDisplay(metric, entry.value)}`)}"></span>`).join("")}
     </div>
     <strong class="matchup-bar-total">${escapeHtml(formatMetricValueForDisplay(metric, total))}</strong>
   </div>`;
   return `<article class="matchup-metric-card">
-    <div class="matchup-metric-header"><label>Metric
-      <select data-matchup-metric="${index}"><option value="">Select a metric</option>${options}</select>
-    </label></div>
+    <select data-matchup-metric="${index}" aria-label="Choose comparison metric"><option value="">Select a metric</option>${options}</select>
     <div class="matchup-bars">
-      ${renderBar("Red", model.red, model.redTotal, "red")}
-      ${renderBar("Blue", model.blue, model.blueTotal, "blue")}
+      ${renderBar(model.red, model.redTotal, "red")}
+      ${renderBar(model.blue, model.blueTotal, "blue")}
     </div>
   </article>`;
 }

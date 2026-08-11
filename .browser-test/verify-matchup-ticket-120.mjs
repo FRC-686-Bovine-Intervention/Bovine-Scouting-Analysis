@@ -46,21 +46,24 @@ try {
     const allianceNames = [...document.querySelectorAll(".matchup-team strong")].map((node) => node.textContent.trim());
     const cards = document.querySelectorAll(".matchup-metric-card").length;
     const firstMetric = document.querySelector("[data-matchup-metric]");
+    const epaOptionLabel = [...firstMetric.options].find((option) => option.value === "source:statbotics:epa.total_points")?.textContent;
     firstMetric.value = "source:statbotics:epa.total_points";
     firstMetric.dispatchEvent(new Event("change", { bubbles: true }));
     return {
       allianceNames,
       cards,
+      epaOptionLabel,
       selectedMetrics: [...document.querySelectorAll("[data-matchup-metric]")].map((node) => node.value),
       bars: document.querySelectorAll(".matchup-stacked-bar").length,
       redFirst: document.querySelector(".matchup-alliance-card.red .matchup-team")?.textContent.trim(),
     };
   });
-  assert.deepEqual(result.allianceNames, ["Bravo", "Charlie", "Alpha", "Delta", "Echo", "Foxtrot"]);
+  assert.deepEqual(result.allianceNames, ["2 Bravo", "3 Charlie", "1 Alpha", "4 Delta", "5 Echo", "6 Foxtrot"]);
   assert.equal(result.cards, 2, "The selected metric should reveal a new empty metric card.");
   assert.deepEqual(result.selectedMetrics, ["source:statbotics:epa.total_points", ""]);
   assert.equal(result.bars, 2, "The selected metric should render red and blue stacked bars.");
-  assert.match(result.redFirst, /Bravo/);
+  assert.match(result.redFirst, /2 Bravo/);
+  assert.equal(result.epaOptionLabel, "statbotics.epa.total_points", "Metric selectors should use the canonical raw metric token label.");
 } finally {
   await browser.close();
 }

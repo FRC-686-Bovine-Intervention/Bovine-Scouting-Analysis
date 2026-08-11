@@ -1169,6 +1169,11 @@ select {
   gap: 14px;
 }
 
+.matchup-alliances,
+.matchup-metric-cards {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .matchup-alliance-card,
 .matchup-metric-card {
   border: 1px solid var(--line);
@@ -1176,10 +1181,6 @@ select {
   background: var(--panel);
   box-shadow: var(--shadow);
   padding: 16px;
-}
-
-.matchup-alliance-card h3 {
-  margin: 0 0 12px;
 }
 
 .matchup-team-row {
@@ -1192,7 +1193,8 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 58px;
+  min-height: 42px;
+  padding: 8px;
   flex-direction: column;
   gap: 5px;
   border-color: transparent;
@@ -1214,8 +1216,7 @@ select {
 .matchup-metric-card select,
 .matchup-normalization select { min-width: min(360px, 70vw); }
 .matchup-bars { display: grid; gap: 12px; margin-top: 16px; }
-.matchup-bar-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) 64px; gap: 10px; align-items: center; }
-.matchup-bar-label { font-weight: 800; }
+.matchup-bar-row { display: grid; grid-template-columns: minmax(0, 1fr) 64px; gap: 10px; align-items: center; }
 .matchup-stacked-bar { display: flex; min-height: 28px; overflow: hidden; border-radius: 5px; background: var(--panel-soft); }
 .matchup-bar-segment { min-width: 0; transition: width 160ms ease; }
 .matchup-bar-total { text-align: right; }
@@ -2250,6 +2251,11 @@ button.pill {
     grid-template-columns: 1fr;
   }
 
+  .matchup-alliances,
+  .matchup-metric-cards {
+    grid-template-columns: 1fr;
+  }
+
   .matchup-metric-card select,
   .matchup-normalization select {
     min-width: 0;
@@ -2257,7 +2263,7 @@ button.pill {
   }
 
   .matchup-bar-row {
-    grid-template-columns: 42px minmax(0, 1fr) 54px;
+    grid-template-columns: minmax(0, 1fr) 54px;
     gap: 7px;
   }
 
