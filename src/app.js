@@ -449,6 +449,7 @@ const state = {
   eventWorkspace: null,
   eventLookupPending: false,
   eventLookupResult: null,
+  requestedEventKey: initialEventKey,
   sharedCachedEvents: [],
   sharedCacheStatus: "",
   rawSourceCacheEventKey: "",
@@ -490,6 +491,25 @@ const scoutingPerf = globalThis.__scoutingPerf || { events: [], counters: {} };
 scoutingPerf.events = Array.isArray(scoutingPerf.events) ? scoutingPerf.events : [];
 scoutingPerf.counters = scoutingPerf.counters && typeof scoutingPerf.counters === "object" ? scoutingPerf.counters : {};
 globalThis.__scoutingPerf = scoutingPerf;
+
+function beginEventSelection(eventKey, source = "user") {
+  const normalizedEventKey = normalizeExternalEventCode(eventKey);
+  if (!normalizedEventKey) return null;
+  const token = { eventKey: normalizedEventKey, generation: ++eventLoadSequence, source };
+  state.requestedEventKey = normalizedEventKey;
+  return token;
+}
+
+function isCurrentEventSelection(token) {
+  return Boolean(token)
+    && token.generation === eventLoadSequence
+    && token.eventKey === state.requestedEventKey;
+}
+
+function activateEventSelection(token, options = {}) {
+  if (!isCurrentEventSelection(token)) return false;
+  return switchActiveEvent(token.eventKey, { ...options, selectionToken: token });
+}
 
 const app = document.querySelector("#app");
 let scheduleFocusPending = false;
@@ -1383,11 +1403,18 @@ async function refreshDataSource(sourceId, options = {}) {
     return;
   }
   if (currentEvent()?.catalogSource === "dynamic-external") {
-    await loadArbitraryEventCode(currentEvent().key, {
+    const refreshEventKey = currentEvent().key;
+    const refreshed = await loadArbitraryEventCode(currentEvent().key, {
       activeView: state.activeView,
+      selectionToken: {
+        eventKey: refreshEventKey,
+        generation: eventLoadSequence,
+        source: "background",
+      },
+      activate: false,
     });
     recordScoutingPerf("background.refresh.end", startedAt, { sourceId, trigger, changed: true, activeView: state.activeView });
-    return;
+    return refreshed;
   }
   const event = currentEvent();
   const label = { tba: "The Blue Alliance", statbotics: "Statbotics", pridge: "pRidge" }[sourceId] || sourceId;
@@ -1667,9 +1694,9 @@ async function applyRecentAdminEventSelection(value) {
   if (nextEventKey === state.activeEventKey) return true;
   state.adminRecentEventsOpen = false;
   if (sharedCachedEventByKey(nextEventKey)) {
-    return openSharedCachedEvent(nextEventKey, { activeView: "adminEventControl", persistShared: true });
+    return openSharedCachedEvent(nextEventKey, { activeView: "adminEventControl", persistShared: true, source: "user" });
   }
-  const switched = switchActiveEvent(nextEventKey, { activeView: "adminEventControl" });
+  const switched = activateEventSelection(beginEventSelection(nextEventKey, "user"), { activeView: "adminEventControl" });
   if (switched) void refreshCurrentExternalSourcesImmediately();
   return switched;
 }
@@ -1730,16 +1757,16 @@ async function applyAdminEventCodeDraft(value, options = {}) {
   }
   state.adminEventCodeDraft = normalizedEventCode;
   if (sharedCachedEventByKey(normalizedEventCode)) {
-    const opened = await openSharedCachedEvent(normalizedEventCode, { activeView: "adminEventControl", persistShared: true });
+    const opened = await openSharedCachedEvent(normalizedEventCode, { activeView: "adminEventControl", persistShared: true, source: "user" });
     if (opened) return true;
-    return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl", allowDuplicate: true });
+    return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl", allowDuplicate: true, source: "user" });
   }
   if (globalEventCatalog.some((eventModel) => eventModel?.key === normalizedEventCode)) {
-    const switched = switchActiveEvent(normalizedEventCode, { activeView: "adminEventControl" });
+    const switched = activateEventSelection(beginEventSelection(normalizedEventCode, "user"), { activeView: "adminEventControl" });
     if (switched) void refreshCurrentExternalSourcesImmediately();
     return switched;
   }
-  return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl", allowDuplicate: true });
+  return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl", allowDuplicate: true, source: "user" });
 }
 
 async function applyScoutingSourceInputChange(options = {}) {
@@ -4667,8 +4694,8 @@ async function loadCachedScoutingData(eventKey, api) {
 
 async function openSharedCachedEvent(eventKey, options = {}) {
   const openSequence = ++sharedCachedEventOpenSequence;
-  const selectionSequence = ++eventLoadSequence;
-  const isCurrentOpen = () => openSequence === sharedCachedEventOpenSequence && selectionSequence === eventLoadSequence;
+  const selectionToken = beginEventSelection(eventKey, options.source || "shared");
+  const isCurrentOpen = () => openSequence === sharedCachedEventOpenSequence && isCurrentEventSelection(selectionToken);
   const cachedEvent = sharedCachedEventByKey(eventKey);
   const api = globalThis.firebaseEventSourceCacheApi;
   const cachedEventLoader = globalThis.CachedEventLoader;
@@ -4681,7 +4708,7 @@ async function openSharedCachedEvent(eventKey, options = {}) {
   const cachedProviderIsStale = persistedCachedWorkspace?.sources?.tba?.freshness === "stale"
     || persistedCachedWorkspace?.sources?.statbotics?.freshness === "stale";
   if (inMemoryCachedEvent) {
-    switchActiveEvent(inMemoryCachedEvent.key, {
+    activateEventSelection(selectionToken, {
       activeView: options.activeView || state.activeView,
       persistShared: options.persistShared === true,
       preserveImportDraft: true,
@@ -4727,7 +4754,8 @@ async function openSharedCachedEvent(eventKey, options = {}) {
       seasonLabel: officialSeasonLabel(cachedEvent.season || result.eventModel.season) || cachedEvent.seasonLabel || result.eventModel.seasonLabel,
       catalogSource: "shared-cache",
     });
-    switchActiveEvent(registeredEvent.key, {
+    if (!isCurrentOpen()) return false;
+    activateEventSelection(selectionToken, {
       activeView: options.activeView || state.activeView,
       persistShared: options.persistShared === true,
       preserveImportDraft: true,
@@ -4769,7 +4797,7 @@ async function restoreSharedCachedActiveEvent() {
   const eventKey = normalizeText(state.pendingSharedActiveEventKey || state.activeEventKey);
   state.pendingSharedActiveEventKey = "";
   if (!eventKey || globalEventCatalog.some((eventModel) => eventModel?.key === eventKey) || !sharedCachedEventByKey(eventKey)) return false;
-  return openSharedCachedEvent(eventKey, { activeView: state.activeView });
+  return openSharedCachedEvent(eventKey, { activeView: state.activeView, source: "shared" });
 }
 
 function persistSharedActiveEvent(eventKey) {
@@ -4803,11 +4831,13 @@ function startSharedActiveEventSync() {
       return;
     }
     if (!globalEventCatalog.some((eventModel) => eventModel.key === sharedEventKey)) {
-      if (sharedCachedEventByKey(sharedEventKey)) void openSharedCachedEvent(sharedEventKey, { activeView: state.activeView });
+      if (sharedCachedEventByKey(sharedEventKey)) void openSharedCachedEvent(sharedEventKey, { activeView: state.activeView, source: "shared" });
       else console.warn(`Shared active event ${sharedEventKey} is unavailable in this client; keeping ${state.activeEventKey}.`);
       return;
     }
-    if (sharedEventKey !== state.activeEventKey) switchActiveEvent(sharedEventKey, { persistShared: false });
+    if (sharedEventKey !== state.activeEventKey) {
+      activateEventSelection(beginEventSelection(sharedEventKey, "shared"), { persistShared: false });
+    }
   });
 }
 
@@ -5118,8 +5148,8 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     return false;
   }
   if (!options.allowDuplicate && state.eventLookupPending && state.adminEventCodeDraft === normalizedEventCode) return false;
-  const loadSequence = ++eventLoadSequence;
-  const isCurrentLoad = () => loadSequence === eventLoadSequence;
+  const selectionToken = options.selectionToken || beginEventSelection(normalizedEventCode, options.source || "user");
+  const isCurrentLoad = () => isCurrentEventSelection(selectionToken);
   state.eventLookupPending = true;
   state.eventLookupResult = { kind: "info", message: `Loading ${normalizedEventCode} from external providers...` };
   render();
@@ -5134,11 +5164,17 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     const registeredEvent = registerEventModel(loadResult.eventModel);
     await refreshSharedSeasonMetadata();
     subscribeSharedSeasonMetadata();
-    switchActiveEvent(registeredEvent.key, {
-      activeView: options.activeView || "adminEventControl",
-      render: false,
-      preserveImportDraft: true,
-    });
+    if (!isCurrentLoad() || registeredEvent.key !== selectionToken.eventKey) return false;
+    if (options.activate === false) {
+      if (state.activeEventKey !== selectionToken.eventKey) return false;
+      applyLoadedExternalSourceState(loadResult, { render: false });
+    } else {
+      activateEventSelection(selectionToken, {
+        activeView: options.activeView || "adminEventControl",
+        render: false,
+        preserveImportDraft: true,
+      });
+    }
     applyLoadedExternalSourceState(loadResult, { render: true });
     await refreshSharedSeasonMetadata();
     subscribeSharedSeasonMetadata();
@@ -6668,7 +6704,7 @@ function commitImportPreview(options = {}) {
 
 function switchImportContext(eventKey) {
   if (!eventKey) return;
-  switchActiveEvent(eventKey, {
+  activateEventSelection(beginEventSelection(eventKey, "user"), {
     activeView: "adminEventControl",
     preserveImportDraft: true,
     rerunImportPreview: true,

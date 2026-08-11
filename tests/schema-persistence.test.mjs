@@ -117,7 +117,7 @@ function loadAppContext(options = {}) {
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
     .replace(/\nbootstrapApp\(\);\s*/, "\n")
-    + "\nglobalThis.__activeEventTestApi = { applyAdminEventCodeDraft, applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
+    + "\nglobalThis.__activeEventTestApi = { applyAdminEventCodeDraft, applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, loadArbitraryEventCode, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, refreshDataSource, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -472,6 +472,43 @@ await runTest("an older live event load cannot switch back after a newer load wi
   const newerLoad = context.__activeEventTestApi.applyAdminEventCodeDraft("2025chcmp");
   assert.equal(await newerLoad, true);
   assert.equal(await olderLoad, false);
+  assert.equal(context.__scoutingAppState.activeEventKey, "2025chcmp");
+});
+
+await runTest("a background refresh cannot switch away from a newer user selection", async () => {
+  const makeEvent = (key) => ({
+    key,
+    season: Number(key.slice(0, 4)),
+    name: key,
+    seasonLabel: "",
+    catalogSource: "dynamic-external",
+    teams: [{ number: 1, name: "Live Team", flags: [], matches: [], sources: {}, derived: {} }],
+    teamNumbers: [1],
+    matches: [],
+    matchesComplete: 0,
+    scoringComponents: [],
+    metrics: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    dataSources: [],
+  });
+  const context = loadAppContext({
+    eventCatalog: [makeEvent("2026chcmp")],
+    ExternalEventLoader: {
+      loadEventByCode: async (eventCode) => {
+        await new Promise((resolve) => setTimeout(resolve, eventCode === "2026chcmp" ? 25 : 1));
+        return { eventModel: makeEvent(eventCode), sourceStates: {}, warnings: [], rawSourceArtifacts: [] };
+      },
+      normalizeEventCode: (value) => String(value || "").trim().toLowerCase(),
+    },
+  });
+  context.__scoutingAppState.requestedEventKey = "2026chcmp";
+  const refresh = context.__activeEventTestApi.refreshDataSource("tba", { trigger: "poll" });
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  const selection = context.__activeEventTestApi.applyAdminEventCodeDraft("2025chcmp");
+  assert.equal(await selection, true);
+  assert.equal(await refresh, false);
   assert.equal(context.__scoutingAppState.activeEventKey, "2025chcmp");
 });
 
