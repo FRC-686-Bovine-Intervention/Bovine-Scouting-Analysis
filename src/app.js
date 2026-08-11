@@ -261,7 +261,6 @@ const navItems = [
   { view: "rankings", label: "Rankings", icon: "rankings" },
   { view: "schedule", label: "Match Schedule", icon: "schedule" },
   { view: "matchup", label: "Matchup", icon: "matchup" },
-  { view: "quality", label: "Data Quality", icon: "quality" },
   { view: "analysis", label: "Analysis", icon: "analysis" },
   { view: "derivedBuilder", label: "Derived Equation Builder", icon: "derivedBuilder" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
@@ -7273,7 +7272,6 @@ function viewTitle(view) {
     derivedBuilder: "Derived Equation Builder",
     schedule: "Match Schedule",
     matchup: "Matchup",
-    quality: "Data Quality",
     picklistBuilder: "Picklist Builder",
     alliance: "Alliance Selection",
     adminEventControl: "Admin Event Control",
@@ -7338,7 +7336,6 @@ function renderView() {
     derivedBuilder: renderDerivedBuilder,
     schedule: renderSchedule,
     matchup: renderMatchup,
-    quality: renderQuality,
     picklistBuilder: renderPicklistBuilder,
     alliance: renderAlliance,
     adminEventControl: renderAdminEventControl,
@@ -8289,42 +8286,6 @@ function renderAllianceCard(title, teamNumbers) {
   `;
 }
 
-function renderQuality() {
-  const flagged = currentTeams().filter((team) => team.flags.some((flag) => ["data_suspect", "broken", "declining", "inconsistent"].includes(flag.type)));
-  return `
-    <div class="grid">
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Confidence Review</h2>
-            <p class="muted">Confidence appears here only. Reasons are shown directly instead of on hover.</p>
-          </div>
-        </div>
-        <div class="confidence-review-list">
-          ${currentTeams()
-            .filter((team) => (team.scouting?.confidence?.tier || "medium") !== "high")
-            .sort((left, right) => confidenceRank(right.scouting?.confidence?.tier || "medium") - confidenceRank(left.scouting?.confidence?.tier || "medium") || left.number - right.number)
-            .map((team) => renderConfidenceReviewRow(team))
-            .join("") || `<div class="empty-state">All teams currently have high scouting confidence.</div>`}
-        </div>
-      </article>
-      ${flagged
-        .map(
-          (team) => `
-        <button class="data-row" data-team="${team.number}">
-          <div class="split-row">
-            <strong>${team.number} ${team.name}</strong>
-            ${renderQualityBadges(team)}
-          </div>
-          ${team.flags.map((flag) => `<span class="flag-evidence">${flag.evidence}</span>`).join("")}
-        </button>
-      `,
-        )
-        .join("")}
-    </div>
-  `;
-}
-
 function renderSortBuilder() {
   const equation = activeSortEquation();
   const rankedTeams = rankTeamsByEquation(equation).map((number) => teamByNumber(number)).filter(Boolean);
@@ -8389,23 +8350,6 @@ function renderSortBuilder() {
         `
         }
       </article>
-    </div>
-  `;
-}
-
-function renderConfidenceReviewRow(team) {
-  const confidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
-  const reasons = uniqueValues((confidence.reasons || []).map(confidenceReasonLabel));
-  return `
-    <div class="review-submission-row confidence-review-row">
-      <div class="review-submission-meta">
-        <strong>${team.number} ${team.name}</strong>
-        <span class="muted">Confidence: ${confidenceLabel(confidence.tier)}</span>
-        <span class="muted">${reasons.length ? reasons.join(", ") : "No concerns recorded."}</span>
-      </div>
-      <div class="flag-list">
-        <span class="flag ${confidenceSeverity(confidence.tier)}">Confidence: ${confidenceLabel(confidence.tier)}</span>
-      </div>
     </div>
   `;
 }
@@ -9358,10 +9302,6 @@ function renderFlags(flags) {
 function renderDrivetrainBadge(team) {
   const drivetrainFlags = team.drivetrain && team.drivetrain !== "unknown" && team.drivetrain !== "swerve" ? [{ label: "Non-Swerve", severity: "danger" }] : [];
   return renderFlags(drivetrainFlags);
-}
-
-function renderQualityBadges(team) {
-  return renderFlags(team.flags || []);
 }
 
 function placeTeamOnBoard(teamNumber, cellIndex) {
