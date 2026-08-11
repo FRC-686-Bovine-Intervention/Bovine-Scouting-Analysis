@@ -56,6 +56,7 @@ try {
     const metricOptions = [...document.querySelectorAll("#metricSelect option")].map((option) => option.value);
     return { filterOptions, metricOptions };
   });
+  assert(result.filterOptions.includes("scouting.hasEntry"), "Built-in boolean scouting.hasEntry should be offered in Filter.");
   assert(result.filterOptions.includes("isAutoScoring"), "Boolean-valued metric should be offered in Filter.");
   assert(!result.filterOptions.includes("autoPoints"), "Numeric metric should not be offered in Filter.");
   assert(result.metricOptions.some((value) => value.includes("autoPoints")), "Numeric metric should remain available for plotting.");

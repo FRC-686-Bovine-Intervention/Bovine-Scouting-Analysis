@@ -2834,8 +2834,26 @@ function currentProfileEquationList(eventModel = currentEvent()) {
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+function currentBooleanScoutingFilterDefinitions(eventModel = currentEvent()) {
+  const definitions = new Map([
+    ["hasEntry", { id: "hasEntry", name: "scouting.hasEntry", label: "Has Entry", type: "boolean" }],
+    ...currentScouterMetricDefinitions(eventModel)
+      .filter((definition) => normalizeText(definition?.type).toLowerCase() === "boolean")
+      .map((definition) => [definition.id, definition]),
+  ]);
+  return [...definitions.values()].map((definition) => ({
+    id: `scouting.${definition.id}`,
+    name: `scouting.${definition.id}`,
+    label: definition.label || definition.id,
+    formula: `scouting.${definition.id} > 0`,
+  }));
+}
+
 function currentProfileFilterList(eventModel = currentEvent()) {
-  const definitions = currentProfileEquationList(eventModel);
+  const definitions = [
+    ...currentProfileEquationList(eventModel),
+    ...currentBooleanScoutingFilterDefinitions(eventModel),
+  ];
   const teams = Array.isArray(eventModel?.teams) ? eventModel.teams : [];
   if (!definitions.length || !teams.length) return [];
 
@@ -2861,7 +2879,10 @@ function currentProfileFilterList(eventModel = currentEvent()) {
 }
 
 function equationDefinitionById(id, eventModel = currentEvent()) {
-  return currentProfileEquationList(eventModel).find((definition) => definition.id === id) || null;
+  return [
+    ...currentProfileEquationList(eventModel),
+    ...currentBooleanScoutingFilterDefinitions(eventModel),
+  ].find((definition) => definition.id === id) || null;
 }
 
 function profileFilterDefinitionById(id, eventModel = currentEvent()) {
