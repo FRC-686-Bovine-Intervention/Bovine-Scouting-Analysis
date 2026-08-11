@@ -72,22 +72,44 @@ async function loadEvent(page) {
   await page.waitForTimeout(250);
 }
 
-async function measureSwitch(page) {
-  await page.click('[data-view="picklistBuilder"]');
-  await page.waitForSelector('[data-view="picklistBuilder"]', { state: "visible" });
-  const startedAt = await page.evaluate(() => performance.now());
-  await page.click('[data-view="derivedBuilder"]');
-  try {
-    await page.waitForSelector('[data-builder-list-scroll="derived:equations"]', { state: "visible", timeout: 10000 });
-  } catch (error) {
-    const state = await page.evaluate(() => ({ activeView: window.__scoutingAppState?.activeView, text: document.body.innerText.slice(0, 500) }));
-    throw new Error(`Derived Builder did not render: ${JSON.stringify(state)}; ${error.message}`);
-  }
-  return page.evaluate((started) => ({
-    transitionMs: Number((performance.now() - started).toFixed(2)),
-    renderEvents: (globalThis.__scoutingPerf?.events || []).filter((event) => event.label === "render" || event.label === "bootstrap.renderSafely").slice(-5),
-    activeView: globalThis.__scoutingAppState?.activeView || "",
-  }), startedAt);
+async function measurePageTransition(page, targetView) {
+  const result = await page.evaluate((target) => {
+    const startedAt = performance.now();
+    const state = globalThis.__scoutingAppState;
+    const originalRender = globalThis.render;
+    if (!originalRender) return { startedAt, renderCount: -1 };
+    if (!globalThis.__ticket136RenderWrapperInstalled) {
+      globalThis.__ticket136RenderWrapperInstalled = true;
+      globalThis.__ticket136RenderDurations = [];
+      globalThis.render = (...args) => {
+        const renderStartedAt = performance.now();
+        try {
+          return originalRender(...args);
+        } finally {
+          globalThis.__ticket136RenderDurations.push({
+            view: globalThis.__scoutingAppState?.activeView || target,
+            durationMs: Number((performance.now() - renderStartedAt).toFixed(2)),
+          });
+        }
+      };
+    }
+    return { startedAt, renderCount: globalThis.__ticket136RenderDurations.length, activeView: state?.activeView || "" };
+  }, targetView);
+  assertCondition(result.renderCount >= 0, "The app did not expose its render function for page timing.");
+  await page.click(`[data-view="${targetView}"]`);
+  await page.waitForFunction(({ target, count }) => (
+    globalThis.__scoutingAppState?.activeView === target
+      && (globalThis.__ticket136RenderDurations?.length || 0) > count
+  ), { target: targetView, count: result.renderCount });
+  return page.evaluate((startedAt) => {
+    const renders = globalThis.__ticket136RenderDurations || [];
+    const render = renders[renders.length - 1] || {};
+    return {
+      transitionMs: Number((performance.now() - startedAt).toFixed(2)),
+      renderMs: render.durationMs || 0,
+      activeView: globalThis.__scoutingAppState?.activeView || "",
+    };
+  }, result.startedAt);
 }
 
 const { chromium } = await loadPlaywright();
@@ -104,12 +126,34 @@ try {
   await page.goto(appUrl, { waitUntil: "domcontentloaded" });
   await login(page);
   await loadEvent(page);
+  const pageBudgetsMs = {
+    teams: 500,
+    rankings: 500,
+    schedule: 500,
+    matchup: 500,
+    analysis: 1500,
+    derivedBuilder: 500,
+    picklistBuilder: 500,
+    alliance: 500,
+    adminEventControl: 500,
+    adminDataQuality: 500,
+    adminUserControl: 500,
+  };
+  const pageViews = Object.keys(pageBudgetsMs);
   const measurements = [];
-  for (let index = 0; index < 3; index += 1) measurements.push(await measureSwitch(page));
-  const maxMs = Math.max(...measurements.map((measurement) => measurement.transitionMs));
-  assertCondition(maxMs < 500, `Derived Equation Builder transition exceeded 500ms: ${maxMs}ms.`);
+  for (const targetView of pageViews) {
+    const measurement = await measurePageTransition(page, targetView);
+    measurements.push({ targetView, ...measurement, budgetMs: pageBudgetsMs[targetView], pass: measurement.transitionMs < pageBudgetsMs[targetView] });
+    assertCondition(measurement.transitionMs < pageBudgetsMs[targetView], `${targetView} transition exceeded ${pageBudgetsMs[targetView]}ms: ${measurement.transitionMs}ms.`);
+  }
+  const warmMeasurements = [];
+  for (const targetView of pageViews) {
+    const measurement = await measurePageTransition(page, targetView);
+    warmMeasurements.push({ targetView, ...measurement, budgetMs: pageBudgetsMs[targetView], pass: measurement.transitionMs < pageBudgetsMs[targetView] });
+    assertCondition(measurement.transitionMs < pageBudgetsMs[targetView], `Warm ${targetView} transition exceeded ${pageBudgetsMs[targetView]}ms: ${measurement.transitionMs}ms.`);
+  }
   assertCondition(pageErrors.length === 0, `Page errors detected: ${pageErrors.join("; ")}`);
-  console.log(JSON.stringify({ eventKey: "2026chcmp", measurements, maxMs, pageErrors }, null, 2));
+  console.log(JSON.stringify({ eventKey: "2026chcmp", pageBudgetsMs, measurements, warmMeasurements, pageErrors }, null, 2));
 } finally {
   await browser.close();
 }
