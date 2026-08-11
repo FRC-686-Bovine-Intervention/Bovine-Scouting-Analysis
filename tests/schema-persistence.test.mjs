@@ -403,6 +403,42 @@ await runTest("a cached event with missing TBA artifacts falls back to a live lo
   assert.match(context.__scoutingAppState.eventLookupResult.message, /loaded from external providers/i);
 });
 
+await runTest("duplicate event-code submissions do not start overlapping cached loads", async () => {
+  const cachedEvent = { key: "2024mdsev", season: 2024, name: "Cached Severn", seasonLabel: "2024" };
+  const eventModel = {
+    ...cachedEvent,
+    seasonLabel: "",
+    teams: [{ number: 1, name: "Cached Team", flags: [], matches: [], sources: {}, derived: {} }],
+    teamNumbers: [1],
+    matches: [],
+    matchesComplete: 0,
+    scoringComponents: [],
+    metrics: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    dataSources: [],
+  };
+  const context = loadAppContext({ eventCatalog: [], });
+  context.__scoutingAppState.sharedCachedEvents = [cachedEvent];
+  let rebuildCount = 0;
+  context.firebaseEventSourceCacheApi = { loadEventSourceCache: async () => { throw new Error("No cached source is available for this event."); } };
+  context.CachedEventLoader = {
+    rebuildCachedEvent: async () => {
+      rebuildCount += 1;
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      return { eventModel, sourceStates: {}, warnings: [], cacheFreshness: "fresh" };
+    },
+  };
+
+  const first = context.__activeEventTestApi.applyAdminEventCodeDraft(cachedEvent.key);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const second = context.__activeEventTestApi.applyAdminEventCodeDraft(cachedEvent.key);
+  assert.equal(await second, false);
+  assert.equal(await first, true);
+  assert.equal(rebuildCount, 1);
+});
+
 await runTest("admin event changes are shared and members adopt the shared event without writing it", async () => {
   let sharedEventListener = null;
   const savedEventKeys = [];
