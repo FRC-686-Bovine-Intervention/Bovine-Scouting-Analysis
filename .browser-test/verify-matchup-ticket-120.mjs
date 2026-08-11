@@ -63,9 +63,9 @@ try {
   assert.equal(result.cards, 5, "The four default metrics should render with a new empty metric card.");
   assert.deepEqual(result.selectedMetrics, [
     "source:statbotics:epa.total_points",
-    "source:statbotics:epa.auto_points",
-    "source:statbotics:epa.teleop_points",
-    "source:statbotics:epa.endgame_points",
+    "source:statbotics:epa.breakdown.auto_points",
+    "source:statbotics:epa.breakdown.teleop_points",
+    "source:statbotics:epa.breakdown.endgame_points",
     "",
   ]);
   assert.equal(result.bars, 8, "Each selected metric should render red and blue stacked bars.");

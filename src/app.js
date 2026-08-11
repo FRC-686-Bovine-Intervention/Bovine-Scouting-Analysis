@@ -309,9 +309,9 @@ const defaultAllianceBoard = Array(24).fill(null);
 const defaultStatboticsMetricId = "source:statbotics:epa.total_points";
 const defaultMatchupMetricIds = [
   defaultStatboticsMetricId,
-  "source:statbotics:epa.auto_points",
-  "source:statbotics:epa.teleop_points",
-  "source:statbotics:epa.endgame_points",
+  "source:statbotics:epa.breakdown.auto_points",
+  "source:statbotics:epa.breakdown.teleop_points",
+  "source:statbotics:epa.breakdown.endgame_points",
 ];
 const defaultMatchupMetricDefinitions = defaultMatchupMetricIds.map((id) => {
   const componentId = id.slice("source:statbotics:".length);
