@@ -363,6 +363,8 @@ const state = {
   picklistCompareMetric: "",
   selectedTeam: initialEvent.teams[0]?.number || 0,
   selectedMatch: initialEvent.matches[0]?.number || 0,
+  matchupMetricSelections: [defaultStatboticsMetricId],
+  matchupNormalization: "shared",
   menuExpanded: readStoredItem(storageKeys.menuExpanded) === "true",
   picklists: [],
   sortEquations: [],
@@ -8233,18 +8235,119 @@ function renderSchedule() {
 
 function renderMatchup() {
   const match = currentMatches().find((item) => item.number === state.selectedMatch) || currentMatches()[0];
+  const matchupMetrics = currentMatchupMetrics();
+  const selections = normalizeMatchupMetricSelections(matchupMetrics);
+  const selectedMetrics = selections.filter(Boolean).map((id) => metricById(id)).filter(Boolean);
+  const comparisonModels = selectedMetrics.map((metric) => matchupMetricModel(match, metric));
+  const sharedScale = Math.max(...comparisonModels.map((model) => model.maximumTotal), 0);
   return `
-    <div class="section-heading">
+    <div class="section-heading matchup-heading">
       <div>
         <h2>Alliance Matchup</h2>
       </div>
-      ${renderMatchNavigator(match, true)}
+      <div class="matchup-toolbar">
+        <label class="matchup-normalization">Normalize bars
+          <select id="matchupNormalization">
+            <option value="shared" ${state.matchupNormalization === "shared" ? "selected" : ""}>Across all cards</option>
+            <option value="independent" ${state.matchupNormalization === "independent" ? "selected" : ""}>Each card independently</option>
+          </select>
+        </label>
+        ${renderMatchNavigator(match, true)}
+      </div>
     </div>
-    <div class="grid cols-2">
-      ${renderAllianceCard("Red Alliance", match.red)}
-      ${renderAllianceCard("Blue Alliance", match.blue)}
+    <div class="matchup-alliances">
+      ${renderMatchupAllianceCard("Red Alliance", match.red, "red")}
+      ${renderMatchupAllianceCard("Blue Alliance", match.blue, "blue")}
+    </div>
+    <div class="matchup-metric-cards">
+      ${selections.map((metricId, index) => {
+        const metric = metricId ? metricById(metricId) : null;
+        return renderMatchupMetricCard(match, metric, index, comparisonModels.find((model) => model.metric?.id === metric?.id), state.matchupNormalization === "shared" ? sharedScale : null, matchupMetrics);
+      }).join("")}
     </div>
   `;
+}
+
+function currentMatchupMetrics() {
+  return currentMetrics().filter((metric) => metric && metric.type !== "text" && metric.granularity === "event");
+}
+
+function normalizeMatchupMetricSelections(metrics = currentMatchupMetrics()) {
+  const available = new Set(metrics.map((metric) => metric.id));
+  const selections = (Array.isArray(state.matchupMetricSelections) ? state.matchupMetricSelections : [defaultStatboticsMetricId])
+    .map((id) => available.has(id) ? id : "");
+  if (!selections.some(Boolean)) selections[0] = metrics[0]?.id || "";
+  if (selections[selections.length - 1]) selections.push("");
+  return selections.length ? selections : [""];
+}
+
+function matchupOrderedTeams(teamNumbers) {
+  const epa = statboticsEpaMetric();
+  return teamNumbers
+    .map((number, index) => ({ team: teamByNumber(number), index }))
+    .filter((entry) => entry.team)
+    .sort((left, right) => {
+      if (!epa) return left.index - right.index;
+      const leftValue = teamMetricValue(left.team, epa);
+      const rightValue = teamMetricValue(right.team, epa);
+      const bothAvailable = Number.isFinite(leftValue) && Number.isFinite(rightValue);
+      if (!bothAvailable) return left.index - right.index;
+      return rightValue - leftValue || left.index - right.index;
+    })
+    .map((entry) => entry.team);
+}
+
+function renderMatchupAllianceCard(title, teamNumbers, color) {
+  const teams = matchupOrderedTeams(teamNumbers);
+  return `<article class="matchup-alliance-card ${color}">
+    <h3>${title}</h3>
+    <div class="matchup-team-row">
+      ${teams.map((team, index) => `<button class="matchup-team matchup-team-rank-${index + 1}" data-team="${team.number}">
+        <strong>${escapeHtml(team.name || "Unnamed team")}</strong>
+        ${renderDrivetrainBadge(team)}
+      </button>`).join("")}
+    </div>
+  </article>`;
+}
+
+function matchupMetricModel(match, metric) {
+  const redTeams = matchupOrderedTeams(match.red);
+  const blueTeams = matchupOrderedTeams(match.blue);
+  const valuesFor = (teams) => teams.map((team) => ({ team, value: teamMetricValue(team, metric) })).map((entry) => ({
+    ...entry,
+    numericValue: Number.isFinite(Number(entry.value)) ? Math.max(0, Number(entry.value)) : 0,
+  }));
+  const red = valuesFor(redTeams);
+  const blue = valuesFor(blueTeams);
+  const redTotal = red.reduce((sum, entry) => sum + entry.numericValue, 0);
+  const blueTotal = blue.reduce((sum, entry) => sum + entry.numericValue, 0);
+  return { metric, red, blue, redTotal, blueTotal, maximumTotal: Math.max(redTotal, blueTotal) };
+}
+
+function renderMatchupMetricCard(match, metric, index, model, sharedScale, metrics) {
+  const options = metrics.map((entry) => `<option value="${escapeAttribute(entry.id)}" ${entry.id === metric?.id ? "selected" : ""}>${escapeHtml(entry.label || entry.id)}</option>`).join("");
+  if (!metric || !model) return `<article class="matchup-metric-card matchup-metric-placeholder">
+    <label>Choose a comparison metric
+      <select data-matchup-metric="${index}"><option value="">Select a metric</option>${options}</select>
+    </label>
+  </article>`;
+  const scale = sharedScale || model.maximumTotal;
+  const renderBar = (label, entries, total, color) => `<div class="matchup-bar-row">
+    <span class="matchup-bar-label">${label}</span>
+    <div class="matchup-stacked-bar" aria-label="${escapeAttribute(`${label} ${metric.label}`)}">
+      ${entries.map((entry, teamIndex) => `<span class="matchup-bar-segment ${color} matchup-team-rank-${teamIndex + 1}" style="width: ${scale ? (entry.numericValue / scale) * 100 : 0}%" title="${escapeAttribute(`${entry.team.name}: ${formatMetricValueForDisplay(metric, entry.value)}`)}"></span>`).join("")}
+    </div>
+    <strong class="matchup-bar-total">${escapeHtml(formatMetricValueForDisplay(metric, total))}</strong>
+  </div>`;
+  return `<article class="matchup-metric-card">
+    <div class="matchup-metric-header"><label>Metric
+      <select data-matchup-metric="${index}"><option value="">Select a metric</option>${options}</select>
+    </label></div>
+    <div class="matchup-bars">
+      ${renderBar("Red", model.red, model.redTotal, "red")}
+      ${renderBar("Blue", model.blue, model.blueTotal, "blue")}
+    </div>
+  </article>`;
 }
 
 function renderMatchNavigator(match, includeBack) {
@@ -10768,6 +10871,19 @@ function bindViewEvents() {
       state.builderFocus.picklistBuilder = "teams";
       state.picklistSelectedTeam = wasCompared && state.picklistSelectedTeam === teamNumber ? null : teamNumber;
       saveState();
+      render();
+    });
+  });
+  document.querySelector("#matchupNormalization")?.addEventListener("change", (event) => {
+    state.matchupNormalization = event.target.value === "independent" ? "independent" : "shared";
+    render();
+  });
+  document.querySelectorAll("[data-matchup-metric]").forEach((element) => {
+    element.addEventListener("change", (event) => {
+      const index = Number(element.dataset.matchupMetric);
+      const selections = normalizeMatchupMetricSelections().slice(0, -1);
+      selections[index] = event.target.value;
+      state.matchupMetricSelections = selections.filter(Boolean);
       render();
     });
   });
