@@ -4486,6 +4486,8 @@ function scoutingProfilesForEvent(eventModel = currentEvent()) {
 let stopSharedActiveEventSync = null;
 let sharedWorkspacePersistTimer = null;
 let pendingUserSharedActiveEventKey = "";
+let sharedActiveEventSaveQueue = Promise.resolve();
+let sharedActiveEventSaveSequence = 0;
 
 function sharedCachedEventByKey(eventKey) {
   const normalizedEventKey = normalizeText(eventKey).toLowerCase();
@@ -4768,9 +4770,16 @@ async function restoreSharedCachedActiveEvent() {
 function persistSharedActiveEvent(eventKey) {
   const api = globalThis.firebaseEventStateApi;
   if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin" || !eventKey) return;
-  void api.saveActiveEvent(eventKey).catch((error) => {
-    console.warn(`Unable to save shared active event ${eventKey}; keeping the local event.`, error);
-  });
+  const saveSequence = ++sharedActiveEventSaveSequence;
+  sharedActiveEventSaveQueue = sharedActiveEventSaveQueue
+    .catch(() => {})
+    .then(async () => {
+      if (saveSequence !== sharedActiveEventSaveSequence) return;
+      await api.saveActiveEvent(eventKey);
+    })
+    .catch((error) => {
+      console.warn(`Unable to save shared active event ${eventKey}; keeping the local event.`, error);
+    });
 }
 
 function startSharedActiveEventSync() {

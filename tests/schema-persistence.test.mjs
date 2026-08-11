@@ -443,6 +443,29 @@ await runTest("admin event changes are shared and members adopt the shared event
   assert.deepEqual(savedEventKeys, ["2024mdsev"]);
 });
 
+await runTest("shared active-event writes skip superseded selections", async () => {
+  const savedEventKeys = [];
+  const context = loadAppContext({
+    eventCatalog: [
+      { key: "2024mdsev", season: 2024, name: "MDS Event", seasonLabel: "2024", teams: [{ number: 1 }], teamNumbers: [1], matches: [{ number: 1 }], dataSources: [], seedPicklists: [], seedSortEquations: [], formulaFieldDefinitions: [], sheet: {} },
+      { key: "2026chcmp", season: 2026, name: "CHCMP", seasonLabel: "2026", teams: [{ number: 1 }], teamNumbers: [1], matches: [{ number: 1 }], dataSources: [], seedPicklists: [], seedSortEquations: [], formulaFieldDefinitions: [], sheet: {} },
+    ],
+  });
+  context.firebaseCurrentUser = { uid: "admin" };
+  context.firebaseUserRole = "admin";
+  context.firebaseEventStateApi = {
+    saveActiveEvent: async (eventKey) => {
+      await new Promise((resolve) => setTimeout(resolve, eventKey === "2026chcmp" ? 25 : 1));
+      savedEventKeys.push(eventKey);
+    },
+  };
+
+  context.__activeEventTestApi.switchActiveEvent("2026chcmp");
+  context.__activeEventTestApi.switchActiveEvent("2024mdsev");
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(savedEventKeys, ["2024mdsev"]);
+});
+
 await runTest("event-scoped scouting input drafts survive recent-event switches before their change event", () => {
   const eventCatalog = [
     { key: "2024mdsev", season: 2024, name: "MDS Event", seasonLabel: "2024", teams: [{ number: 1 }], teamNumbers: [1], matches: [{ number: 1 }], dataSources: [], seedPicklists: [], seedSortEquations: [], formulaFieldDefinitions: [], sheet: {} },
