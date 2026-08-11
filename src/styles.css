@@ -241,6 +241,7 @@ select {
   position: sticky;
   top: 0;
   height: 100%;
+  min-height: 0;
   border-right: 1px solid var(--line);
   background: var(--panel);
   padding: 18px;
@@ -360,6 +361,8 @@ select {
 
 .main {
   min-width: 0;
+  min-height: 0;
+  overflow: auto;
 }
 
 .topbar {

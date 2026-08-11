@@ -35,6 +35,8 @@ function layoutSnapshot() {
       bottom: shell.getBoundingClientRect().bottom,
     },
     sidebarHeight: sidebar?.getBoundingClientRect().height || 0,
+    sidebarOverflowY: sidebar ? getComputedStyle(sidebar).overflowY : "",
+    mainOverflowY: document.querySelector(".main") ? getComputedStyle(document.querySelector(".main")).overflowY : "",
     viewportHeight: innerHeight,
     documentScrollWidth: document.documentElement.scrollWidth,
     documentClientWidth: document.documentElement.clientWidth,
@@ -82,6 +84,8 @@ try {
   assert(appLayout.banner.position === "static", "The authenticated development banner must stay in normal flow.");
   assert(Math.abs(appLayout.shell.top - appLayout.banner.bottom) < 1, "The app shell must start below the banner.");
   assert(appLayout.sidebarHeight <= appLayout.viewportHeight, "The sidebar must not grow beyond the viewport because of the banner.");
+  assert(appLayout.sidebarOverflowY === "auto", "The sidebar must remain an independent vertical scroll region.");
+  assert(appLayout.mainOverflowY === "auto", "The main column must contain page scrolling so the sidebar can scroll independently.");
   assert(appLayout.documentScrollWidth === appLayout.documentClientWidth, "The authenticated screen must not overflow horizontally.");
 } finally {
   await browser.close();
