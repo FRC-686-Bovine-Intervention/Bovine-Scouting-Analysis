@@ -7265,7 +7265,7 @@ function icon(name) {
       '<path d="M10.75 6.5h-1.4a2.1 2.1 0 0 0-2.1 2.1v8.9"/><path d="M6.7 10.5h4.2"/><path d="M13.8 10.4l4 5"/><path d="M17.8 10.4l-4 5"/>',
     bullseye: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>',
     schedule: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/>',
-    matchup: '<path d="M7 7h10"/><path d="M7 17h10"/><path d="M9 7a3 3 0 1 1 0 6"/><path d="M15 17a3 3 0 1 1 0-6"/>',
+    matchup: '<text x="12" y="16" text-anchor="middle" font-size="10" font-weight="700" fill="currentColor" stroke="none">vs.</text>',
     quality: '<path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5"/><path d="M12 17h.01"/>',
     debug: '<path d="M9 3h6l1 3h3v6a6 6 0 0 1-12 0V6h3l1-3Z"/><path d="M9 12h.01M15 12h.01M10 16h4"/>',
     picklists: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
