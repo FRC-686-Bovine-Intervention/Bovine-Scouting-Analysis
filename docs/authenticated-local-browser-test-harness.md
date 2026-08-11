@@ -62,6 +62,15 @@ To verify event-code switching and source timing, run `node .browser-test/verify
 
 The source-timing check accepts either a fresh or stale cached reopen. A freshly rerun seed is expected to report the cached event as fresh; stale status is only expected when the cached artifact has aged past its refresh policy.
 
+To verify that a user-selected event survives background refreshes, run:
+
+```powershell
+$env:PLAYWRIGHT_EXECUTABLE_PATH = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+node .browser-test/verify-event-selection-stability.mjs
+```
+
+This test selects `2024mdsev` through the real Enter-key interaction and asserts that the active event, requested event, workspace event, and event-code input remain `2024mdsev` for 120 seconds. It deliberately spans the 30-second source-refresh interval and uses mocked external provider responses so the test measures selection stability rather than provider availability.
+
 ## User navigation latency validation
 
 The source-timing harness above does not measure the full user-visible render cost of a large event. For that, run:
