@@ -307,6 +307,12 @@ mergePersistedDynamicEventsIntoCatalog();
 
 const defaultAllianceBoard = Array(24).fill(null);
 const defaultStatboticsMetricId = "source:statbotics:epa.total_points";
+const defaultMatchupMetricIds = [
+  defaultStatboticsMetricId,
+  "source:statbotics:epa.auto_points",
+  "source:statbotics:epa.teleop_points",
+  "source:statbotics:epa.endgame_points",
+];
 const protectedEpaSortEquation = {
   id: protectedEpaSortId,
   name: "Statbotics",
@@ -363,7 +369,7 @@ const state = {
   picklistCompareMetric: "",
   selectedTeam: initialEvent.teams[0]?.number || 0,
   selectedMatch: initialEvent.matches[0]?.number || 0,
-  matchupMetricSelections: [defaultStatboticsMetricId],
+  matchupMetricSelections: [...defaultMatchupMetricIds],
   matchupNormalization: "shared",
   menuExpanded: readStoredItem(storageKeys.menuExpanded) === "true",
   picklists: [],
@@ -8274,11 +8280,11 @@ function currentMatchupMetrics() {
 
 function normalizeMatchupMetricSelections(metrics = currentMatchupMetrics()) {
   const available = new Set(metrics.map((metric) => metric.id));
-  const selections = (Array.isArray(state.matchupMetricSelections) ? state.matchupMetricSelections : [defaultStatboticsMetricId])
+  const selections = (Array.isArray(state.matchupMetricSelections) ? state.matchupMetricSelections : defaultMatchupMetricIds)
     .map((id) => available.has(id) ? id : "");
-  if (!selections.some(Boolean)) selections[0] = metrics[0]?.id || "";
-  if (selections[selections.length - 1]) selections.push("");
-  return selections.length ? selections : [""];
+  const selected = selections.filter(Boolean);
+  if (!selected.length && metrics[0]?.id) selected.push(metrics[0].id);
+  return [...selected, ""];
 }
 
 function matchupOrderedTeams(teamNumbers) {

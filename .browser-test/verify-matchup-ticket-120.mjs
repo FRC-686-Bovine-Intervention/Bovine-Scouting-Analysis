@@ -18,12 +18,12 @@ await page.addInitScript(() => {
     seasonLabel: "2026",
     name: "Matchup Test Event",
     teams: [
-      { number: 1, name: "Alpha", flags: [], matches: [], sources: { statbotics: { components: { "epa.total_points": 12 } } }, derived: {} },
-      { number: 2, name: "Bravo", flags: [], matches: [], sources: { statbotics: { components: { "epa.total_points": 30 } } }, derived: {} },
-      { number: 3, name: "Charlie", flags: [], matches: [], sources: { statbotics: { components: { "epa.total_points": 20 } } }, derived: {} },
-      { number: 4, name: "Delta", flags: [], matches: [], sources: { statbotics: { components: { "epa.total_points": 25 } } }, derived: {} },
-      { number: 5, name: "Echo", flags: [], matches: [], sources: { statbotics: { components: { "epa.total_points": 10 } } }, derived: {} },
-      { number: 6, name: "Foxtrot", flags: [], matches: [], sources: { statbotics: { components: { "epa.total_points": 5 } } }, derived: {} },
+      { number: 1, name: "Alpha", flags: [], matches: [], sources: { statbotics: { components: { "epa.total_points": 12, "epa.auto_points": 3, "epa.teleop_points": 7, "epa.endgame_points": 2 } } }, derived: {} },
+      { number: 2, name: "Bravo", flags: [], matches: [], sources: { statbotics: { components: { "epa.total_points": 30, "epa.auto_points": 8, "epa.teleop_points": 17, "epa.endgame_points": 5 } } }, derived: {} },
+      { number: 3, name: "Charlie", flags: [], matches: [], sources: { statbotics: { components: { "epa.total_points": 20, "epa.auto_points": 6, "epa.teleop_points": 10, "epa.endgame_points": 4 } } }, derived: {} },
+      { number: 4, name: "Delta", flags: [], matches: [], sources: { statbotics: { components: { "epa.total_points": 25, "epa.auto_points": 7, "epa.teleop_points": 14, "epa.endgame_points": 4 } } }, derived: {} },
+      { number: 5, name: "Echo", flags: [], matches: [], sources: { statbotics: { components: { "epa.total_points": 10, "epa.auto_points": 2, "epa.teleop_points": 6, "epa.endgame_points": 2 } } }, derived: {} },
+      { number: 6, name: "Foxtrot", flags: [], matches: [], sources: { statbotics: { components: { "epa.total_points": 5, "epa.auto_points": 1, "epa.teleop_points": 3, "epa.endgame_points": 1 } } }, derived: {} },
     ],
     teamNumbers: [1, 2, 3, 4, 5, 6],
     matches: [{ number: 1, red: [1, 2, 3], blue: [4, 5, 6] }],
@@ -59,9 +59,15 @@ try {
     };
   });
   assert.deepEqual(result.allianceNames, ["2 Bravo", "3 Charlie", "1 Alpha", "4 Delta", "5 Echo", "6 Foxtrot"]);
-  assert.equal(result.cards, 2, "The selected metric should reveal a new empty metric card.");
-  assert.deepEqual(result.selectedMetrics, ["source:statbotics:epa.total_points", ""]);
-  assert.equal(result.bars, 2, "The selected metric should render red and blue stacked bars.");
+  assert.equal(result.cards, 5, "The four default metrics should render with a new empty metric card.");
+  assert.deepEqual(result.selectedMetrics, [
+    "source:statbotics:epa.total_points",
+    "source:statbotics:epa.auto_points",
+    "source:statbotics:epa.teleop_points",
+    "source:statbotics:epa.endgame_points",
+    "",
+  ]);
+  assert.equal(result.bars, 8, "Each selected metric should render red and blue stacked bars.");
   assert.match(result.redFirst, /2 Bravo/);
   assert.equal(result.epaOptionLabel, "statbotics.epa.total_points", "Metric selectors should use the canonical raw metric token label.");
 } finally {
