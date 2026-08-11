@@ -160,6 +160,7 @@ try {
     message: "Authentication succeeded, but the admin role/navigation did not arrive after the Firebase role lookup. Confirm the seeded users/<uid> or allowlist/<email> document has role=admin.",
   });
   assertAuthorization(await page.locator('[data-view="adminEventControl"]').count() > 0, "Authentication succeeded, but Admin navigation is missing after the role lookup.");
+  assertAuthorization(await page.locator(".nav-divider[role=separator]").count() === 1, "Admin navigation is present, but the Admin pages divider is missing or duplicated.");
   await page.click('[data-view="adminEventControl"]');
   await waitForSelector(page, "#adminEventCodeInput", {
     code: "ADMIN_PAGE_UNAVAILABLE",

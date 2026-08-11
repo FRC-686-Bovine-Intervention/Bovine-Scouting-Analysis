@@ -7068,7 +7068,7 @@ function render() {
           <span class="muted">${Math.max(event.matchesComplete, importedMatchCount())} matches imported</span>
         </div>
         <nav class="nav-list">
-          ${visibleNavItems().map((item) => navButton(item)).join("")}
+          ${visibleNavItems().map((item, index, items) => `${index === items.findIndex((navItem) => navItem.view.startsWith("admin")) ? '<div class="nav-divider" role="separator" aria-label="Admin pages"></div>' : ""}${navButton(item)}`).join("")}
         </nav>
       </aside>
       <main class="main">

@@ -306,6 +306,12 @@ select {
   gap: 6px;
 }
 
+.nav-divider {
+  height: 1px;
+  margin: 8px 0 2px;
+  background: var(--border);
+}
+
 .nav-button {
   width: 100%;
   display: inline-flex;
