@@ -8263,7 +8263,7 @@ function renderMatchup() {
     </div>
     <div class="matchup-alliances">
       ${renderMatchupAllianceCard("Red Alliance", match.red, "red")}
-      <div class="matchup-match-number" aria-label="Match Q${match.number}">Q${match.number}</div>
+      <div class="matchup-match-number" aria-label="${escapeAttribute(matchupMatchLabel(match))}">${escapeHtml(matchupMatchLabel(match))}</div>
       ${renderMatchupAllianceCard("Blue Alliance", match.blue, "blue")}
     </div>
     <div class="matchup-metric-cards">
@@ -8273,6 +8273,15 @@ function renderMatchup() {
       }).join("")}
     </div>
   `;
+}
+
+function matchupMatchLabel(match) {
+  const competitionLevel = normalizeText(match?.compLevel || match?.comp_level).toLowerCase();
+  const matchNumber = Number(match?.number ?? match?.matchNumber ?? match?.match_number);
+  const setNumber = Number(match?.setNumber ?? match?.set_number);
+  if (competitionLevel === "sf") return `Semis ${Number.isFinite(setNumber) && setNumber > 0 ? `${setNumber}-` : ""}${matchNumber}`;
+  if (competitionLevel === "f") return `Finals ${Number.isFinite(setNumber) && setNumber > 0 ? `${setNumber}-` : ""}${matchNumber}`;
+  return `Qual ${matchNumber}`;
 }
 
 function currentMatchupMetrics() {
