@@ -66,6 +66,17 @@ function isNotFoundError(error) {
   return Number(error?.status || 0) === 404;
 }
 
+function normalizeStatboticsCollection(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+  for (const key of ["data", "results", "items", "team_events", "teamEvents"]) {
+    if (Array.isArray(payload[key])) return payload[key];
+  }
+  const error = new Error("Statbotics team-event response did not contain a supported collection.");
+  error.code = "UNSUPPORTED_STATBOTICS_COLLECTION";
+  throw error;
+}
+
 async function fetchJson(url, options = {}) {
   const fetchImpl = resolveFetchImpl(options);
   if (typeof fetchImpl !== "function") throw new Error("Fetch is not available in this runtime.");
@@ -128,7 +139,14 @@ async function fetchStatboticsBundle(statboticsBaseUrl, normalizedEventCode, opt
     fetchJson(`${statboticsBaseUrl}/event/${normalizedEventCode}`, options),
     fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode, options),
   ]);
-  return { event, teamEvents, baseUrl: statboticsBaseUrl };
+  return {
+    event,
+    teamEvents: {
+      ...teamEvents,
+      payload: normalizeStatboticsCollection(teamEvents.payload),
+    },
+    baseUrl: statboticsBaseUrl,
+  };
 }
 
 async function loadStatboticsBundle(primaryBaseUrl, fallbackBaseUrl, normalizedEventCode, options = {}) {

@@ -126,7 +126,7 @@ await runTest("loadEventByCode builds an event model and ready provider states f
       { team: 111, match: "2026test_qm1", epa: { total_points: 40.25, post: 41.75 } },
       { team: 111, match: "2026test_qf1m1", epa: { total_points: 44.25, post: 45.75 } },
     ],
-    [`${baseUrls.statbotics}/team_events/event/2026test`]: [
+    [`${baseUrls.statbotics}/team_events/event/2026test`]: { data: [
       {
         team: 111,
         epa: {
@@ -181,7 +181,7 @@ await runTest("loadEventByCode builds an event model and ready provider states f
         },
         record: { qual: { count: 12, rank: 24, rps_per_match: 1.5 } },
       },
-    ],
+    ] },
     [`${baseUrls.statbotics}/team_match/111/2026test_qm1`]: {
       team: 111,
       match: "2026test_qm1",
