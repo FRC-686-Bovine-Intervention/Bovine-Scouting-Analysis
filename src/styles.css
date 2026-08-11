@@ -1650,6 +1650,10 @@ button.pill {
 }
 
 .picklist-metric-selector {
+  min-height: 0;
+}
+
+.picklist-metric-list {
   max-height: min(50vh, 420px);
   overflow-y: auto;
   padding-right: 6px;

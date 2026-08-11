@@ -9103,16 +9103,18 @@ function renderAlliance() {
           </div>
           <div class="picklist-loader-group picklist-metric-selector">
             <h3>Metrics</h3>
-            ${orderedRankableMetrics()
-              .map(
-                (metric) => `
+            <div class="picklist-metric-list">
+              ${orderedRankableMetrics()
+                .map(
+                  (metric) => `
             <label class="check-row">
               <input type="checkbox" class="picklist-check" value="metric:${metric.id}" ${state.loadedSources.includes(`metric:${metric.id}`) ? "checked" : ""} />
               <span>${metricTokenLabel(metric)}</span>
             </label>
-          `,
-              )
-              .join("")}
+            `,
+                )
+                .join("")}
+            </div>
           </div>
         </div>
       </article>
