@@ -56,8 +56,10 @@ body {
 
 #app {
   min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 button,
@@ -2274,6 +2276,11 @@ button.pill {
 }
 
 @media (max-width: 860px) {
+  #app {
+    height: auto;
+    overflow: visible;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
     height: auto;
