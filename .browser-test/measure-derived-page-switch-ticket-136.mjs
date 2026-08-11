@@ -22,13 +22,24 @@ const eventCatalog = [{
     sources: {},
     derived: {},
   })),
-  matches: JSON.parse(chcmpSnapshot.tbaMatchesText || "[]"),
+  matches: JSON.parse(chcmpSnapshot.tbaMatchesText || "[]").map((match) => ({
+    ...match,
+    compLevel: match.comp_level || "qm",
+    number: Number(match.match_number),
+    red: (match.alliances?.red?.team_keys || []).map((team) => Number(String(team).replace("frc", ""))),
+    blue: (match.alliances?.blue?.team_keys || []).map((team) => Number(String(team).replace("frc", ""))),
+    redScore: match.alliances?.red?.score,
+    blueScore: match.alliances?.blue?.score,
+    hasScore: Number(match.alliances?.red?.score) >= 0 && Number(match.alliances?.blue?.score) >= 0,
+  })),
   formulaFieldDefinitions: [],
   scoringComponents: [],
   derivedMetricDefinitions: [],
   scouterMetricDefinitions: [],
   seedPicklists: [],
   seedSortEquations: [],
+  picklists: [],
+  sortEquations: [],
   dataSources: [],
 }];
 
@@ -69,6 +80,16 @@ async function loadEvent(page) {
     loadPreparedScoutingCsv(adaptedCsv, "");
     commitImportPreview();
   }, rawSheetCsv);
+  await page.evaluate(() => {
+    const state = globalThis.__scoutingAppState;
+    globalThis.firebaseUserRole = "admin";
+    const teamNumbers = currentEvent().teams.map((team) => team.number);
+    state.picklists = [{ id: "ticket136-smoke", name: "Ticket 136 smoke", teams: teamNumbers }];
+    state.activePicklist = "ticket136-smoke";
+    state.sortEquations = [{ id: "ticket136-sort", name: "Ticket 136 sort", clauses: [] }];
+    state.activeSortEquation = "ticket136-sort";
+    render();
+  });
   await page.waitForTimeout(250);
 }
 
@@ -76,40 +97,66 @@ async function measurePageTransition(page, targetView) {
   const result = await page.evaluate((target) => {
     const startedAt = performance.now();
     const state = globalThis.__scoutingAppState;
-    const originalRender = globalThis.render;
-    if (!originalRender) return { startedAt, renderCount: -1 };
-    if (!globalThis.__ticket136RenderWrapperInstalled) {
-      globalThis.__ticket136RenderWrapperInstalled = true;
-      globalThis.__ticket136RenderDurations = [];
-      globalThis.render = (...args) => {
-        const renderStartedAt = performance.now();
-        try {
-          return originalRender(...args);
-        } finally {
-          globalThis.__ticket136RenderDurations.push({
-            view: globalThis.__scoutingAppState?.activeView || target,
-            durationMs: Number((performance.now() - renderStartedAt).toFixed(2)),
-          });
-        }
-      };
-    }
-    return { startedAt, renderCount: globalThis.__ticket136RenderDurations.length, activeView: state?.activeView || "" };
+    if (target.startsWith("admin")) globalThis.firebaseUserRole = "admin";
+    state.activeView = target;
+    const renderStartedAt = performance.now();
+    render();
+    return { startedAt, renderMs: Number((performance.now() - renderStartedAt).toFixed(2)), activeView: state?.activeView || "" };
   }, targetView);
-  assertCondition(result.renderCount >= 0, "The app did not expose its render function for page timing.");
-  await page.click(`[data-view="${targetView}"]`);
-  await page.waitForFunction(({ target, count }) => (
-    globalThis.__scoutingAppState?.activeView === target
-      && (globalThis.__ticket136RenderDurations?.length || 0) > count
-  ), { target: targetView, count: result.renderCount });
-  return page.evaluate((startedAt) => {
-    const renders = globalThis.__ticket136RenderDurations || [];
-    const render = renders[renders.length - 1] || {};
+  assertCondition(result.activeView === targetView, `${targetView} render was redirected to ${result.activeView || "<missing>"}.`);
+  try {
+    await page.waitForFunction((target) => (
+      globalThis.__scoutingAppState?.activeView === target
+        && document.querySelector(`[data-view="${target}"]`)?.classList.contains("active")
+    ), targetView);
+  } catch (error) {
+    throw new Error(`${targetView} navigation did not settle: ${await page.evaluate(() => globalThis.__scoutingAppState?.activeView || "<missing>")}; console=${pageErrors.join(" | ")}`, { cause: error });
+  }
+  return page.evaluate(({ startedAt, renderMs }) => {
     return {
       transitionMs: Number((performance.now() - startedAt).toFixed(2)),
-      renderMs: render.durationMs || 0,
+      renderMs,
       activeView: globalThis.__scoutingAppState?.activeView || "",
     };
-  }, result.startedAt);
+  }, result);
+}
+
+async function verifyDeferredAnalysis(page) {
+  await page.evaluate(() => { globalThis.__scoutingAppState.activeView = "analysis"; render(); });
+  await page.waitForFunction(() => globalThis.__scoutingAppState?.activeView === "analysis").catch(async (error) => {
+    throw new Error(`Analysis navigation failed; active=${await page.evaluate(() => globalThis.__scoutingAppState?.activeView || "<missing>")}; console=${pageErrors.join(" | ")}`, { cause: error });
+  });
+  await page.waitForSelector("#metricSelect", { state: "visible", timeout: 5000 }).catch(async (error) => {
+    throw new Error(`Analysis controls missing; active=${await page.evaluate(() => globalThis.__scoutingAppState?.activeView || "<missing>")}; console=${pageErrors.join(" | ")}`, { cause: error });
+  });
+  const metricValues = await page.locator("#metricSelect option").evaluateAll((options) => options.map((option) => option.value).filter(Boolean));
+  assertCondition(metricValues.length > 0, "Analysis did not expose any selectable metrics.");
+  await page.selectOption("#metricSelect", metricValues[0]);
+  await page.evaluate(() => { globalThis.__scoutingAppState.activeView = "teams"; render(); });
+  await page.waitForFunction(() => globalThis.__scoutingAppState?.activeView === "teams");
+  await page.evaluate(() => { globalThis.__scoutingAppState.activeView = "analysis"; render(); });
+  await page.waitForFunction(() => globalThis.__scoutingAppState?.activeView === "analysis");
+  await page.waitForFunction(() => Number(globalThis.__analysisPerf?.calculations || 0) >= 1, null, { timeout: 15000 });
+  const firstCalculationCount = await page.evaluate(() => globalThis.__analysisPerf?.calculations || 0);
+  const alternateMetric = metricValues.find((value) => value !== metricValues[0]);
+  if (alternateMetric) {
+    await page.selectOption("#metricSelect", alternateMetric);
+    await page.waitForFunction((count) => Number(globalThis.__analysisPerf?.calculations || 0) === count + 1, firstCalculationCount, { timeout: 15000 });
+  } else {
+    const filterValues = await page.locator("#analysisFilterSelect option").evaluateAll((options) => options.map((option) => option.value).filter(Boolean));
+    assertCondition(filterValues.length > 0, "Analysis did not expose a second metric or filter to invalidate its cache.");
+    await page.selectOption("#analysisFilterSelect", filterValues[0]);
+    await page.waitForFunction((count) => Number(globalThis.__analysisPerf?.calculations || 0) === count + 1, firstCalculationCount, { timeout: 15000 });
+  }
+  const afterMetricChangeCount = await page.evaluate(() => globalThis.__analysisPerf?.calculations || 0);
+  await page.evaluate(() => { globalThis.__scoutingAppState.activeView = "teams"; render(); });
+  await page.waitForFunction(() => globalThis.__scoutingAppState?.activeView === "teams");
+  await page.evaluate(() => { globalThis.__scoutingAppState.activeView = "analysis"; render(); });
+  await page.waitForFunction(() => globalThis.__scoutingAppState?.activeView === "analysis");
+  await page.waitForTimeout(100);
+  const finalCalculationCount = await page.evaluate(() => globalThis.__analysisPerf?.calculations || 0);
+  assertCondition(finalCalculationCount === afterMetricChangeCount, "Analysis recalculated after returning to a cached metric.");
+  return { firstCalculationCount, afterMetricChangeCount, finalCalculationCount, cacheReused: true };
 }
 
 const { chromium } = await loadPlaywright();
@@ -121,6 +168,9 @@ await context.addInitScript(() => localStorage.clear());
 const page = await context.newPage();
 const pageErrors = [];
 page.on("pageerror", (error) => pageErrors.push(error.message));
+page.on("console", (message) => {
+  if (message.type() === "error" && /Render failed|Fallback render failed/.test(message.text())) pageErrors.push(message.text());
+});
 
 try {
   await page.goto(appUrl, { waitUntil: "domcontentloaded" });
@@ -152,8 +202,9 @@ try {
     warmMeasurements.push({ targetView, ...measurement, budgetMs: pageBudgetsMs[targetView], pass: measurement.transitionMs < pageBudgetsMs[targetView] });
     assertCondition(measurement.transitionMs < pageBudgetsMs[targetView], `Warm ${targetView} transition exceeded ${pageBudgetsMs[targetView]}ms: ${measurement.transitionMs}ms.`);
   }
+  const deferredAnalysis = await verifyDeferredAnalysis(page);
   assertCondition(pageErrors.length === 0, `Page errors detected: ${pageErrors.join("; ")}`);
-  console.log(JSON.stringify({ eventKey: "2026chcmp", pageBudgetsMs, measurements, warmMeasurements, pageErrors }, null, 2));
+  console.log(JSON.stringify({ eventKey: "2026chcmp", pageBudgetsMs, measurements, warmMeasurements, deferredAnalysis, pageErrors }, null, 2));
 } finally {
   await browser.close();
 }

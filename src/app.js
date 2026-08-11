@@ -2517,7 +2517,6 @@ function schemaBaselinePridgeResponseDefinitions(eventModel, existingSchema = {}
 
 function applyCurrentPridgeResponseDefinitions(eventModel = currentEvent()) {
   const definitions = currentPridgeResponseDefinitions(eventModel);
-  if (!definitions.length) return eventModel;
   const nextEventModel = applyPridgeResponseDefinitions(eventModel, definitions, { force: true });
   if (nextEventModel && nextEventModel !== eventModel) registerEventModel(nextEventModel);
   return nextEventModel || eventModel;
@@ -4891,7 +4890,9 @@ function hydrateEventState(eventKey) {
   globalThis.__scoutingActiveEventKey = state.activeEventKey;
   const initialEventModel = currentEvent();
   ensureEventScopedScoutingProfiles(initialEventModel);
-  const eventModel = applyCurrentPridgeResponseDefinitions(currentEvent());
+  // Keep pRidge fitting out of event navigation. Totals are materialized when a
+  // dependent view first needs them; trend/response series remain deferred.
+  const eventModel = currentEvent();
   void syncSharedProfilesForEvent(resolvedEventKey);
   void syncSharedSubmissionsForEvent(resolvedEventKey);
   state.eventWorkspace = createEventWorkspace(eventModel, readStoredJson(storageKeys.eventWorkspace, null, resolvedEventKey));
@@ -7920,31 +7921,25 @@ function renderSparkline(team, metric) {
   `;
 }
 
-function renderAnalysis() {
-  const selection = analysisSelectionModel();
-  const filterOptions = currentProfileFilterList();
-  const activeFilter = activeAnalysisFilter();
-  if (!selection) {
-    return `
-      <div class="toolbar">
-        <label>
-          Metric
-          <select id="metricSelect">
-            <option value="" selected>Select a metric</option>
-            ${analysisMetricOptions().map((item) => `<option value="${item.id}">${metricTokenLabel(item)}</option>`).join("")}
-          </select>
-        </label>
-        <label>
-          Filter
-          <select id="analysisFilterSelect">
-            <option value="" ${state.activeAnalysisFilterId ? "" : "selected"}>All Matches</option>
-            ${filterOptions.map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
-          </select>
-        </label>
-      </div>
-      <div class="empty-state" style="margin-top: 8px;">Choose a metric to plot event analysis.</div>
-    `;
-  }
+const analysisResultCache = new Map();
+let pendingAnalysisCalculation = null;
+let lastAnalysisResult = null;
+
+function analysisResultKey(selection) {
+  const context = currentOverlayCacheContext();
+  return [
+    context.eventKey,
+    context.sourceRevisionKey,
+    context.profileVersionKey,
+    context.schemaSignature,
+    selection?.metric?.id || "",
+    state.activeAnalysisFilterId || "",
+    currentScoutingWindow(),
+    currentRecentMatchCount(),
+  ].join("|");
+}
+
+function calculateAnalysisResult(selection) {
   const analysisWindowOptions = { window: "recent", recentMatchCount: currentRecentMatchCount() };
   const derivedAnalysisOptions = {
     eventModel: currentEvent(),
@@ -7972,7 +7967,90 @@ function renderAnalysis() {
   const globalMin = finiteDistributions.length ? Math.min(...finiteDistributions.map((item) => item.min)) : 0;
   const globalMax = finiteDistributions.length ? Math.max(...finiteDistributions.map((item) => item.max)) : globalMin;
   const eventAverage = finiteScores.length ? average(finiteScores) : 0;
-  const axisTicks = Array.from({ length: 5 }, (_, index) => globalMin + ((globalMax - globalMin) * index) / 4);
+  return {
+    ranked,
+    distributions,
+    globalMin,
+    globalMax,
+    eventAverage,
+    axisTicks: Array.from({ length: 5 }, (_, index) => globalMin + ((globalMax - globalMin) * index) / 4),
+  };
+}
+
+function scheduleAnalysisCalculation(selection, key) {
+  if (pendingAnalysisCalculation?.key === key) return;
+  pendingAnalysisCalculation = { key };
+  globalThis.__analysisPerf = globalThis.__analysisPerf || { calculations: 0, cacheHits: 0 };
+  setTimeout(() => {
+    if (state.activeView !== "analysis" || analysisResultKey(selection) !== key) {
+      if (pendingAnalysisCalculation?.key === key) pendingAnalysisCalculation = null;
+      return;
+    }
+    try {
+      const eventModel = currentEvent();
+      const needsPridge = selection.metric?.sourceId === "pridge"
+        && (eventModel?.teams || []).some((team) => !Number.isFinite(Number(team?.sources?.pridge?.total)));
+      if (needsPridge && eventModel?.pridgeComputationDeferred === true) {
+        applyCurrentPridgeResponseDefinitions(eventModel);
+      }
+      const result = calculateAnalysisResult(selection);
+      analysisResultCache.set(key, result);
+      lastAnalysisResult = { key, result };
+      globalThis.__analysisPerf.calculations += 1;
+    } catch (error) {
+      console.warn("Unable to calculate Analysis", error);
+    } finally {
+      if (pendingAnalysisCalculation?.key === key) pendingAnalysisCalculation = null;
+    }
+    if (state.activeView === "analysis" && analysisResultKey(selection) === key) render();
+  }, 0);
+}
+
+function renderAnalysis() {
+  const selection = analysisSelectionModel();
+  const filterOptions = currentProfileFilterList();
+  const activeFilter = activeAnalysisFilter();
+  if (!selection) {
+    return `
+      <div class="toolbar">
+        <label>
+          Metric
+          <select id="metricSelect">
+            <option value="" selected>Select a metric</option>
+            ${analysisMetricOptions().map((item) => `<option value="${item.id}">${metricTokenLabel(item)}</option>`).join("")}
+          </select>
+        </label>
+        <label>
+          Filter
+          <select id="analysisFilterSelect">
+            <option value="" ${state.activeAnalysisFilterId ? "" : "selected"}>All Matches</option>
+            ${filterOptions.map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <div class="empty-state" style="margin-top: 8px;">Choose a metric to plot event analysis.</div>
+    `;
+  }
+  const key = analysisResultKey(selection);
+  const cached = analysisResultCache.get(key);
+  const analysisPending = !cached;
+  if (cached) {
+    globalThis.__analysisPerf = globalThis.__analysisPerf || { calculations: 0, cacheHits: 0 };
+    globalThis.__analysisPerf.cacheHits += 1;
+  } else {
+    scheduleAnalysisCalculation(selection, key);
+  }
+  const result = cached || (lastAnalysisResult?.result || null);
+  if (!result) {
+    return `
+      <div class="toolbar">
+        <label>Metric<select id="metricSelect">${analysisMetricOptions().map((item) => `<option value="${item.id}" ${item.id === state.metric ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}</select></label>
+        <label>Filter<select id="analysisFilterSelect"><option value="">All Matches</option>${filterOptions.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join("")}</select></label>
+      </div>
+      <div class="empty-state" style="margin-top: 8px;">Calculating Analysis…</div>
+    `;
+  }
+  const { ranked, distributions, globalMin, globalMax, eventAverage, axisTicks } = result;
   return `
     <div class="toolbar">
       <label>
@@ -7987,7 +8065,8 @@ function renderAnalysis() {
           <option value="" ${state.activeAnalysisFilterId ? "" : "selected"}>All Matches</option>
           ${filterOptions.map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
         </select>
-      </label>
+        </label>
+      ${analysisPending ? '<span class="muted" role="status">Updating Analysis…</span>' : ""}
       <div class="stat"><span>Event Average</span><strong>${eventAverage.toFixed(1)} ${selection.unit}</strong></div>
       ${activeFilter ? `<div class="stat"><span>Filter</span><strong>${escapeHtml(activeFilter.name)}</strong></div>` : ""}
       ${renderBoxPlotLegend()}
