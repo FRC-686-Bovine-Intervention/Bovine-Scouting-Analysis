@@ -4169,6 +4169,9 @@ function restoreBuilderListScroll(view = state.activeView) {
     });
     requestAnimationFrame(() => {
       if (view !== "derivedBuilder") return;
+      const allowActiveScroll = scrollState.__allowActiveScroll === true;
+      delete scrollState.__allowActiveScroll;
+      if (!allowActiveScroll) return;
       if (state.builderFocus.derivedBuilder === "metrics" && state.activeDerivedPreviewMetricId) {
         const activeMetric = [...document.querySelectorAll("[data-derived-preview-metric]")]
           .find((item) => item.dataset.derivedPreviewMetric === state.activeDerivedPreviewMetricId);
@@ -4180,6 +4183,50 @@ function restoreBuilderListScroll(view = state.activeView) {
         .find((item) => item.dataset.entityId === activeEquationId);
       activeEquation?.scrollIntoView({ block: "nearest" });
     });
+  });
+}
+
+function captureRenderInteractionState() {
+  const activeElement = document.activeElement;
+  const interactionState = {
+    activeId: activeElement && activeElement !== document.body && app.contains(activeElement) ? activeElement.id : "",
+    selectionStart: typeof activeElement?.selectionStart === "number" ? activeElement.selectionStart : null,
+    selectionEnd: typeof activeElement?.selectionEnd === "number" ? activeElement.selectionEnd : null,
+    value: typeof activeElement?.value === "string" ? activeElement.value : null,
+    scroll: [],
+  };
+  app.querySelectorAll("[data-builder-list-scroll], [data-builder-grid-column-scroll], [data-builder-grid-shell]").forEach((element) => {
+    const key = element.dataset.builderListScroll || element.dataset.builderGridColumnScroll || "shell";
+    interactionState.scroll.push({
+      selector: element.dataset.builderListScroll
+        ? `[data-builder-list-scroll="${key}"]`
+        : element.dataset.builderGridColumnScroll
+          ? `[data-builder-grid-column-scroll="${key}"]`
+          : "[data-builder-grid-shell]",
+      scrollTop: element.scrollTop,
+      scrollLeft: element.scrollLeft,
+    });
+  });
+  return interactionState;
+}
+
+function restoreRenderInteractionState(interactionState) {
+  if (!interactionState) return;
+  requestAnimationFrame(() => {
+    interactionState.scroll.forEach((saved) => {
+      const element = document.querySelector(saved.selector);
+      if (!element) return;
+      element.scrollTop = saved.scrollTop;
+      element.scrollLeft = saved.scrollLeft;
+    });
+    if (!interactionState.activeId) return;
+    const activeElement = document.getElementById(interactionState.activeId);
+    if (!activeElement) return;
+    if (interactionState.value !== null && "value" in activeElement) activeElement.value = interactionState.value;
+    activeElement.focus({ preventScroll: true });
+    if (interactionState.selectionStart !== null && typeof activeElement.setSelectionRange === "function") {
+      activeElement.setSelectionRange(interactionState.selectionStart, interactionState.selectionEnd);
+    }
   });
 }
 
@@ -7084,6 +7131,7 @@ function renderDeploymentBanner() {
   return `<div class="deployment-banner" role="status">${label} — commit <span class="deployment-revision" style="text-transform: lowercase">${developmentRevision}</span> — changes and data may not match production</div>`;
 }
 function render() {
+  const interactionState = captureRenderInteractionState();
   const event = currentEvent();
   if (!state.user) {
     renderLogin();
@@ -7163,6 +7211,7 @@ function render() {
   `;
 
   bindShellEvents();
+  restoreRenderInteractionState(interactionState);
   focusScheduleLastPlayed();
 }
 
@@ -10276,6 +10325,7 @@ function handleBuilderKeyboard(event) {
         captureBuilderListScroll();
         state.activeDerivedPreviewMetricId = next.id;
         saveState();
+        builderListScrollState().__allowActiveScroll = true;
         render();
         return;
       }
@@ -10290,6 +10340,7 @@ function handleBuilderKeyboard(event) {
       state.builderFocus.derivedBuilder = "equations";
       rememberActiveDerivedEquationEditSession();
       saveState();
+      builderListScrollState().__allowActiveScroll = true;
       render();
     }
     return;

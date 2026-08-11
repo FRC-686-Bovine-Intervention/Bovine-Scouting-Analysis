@@ -176,6 +176,33 @@ async function measureListInteraction(page) {
   return { before, after };
 }
 
+async function measureInteractionStatePreservation(page) {
+  await page.click('[data-view="derivedBuilder"]');
+  const list = page.locator('[data-builder-list-scroll="derived:equations"]');
+  const formulaInput = page.locator("#derivedEquationFormulaInput");
+  await page.waitForTimeout(500);
+  await list.evaluate((element) => {
+    element.scrollTop = 320;
+    element.dispatchEvent(new Event("scroll"));
+  });
+  await formulaInput.fill("average(tba.opr.total)");
+  await formulaInput.focus();
+  await page.evaluate(() => {
+    const state = globalThis.__scoutingAppState;
+    state.eventWorkspace.sources.tba.sourceFingerprint = "ticket-135-force-change";
+  });
+  await page.waitForTimeout(450);
+  const result = await page.evaluate(() => ({
+    scrollTop: document.querySelector('[data-builder-list-scroll="derived:equations"]')?.scrollTop || 0,
+    formula: document.querySelector("#derivedEquationFormulaInput")?.value || "",
+    activeId: document.activeElement?.id || "",
+  }));
+  assertCondition(result.scrollTop === 320, `List scroll position changed during background render: ${result.scrollTop}.`);
+  assertCondition(result.formula === "average(tba.opr.total)", "Formula text changed during background render.");
+  assertCondition(result.activeId === "derivedEquationFormulaInput", `Formula focus was lost during background render: ${result.activeId}.`);
+  return result;
+}
+
 async function measurePairwiseMoves(page) {
   await page.click('[data-view="picklistBuilder"]');
   const currentPicklist = page.locator("[data-current-picklist]");
@@ -220,6 +247,7 @@ try {
   await installObservers(page);
   await startBackgroundRefreshes(page);
   const list = await measureListInteraction(page);
+  const interactionState = await measureInteractionStatePreservation(page);
   const pairwise = await measurePairwiseMoves(page);
   await stopBackgroundRefreshes(page);
   const metrics = await page.evaluate(() => ({
@@ -230,7 +258,7 @@ try {
     maxCalculationMs: Math.max(0, ...globalThis.__ticket132Metrics.calculationDurations),
     activeElementChanges: globalThis.__ticket132Metrics.activeElementChanges,
   }));
-  const result = { appUrl, list, pairwise, metrics, pageErrors };
+  const result = { appUrl, list, interactionState, pairwise, metrics, pageErrors };
   console.log(JSON.stringify(result, null, 2));
   assert.deepEqual(pageErrors, [], `The app emitted page errors: ${pageErrors.join(" | ")}`);
 } finally {
