@@ -1169,6 +1169,10 @@ select {
   gap: 14px;
 }
 
+.matchup-metric-cards {
+  margin-top: 24px;
+}
+
 .matchup-alliances,
 .matchup-metric-cards {
   grid-template-columns: repeat(2, minmax(0, 1fr));
