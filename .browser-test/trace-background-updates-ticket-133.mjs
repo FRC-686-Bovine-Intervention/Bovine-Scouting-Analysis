@@ -83,6 +83,14 @@ try {
   for (const trace of traces.slice(1)) {
     assertCondition(trace.events.length > 0, `${trace.name} produced no trace events.`);
   }
+  for (const trace of traces.filter((entry) => ["tba-poll", "statbotics-poll"].includes(entry.name))) {
+    assertCondition(trace.events.some((event) => event.label === "background.refresh.render"), `${trace.name} did not render its changed source.`);
+  }
+  const unchangedPridge = traces.find((entry) => entry.name === "pridge-poll");
+  assertCondition(
+    !unchangedPridge.events.some((event) => event.label === "background.refresh.render"),
+    "An unchanged pRidge poll rendered the active view.",
+  );
   console.log(JSON.stringify({ appUrl, traces, pageErrors }, null, 2));
 } finally {
   await browser.close();

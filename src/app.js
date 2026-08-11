@@ -1379,7 +1379,10 @@ async function refreshDataSource(sourceId, options = {}) {
     pushActivity(`Checked ${label} for ${displayEventName(event)}. No changes detected.`);
   }
   saveState();
-  render();
+  if (didChange || trigger === "manual") {
+    recordScoutingPerf("background.refresh.render", startedAt, { sourceId, trigger, changed: didChange, activeView: state.activeView });
+    render();
+  }
   recordScoutingPerf("background.refresh.end", startedAt, {
     sourceId,
     trigger,
@@ -2073,12 +2076,18 @@ const currentTeamsCache = {
 const overlaidTeamCache = new Map();
 
 function currentOverlayCacheContext(eventModel = currentEvent()) {
+  const workspaceSources = currentEventWorkspace()?.sources || {};
+  const activeScoutingAttachment = activeEventWorkspaceScoutingAttachment(currentEventWorkspace());
   return {
     eventModel,
     eventKey: normalizeText(eventModel?.key),
     recentMatchCount: currentRecentMatchCount(),
     profileVersionKey: normalizeText(currentImportedProfileDefinition(eventModel)?.versionKey),
     schemaSignature: currentTeamsSchemaSignature(eventModel),
+    sourceRevisionKey: ["tba", "statbotics", "pridge"]
+      .map((sourceId) => `${sourceId}:${Math.max(0, Number(workspaceSources[sourceId]?.sourceRevision) || 0)}`)
+      .concat(`scouting:${Math.max(0, Number(activeScoutingAttachment?.sourceRevision) || 0)}`)
+      .join("|"),
     submissionRef: state.scoutingSubmissions,
     reviewOverrideRef: state.scoutingReviewOverrides,
   };
@@ -2104,6 +2113,7 @@ function currentTeams() {
     && currentTeamsCache.recentMatchCount === nextRecentMatchCount
     && currentTeamsCache.profileVersionKey === nextProfileVersionKey
     && currentTeamsCache.schemaSignature === nextSchemaSignature
+    && currentTeamsCache.sourceRevisionKey === cacheContext.sourceRevisionKey
     && currentTeamsCache.submissionRef === cacheContext.submissionRef
     && currentTeamsCache.reviewOverrideRef === cacheContext.reviewOverrideRef
   ) {
@@ -6130,6 +6140,7 @@ function overlayTeamWithScouting(baseTeam) {
     && cacheEntry.recentMatchCount === cacheContext.recentMatchCount
     && cacheEntry.profileVersionKey === cacheContext.profileVersionKey
     && cacheEntry.schemaSignature === cacheContext.schemaSignature
+    && cacheEntry.sourceRevisionKey === cacheContext.sourceRevisionKey
     && cacheEntry.submissionRef === cacheContext.submissionRef
     && cacheEntry.reviewOverrideRef === cacheContext.reviewOverrideRef
   ) {
