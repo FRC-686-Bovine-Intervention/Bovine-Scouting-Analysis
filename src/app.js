@@ -479,7 +479,6 @@ let pendingScoutingAutoloadToken = "";
 let attemptedScoutingAutoloadToken = "";
 const pendingExternalRefreshSourceIds = new Set();
 let sourceRefreshIntervalId = null;
-let sharedCachedEventOpenSequence = 0;
 let eventLoadSequence = 0;
 let scoutingSubmissionRevision = 0;
 let scoutingSubmissionLoadSequence = 0;
@@ -1752,21 +1751,21 @@ async function applyAdminEventCodeDraft(value, options = {}) {
     if (options.render !== false) render();
     return true;
   }
-  if (!options.allowDuplicate && state.eventLookupPending && state.adminEventCodeDraft === normalizedEventCode) {
+  if (state.eventLookupPending && state.adminEventCodeDraft === normalizedEventCode) {
     return false;
   }
   state.adminEventCodeDraft = normalizedEventCode;
   if (sharedCachedEventByKey(normalizedEventCode)) {
     const opened = await openSharedCachedEvent(normalizedEventCode, { activeView: "adminEventControl", persistShared: true, source: "user" });
     if (opened) return true;
-    return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl", allowDuplicate: true, source: "user" });
+    return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl", source: "user" });
   }
   if (globalEventCatalog.some((eventModel) => eventModel?.key === normalizedEventCode)) {
     const switched = activateEventSelection(beginEventSelection(normalizedEventCode, "user"), { activeView: "adminEventControl" });
     if (switched) void refreshCurrentExternalSourcesImmediately();
     return switched;
   }
-  return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl", allowDuplicate: true, source: "user" });
+  return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl", source: "user" });
 }
 
 async function applyScoutingSourceInputChange(options = {}) {
@@ -4693,9 +4692,8 @@ async function loadCachedScoutingData(eventKey, api) {
 }
 
 async function openSharedCachedEvent(eventKey, options = {}) {
-  const openSequence = ++sharedCachedEventOpenSequence;
   const selectionToken = beginEventSelection(eventKey, options.source || "shared");
-  const isCurrentOpen = () => openSequence === sharedCachedEventOpenSequence && isCurrentEventSelection(selectionToken);
+  const isCurrentOpen = () => isCurrentEventSelection(selectionToken);
   const cachedEvent = sharedCachedEventByKey(eventKey);
   const api = globalThis.firebaseEventSourceCacheApi;
   const cachedEventLoader = globalThis.CachedEventLoader;
@@ -4733,7 +4731,6 @@ async function openSharedCachedEvent(eventKey, options = {}) {
         if (cachedEventLoader.cacheFreshness(cachedTbaEvent?.manifest) === "stale") {
           const refreshed = await loadArbitraryEventCode(cachedEvent.key, {
             activeView: options.activeView || state.activeView,
-            allowDuplicate: true,
             deferPridgeComputation: true,
           });
           if (refreshed) return true;
@@ -4774,7 +4771,6 @@ async function openSharedCachedEvent(eventKey, options = {}) {
     if (isCurrentOpen() && state.tbaAuthKey && /No cached source is available/i.test(error?.message || "")) {
       const liveLoaded = await loadArbitraryEventCode(eventKey, {
         activeView: options.activeView || "adminEventControl",
-        allowDuplicate: true,
         deferPridgeTrends: true,
         deferPridgeComputation: true,
       });
@@ -5147,7 +5143,6 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     render();
     return false;
   }
-  if (!options.allowDuplicate && state.eventLookupPending && state.adminEventCodeDraft === normalizedEventCode) return false;
   const selectionToken = options.selectionToken || beginEventSelection(normalizedEventCode, options.source || "user");
   const isCurrentLoad = () => isCurrentEventSelection(selectionToken);
   state.eventLookupPending = true;
@@ -5167,7 +5162,6 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     if (!isCurrentLoad() || registeredEvent.key !== selectionToken.eventKey) return false;
     if (options.activate === false) {
       if (state.activeEventKey !== selectionToken.eventKey) return false;
-      applyLoadedExternalSourceState(loadResult, { render: false });
     } else {
       activateEventSelection(selectionToken, {
         activeView: options.activeView || "adminEventControl",
