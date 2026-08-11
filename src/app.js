@@ -484,7 +484,9 @@ let allianceSourceScrollbarResizeObserver = null;
 let tbaAuthKeyConfigurationLoadSequence = 0;
 let frcSeasonMetadataLoadSequence = 0;
 const seasonMetadataUnsubscribers = new Map();
-const scoutingPerf = globalThis.__scoutingPerf || { events: [] };
+const scoutingPerf = globalThis.__scoutingPerf || { events: [], counters: {} };
+scoutingPerf.events = Array.isArray(scoutingPerf.events) ? scoutingPerf.events : [];
+scoutingPerf.counters = scoutingPerf.counters && typeof scoutingPerf.counters === "object" ? scoutingPerf.counters : {};
 globalThis.__scoutingPerf = scoutingPerf;
 
 const app = document.querySelector("#app");
@@ -496,15 +498,42 @@ function perfNow() {
   return Date.now();
 }
 
+function incrementScoutingPerfCounter(name, amount = 1) {
+  scoutingPerf.counters[name] = Math.max(0, Number(scoutingPerf.counters[name]) || 0) + amount;
+}
+
+function scoutingPerfSnapshot() {
+  return {
+    counters: { ...scoutingPerf.counters },
+    events: scoutingPerf.events.slice(-100).map((event) => ({ ...event })),
+  };
+}
+
+function resetScoutingPerf() {
+  scoutingPerf.events.splice(0, scoutingPerf.events.length);
+  Object.keys(scoutingPerf.counters).forEach((key) => delete scoutingPerf.counters[key]);
+}
+
+globalThis.scoutingPerfDiagnostics = { snapshot: scoutingPerfSnapshot, reset: resetScoutingPerf };
+
 function recordScoutingPerf(label, startedAt, details = {}) {
+  const safeDetails = { ...details };
+  if (safeDetails.error) {
+    safeDetails.errorType = String(safeDetails.error?.name || "error");
+    delete safeDetails.error;
+  }
   const event = {
     label,
     durationMs: Math.round((perfNow() - startedAt) * 100) / 100,
     timestamp: new Date().toISOString(),
-    ...details,
+    ...safeDetails,
   };
   scoutingPerf.events.push(event);
   if (scoutingPerf.events.length > 100) scoutingPerf.events.splice(0, scoutingPerf.events.length - 100);
+  incrementScoutingPerfCounter("events");
+  if (label.startsWith("render")) incrementScoutingPerfCounter("renders");
+  if (label === "background.refresh.end" && details.changed === true) incrementScoutingPerfCounter("sourceChanges");
+  if (label === "background.refresh.end" && details.changed === false) incrementScoutingPerfCounter("unchangedSourcePolls");
   return event;
 }
 
@@ -5567,6 +5596,7 @@ function pairwisePicklistKeydown(event) {
   const pairwise = state.pairwisePicklist;
   if (!pairwise || pairwise.picklistId !== activePicklist().id) return false;
   const session = pairwise.session;
+  const interactionStartedAt = perfNow();
   if (event.key === "Escape") {
     event.preventDefault();
     if (session.mode === "sort") pairwise.session = PairwisePicklist.cancel(session);
@@ -5590,6 +5620,8 @@ function pairwisePicklistKeydown(event) {
     }
     render();
   } else return false;
+  recordScoutingPerf("pairwise.interaction", interactionStartedAt, { action: event.key, mode: session.mode });
+  if (event.key === "ArrowUp" || event.key === "ArrowDown") incrementScoutingPerfCounter("pairwiseInteractions");
   return true;
 }
 
@@ -6192,8 +6224,11 @@ function overlayTeamWithScouting(baseTeam) {
     && cacheEntry.submissionRef === cacheContext.submissionRef
     && cacheEntry.reviewOverrideRef === cacheContext.reviewOverrideRef
   ) {
+    incrementScoutingPerfCounter("overlayCacheHits");
     return cacheEntry.value;
   }
+  incrementScoutingPerfCounter("overlayCacheMisses");
+  incrementScoutingPerfCounter("overlayCacheInvalidations", cacheEntry ? 1 : 0);
   const overlaidTeam = buildTeamScoutingOverlay(baseTeam, {
     submissions: currentScoutingSubmissions(),
     scoringComponents: currentEvent().scoringComponents,
@@ -7132,6 +7167,7 @@ function renderDeploymentBanner() {
   return `<div class="deployment-banner" role="status">${label} — commit <span class="deployment-revision" style="text-transform: lowercase">${developmentRevision}</span> — changes and data may not match production</div>`;
 }
 function render() {
+  const renderStartedAt = perfNow();
   const interactionState = captureRenderInteractionState();
   const event = currentEvent();
   if (!state.user) {
@@ -7214,6 +7250,7 @@ function render() {
   bindShellEvents();
   restoreRenderInteractionState(interactionState);
   focusScheduleLastPlayed();
+  recordScoutingPerf("render", renderStartedAt, { activeView: state.activeView });
 }
 
 function focusScheduleLastPlayed() {
@@ -7987,6 +8024,7 @@ function scheduleAnalysisCalculation(selection, key) {
       return;
     }
     try {
+      const calculationStartedAt = perfNow();
       const eventModel = currentEvent();
       const needsPridge = selection.metric?.sourceId === "pridge"
         && (eventModel?.teams || []).some((team) => !Number.isFinite(Number(team?.sources?.pridge?.total)));
@@ -7997,6 +8035,8 @@ function scheduleAnalysisCalculation(selection, key) {
       analysisResultCache.set(key, result);
       lastAnalysisResult = { key, result };
       globalThis.__analysisPerf.calculations += 1;
+      incrementScoutingPerfCounter("analysisCalculations");
+      recordScoutingPerf("analysis.calculation", calculationStartedAt, { metricId: selection.metric?.id || "", cached: false });
     } catch (error) {
       console.warn("Unable to calculate Analysis", error);
     } finally {
@@ -8037,7 +8077,9 @@ function renderAnalysis() {
   if (cached) {
     globalThis.__analysisPerf = globalThis.__analysisPerf || { calculations: 0, cacheHits: 0 };
     globalThis.__analysisPerf.cacheHits += 1;
+    incrementScoutingPerfCounter("analysisCacheHits");
   } else {
+    incrementScoutingPerfCounter("analysisCacheMisses");
     scheduleAnalysisCalculation(selection, key);
   }
   const result = cached || (lastAnalysisResult?.result || null);
@@ -9663,7 +9705,28 @@ function renderPridgeResponseDiagnostics(diagnostics) {
 
 function renderAdminUserControl() {
   if (!isAdmin()) return "";
-  return `<div class="grid">${renderAccessManagement()}</div>`;
+  return `<div class="grid">${renderAccessManagement()}${renderPerformanceDiagnostics()}</div>`;
+}
+
+function renderPerformanceDiagnostics() {
+  const snapshot = scoutingPerfSnapshot();
+  const counters = Object.entries(snapshot.counters).sort(([left], [right]) => left.localeCompare(right));
+  const recentEvents = snapshot.events.slice(-12).reverse();
+  return `
+    <article class="card performance-diagnostics-card">
+      <div class="section-heading">
+        <div><h2>Performance Diagnostics</h2><p class="muted">Bounded timing counters and recent event categories. Scouting submissions are never included.</p></div>
+        <div class="button-row"><button type="button" id="exportPerformanceDiagnosticsButton">Export timings</button><button type="button" id="resetPerformanceDiagnosticsButton">Reset</button></div>
+      </div>
+      <div class="data-source-list">
+        ${counters.length ? counters.map(([name, value]) => `<div class="data-source-row"><strong>${escapeHtml(name)}</strong><span>${Number(value) || 0}</span></div>`).join("") : `<p class="muted">No performance activity recorded yet.</p>`}
+      </div>
+      <h3>Recent events</h3>
+      <div class="data-source-list">
+        ${recentEvents.length ? recentEvents.map((event) => `<div class="data-source-row"><span>${escapeHtml(event.label)}</span><span>${Number(event.durationMs || 0).toFixed(2)} ms</span></div>`).join("") : `<p class="muted">No recent events.</p>`}
+      </div>
+    </article>
+  `;
 }
 
 function renderFlags(flags) {
@@ -10484,6 +10547,13 @@ function bindAllianceSourceScrollbars() {
 }
 
 function bindViewEvents() {
+  document.querySelector("#exportPerformanceDiagnosticsButton")?.addEventListener("click", () => {
+    downloadLocalTextFile(JSON.stringify(scoutingPerfSnapshot(), null, 2), "scouting-performance-diagnostics.json");
+  });
+  document.querySelector("#resetPerformanceDiagnosticsButton")?.addEventListener("click", () => {
+    resetScoutingPerf();
+    render();
+  });
   document.querySelector("#metricSelect")?.addEventListener("change", (event) => {
     state.metric = event.target.value;
     saveState();

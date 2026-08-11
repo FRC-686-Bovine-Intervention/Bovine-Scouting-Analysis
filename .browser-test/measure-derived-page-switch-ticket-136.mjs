@@ -203,8 +203,13 @@ try {
     assertCondition(measurement.transitionMs < pageBudgetsMs[targetView], `Warm ${targetView} transition exceeded ${pageBudgetsMs[targetView]}ms: ${measurement.transitionMs}ms.`);
   }
   const deferredAnalysis = await verifyDeferredAnalysis(page);
+  const diagnostics = await page.evaluate(() => globalThis.scoutingPerfDiagnostics?.snapshot?.() || { counters: {}, events: [] });
+  assertCondition((diagnostics.counters.analysisCalculations || 0) >= 1, "Supported diagnostics did not record Analysis calculations.");
+  assertCondition((diagnostics.counters.analysisCacheMisses || 0) >= 1, "Supported diagnostics did not record Analysis cache misses.");
+  assertCondition((diagnostics.counters.analysisCacheHits || 0) >= 1, "Supported diagnostics did not record Analysis cache hits.");
+  assertCondition(diagnostics.events.length <= 100, "Supported diagnostics history exceeded its bound.");
   assertCondition(pageErrors.length === 0, `Page errors detected: ${pageErrors.join("; ")}`);
-  console.log(JSON.stringify({ eventKey: "2026chcmp", pageBudgetsMs, measurements, warmMeasurements, deferredAnalysis, pageErrors }, null, 2));
+  console.log(JSON.stringify({ eventKey: "2026chcmp", pageBudgetsMs, measurements, warmMeasurements, deferredAnalysis, diagnostics, pageErrors }, null, 2));
 } finally {
   await browser.close();
 }

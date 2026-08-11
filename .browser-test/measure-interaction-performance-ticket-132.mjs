@@ -275,7 +275,11 @@ try {
     maxCalculationMs: Math.max(0, ...globalThis.__ticket132Metrics.calculationDurations),
     activeElementChanges: globalThis.__ticket132Metrics.activeElementChanges,
   }));
-  const result = { appUrl, list, interactionState, pairwise, metrics, pageErrors };
+  const diagnostics = await page.evaluate(() => globalThis.scoutingPerfDiagnostics?.snapshot?.() || { counters: {}, events: [] });
+  assert((diagnostics.counters.renders || 0) > 0, "Supported diagnostics did not record renders.");
+  assert((diagnostics.counters.pairwiseInteractions || 0) >= pairwise.count, "Supported diagnostics did not record pairwise interactions.");
+  assert(diagnostics.events.length <= 100, "Supported diagnostics history exceeded its bound.");
+  const result = { appUrl, list, interactionState, pairwise, metrics, diagnostics, pageErrors };
   console.log(JSON.stringify(result, null, 2));
   assert.deepEqual(pageErrors, [], `The app emitted page errors: ${pageErrors.join(" | ")}`);
 } finally {
