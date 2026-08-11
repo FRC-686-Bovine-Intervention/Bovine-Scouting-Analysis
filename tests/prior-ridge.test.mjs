@@ -217,6 +217,41 @@ runTest("computeEventPridge produces stable totals for the cached 2026chcmp even
   ]);
 });
 
+runTest("computeEventPridgeBatch matches independent fits for compatible response coverage", () => {
+  const context = loadBrowserContext(["src/prior-ridge.js"]);
+  const matches = loadJson("src/real-source-cache/2026chcmp-tba-matches.json");
+  const teamEvents = loadJson("src/real-source-cache/2026chcmp-statbotics-team-events.json");
+  const componentMatches = matches.map((match) => ({
+    ...match,
+    alliances: {
+      ...match.alliances,
+      red: { ...match.alliances.red, score: Number(match.alliances.red.score) + 1 },
+      blue: { ...match.alliances.blue, score: Number(match.alliances.blue.score) + 2 },
+    },
+  }));
+  const batch = context.PriorRidge.computeEventPridgeBatch([
+    { id: "total", matches },
+    { id: "component", matches: componentMatches },
+  ], teamEvents);
+  assert.deepEqual(batch.total.ratings, context.PriorRidge.computeEventPridge(matches, teamEvents).ratings);
+  assert.deepEqual(batch.component.ratings, context.PriorRidge.computeEventPridge(componentMatches, teamEvents).ratings);
+});
+
+runTest("computeEventPridgeBatch safely separates response coverage groups", () => {
+  const context = loadBrowserContext(["src/prior-ridge.js"]);
+  const matches = loadJson("src/real-source-cache/2026chcmp-tba-matches.json");
+  const teamEvents = loadJson("src/real-source-cache/2026chcmp-statbotics-team-events.json");
+  const partialMatches = matches.filter((match) => match.comp_level === "qm").slice(0, -1);
+  const batch = context.PriorRidge.computeEventPridgeBatch([
+    { id: "complete", matches },
+    { id: "partial", matches: partialMatches },
+  ], teamEvents);
+  assert.equal(batch.complete.matchCount, 108);
+  assert.equal(batch.partial.matchCount, 107);
+  assert.notEqual(batch.complete.mse, batch.partial.mse);
+  assert.equal(batch.__diagnostics.length > 0, true);
+});
+
 [
   {
     eventKey: "2024mdsev",

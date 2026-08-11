@@ -154,7 +154,7 @@ function buildPriorRidgeInput(matches, teamEvents, options = {}) {
   };
 }
 
-function fitPriorRidge(design, response, priors, options = {}) {
+function fitPriorRidgeBatch(design, responses, priors, options = {}) {
   const lambdaGrid = Array.isArray(options.lambdaGrid) && options.lambdaGrid.length
     ? options.lambdaGrid.slice()
     : defaultLambdaGrid();
@@ -162,28 +162,28 @@ function fitPriorRidge(design, response, priors, options = {}) {
   if (!Array.isArray(design) || !design.length) throw new Error("Prior ridge requires at least one alliance row.");
   const columnCount = design[0].length;
   if (!columnCount) throw new Error("Prior ridge requires at least one team column.");
-  if (!Array.isArray(response) || response.length !== design.length) throw new Error("Prior ridge response length must match design rows.");
+  if (!Array.isArray(responses) || !responses.length || responses.some((response) => !Array.isArray(response) || response.length !== design.length)) {
+    throw new Error("Prior ridge response lengths must match design rows.");
+  }
   if (!Array.isArray(priors) || priors.length !== columnCount) throw new Error("Prior ridge priors must match design columns.");
 
-  const centeredResponse = response.map((value, rowIndex) => {
+  const centeredResponses = responses.map((response) => response.map((value, rowIndex) => {
     const baseline = design[rowIndex].reduce((sum, indicator, columnIndex) => sum + indicator * priors[columnIndex], 0);
     return value - baseline;
-  });
+  }));
 
   const xtx = Array.from({ length: columnCount }, () => Array(columnCount).fill(0));
-  const xtz = Array(columnCount).fill(0);
   design.forEach((row, rowIndex) => {
     for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
       const rowValue = row[columnIndex];
       if (!rowValue) continue;
-      xtz[columnIndex] += rowValue * centeredResponse[rowIndex];
       for (let otherColumnIndex = 0; otherColumnIndex < columnCount; otherColumnIndex += 1) {
         xtx[columnIndex][otherColumnIndex] += rowValue * row[otherColumnIndex];
       }
     }
   });
 
-  let bestModel = null;
+  const bestModels = responses.map(() => null);
   lambdaGrid.forEach((lambdaValue) => {
     const lambda = finiteNumber(lambdaValue);
     if (lambda === null || lambda < 0) return;
@@ -192,38 +192,43 @@ function fitPriorRidge(design, response, priors, options = {}) {
       penalized[diagonalIndex][diagonalIndex] += lambda;
     }
     const inverse = invertMatrix(penalized);
-    const theta = multiplyMatrixVector(inverse, xtz);
-    const coefficients = priors.map((prior, index) => prior + theta[index]);
-
-    let mseSum = 0;
-    for (let rowIndex = 0; rowIndex < design.length; rowIndex += 1) {
-      const row = design[rowIndex];
-      const prediction = row.reduce((sum, indicator, columnIndex) => sum + indicator * coefficients[columnIndex], 0);
-      let leverage = 0;
-      for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
-        if (!row[columnIndex]) continue;
-        for (let otherColumnIndex = 0; otherColumnIndex < columnCount; otherColumnIndex += 1) {
-          if (!row[otherColumnIndex]) continue;
-          leverage += inverse[columnIndex][otherColumnIndex];
+    responses.forEach((response, responseIndex) => {
+      const xtz = Array(columnCount).fill(0);
+      design.forEach((row, rowIndex) => {
+        for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+          if (row[columnIndex]) xtz[columnIndex] += row[columnIndex] * centeredResponses[responseIndex][rowIndex];
         }
+      });
+      const theta = multiplyMatrixVector(inverse, xtz);
+      const coefficients = priors.map((prior, index) => prior + theta[index]);
+      let mseSum = 0;
+      for (let rowIndex = 0; rowIndex < design.length; rowIndex += 1) {
+        const row = design[rowIndex];
+        const prediction = row.reduce((sum, indicator, columnIndex) => sum + indicator * coefficients[columnIndex], 0);
+        let leverage = 0;
+        for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+          if (!row[columnIndex]) continue;
+          for (let otherColumnIndex = 0; otherColumnIndex < columnCount; otherColumnIndex += 1) {
+            if (row[otherColumnIndex]) leverage += inverse[columnIndex][otherColumnIndex];
+          }
+        }
+        const denominator = Math.max(1e-9, 1 - leverage);
+        const looResidual = (response[rowIndex] - prediction) / denominator;
+        mseSum += looResidual * looResidual;
       }
-      const denominator = Math.max(1e-9, 1 - leverage);
-      const looResidual = (response[rowIndex] - prediction) / denominator;
-      mseSum += looResidual * looResidual;
-    }
-
-    const mse = mseSum / design.length;
-    if (!bestModel || mse < bestModel.mse) {
-      bestModel = {
-        lambda,
-        mse,
-        coefficients,
-      };
-    }
+      const mse = mseSum / design.length;
+      if (!bestModels[responseIndex] || mse < bestModels[responseIndex].mse) {
+        bestModels[responseIndex] = { lambda, mse, coefficients };
+      }
+    });
   });
 
-  if (!bestModel) throw new Error("Prior ridge could not select a lambda.");
-  return bestModel;
+  if (bestModels.some((model) => !model)) throw new Error("Prior ridge could not select a lambda.");
+  return bestModels;
+}
+
+function fitPriorRidge(design, response, priors, options = {}) {
+  return fitPriorRidgeBatch(design, [response], priors, options)[0];
 }
 
 function computeEventPridge(matches, teamEvents, options = {}) {
@@ -241,10 +246,49 @@ function computeEventPridge(matches, teamEvents, options = {}) {
   };
 }
 
+function computeEventPridgeBatch(responseSets, teamEvents, options = {}) {
+  const inputs = (Array.isArray(responseSets) ? responseSets : [])
+    .map((entry) => ({ id: entry?.id, input: buildPriorRidgeInput(entry?.matches, teamEvents, options) }))
+    .filter((entry) => entry.id && entry.input.design.length);
+  const groups = new Map();
+  const diagnostics = [];
+  inputs.forEach((entry) => {
+    const key = JSON.stringify({ teamNumbers: entry.input.teamNumbers, priors: entry.input.priors, design: entry.input.design });
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(entry);
+  });
+  const results = {};
+  groups.forEach((group) => {
+    if (group.length < inputs.filter((entry) => entry.input.teamNumbers.join(",") === group[0].input.teamNumbers.join(",")).length) {
+      diagnostics.push({ kind: "coverage-group", responseIds: group.map((entry) => entry.id), matchCount: group[0].input.matches.length });
+    }
+    try {
+      const fits = fitPriorRidgeBatch(group[0].input.design, group.map((entry) => entry.input.response), group[0].input.priors, options);
+      group.forEach((entry, index) => {
+        const fit = fits[index];
+        results[entry.id] = {
+          teamNumbers: entry.input.teamNumbers,
+          lambda: fit.lambda,
+          mse: fit.mse,
+          ratings: Object.fromEntries(entry.input.teamNumbers.map((teamNumber, teamIndex) => [teamNumber, round(fit.coefficients[teamIndex], options.digits ?? 1)])),
+          matchCount: entry.input.matches.length,
+          allianceRowCount: entry.input.design.length,
+        };
+      });
+    } catch {
+      // Incomplete inputs remain unavailable without invalidating other coverage groups.
+    }
+  });
+  Object.defineProperty(results, "__diagnostics", { value: diagnostics.slice(0, 10), enumerable: false });
+  return results;
+}
+
 globalThis.PriorRidge = {
   defaultLambdaGrid,
   buildPriorRidgeInput,
   fitPriorRidge,
+  fitPriorRidgeBatch,
   computeEventPridge,
+  computeEventPridgeBatch,
 };
 })();

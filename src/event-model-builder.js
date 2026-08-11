@@ -7,6 +7,7 @@ const buildMetricCatalog =
   || seasonFramework.buildMetrics
   || ((eventModel) => eventModel?.metrics || []);
 const computeEventPridge = priorRidge.computeEventPridge;
+const computeEventPridgeBatch = priorRidge.computeEventPridgeBatch;
 const PRIDGE_RESPONSE_IDS = new Set([
   "tbaTotalAutoPoints",
   "tbaTotalTeleopPoints",
@@ -161,27 +162,30 @@ function applyPridgeResponseDefinitions(eventModel = {}, definitions = [], optio
   const rawMatches = rawMatchesFromEventModel(eventModel);
   const teamEvents = teamEventsFromEventModel(eventModel);
   const results = {};
+  let pridgeDiagnostics = [];
   const shouldCompute = !eventModel.pridgeComputationDeferred || options.force === true;
   let totalResults = {};
-  if (shouldCompute && options.force === true && typeof computeEventPridge === "function") {
+  if (shouldCompute && options.force === true && typeof computeEventPridgeBatch === "function") {
+    const responseSets = [
+      { id: "__total", matches: rawMatches },
+      ...normalizedDefinitions.map((definition) => ({ id: definition.id, matches: buildFormulaMatches(rawMatches, definition) })),
+    ];
+    const batchResults = computeEventPridgeBatch(responseSets, teamEvents, { responseName: "score", digits: 1 });
+    pridgeDiagnostics = batchResults.__diagnostics || [];
+    totalResults = batchResults.__total?.ratings || {};
+    normalizedDefinitions.forEach((definition) => {
+      if (batchResults[definition.id]) results[definition.id] = batchResults[definition.id];
+    });
+  } else if (shouldCompute && options.force === true && typeof computeEventPridge === "function") {
     try {
       totalResults = computeEventPridge(rawMatches, teamEvents, { responseName: "score", digits: 1 }).ratings || {};
     } catch {
       totalResults = {};
     }
   }
-  if (shouldCompute) normalizedDefinitions.forEach((definition) => {
-    try {
-      const formulaMatches = buildFormulaMatches(rawMatches, definition);
-      if (formulaMatches.length) {
-        results[definition.id] = computeEventPridge(formulaMatches, teamEvents, { responseName: "score", digits: 1 });
-      }
-    } catch {
-      // Keep the response unavailable when the active event lacks required live inputs.
-    }
-  });
   return {
     ...eventModel,
+    pridgeDiagnostics,
     pridgeComputationDeferred: shouldCompute ? false : eventModel.pridgeComputationDeferred === true,
     pridgeResponseDefinitions: normalizedDefinitions,
     teams: (eventModel.teams || []).map((team) => ({
@@ -467,31 +471,29 @@ function buildEventModelFromPayloads(payload) {
   const qualificationMatches = (payload.tbaMatches || []).filter((match) => match?.comp_level === "qm");
   let pridgeResult = null;
   let pridgeError = "";
-  if (!deferPridgeComputation && typeof computeEventPridge === "function" && matches.length && (payload.statboticsTeamEvents || []).length) {
+  let pridgeDiagnostics = [];
+  const pridgeResponseResults = {};
+  if (!deferPridgeComputation && matches.length && (payload.statboticsTeamEvents || []).length) {
     try {
-      pridgeResult = computeEventPridge(qualificationMatches, payload.statboticsTeamEvents || [], {
-        responseName: "score",
-        digits: 1,
+      const responseSets = [
+        { id: "__total", matches: qualificationMatches },
+        ...pridgeResponseDefinitions.map((definition) => ({ id: definition.id, matches: buildFormulaMatches(qualificationMatches, definition) })),
+      ];
+      const batchResults = typeof computeEventPridgeBatch === "function"
+        ? computeEventPridgeBatch(responseSets, payload.statboticsTeamEvents || [], { responseName: "score", digits: 1 })
+        : {};
+      pridgeDiagnostics = batchResults.__diagnostics || [];
+      pridgeResult = batchResults.__total || null;
+      pridgeResponseDefinitions.forEach((definition) => {
+        if (batchResults[definition.id]) pridgeResponseResults[definition.id] = batchResults[definition.id];
       });
+      if (!pridgeResult && typeof computeEventPridge === "function") {
+        pridgeResult = computeEventPridge(qualificationMatches, payload.statboticsTeamEvents || [], { responseName: "score", digits: 1 });
+      }
     } catch (error) {
       pridgeError = String(error?.message || "Unable to compute pRidge.");
     }
   }
-  const pridgeResponseResults = {};
-  if (!deferPridgeComputation) pridgeResponseDefinitions.forEach((definition) => {
-    if (typeof computeEventPridge !== "function" || !matches.length || !(payload.statboticsTeamEvents || []).length) return;
-    try {
-      const formulaMatches = buildFormulaMatches(qualificationMatches, definition);
-      if (formulaMatches.length) {
-        pridgeResponseResults[definition.id] = computeEventPridge(formulaMatches, payload.statboticsTeamEvents || [], {
-          responseName: "score",
-          digits: 1,
-        });
-      }
-    } catch (error) {
-      pridgeError = pridgeError || `${definition.id}: ${String(error?.message || "Unable to compute pRidge response.")}`;
-    }
-  });
   const teamsWithPridge = teams.map((team) => {
     const total = pridgeResult?.ratings?.[team.number] ?? null;
     const responseComponents = Object.fromEntries(pridgeResponseDefinitions.map((definition) => [
@@ -551,6 +553,7 @@ function buildEventModelFromPayloads(payload) {
     formulaFieldDefinitions: explicitFormulaFieldDefinitions,
     derivedMetricDefinitions: explicitDerivedMetricDefinitions,
     pridgeResponseDefinitions,
+    pridgeDiagnostics,
     metrics: buildMetricCatalog(eventSchema),
     teams: teamsWithPridge,
     teamNumbers: teamsWithPridge.map((team) => team.number),
