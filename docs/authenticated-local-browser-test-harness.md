@@ -69,7 +69,7 @@ $env:PLAYWRIGHT_EXECUTABLE_PATH = "C:\Program Files\Google\Chrome\Application\ch
 node .browser-test/verify-event-selection-stability.mjs
 ```
 
-This test selects `2024mdsev` through the real Enter-key interaction and asserts that the active event, requested event, workspace event, and event-code input remain `2024mdsev` for 120 seconds. It deliberately spans the 30-second source-refresh interval and uses mocked external provider responses so the test measures selection stability rather than provider availability.
+This test selects the real emulator-cached `2024mdsev` event through the real Enter-key interaction and asserts that the active event, requested event, workspace event, and event-code input remain `2024mdsev` for 120 seconds. It deliberately spans the 30-second source-refresh interval and uses the real emulator cache and shared Firebase state; it fails clearly if the `2024mdsev` fixture is not available.
 
 ## User navigation latency validation
 

@@ -14,11 +14,6 @@ const candidate = [
 if (!candidate) throw new Error("Playwright unavailable");
 const { chromium } = await import(pathToFileURL(candidate).href);
 
-const tbaEvent = { key: targetEventKey, year: 2024, name: "FIRST Chesapeake District Severn Event", short_name: "Chesapeake Severn" };
-const tbaTeams = [{ key: "frc686", team_number: 686, nickname: "Bovine Intervention" }];
-const statboticsEvent = { event: targetEventKey, year: 2024, name: "FIRST Chesapeake District Severn Event" };
-const requestCounts = { tba: 0, statbotics: 0 };
-
 const browser = await chromium.launch({
   headless: true,
   executablePath: fs.existsSync(executablePath) ? executablePath : undefined,
@@ -26,24 +21,6 @@ const browser = await chromium.launch({
 const context = await browser.newContext();
 await context.addInitScript(() => localStorage.clear());
 const page = await context.newPage();
-
-await page.route("**/*", async (route) => {
-  const url = new URL(route.request().url());
-  let body;
-  if (url.hostname === "www.thebluealliance.com") {
-    if (url.pathname.endsWith("/status")) body = { current_datetime: "2026-08-08T00:00:00Z" };
-    else if (url.pathname.endsWith(`/event/${targetEventKey}`)) { requestCounts.tba += 1; body = tbaEvent; }
-    else if (url.pathname.endsWith(`/event/${targetEventKey}/teams`)) body = tbaTeams;
-    else if (url.pathname.endsWith(`/event/${targetEventKey}/matches`)) body = [];
-    else if (url.pathname.endsWith(`/event/${targetEventKey}/rankings`)) body = {};
-    else if (url.pathname.endsWith(`/event/${targetEventKey}/oprs`)) body = {};
-  } else if (url.hostname === "api.statbotics.io" || url.hostname === "api-statbotics.iterativerefinement.com") {
-    if (url.pathname.endsWith(`/event/${targetEventKey}`)) { requestCounts.statbotics += 1; body = statboticsEvent; }
-    else if (url.pathname.endsWith("/team_events")) body = [];
-  }
-  if (body === undefined) return route.continue();
-  await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
-});
 
 async function snapshot() {
   return page.evaluate(() => ({
@@ -83,6 +60,10 @@ try {
   await page.click('[data-view="adminEventControl"]');
   const input = page.locator("#adminEventCodeInput");
   await input.waitFor({ state: "visible", timeout: 10000 });
+  const availableEvents = await page.evaluate(() => (window.__scoutingAppState?.sharedCachedEvents || []).map((event) => event.key));
+  if (!availableEvents.includes(targetEventKey)) {
+    throw new Error(`Real emulator fixture is missing ${targetEventKey}; available shared cached events: ${availableEvents.join(", ") || "<none>"}. Rerun the emulator seed or clone the real event fixture first.`);
+  }
   await input.fill(targetEventKey);
   await input.press("Enter");
 
@@ -112,7 +93,6 @@ try {
     pass: true,
     targetEventKey,
     stabilityWindowMs,
-    requestCounts,
     checkpoints,
     finalState,
   }, null, 2));
