@@ -1224,6 +1224,7 @@ select {
 .matchup-alliances {
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
+  margin-top: 24px;
 }
 
 .matchup-alliance-card,
