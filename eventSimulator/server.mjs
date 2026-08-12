@@ -15,7 +15,7 @@ function route(pathname) {
   if (parts[0] === "control") return ["control", ...parts.slice(1)];
   if (parts[0] === "api" && parts[1] === "tba" && parts[2] === "event") return ["tba", parts[4] || "event"];
   if ((parts[0] === "api" && parts[1] === "statbotics") || parts[0] === "statbotics") {
-    const kind = parts.includes("team_events") || parts.includes("team-events") ? "team-events" : parts.includes("matches") ? "matches" : "event";
+    const kind = parts.includes("team_events") || parts.includes("team-events") ? "team-events" : parts.includes("team_matches") || parts.includes("team-matches") ? "team-matches" : parts.includes("matches") ? "matches" : "event";
     return ["statbotics", kind];
   }
   if (parts[0] === "api" && parts[1] === "scouting") return ["scouting", "scouting"];

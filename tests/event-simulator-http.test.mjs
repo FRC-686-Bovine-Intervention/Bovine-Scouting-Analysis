@@ -26,6 +26,7 @@ assert.equal((await get("/api/tba/event/2026evsim/oprs")).oprs && Object.keys((a
 await post("/control/advance");
 assert.equal((await get("/api/statbotics/v3/event/2026evsim")).key, "2026evsim");
 assert.equal((await get("/api/statbotics/v3/matches/2026evsim")).length, 1);
+assert.equal((await get("/api/statbotics/v3/team_matches/2026evsim")).length, 6);
 const cors = await fetch(url("/state"));
 assert.equal(cors.headers.get("access-control-allow-origin"), "*");
 await new Promise((resolve) => server.close(resolve));

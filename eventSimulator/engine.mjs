@@ -57,6 +57,13 @@ function buildTbaProjections(matches) {
   return { rankings: rows.map(({ opr, dpr, ccwm, ...ranking }) => ranking), stats: statsPayload };
 }
 
+function buildStatboticsRows(matches, eventKey) {
+  const statMatches = matches.map((match) => ({ ...clone(match), key: rewriteEventKeys(match.key, "2026chcmp", eventKey), match_key: rewriteEventKeys(match.key, "2026chcmp", eventKey), event: eventKey }));
+  const teamMatches = [];
+  for (const match of statMatches) for (const alliance of ["red", "blue"]) for (const teamKey of match.alliances?.[alliance]?.team_keys || []) teamMatches.push({ match_key: match.match_key, event: eventKey, team: Number(String(teamKey).replace("frc", "")), alliance, result: match.winning_alliance === alliance ? "W" : match.winning_alliance ? "L" : "T", score: match.alliances[alliance].score });
+  return { matches: statMatches, teamMatches };
+}
+
 export function createEngine({ root = path.resolve("."), scenarioPath = path.resolve("eventSimulator/scenario.json"), statePath = path.resolve("eventSimulator/.state.json") } = {}) {
   const scenario = JSON.parse(fs.readFileSync(scenarioPath, "utf8"));
   const fixtures = Object.fromEntries(Object.entries(scenario.fixtures).map(([key, file]) => [key, loadFixture(root, file)]));
@@ -104,9 +111,11 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
       return applyCorrections(source, result, cursor);
     }
     if (source === "statbotics") {
-      const event = rewriteEventKeys(fixtures.statboticsEvent, scenario.sourceEventKey, scenario.id);
+      const visible = ordered.slice(0, Math.max(0, cursor));
+      const statboticsRows = buildStatboticsRows(visible, scenario.id);
+      const event = { ...rewriteEventKeys(fixtures.statboticsEvent, scenario.sourceEventKey, scenario.id), current_match: visible.length, status: visible.length >= ordered.length ? "Completed" : visible.length ? "In Progress" : "Scheduled" };
       const teamEvents = rewriteEventKeys(fixtures.statboticsTeamEvents, scenario.sourceEventKey, scenario.id);
-      return applyCorrections(source, { event, teamEvents, matches: rewriteEventKeys(ordered.slice(0, Math.max(0, cursor)), scenario.sourceEventKey, scenario.id) }, cursor);
+      return applyCorrections(source, { event, teamEvents, matches: statboticsRows.matches, teamMatches: statboticsRows.teamMatches }, cursor);
     }
     const entries = fixtures.scouting.entries || fixtures.scouting.rows || [];
     const visible = entries.filter((entry) => {
@@ -130,7 +139,7 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
   function get(source, kind) {
     const data = payload(source);
     if (source === "tba") return kind === "event" ? data.event : kind === "teams" ? data.teams : kind === "matches" ? data.matches : kind === "rankings" ? { rankings: data.rankings } : data.stats;
-    if (source === "statbotics") return kind === "event" ? data.event : kind === "team-events" ? data.teamEvents : data.matches;
+    if (source === "statbotics") return kind === "event" ? data.event : kind === "team-events" ? data.teamEvents : kind === "team-matches" ? data.teamMatches : data.matches;
     return data;
   }
   return { scenario, fixtures, defaults, getState, setState, advance, resetTimeline, resetConfig, resetAll, get, effectiveCursor: (source) => effectiveCursor(state, source), recordRequest: (request) => { requests.unshift(request); requests.splice(50); }, responseDelay: (source) => (state.latencyMs[source] || 0) * state.delayScale };

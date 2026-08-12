@@ -20,6 +20,9 @@ const first = engine.get("tba", "matches").filter((match) => match.alliances.red
 assert.equal(first.length, 1);
 assert.equal(first[0].event_key, "2026evsim");
 assert.equal(engine.get("statbotics", "matches").length, 1);
+assert.equal(engine.get("statbotics", "team-matches").length, 6);
+assert.equal(engine.get("statbotics", "event").current_match, 1);
+assert.equal(engine.get("statbotics", "team-events").some((row) => row.team === 4638), false);
 assert.equal(engine.get("tba", "rankings").rankings.length, 6);
 assert.equal(engine.get("tba", "oprs").oprs["frc4638"], undefined);
 assert.equal(engine.get("tba", "oprs").oprs[first[0].alliances.red.team_keys[0]] > 0, true);
