@@ -1,6 +1,7 @@
 (function () {
 const eventModelBuilder = globalThis.EventModelBuilder || {};
 const externalSourceSnapshots = globalThis.ExternalSourceSnapshots || {};
+const providerRouting = globalThis.ProviderRouting || {};
 
 const buildEventModelFromProviderBundle =
   eventModelBuilder.buildEventModelFromProviderBundle ||
@@ -64,6 +65,15 @@ function formatProviderError(provider, error) {
 
 function isNotFoundError(error) {
   return Number(error?.status || 0) === 404;
+}
+
+async function fetchJsonWithFallback(primaryUrl, fallbackUrl, options = {}) {
+  try {
+    return { ...(await fetchJson(primaryUrl, options)), fallbackUsed: false };
+  } catch (primaryError) {
+    if (!fallbackUrl || !isNotFoundError(primaryError)) throw primaryError;
+    return { ...(await fetchJson(fallbackUrl, options)), fallbackUsed: true, primaryError };
+  }
 }
 
 function normalizeStatboticsCollection(payload) {
@@ -321,25 +331,24 @@ async function loadEventByCode(eventCode, options = {}) {
   if (!normalizedEventCode) throw new Error("Enter a valid event code.");
 
   const tbaAuthKey = resolveTbaAuthKey(options);
-  if (!tbaAuthKey) {
-    throw new Error("Missing TBA auth key. Configure a key before loading arbitrary events.");
-  }
+  const routing = providerRouting.resolveProviderRouting ? providerRouting.resolveProviderRouting(options) : { mode: "production", tbaBaseUrl: normalizeText(options.tbaBaseUrl) || "https://www.thebluealliance.com/api/v3", statboticsBaseUrl: resolveStatboticsBaseUrl(options), statboticsFallbackBaseUrl: resolveStatboticsFallbackBaseUrl(options), tbaFallbackBaseUrl: "" };
+  if (!tbaAuthKey && routing.mode !== "simulator-first") throw new Error("Missing TBA auth key. Configure a key before loading arbitrary events.");
 
   const timestamp = normalizeText(options.timestamp) || new Date().toISOString();
-  const tbaBaseUrl = normalizeText(options.tbaBaseUrl) || "https://www.thebluealliance.com/api/v3";
-  const statboticsBaseUrl = resolveStatboticsBaseUrl(options);
-  const statboticsFallbackBaseUrl = resolveStatboticsFallbackBaseUrl(options);
+  const tbaBaseUrl = routing.tbaBaseUrl;
+  const statboticsBaseUrl = routing.statboticsBaseUrl;
+  const statboticsFallbackBaseUrl = routing.statboticsFallbackBaseUrl || resolveStatboticsFallbackBaseUrl(options);
   const tbaHeaders = {
     Accept: "application/json",
     "X-TBA-Auth-Key": tbaAuthKey,
   };
 
   const [tbaEventResult, tbaTeamsResult, tbaMatchesResult, tbaRankingsResult, tbaTeamStatsResult, statboticsResult] = await Promise.all([
-    settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}`, { ...options, headers: tbaHeaders })),
-    settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/teams`, { ...options, headers: tbaHeaders })),
-    settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/matches`, { ...options, headers: tbaHeaders })),
-    settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/rankings`, { ...options, headers: tbaHeaders })),
-    settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/oprs`, { ...options, headers: tbaHeaders })),
+    settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}`, { ...options, headers: tbaHeaders })),
+    settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/teams`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/teams`, { ...options, headers: tbaHeaders })),
+    settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/matches`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/matches`, { ...options, headers: tbaHeaders })),
+    settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/rankings`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/rankings`, { ...options, headers: tbaHeaders })),
+    settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/oprs`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/oprs`, { ...options, headers: tbaHeaders })),
     loadStatboticsBundle(statboticsBaseUrl, statboticsFallbackBaseUrl, normalizedEventCode, options),
   ]);
 
