@@ -73,6 +73,18 @@ runTest("source refresh policy only polls when due", () => {
   );
 });
 
+runTest("refresh coordinator coalesces one source and rejects superseded responses", async () => {
+  const context = loadBrowserContext(["src/source-refresh.js"]);
+  const coordinator = context.SourceRefresh.createRefreshCoordinator();
+  const first = coordinator.begin("tba");
+  const second = coordinator.begin("tba");
+  assert.equal(coordinator.isCurrent(first), false);
+  assert.equal(coordinator.isCurrent(second), true);
+  const a = coordinator.run("statbotics", async () => "latest");
+  const b = coordinator.run("statbotics", async () => "duplicate");
+  assert.equal(a, b);
+});
+
 runTest("source refresh policy seeds the first external poll shortly after activation", () => {
   const context = loadBrowserContext(["src/source-refresh.js"]);
   const policy = context.SourceRefresh.defaultPolicyForSource({ kind: "external", sourceId: "tba" });

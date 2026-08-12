@@ -63,6 +63,27 @@ function shouldPollSource(source, policy, now = Date.now()) {
   return now >= nextPollAt;
 }
 
+function createRefreshCoordinator() {
+  const sequences = new Map();
+  const inFlight = new Map();
+  function begin(sourceId) {
+    const sequence = (sequences.get(sourceId) || 0) + 1;
+    sequences.set(sourceId, sequence);
+    return { sourceId, sequence };
+  }
+  function isCurrent(token) { return Boolean(token) && sequences.get(token.sourceId) === token.sequence; }
+  function run(sourceId, operation) {
+    if (inFlight.has(sourceId)) return inFlight.get(sourceId);
+    const token = begin(sourceId);
+    const promise = Promise.resolve().then(() => operation(token)).finally(() => {
+      if (inFlight.get(sourceId) === promise) inFlight.delete(sourceId);
+    });
+    inFlight.set(sourceId, promise);
+    return promise;
+  }
+  return { begin, isCurrent, run, isInFlight: (sourceId) => inFlight.has(sourceId) };
+}
+
 globalThis.SourceRefresh = {
   computeNextPollAt,
   computeInitialNextPollAt,
@@ -71,5 +92,6 @@ globalThis.SourceRefresh = {
   sourceStatusBadgeClassName,
   visibleStatusForSource,
   shouldPollSource,
+  createRefreshCoordinator,
 };
 })();
