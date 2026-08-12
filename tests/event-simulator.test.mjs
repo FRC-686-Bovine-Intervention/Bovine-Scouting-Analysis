@@ -1,0 +1,35 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { createEngine, rewriteEventKeys } from "../eventSimulator/engine.mjs";
+
+const root = path.resolve(".");
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "event-simulator-"));
+const engine = createEngine({ root, statePath: path.join(temp, "state.json") });
+
+assert.equal(engine.getState().phase, "team-only");
+assert.equal(engine.get("tba", "teams").some((team) => team.team_number === 4638), true);
+assert.equal(engine.get("tba", "matches").length, 0);
+engine.advance();
+assert.equal(engine.getState().phase, "scheduled");
+assert.ok(engine.get("tba", "matches").every((match) => match.alliances.red.score === -1));
+assert.equal(engine.get("statbotics", "matches").length, 0);
+engine.advance();
+const first = engine.get("tba", "matches").filter((match) => match.alliances.red.score >= 0);
+assert.equal(first.length, 1);
+assert.equal(first[0].event_key, "2026evsim");
+assert.equal(engine.get("statbotics", "matches").length, 1);
+engine.setState({ increment: 3, offsets: { tba: 2, statbotics: -1, scouting: 1 }, latencyMs: { tba: 12 }, delayScale: 0.5, corrections: [{ source: "tba", cursor: 1, path: "event.name", value: "Corrected" }] });
+assert.equal(engine.effectiveCursor("tba"), 3);
+assert.equal(engine.effectiveCursor("statbotics"), 0);
+assert.equal(engine.get("tba", "event").name, "Corrected");
+assert.equal(engine.resetTimeline().cursor, -1);
+assert.equal(engine.getState().increment, 3);
+assert.equal(engine.resetConfig().increment, 1);
+assert.equal(engine.getState().cursor, -1);
+engine.setState({ cursor: 4 });
+assert.equal(engine.resetAll().increment, 1);
+assert.equal(engine.getState().cursor, -1);
+assert.equal(rewriteEventKeys({ key: "2026chcmp_qm1", url: "x/2026chcmp" }, "2026chcmp", "2026evsim").key, "2026evsim_qm1");
+console.log("PASS event simulator engine");

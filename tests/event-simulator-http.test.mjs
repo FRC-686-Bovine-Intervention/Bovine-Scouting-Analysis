@@ -1,0 +1,30 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { createServer } from "../eventSimulator/server.mjs";
+import { createEngine } from "../eventSimulator/engine.mjs";
+
+const statePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "event-simulator-http-")), "state.json");
+process.env.EVENT_SIMULATOR_STATE = statePath;
+const server = createServer({ simulator: createEngine({ root: path.resolve("."), statePath }) });
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const port = server.address().port;
+const url = (path) => `http://127.0.0.1:${port}${path}`;
+const get = async (path) => (await fetch(url(path))).json();
+const post = async (path, value = {}) => (await fetch(url(path), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) })).json();
+
+assert.equal((await get("/state")).cursor, -1);
+assert.equal((await get("/api/tba/event/2026evsim/teams")).length, 55);
+assert.equal((await get("/api/tba/event/2026evsim/matches")).length, 0);
+await post("/control/advance");
+const scheduled = await get("/api/tba/event/2026evsim/matches");
+assert.ok(scheduled.length > 0);
+assert.equal(scheduled[0].alliances.red.score, -1);
+await post("/control/advance");
+assert.equal((await get("/api/statbotics/v3/event/2026evsim")).key, "2026evsim");
+assert.equal((await get("/api/statbotics/v3/matches/2026evsim")).length, 1);
+const cors = await fetch(url("/state"));
+assert.equal(cors.headers.get("access-control-allow-origin"), "*");
+await new Promise((resolve) => server.close(resolve));
+console.log("PASS event simulator HTTP");

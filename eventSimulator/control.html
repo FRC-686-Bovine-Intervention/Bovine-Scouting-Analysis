@@ -1,0 +1,7 @@
+<!doctype html><meta charset="utf-8"><title>Event Simulator</title>
+<h1>2026evsim</h1><pre id="state">Loading…</pre>
+<button onclick="post('advance')">Advance</button> <button onclick="post('reset-timeline')">Reset timeline</button> <button onclick="post('reset-config')">Reset configuration</button> <button onclick="post('reset')">Full reset</button>
+<script>
+async function refresh(){state.textContent=JSON.stringify(await fetch('/state').then(r=>r.json()),null,2)}
+async function post(action){await fetch('/control/'+action,{method:'POST',headers:{'content-type':'application/json'},body:'{}'});refresh()} refresh();
+</script>

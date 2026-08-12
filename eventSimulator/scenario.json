@@ -1,0 +1,22 @@
+{
+  "id": "2026evsim",
+  "sourceEventKey": "2026chcmp",
+  "year": 2026,
+  "fixtures": {
+    "tbaEvent": "../src/real-source-cache/2026chcmp-tba-event.json",
+    "tbaTeams": "../src/real-source-cache/2026chcmp-tba-teams.json",
+    "tbaMatches": "../src/real-source-cache/2026chcmp-tba-matches.json",
+    "statboticsEvent": "../src/real-source-cache/2026chcmp-statbotics-event.json",
+    "statboticsTeamEvents": "../src/real-source-cache/2026chcmp-statbotics-team-events.json",
+    "scouting": "../tests/fixtures/canonical-scouting-datasets/2026chcmp.json"
+  },
+  "defaults": {
+    "cursor": -1,
+    "increment": 1,
+    "offsets": { "tba": 0, "statbotics": 0, "scouting": 0 },
+    "latencyMs": { "tba": 0, "statbotics": 0, "scouting": 0 },
+    "delayScale": 1,
+    "failures": { "tba": null, "statbotics": null, "scouting": null },
+    "corrections": []
+  }
+}
