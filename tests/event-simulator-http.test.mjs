@@ -17,10 +17,12 @@ const post = async (path, value = {}) => (await fetch(url(path), { method: "POST
 assert.equal((await get("/state")).cursor, -1);
 assert.equal((await get("/api/tba/event/2026evsim/teams")).length, 55);
 assert.equal((await get("/api/tba/event/2026evsim/matches")).length, 0);
+assert.equal((await get("/api/tba/event/2026evsim/rankings")).rankings.length, 0);
 await post("/control/advance");
 const scheduled = await get("/api/tba/event/2026evsim/matches");
 assert.ok(scheduled.length > 0);
 assert.equal(scheduled[0].alliances.red.score, -1);
+assert.equal((await get("/api/tba/event/2026evsim/oprs")).oprs && Object.keys((await get("/api/tba/event/2026evsim/oprs")).oprs).length, 0);
 await post("/control/advance");
 assert.equal((await get("/api/statbotics/v3/event/2026evsim")).key, "2026evsim");
 assert.equal((await get("/api/statbotics/v3/matches/2026evsim")).length, 1);

@@ -20,9 +20,15 @@ const first = engine.get("tba", "matches").filter((match) => match.alliances.red
 assert.equal(first.length, 1);
 assert.equal(first[0].event_key, "2026evsim");
 assert.equal(engine.get("statbotics", "matches").length, 1);
-engine.setState({ increment: 3, offsets: { tba: 2, statbotics: -1, scouting: 1 }, latencyMs: { tba: 12 }, delayScale: 0.5, corrections: [{ source: "tba", cursor: 1, path: "event.name", value: "Corrected" }] });
-assert.equal(engine.effectiveCursor("tba"), 3);
-assert.equal(engine.effectiveCursor("statbotics"), 0);
+assert.equal(engine.get("tba", "rankings").rankings.length, 6);
+assert.equal(engine.get("tba", "oprs").oprs["frc4638"], undefined);
+assert.equal(engine.get("tba", "oprs").oprs[first[0].alliances.red.team_keys[0]] > 0, true);
+engine.setState({ cursor: engine.getState().totalSequence });
+assert.equal(engine.get("tba", "oprs").oprs["frc4638"], undefined);
+assert.equal(engine.get("tba", "rankings").rankings.some((row) => row.team_key === "frc4638"), false);
+engine.setState({ cursor: -1, increment: 3, offsets: { tba: 2, statbotics: -1, scouting: 1 }, latencyMs: { tba: 12 }, delayScale: 0.5, corrections: [{ source: "tba", cursor: 1, path: "event.name", value: "Corrected" }] });
+assert.equal(engine.effectiveCursor("tba"), 1);
+assert.equal(engine.effectiveCursor("statbotics"), -1);
 assert.equal(engine.get("tba", "event").name, "Corrected");
 assert.equal(engine.resetTimeline().cursor, -1);
 assert.equal(engine.getState().increment, 3);
