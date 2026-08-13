@@ -631,6 +631,40 @@ await runTest("loadEventByCode requires a TBA auth key for live lookups", async 
     /Missing TBA auth key/i,
   );
 });
+
+await runTest("simulator TBA requests omit the empty auth header", async () => {
+  const context = loadBrowserContext([
+    "src/provider-routing.js",
+    "src/legacy-scouting-schema-seeds.js",
+    "src/season-framework.js",
+    "src/prior-ridge.js",
+    "src/event-model-builder.js",
+    "src/external-source-snapshots.js",
+    "src/external-event-loader.js",
+  ], {
+    __EVENT_SIMULATOR_CONFIG: {
+      mode: "simulator-first",
+      tbaUrl: "http://127.0.0.1:8787/api/tba",
+      statboticsUrl: "http://127.0.0.1:8787/api/statbotics",
+    },
+  });
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url, headers: options.headers || {} });
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+
+  await assert.rejects(
+    () => context.ExternalEventLoader.loadEventByCode("2026evsim", {
+      fetchImpl,
+      statboticsFallbackBaseUrl: "http://127.0.0.1:8787/api/statbotics",
+    }),
+    /The Blue Alliance event lookup failed/i,
+  );
+  const tbaCall = calls.find((call) => call.url.endsWith("/api/tba/event/2026evsim"));
+  assert.ok(tbaCall);
+  assert.equal(tbaCall.headers["X-TBA-Auth-Key"], undefined);
+});
 }
 
 main().catch((error) => {

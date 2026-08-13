@@ -331,17 +331,21 @@ async function loadEventByCode(eventCode, options = {}) {
   if (!normalizedEventCode) throw new Error("Enter a valid event code.");
 
   const tbaAuthKey = resolveTbaAuthKey(options);
-  const routing = providerRouting.resolveProviderRouting ? providerRouting.resolveProviderRouting(options) : { mode: "production", tbaBaseUrl: normalizeText(options.tbaBaseUrl) || "https://www.thebluealliance.com/api/v3", statboticsBaseUrl: resolveStatboticsBaseUrl(options), statboticsFallbackBaseUrl: resolveStatboticsFallbackBaseUrl(options), tbaFallbackBaseUrl: "" };
-  if (!tbaAuthKey && routing.mode !== "simulator-first") throw new Error("Missing TBA auth key. Configure a key before loading arbitrary events.");
+  const runtimeConfig = globalThis.__EVENT_SIMULATOR_CONFIG;
+  const configuredSimulator = runtimeConfig?.mode === "simulator-first";
+  const resolvedRouting = providerRouting.resolveProviderRouting ? providerRouting.resolveProviderRouting(options) : { mode: "production", tbaBaseUrl: normalizeText(options.tbaBaseUrl) || "https://www.thebluealliance.com/api/v3", statboticsBaseUrl: resolveStatboticsBaseUrl(options), statboticsFallbackBaseUrl: resolveStatboticsFallbackBaseUrl(options), tbaFallbackBaseUrl: "" };
+  const routing = configuredSimulator && resolvedRouting.mode === "production"
+    ? { ...resolvedRouting, mode: "simulator-first", tbaBaseUrl: normalizeText(runtimeConfig.tbaUrl) || resolvedRouting.tbaBaseUrl, statboticsBaseUrl: normalizeText(runtimeConfig.statboticsUrl) || resolvedRouting.statboticsBaseUrl, scoutingUrl: normalizeText(runtimeConfig.scoutingUrl) }
+    : resolvedRouting;
+  const localTba = /^(https?:\/\/)?(127\.0\.0\.1|localhost)(?::\d+)?\//i.test(routing.tbaBaseUrl || "");
+  if (!tbaAuthKey && routing.mode !== "simulator-first" && !localTba) throw new Error("Missing TBA auth key. Configure a key before loading arbitrary events.");
 
   const timestamp = normalizeText(options.timestamp) || new Date().toISOString();
   const tbaBaseUrl = routing.tbaBaseUrl;
   const statboticsBaseUrl = routing.statboticsBaseUrl;
   const statboticsFallbackBaseUrl = routing.statboticsFallbackBaseUrl || resolveStatboticsFallbackBaseUrl(options);
-  const tbaHeaders = {
-    Accept: "application/json",
-    "X-TBA-Auth-Key": tbaAuthKey,
-  };
+  const tbaHeaders = { Accept: "application/json" };
+  if (tbaAuthKey) tbaHeaders["X-TBA-Auth-Key"] = tbaAuthKey;
 
   const [tbaEventResult, tbaTeamsResult, tbaMatchesResult, tbaRankingsResult, tbaTeamStatsResult, statboticsResult] = await Promise.all([
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}`, { ...options, headers: tbaHeaders })),

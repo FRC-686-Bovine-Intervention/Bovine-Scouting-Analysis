@@ -1751,9 +1751,6 @@ async function applyAdminEventCodeDraft(value, options = {}) {
     if (options.render !== false) render();
     return true;
   }
-  if (state.eventLookupPending && state.adminEventCodeDraft === normalizedEventCode) {
-    return false;
-  }
   state.adminEventCodeDraft = normalizedEventCode;
   if (sharedCachedEventByKey(normalizedEventCode)) {
     const opened = await openSharedCachedEvent(normalizedEventCode, { activeView: "adminEventControl", persistShared: true, source: "user" });
@@ -2250,7 +2247,8 @@ function currentDataSources() {
     const sourceState = workspace.sources?.[definition.sourceId] || {};
     const policy = defaultRefreshPolicyForSource({ kind: "external", sourceId: definition.sourceId });
     const dataSourceNote = (event.dataSources || []).find((source) => String(source.name || "").includes(definition.label)) || {};
-    const authFailure = definition.sourceId === "tba"
+    const simulatorConfigured = globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first";
+    const authFailure = definition.sourceId === "tba" && !simulatorConfigured
       ? authFailureMessage("TBA", state.tbaAuthKeyValidation)
       : "";
     return {
@@ -9570,6 +9568,7 @@ function renderAdminEventControl() {
                   spellcheck="false"
                   ${state.eventLookupPending ? "disabled" : ""}
                 />
+                <button type="button" id="loadAdminEventButton" ${state.eventLookupPending ? "disabled" : ""}>Load</button>
                 <button type="button" id="openRecentAdminEventsButton">Open Recent</button>
               </div>
             </label>
@@ -10618,6 +10617,10 @@ function bindAllianceSourceScrollbars() {
 }
 
 function bindViewEvents() {
+  document.querySelector("#loadAdminEventButton")?.addEventListener("click", async () => {
+    const input = document.querySelector("#adminEventCodeInput");
+    await applyAdminEventCodeDraft(input?.value || "");
+  });
   document.querySelector("#exportPerformanceDiagnosticsButton")?.addEventListener("click", () => {
     downloadLocalTextFile(JSON.stringify(scoutingPerfSnapshot(), null, 2), "scouting-performance-diagnostics.json");
   });
