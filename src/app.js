@@ -1751,6 +1751,9 @@ async function applyAdminEventCodeDraft(value, options = {}) {
     if (options.render !== false) render();
     return true;
   }
+  if (state.eventLookupPending && state.adminEventCodeDraft === normalizedEventCode) {
+    return false;
+  }
   state.adminEventCodeDraft = normalizedEventCode;
   if (sharedCachedEventByKey(normalizedEventCode)) {
     const opened = await openSharedCachedEvent(normalizedEventCode, { activeView: "adminEventControl", persistShared: true, source: "user" });
