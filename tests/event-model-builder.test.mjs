@@ -124,6 +124,16 @@ assert.equal(hydratedWithDefinitions.teams[0].sources.pridge.total, 1);
 assert.equal(hydratedWithDefinitions.teams[0].sources.pridge.components["epa.total_points"], 1);
 
 pridgeCalls = 0;
+const readyWithDefinitions = context.EventModelBuilder.applyPridgeResponseDefinitions({
+  ...hydrationDeferredEvent,
+  pridgeComputationDeferred: false,
+}, [
+  { id: "epa.total_points", label: "pRidge total", formula: "tba.totalPoints" },
+]);
+assert.equal(pridgeCalls, 1, "Applying schema definitions to a ready event should compute response values.");
+assert.equal(readyWithDefinitions.teams[0].sources.pridge.components["epa.total_points"], 1);
+
+pridgeCalls = 0;
 const eager = context.EventModelBuilder.buildEventModelFromProviderBundle(bundle);
 assert.equal(pridgeCalls, 81, "Eager event construction should retain the existing cumulative trend behavior.");
 assert.equal(eager.teams[0].sources.pridge.trendEntries.length, 80);

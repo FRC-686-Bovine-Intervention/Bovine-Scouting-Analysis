@@ -165,14 +165,14 @@ function applyPridgeResponseDefinitions(eventModel = {}, definitions = [], optio
   let pridgeDiagnostics = [];
   const shouldCompute = !eventModel.pridgeComputationDeferred || options.force === true;
   let totalResults = {};
-  if (shouldCompute && options.force === true && typeof computeEventPridgeBatch === "function") {
+  if (shouldCompute && typeof computeEventPridgeBatch === "function") {
     const responseSets = [
-      { id: "__total", matches: rawMatches },
+      ...(options.force === true ? [{ id: "__total", matches: rawMatches }] : []),
       ...normalizedDefinitions.map((definition) => ({ id: definition.id, matches: buildFormulaMatches(rawMatches, definition) })),
     ];
     const batchResults = computeEventPridgeBatch(responseSets, teamEvents, { responseName: "score", digits: 1 });
     pridgeDiagnostics = batchResults.__diagnostics || [];
-    totalResults = batchResults.__total?.ratings || {};
+    totalResults = options.force === true ? batchResults.__total?.ratings || {} : {};
     normalizedDefinitions.forEach((definition) => {
       if (batchResults[definition.id]) results[definition.id] = batchResults[definition.id];
     });
@@ -182,6 +182,18 @@ function applyPridgeResponseDefinitions(eventModel = {}, definitions = [], optio
     } catch {
       totalResults = {};
     }
+  }
+  if (shouldCompute && typeof computeEventPridgeBatch !== "function" && typeof computeEventPridge === "function") {
+    normalizedDefinitions.forEach((definition) => {
+      try {
+        const formulaMatches = buildFormulaMatches(rawMatches, definition);
+        if (formulaMatches.length) {
+          results[definition.id] = computeEventPridge(formulaMatches, teamEvents, { responseName: "score", digits: 1 });
+        }
+      } catch {
+        // Keep the response unavailable when the active event lacks required live inputs.
+      }
+    });
   }
   return {
     ...eventModel,
