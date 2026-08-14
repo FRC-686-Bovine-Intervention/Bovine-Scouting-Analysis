@@ -5,4 +5,7 @@ assert.match(fs.readFileSync("scripts/start-event-simulator.ps1", "utf8"), /Rout
 assert.match(fs.readFileSync("scripts/start-event-simulator.ps1", "utf8"), /health check/);
 assert.equal(fs.existsSync(".browser-test/verify-event-simulator.mjs"), true);
 assert.equal(fs.existsSync("docs/event-simulator-human-checklist.md"), true);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /Show setup instructions/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /start-event-simulator\.ps1/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /2026evsim/);
 console.log("PASS event simulator launcher artifacts");

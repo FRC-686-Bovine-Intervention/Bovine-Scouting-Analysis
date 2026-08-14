@@ -1,7 +1,41 @@
-<!doctype html><meta charset="utf-8"><title>Event Simulator</title>
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Event Simulator</title>
+<style>
+  :root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
+  body { max-width: 960px; margin: 0 auto; padding: 24px; }
+  button { cursor: pointer; margin: 4px 4px 4px 0; padding: 8px 12px; }
+  #setupInstructions { border: 1px solid currentColor; border-radius: 8px; margin: 12px 0 20px; padding: 16px 20px; }
+  #setupInstructions[hidden] { display: none; }
+  #setupInstructions li { margin: 8px 0; }
+  code { white-space: pre-wrap; }
+  pre { overflow: auto; padding: 16px; border-radius: 8px; background: color-mix(in srgb, CanvasText 8%, Canvas); }
+</style>
+<button id="setupToggle" type="button" aria-expanded="false" aria-controls="setupInstructions">Show setup instructions</button>
+<section id="setupInstructions" hidden>
+  <h2>Restart this simulation after a reboot</h2>
+  <ol>
+    <li>Open PowerShell in the repository root: <code>D:\FIRST\Scouting\Bovine-Scouting-Analysis</code>.</li>
+    <li>Start both local services with <code>powershell -ExecutionPolicy Bypass -File .\scripts\start-event-simulator.ps1</code>. Keep that PowerShell window open while testing.</li>
+    <li>Open <code>http://127.0.0.1:8787/</code> for this control page and <code>http://127.0.0.1:4174/</code> for the analysis app. The launcher creates the temporary local routing configuration automatically.</li>
+    <li>Click <strong>Reset timeline</strong>, then confirm the state shows <code>cursor: -1</code> and <code>phase: team-only</code>.</li>
+    <li>In the analysis app, open <strong>Admin Event Control</strong>, enter <code>2026evsim</code>, and click <strong>Load</strong>. The TBA card should say <strong>Ready</strong>.</li>
+    <li>To prove the apps are connected, click <strong>Advance</strong> here, then click <strong>Refresh Sources</strong> in the analysis app. The simulator state cursor should advance and the analysis data should update.</li>
+  </ol>
+  <p><strong>Machine check:</strong> open <code>http://127.0.0.1:8787/state</code>. It should return JSON with <code>scenario: 2026evsim</code>. Close the launcher PowerShell window when finished.</p>
+</section>
 <h1>2026evsim</h1><pre id="state">Loading…</pre>
 <button onclick="post('advance')">Advance</button> <button onclick="post('reset-timeline')">Reset timeline</button> <button onclick="post('reset-config')">Reset configuration</button> <button onclick="post('reset')">Full reset</button>
 <script>
+const setupToggle = document.querySelector('#setupToggle');
+const setupInstructions = document.querySelector('#setupInstructions');
+setupToggle.addEventListener('click', () => {
+  const willShow = setupInstructions.hidden;
+  setupInstructions.hidden = !willShow;
+  setupToggle.textContent = willShow ? 'Hide setup instructions' : 'Show setup instructions';
+  setupToggle.setAttribute('aria-expanded', String(willShow));
+});
 async function refresh(){state.textContent=JSON.stringify(await fetch('/state').then(r=>r.json()),null,2)}
 async function post(action){await fetch('/control/'+action,{method:'POST',headers:{'content-type':'application/json'},body:'{}'});refresh()} refresh();
 </script>

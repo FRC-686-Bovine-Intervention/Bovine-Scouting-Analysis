@@ -1,5 +1,16 @@
 # 2026evsim human exploratory pass
 
+## Reboot-safe setup
+
+1. Open PowerShell in `D:\FIRST\Scouting\Bovine-Scouting-Analysis`.
+2. Run `powershell -ExecutionPolicy Bypass -File .\scripts\start-event-simulator.ps1` and leave that window open.
+3. Open `http://127.0.0.1:8787/` for simulator controls and `http://127.0.0.1:4174/` for the analysis app.
+4. On the simulator page, click **Reset timeline** and confirm `cursor: -1` / `phase: team-only`.
+5. In the analysis app, open **Admin Event Control**, enter `2026evsim`, and click **Load**. The TBA source should be **Ready**.
+6. Click **Advance** in the simulator and **Refresh Sources** in the analysis app. Confirm the simulator cursor advances and the analysis source timestamps update.
+
+The simulator page has the same steps behind its **Show setup instructions** button. The machine-readable check is `http://127.0.0.1:8787/state`.
+
 Start `scripts/start-event-simulator.ps1`. Use `-RoutingMode fallback` for fallback checks and `-OpenBrowser` only when desired. Open the printed simulator control URL and analysis-app URL. Begin with `Reset` so the state is `-1`; use the state endpoint or control page to record cursor, offsets, latency, delay scale, failures, and corrections for every finding.
 
 ## Pass sequence
