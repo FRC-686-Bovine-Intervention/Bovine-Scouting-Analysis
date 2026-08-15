@@ -11,4 +11,5 @@ assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /2026evsim/
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="advance"/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="state" aria-label="Simulator event log"/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /class="reset-controls"/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /renderState\(await response\.json\(\)\)/);
 console.log("PASS event simulator launcher artifacts");

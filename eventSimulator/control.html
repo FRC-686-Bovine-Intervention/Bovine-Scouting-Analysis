@@ -48,6 +48,10 @@ setupToggle.addEventListener('click', () => {
   setupToggle.textContent = willShow ? 'Hide setup instructions' : 'Show setup instructions';
   setupToggle.setAttribute('aria-expanded', String(willShow));
 });
-async function refresh(){state.textContent=JSON.stringify(await fetch('/state').then(r=>r.json()),null,2)}
-async function post(action){await fetch('/control/'+action,{method:'POST',headers:{'content-type':'application/json'},body:'{}'});refresh()} refresh();
+function renderState(value){state.textContent=JSON.stringify(value,null,2)}
+async function refresh(){renderState(await fetch('/state').then(r=>r.json()))}
+async function post(action){
+  const response = await fetch('/control/'+action,{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+  renderState(await response.json());
+} refresh();
 </script>
