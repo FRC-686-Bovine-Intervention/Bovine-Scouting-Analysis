@@ -565,6 +565,18 @@ function recordScoutingPerf(label, startedAt, details = {}) {
 function bootstrapApp() {
   const startedAt = perfNow();
   try {
+    if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first" && state.activeEventKey) {
+      document.documentElement.dataset.theme = state.theme;
+      renderSafely();
+      void loadArbitraryEventCode(state.activeEventKey, {
+        activeView: state.activeView,
+        source: "simulator-startup-refresh",
+        deferPridgeTrends: true,
+        deferPridgeComputation: true,
+      });
+      recordScoutingPerf("bootstrap.simulatorRefresh", startedAt, { eventKey: state.activeEventKey });
+      return;
+    }
     if (!eventModelByKey(state.activeEventKey)) {
       document.documentElement.dataset.theme = state.theme;
       renderSafely();
@@ -585,14 +597,6 @@ function bootstrapApp() {
     const refreshStartedAt = perfNow();
     ensureSourceRefreshLoop();
     recordScoutingPerf("bootstrap.ensureSourceRefreshLoop", refreshStartedAt, { eventKey: state.activeEventKey });
-    if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first" && state.activeEventKey) {
-      void loadArbitraryEventCode(state.activeEventKey, {
-        activeView: state.activeView,
-        source: "simulator-startup-refresh",
-        deferPridgeTrends: true,
-        deferPridgeComputation: true,
-      });
-    }
     recordScoutingPerf("bootstrap.total", startedAt, { eventKey: state.activeEventKey, activeView: state.activeView });
   } catch (error) {
     console.error("App bootstrap failed before first render", error);
