@@ -29,6 +29,7 @@ assert.match(source, /class="nav-divider" role="separator" aria-label="Admin pag
 assert.match(source, /index === items\.findIndex\(\(navItem\) => navItem\.view\.startsWith\("admin"\)\)/);
 assert.match(source, /visibleNavItems\(\)\.map\(\(item, index, items\)/);
 assert.match(eventControl, /Event Imports/);
+assert.match(eventControl, /event-code-row/);
 assert.match(eventControl, /Source Status/);
 assert.match(eventControl, /Statbotics API Sources/);
 assert.match(eventControl, /Primary/);
@@ -42,6 +43,7 @@ assert.doesNotMatch(eventControl, /toggleAllSourcePollingButton|Pause Polling|Re
 assert.match(eventCodeHandler, /refreshCurrentExternalSourcesImmediately/);
 assert.match(recentEventHandler, /refreshCurrentExternalSourcesImmediately/);
 assert.match(source, /authFailureMessage\("TBA"/);
+assert.match(source, /localBuildHash/);
 assert.match(source, /authFailureMessage\("FIRST API"/);
 assert.match(eventControl, /Activity Log/);
 assert.match(eventControl, /createSchemaBaselineButton/);

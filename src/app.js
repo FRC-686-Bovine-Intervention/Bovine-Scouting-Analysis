@@ -1,5 +1,6 @@
 const globalEventCatalog = globalThis.eventCatalog || [];
 const externalEventLoader = globalThis.ExternalEventLoader || {};
+const providerRouting = globalThis.ProviderRouting || {};
 const importFoundation = globalThis.ImportFoundation || {};
 const externalSourceSnapshots = globalThis.ExternalSourceSnapshots || {};
 const dynamicScoutingFields = globalThis.DynamicScoutingFields || {};
@@ -348,9 +349,12 @@ function scoutingProfileLabel(profileId, fallbackLabel = "") {
 
 const defaultScoutingProfileId = "match-current-v2";
 const deploymentRevision = normalizeText(globalThis.__DEPLOYMENT_REVISION) || "local checkout";
+const localBuildHash = normalizeText(globalThis.__LOCAL_BUILD_HASH);
 const developmentRevision = /^[0-9a-f]{7,40}$/i.test(deploymentRevision)
   ? deploymentRevision.toLowerCase().slice(0, 7)
-  : deploymentRevision;
+  : deploymentRevision === "local checkout" && localBuildHash
+    ? `${deploymentRevision} / ${localBuildHash.toLowerCase().slice(0, 7)}`
+    : deploymentRevision;
 
 const storedActiveEventKey = normalizeText(readStoredItem(storageKeys.activeEvent)).toLowerCase();
 const initialEventKey = resolveEventKey(storedActiveEventKey);
@@ -2250,7 +2254,9 @@ function currentDataSources() {
     const sourceState = workspace.sources?.[definition.sourceId] || {};
     const policy = defaultRefreshPolicyForSource({ kind: "external", sourceId: definition.sourceId });
     const dataSourceNote = (event.dataSources || []).find((source) => String(source.name || "").includes(definition.label)) || {};
-    const simulatorConfigured = globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first";
+    const simulatorRouting = providerRouting.resolveProviderRouting ? providerRouting.resolveProviderRouting() : null;
+    const simulatorConfigured = globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first"
+      || /^(https?:\/\/)?(127\.0\.0\.1|localhost)(?::\d+)?\//i.test(simulatorRouting?.tbaBaseUrl || "");
     const authFailure = definition.sourceId === "tba" && !simulatorConfigured
       ? authFailureMessage("TBA", state.tbaAuthKeyValidation)
       : "";
@@ -9559,7 +9565,7 @@ function renderAdminEventControl() {
           <div class="admin-form-grid">
             <label>
               Event Code
-              <div class="admin-actions admin-field-row">
+              <div class="admin-actions admin-field-row event-code-row">
                 <input
                   id="adminEventCodeInput"
                   class="admin-input"

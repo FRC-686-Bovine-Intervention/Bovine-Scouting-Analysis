@@ -7,12 +7,13 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+$localBuildHash = (git -C $root rev-parse --short HEAD 2>$null).Trim()
 $statePath = Join-Path ([System.IO.Path]::GetTempPath()) ("event-simulator-" + [guid]::NewGuid().ToString('N') + '.json')
 $previousStatePath = $env:EVENT_SIMULATOR_STATE
 $env:EVENT_SIMULATOR_STATE = $statePath
 $sim = Start-Process node -ArgumentList @('eventSimulator/server.mjs', $SimulatorPort) -WorkingDirectory $root -PassThru -WindowStyle Hidden
 $configPath = Join-Path $root 'runtime-config.local.js'
-$config = "globalThis.__EVENT_SIMULATOR_CONFIG = Object.freeze({mode:'$RoutingMode',tbaUrl:'http://127.0.0.1:$SimulatorPort/api/tba',statboticsUrl:'http://127.0.0.1:$SimulatorPort/api/statbotics',scoutingUrl:'http://127.0.0.1:$SimulatorPort/api/scouting/2026evsim',delayScale:$DelayScale});"
+$config = "globalThis.__LOCAL_BUILD_HASH = '$localBuildHash'; globalThis.__EVENT_SIMULATOR_CONFIG = Object.freeze({mode:'$RoutingMode',tbaUrl:'http://127.0.0.1:$SimulatorPort/api/tba',statboticsUrl:'http://127.0.0.1:$SimulatorPort/api/statbotics',scoutingUrl:'http://127.0.0.1:$SimulatorPort/api/scouting/2026evsim',delayScale:$DelayScale});"
 $config | Set-Content -LiteralPath $configPath -Encoding utf8
 try {
   $ready = $false
