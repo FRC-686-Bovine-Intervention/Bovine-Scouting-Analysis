@@ -18,6 +18,7 @@ assert.match(fs.readFileSync("scripts/local-web-server.mjs", "utf8"), /"\.mjs": 
 assert.match(fs.readFileSync("src/app.js", "utf8"), /simulator-startup-refresh/);
 assert.match(fs.readFileSync("src/app.js", "utf8"), /restoreSharedCachedActiveEvent[\s\S]*simulator-first/);
 assert.match(fs.readFileSync("src/app.js", "utf8"), /startSharedActiveEventSync[\s\S]*simulator-first/);
+assert.match(fs.readFileSync("src/app.js", "utf8"), /simulator-startup-refresh[\s\S]*ensureSourceRefreshLoop/);
 const matchupCss = fs.readFileSync("src/styles.css", "utf8");
 for (const className of ["matchup-team-tone-light", "matchup-team-rank-3"]) assert.match(matchupCss, new RegExp(`matchup-alliance-card\\.blue \\.${className}`));
 assert.match(fs.readFileSync("index.html", "utf8"), /styles\.css\?revision=__DEPLOYMENT_REVISION__-event-simulator-runtime-11/);

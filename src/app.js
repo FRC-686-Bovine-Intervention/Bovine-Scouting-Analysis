@@ -568,6 +568,7 @@ function bootstrapApp() {
     if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first" && state.activeEventKey) {
       document.documentElement.dataset.theme = state.theme;
       renderSafely();
+      ensureSourceRefreshLoop();
       void loadArbitraryEventCode(state.activeEventKey, {
         activeView: state.activeView,
         source: "simulator-startup-refresh",
