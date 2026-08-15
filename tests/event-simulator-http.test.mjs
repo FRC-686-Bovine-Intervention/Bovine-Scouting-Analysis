@@ -30,6 +30,10 @@ assert.equal((await get("/api/statbotics/v3/team_matches/2026evsim")).length, 6)
 assert.equal((await get("/api/scouting/2026evsim")).meta.eventKey, "2026evsim");
 await post("/control/set", { failures: { scouting: "failed" } });
 assert.equal((await fetch(url("/api/scouting/2026evsim"))).status, 503);
+const resetState = await post("/control/reset");
+assert.equal(resetState.cursor, -1);
+assert.equal(resetState.phase, "team-only");
+assert.deepEqual(resetState.requests, []);
 const cors = await fetch(url("/state"));
 assert.equal(cors.headers.get("access-control-allow-origin"), "*");
 await new Promise((resolve) => server.close(resolve));

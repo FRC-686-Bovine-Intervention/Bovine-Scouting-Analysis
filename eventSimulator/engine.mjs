@@ -78,7 +78,7 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
   const persist = () => { fs.mkdirSync(path.dirname(statePath), { recursive: true }); fs.writeFileSync(statePath, JSON.stringify(state, null, 2)); };
   const resetTimeline = () => { state.cursor = defaults.cursor; persist(); return getState(); };
   const resetConfig = () => { state = { ...clone(defaults), cursor: state.cursor }; persist(); return getState(); };
-  const resetAll = () => { state = clone(defaults); persist(); return getState(); };
+  const resetAll = () => { state = clone(defaults); requests.length = 0; persist(); return getState(); };
   const setState = (updates = {}) => {
     if (updates.cursor != null) state.cursor = Math.max(-1, Number(updates.cursor));
     if (updates.increment != null) state.increment = Math.max(1, Number(updates.increment));
