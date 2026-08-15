@@ -49,6 +49,7 @@ try {
     const epaOptionLabel = [...firstMetric.options].find((option) => option.value === "source:statbotics:epa.total_points")?.textContent;
     firstMetric.value = "source:statbotics:epa.total_points";
     firstMetric.dispatchEvent(new Event("change", { bubbles: true }));
+    const color = (selector) => getComputedStyle(document.querySelector(selector)).backgroundColor;
     return {
       allianceNames,
       cards,
@@ -57,6 +58,9 @@ try {
       bars: document.querySelectorAll(".matchup-stacked-bar").length,
       redFirst: document.querySelector(".matchup-alliance-card.red .matchup-team")?.textContent.trim(),
       matchNumber: document.querySelector(".matchup-match-number")?.textContent.trim(),
+      redTileColors: ["dark", "medium", "light"].map((tone) => color(`.matchup-alliance-card.red .matchup-team-tone-${tone}`)),
+      blueTileColors: ["dark", "medium", "light"].map((tone) => color(`.matchup-alliance-card.blue .matchup-team-tone-${tone}`)),
+      redBarColors: ["dark", "medium", "light"].map((tone) => color(`.matchup-bar-segment.red.matchup-team-tone-${tone}`)),
     };
   });
   assert.deepEqual(result.allianceNames, ["2 Bravo", "3 Charlie", "1 Alpha", "4 Delta", "5 Echo", "6 Foxtrot"]);
@@ -72,6 +76,9 @@ try {
   assert.match(result.redFirst, /2 Bravo/);
   assert.equal(result.matchNumber, "Qual 1");
   assert.equal(result.epaOptionLabel, "statbotics.epa.total_points", "Metric selectors should use the canonical raw metric token label.");
+  assert.deepEqual(result.redTileColors, ["rgb(153, 27, 27)", "rgb(220, 107, 107)", "rgb(254, 202, 202)"]);
+  assert.deepEqual(result.blueTileColors, ["rgb(30, 58, 138)", "rgb(95, 134, 216)", "rgb(191, 219, 254)"]);
+  assert.deepEqual(result.redBarColors, result.redTileColors, "Metric bars should use the same red alliance tones as the team tiles.");
 } finally {
   await browser.close();
 }

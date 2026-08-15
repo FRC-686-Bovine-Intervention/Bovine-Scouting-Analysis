@@ -8662,11 +8662,15 @@ function matchupOrderedTeams(teamNumbers) {
     .map((entry) => entry.team);
 }
 
+function matchupTeamToneClass(index) {
+  return ["matchup-team-tone-dark", "matchup-team-tone-medium", "matchup-team-tone-light"][index] || "matchup-team-tone-light";
+}
+
 function renderMatchupAllianceCard(title, teamNumbers, color) {
   const teams = matchupOrderedTeams(teamNumbers);
   return `<article class="matchup-alliance-card ${color}" aria-label="${escapeAttribute(title)}">
     <div class="matchup-team-row">
-      ${teams.map((team, index) => `<button class="matchup-team matchup-team-rank-${index + 1}" data-team="${team.number}">
+      ${teams.map((team, index) => `<button class="matchup-team ${matchupTeamToneClass(index)}" data-team="${team.number}">
         <strong>${escapeHtml(`${team.number} ${team.name || "Unnamed team"}`)}</strong>
         ${renderDrivetrainBadge(team)}
       </button>`).join("")}
@@ -8725,7 +8729,7 @@ function renderMatchupMetricCard(match, metric, index, model, sharedScale, metri
   const scale = sharedScale || model.maximumTotal;
   const renderBar = (entries, total, color) => `<div class="matchup-bar-row">
     <div class="matchup-stacked-bar" aria-label="${escapeAttribute(`${color} alliance ${metricTokenLabel(metric)}`)}">
-      ${entries.map((entry, teamIndex) => `<span class="matchup-bar-segment ${color} matchup-team-rank-${teamIndex + 1}" style="width: ${scale ? (entry.numericValue / scale) * 100 : 0}%" title="${escapeAttribute(`${entry.team.name}: ${formatMetricValueForDisplay(metric, entry.value)}`)}"></span>`).join("")}
+      ${entries.map((entry, teamIndex) => `<span class="matchup-bar-segment ${color} ${matchupTeamToneClass(teamIndex)}" style="width: ${scale ? (entry.numericValue / scale) * 100 : 0}%" title="${escapeAttribute(`${entry.team.name}: ${formatMetricValueForDisplay(metric, entry.value)}`)}"></span>`).join("")}
     </div>
     <strong class="matchup-bar-total">${escapeHtml(formatMetricValueForDisplay(metric, total))}</strong>
   </div>`;
