@@ -19,4 +19,6 @@ assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="state"
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /class="reset-controls"/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /renderState\(await response\.json\(\)\)/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /__BUILD_HASH__/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /connectionStatus/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /setInterval\(refresh, 5000\)/);
 console.log("PASS event simulator launcher artifacts");

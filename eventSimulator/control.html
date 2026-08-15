@@ -14,6 +14,9 @@
   .event-header h1 { margin: 16px 0; }
   .build-hash { color: GrayText; font-size: 0.8rem; margin-left: 8px; }
   .event-header button { flex: 0 0 auto; }
+  #connectionStatus { border: 1px solid color-mix(in srgb, CanvasText 25%, Canvas); border-radius: 8px; margin-bottom: 12px; padding: 10px 12px; }
+  #connectionStatus.connected { border-color: #16a34a; }
+  #connectionStatus.waiting { border-color: #d97706; }
   #state { height: 320px; margin: 0; overflow: auto; padding: 16px; border-radius: 8px; background: color-mix(in srgb, CanvasText 8%, Canvas); }
   .reset-controls { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
 </style>
@@ -34,6 +37,7 @@
   <h1>2026evsim <span id="buildHash" class="build-hash">Build: __BUILD_HASH__</span></h1>
   <button id="advance" onclick="post('advance')">Advance</button>
 </div>
+<div id="connectionStatus" class="waiting" role="status">Checking analysis connection…</div>
 <pre id="state" aria-label="Simulator event log">Loading…</pre>
 <div class="reset-controls" aria-label="Simulator reset controls">
   <button onclick="post('reset-timeline')">Reset timeline</button>
@@ -49,10 +53,23 @@ setupToggle.addEventListener('click', () => {
   setupToggle.textContent = willShow ? 'Hide setup instructions' : 'Show setup instructions';
   setupToggle.setAttribute('aria-expanded', String(willShow));
 });
-function renderState(value){state.textContent=JSON.stringify(value,null,2)}
+function renderConnectionStatus(value){
+  const requests = Array.isArray(value?.requests) ? value.requests : [];
+  const latest = requests[0];
+  if (!latest?.at) {
+    connectionStatus.className = 'waiting';
+    connectionStatus.textContent = 'Waiting for analysis app requests… (checks every 5 seconds)';
+    return;
+  }
+  const ageSeconds = Math.max(0, Math.round((Date.now() - Date.parse(latest.at)) / 1000));
+  const isConnected = ageSeconds <= 15;
+  connectionStatus.className = isConnected ? 'connected' : 'waiting';
+  connectionStatus.textContent = `${isConnected ? 'Connected' : 'No recent traffic'} — last ${latest.source}/${latest.kind} request at cursor ${latest.cursor}, ${ageSeconds}s ago (checks every 5 seconds)`;
+}
+function renderState(value){renderConnectionStatus(value); state.textContent=JSON.stringify(value,null,2)}
 async function refresh(){renderState(await fetch('/state').then(r=>r.json()))}
 async function post(action){
   const response = await fetch('/control/'+action,{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
   renderState(await response.json());
-} refresh();
+} refresh(); setInterval(refresh, 5000);
 </script>
