@@ -20,5 +20,7 @@ assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /class="res
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /renderState\(await response\.json\(\)\)/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /__BUILD_HASH__/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /connectionStatus/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /const scrollTop = state\.scrollTop/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /state\.scrollTop = scrollTop/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /setInterval\(refresh, 5000\)/);
 console.log("PASS event simulator launcher artifacts");

@@ -58,7 +58,7 @@ export function createServer({ simulator = engine } = {}) { return http.createSe
     }
     if (r[0] && ["tba", "statbotics", "scouting"].includes(r[0])) {
       const source = r[0]; const kind = r[1]; const generation = simulator.requestGeneration?.(); const snapshot = simulator.get(source, kind);
-      simulator.recordRequest({ source, kind, cursor: simulator.effectiveCursor(source), at: new Date().toISOString() }, generation);
+      simulator.recordRequest({ source, kind, cursor: simulator.effectiveCursor(source), at: new Date().toISOString(), dataSignature: JSON.stringify(snapshot) }, generation);
       const delay = simulator.responseDelay(source); return setTimeout(() => json(res, 200, snapshot), delay);
     }
     if (url.pathname === "/" || url.pathname === "/control.html") { res.writeHead(200, { "content-type": "text/html" }); return res.end(controlPage()); }

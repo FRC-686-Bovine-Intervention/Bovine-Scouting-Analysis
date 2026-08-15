@@ -93,7 +93,6 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
     persist(); return getState();
   };
   const advance = (amount = state.increment) => { state.cursor += Math.max(1, Number(amount)); persist(); return getState(); };
-  const getState = () => ({ scenario: scenario.id, cursor: state.cursor, phase: state.cursor < 0 ? "team-only" : state.cursor === 0 ? "scheduled" : "results", increment: state.increment, offsets: clone(state.offsets), latencyMs: clone(state.latencyMs), delayScale: state.delayScale, failures: clone(state.failures), corrections: clone(state.corrections), totalSequence: ordered.length, requests: clone(requests) });
 
   function payload(source) {
     const cursor = effectiveCursor(state, source);
@@ -143,5 +142,18 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
     if (source === "statbotics") return kind === "event" ? data.event : kind === "team-events" ? data.teamEvents : kind === "team-matches" ? data.teamMatches : data.matches;
     return data;
   }
-  return { scenario, fixtures, defaults, getState, setState, advance, resetTimeline, resetConfig, resetAll, get, effectiveCursor: (source) => effectiveCursor(state, source), requestGeneration: () => requestGeneration, recordRequest: (request, generation = requestGeneration) => { if (generation !== requestGeneration) return; requests.unshift(request); requests.splice(50); }, responseDelay: (source) => (state.latencyMs[source] || 0) * state.delayScale };
+  const recordRequest = (request, generation = requestGeneration) => {
+    if (generation !== requestGeneration) return;
+    const signature = request.dataSignature || `${request.source}/${request.kind}/${request.cursor}`;
+    const existingIndex = requests.findIndex((item) => item.signature === signature);
+    if (existingIndex >= 0) {
+      const existing = requests.splice(existingIndex, 1)[0];
+      requests.unshift({ ...existing, at: request.at, repeatCount: (existing.repeatCount || 1) + 1 });
+    } else {
+      requests.unshift({ ...request, signature, repeatCount: 1 });
+      requests.splice(50);
+    }
+  };
+  const getState = () => ({ scenario: scenario.id, cursor: state.cursor, phase: state.cursor < 0 ? "team-only" : state.cursor === 0 ? "scheduled" : "results", increment: state.increment, offsets: clone(state.offsets), latencyMs: clone(state.latencyMs), delayScale: state.delayScale, failures: clone(state.failures), corrections: clone(state.corrections), totalSequence: ordered.length, requests: requests.map(({ signature, ...request }) => request) });
+  return { scenario, fixtures, defaults, getState, setState, advance, resetTimeline, resetConfig, resetAll, get, effectiveCursor: (source) => effectiveCursor(state, source), requestGeneration: () => requestGeneration, recordRequest, responseDelay: (source) => (state.latencyMs[source] || 0) * state.delayScale };
 }
