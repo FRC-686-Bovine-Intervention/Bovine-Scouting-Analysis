@@ -8,4 +8,7 @@ assert.equal(fs.existsSync("docs/event-simulator-human-checklist.md"), true);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /Show setup instructions/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /start-event-simulator\.ps1/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /2026evsim/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="advance"/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="state" aria-label="Simulator event log"/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /class="reset-controls"/);
 console.log("PASS event simulator launcher artifacts");

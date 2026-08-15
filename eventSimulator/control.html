@@ -10,7 +10,11 @@
   #setupInstructions[hidden] { display: none; }
   #setupInstructions li { margin: 8px 0; }
   code { white-space: pre-wrap; }
-  pre { overflow: auto; padding: 16px; border-radius: 8px; background: color-mix(in srgb, CanvasText 8%, Canvas); }
+  .event-header { align-items: center; display: flex; gap: 16px; justify-content: space-between; }
+  .event-header h1 { margin: 16px 0; }
+  .event-header button { flex: 0 0 auto; }
+  #state { height: 320px; margin: 0; overflow: auto; padding: 16px; border-radius: 8px; background: color-mix(in srgb, CanvasText 8%, Canvas); }
+  .reset-controls { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
 </style>
 <button id="setupToggle" type="button" aria-expanded="false" aria-controls="setupInstructions">Show setup instructions</button>
 <section id="setupInstructions" hidden>
@@ -25,8 +29,16 @@
   </ol>
   <p><strong>Machine check:</strong> open <code>http://127.0.0.1:8787/state</code>. It should return JSON with <code>scenario: 2026evsim</code>. Close the launcher PowerShell window when finished.</p>
 </section>
-<h1>2026evsim</h1><pre id="state">Loading…</pre>
-<button onclick="post('advance')">Advance</button> <button onclick="post('reset-timeline')">Reset timeline</button> <button onclick="post('reset-config')">Reset configuration</button> <button onclick="post('reset')">Full reset</button>
+<div class="event-header">
+  <h1>2026evsim</h1>
+  <button id="advance" onclick="post('advance')">Advance</button>
+</div>
+<pre id="state" aria-label="Simulator event log">Loading…</pre>
+<div class="reset-controls" aria-label="Simulator reset controls">
+  <button onclick="post('reset-timeline')">Reset timeline</button>
+  <button onclick="post('reset-config')">Reset configuration</button>
+  <button onclick="post('reset')">Full reset</button>
+</div>
 <script>
 const setupToggle = document.querySelector('#setupToggle');
 const setupInstructions = document.querySelector('#setupInstructions');
