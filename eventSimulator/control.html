@@ -17,7 +17,10 @@
   #connectionStatus { border: 1px solid color-mix(in srgb, CanvasText 25%, Canvas); border-radius: 8px; margin-bottom: 12px; padding: 10px 12px; }
   #connectionStatus.connected { border-color: #16a34a; }
   #connectionStatus.waiting { border-color: #d97706; }
-  #state { height: 320px; margin: 0; overflow: auto; padding: 16px; border-radius: 8px; background: color-mix(in srgb, CanvasText 8%, Canvas); }
+  .offset-controls { align-items: end; display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+  .offset-controls label { display: flex; flex-direction: column; gap: 4px; }
+  .offset-controls input { box-sizing: border-box; min-width: 92px; padding: 8px; }
+  #state { height: 640px; margin: 0; overflow: auto; padding: 16px; border-radius: 8px; background: color-mix(in srgb, CanvasText 8%, Canvas); }
   .reset-controls { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
 </style>
 <button id="setupToggle" type="button" aria-expanded="false" aria-controls="setupInstructions">Show setup instructions</button>
@@ -38,6 +41,11 @@
   <button id="advance" onclick="post('advance')">Advance</button>
 </div>
 <div id="connectionStatus" class="waiting" role="status">Checking analysis connection…</div>
+<div class="offset-controls" aria-label="Source cursor offsets">
+  <label for="tbaOffset">TBA offset<input id="tbaOffset" type="number" step="1" inputmode="numeric"></label>
+  <label for="statboticsOffset">Statbotics offset<input id="statboticsOffset" type="number" step="1" inputmode="numeric"></label>
+  <label for="scoutingOffset">Scouting offset<input id="scoutingOffset" type="number" step="1" inputmode="numeric"></label>
+</div>
 <pre id="state" aria-label="Simulator event log">Loading…</pre>
 <div class="reset-controls" aria-label="Simulator reset controls">
   <button onclick="post('reset-timeline')">Reset timeline</button>
@@ -47,6 +55,11 @@
 <script>
 const setupToggle = document.querySelector('#setupToggle');
 const setupInstructions = document.querySelector('#setupInstructions');
+const offsetInputs = {
+  tba: document.querySelector('#tbaOffset'),
+  statbotics: document.querySelector('#statboticsOffset'),
+  scouting: document.querySelector('#scoutingOffset')
+};
 setupToggle.addEventListener('click', () => {
   const willShow = setupInstructions.hidden;
   setupInstructions.hidden = !willShow;
@@ -68,13 +81,20 @@ function renderConnectionStatus(value){
 }
 function renderState(value){
   renderConnectionStatus(value);
+  for (const [source, input] of Object.entries(offsetInputs)) {
+    if (document.activeElement !== input && value?.offsets?.[source] != null) input.value = value.offsets[source];
+  }
   const scrollTop = state.scrollTop;
   state.textContent = JSON.stringify(value, null, 2);
   state.scrollTop = scrollTop;
 }
 async function refresh(){renderState(await fetch('/state').then(r=>r.json()))}
-async function post(action){
-  const response = await fetch('/control/'+action,{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+async function post(action, value = {}){
+  const response = await fetch('/control/'+action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(value)});
   renderState(await response.json());
-} refresh(); setInterval(refresh, 5000);
+}
+for (const [source, input] of Object.entries(offsetInputs)) {
+  input.addEventListener('change', () => post('set', { offsets: { [source]: Number(input.value) || 0 } }));
+}
+refresh(); setInterval(refresh, 5000);
 </script>

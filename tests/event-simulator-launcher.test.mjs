@@ -19,6 +19,11 @@ assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /2026evsim/
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="advance"/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="state" aria-label="Simulator event log"/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /class="reset-controls"/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="tbaOffset"/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="statboticsOffset"/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="scoutingOffset"/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /post\('set', \{ offsets:/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /height: 640px/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /renderState\(await response\.json\(\)\)/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /__BUILD_HASH__/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /connectionStatus/);
