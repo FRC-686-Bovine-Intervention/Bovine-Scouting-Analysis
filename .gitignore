@@ -11,3 +11,4 @@ firestore-debug.log
 firestore-debug.log
 eventSimulator/.state.json
 runtime-config.local.js
+src/deployment-revision.local.js

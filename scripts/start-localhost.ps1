@@ -9,6 +9,9 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $pidFile = Join-Path $repoRoot ".localhost-server.$Port.pid"
 $emulatorPidFile = Join-Path $repoRoot ".firebase-emulators.pid"
+$localRevisionPath = Join-Path $repoRoot "src\deployment-revision.local.js"
+$localBuildHash = (git -C $repoRoot rev-parse --short HEAD 2>$null).Trim()
+Set-Content -LiteralPath $localRevisionPath -Value "globalThis.__LOCAL_BUILD_HASH = '$localBuildHash';" -Encoding utf8
 $pythonCommand = Get-Command python -ErrorAction Stop
 $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
 if (-not $nodeCommand) {

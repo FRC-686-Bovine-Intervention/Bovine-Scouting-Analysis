@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $pidFile = Join-Path $repoRoot ".localhost-server.4173.pid"
 $emulatorPidFile = Join-Path $repoRoot ".firebase-emulators.pid"
+$localRevisionPath = Join-Path $repoRoot "src\deployment-revision.local.js"
 
 if (-not (Test-Path -LiteralPath $pidFile)) {
   Write-Output "No localhost server PID file found."
@@ -25,6 +26,7 @@ if ($process) {
 }
 
 Remove-Item -LiteralPath $pidFile -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $localRevisionPath -ErrorAction SilentlyContinue
 
 if (Test-Path -LiteralPath $emulatorPidFile) {
   $emulatorPid = Get-Content -LiteralPath $emulatorPidFile -ErrorAction SilentlyContinue | Select-Object -First 1
