@@ -12,7 +12,6 @@
   },
   "defaults": {
     "cursor": -1,
-    "increment": 1,
     "offsets": { "tba": 0, "statbotics": -2, "scouting": -1 },
     "latencyMs": { "tba": 0, "statbotics": 0, "scouting": 0 },
     "delayScale": 1,

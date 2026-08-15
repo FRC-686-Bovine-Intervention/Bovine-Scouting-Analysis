@@ -25,7 +25,7 @@ try {
   $ready = $false
   1..30 | ForEach-Object { if (-not $ready) { try { $ready = (Invoke-WebRequest "http://127.0.0.1:$SimulatorPort/state" -UseBasicParsing -TimeoutSec 1).StatusCode -eq 200 } catch {} ; if (-not $ready) { Start-Sleep -Milliseconds 200 } } }
   if (-not $ready) { throw 'eventSimulator health check failed.' }
-  $timing = @{ cursor = -1; increment = 1; delayScale = $DelayScale; offsets = @{ tba = -1; statbotics = -1; scouting = -1 }; latencyMs = @{ tba = 0; statbotics = 0; scouting = 0 } } | ConvertTo-Json -Depth 4
+  $timing = @{ cursor = -1; delayScale = $DelayScale; offsets = @{ tba = -1; statbotics = -1; scouting = -1 }; latencyMs = @{ tba = 0; statbotics = 0; scouting = 0 } } | ConvertTo-Json -Depth 4
   Invoke-RestMethod "http://127.0.0.1:$SimulatorPort/control/set" -Method Post -ContentType 'application/json' -Body $timing | Out-Null
   $server = Start-Process powershell -ArgumentList @('-NoProfile','-Command',"Set-Location '$root'; python -m http.server $AppPort") -PassThru -WindowStyle Hidden
   Write-Output "eventSimulator: http://127.0.0.1:$SimulatorPort/"

@@ -19,7 +19,10 @@ assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /start-even
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /2026evsim/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /http:\/\/127\.0\.0\.1:8787\/api\/scouting\/2026evsim/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /Leave the TBA auth key blank/);
-assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="advance"/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="advance-1"/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="advance-5"/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="advance-10"/);
+assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="currentMatch"/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="state" aria-label="Simulator event log"/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /class="reset-controls"/);
 assert.match(fs.readFileSync("eventSimulator/control.html", "utf8"), /id="tbaOffset"/);

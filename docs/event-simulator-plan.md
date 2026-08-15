@@ -23,7 +23,7 @@ The simulator exposes two pre-event phases followed by completed event-sequence 
 - `-1`: TBA team list is available; no schedule, scores, Statbotics match data, or scouting rows are exposed.
 - `0`: TBA exposes the full schedule with unplayed-match conventions (`score: -1`, empty winning alliance, null score breakdown/result timestamps). Statbotics exposes event and team-event EPA data where available, but no match/team-match rows. Scouting remains empty.
 - `1`: the first completed match becomes available.
-- `1 + increment`, then subsequent positions: the global cursor advances by the programmable update increment.
+- Subsequent positions: the global cursor advances through fixed +1, +5, and +10 match controls.
 
 The global cursor is an ordinal event sequence: qualification matches first, followed by elimination matches in TBA order. It is not the raw match number because playoff match numbers reset across sets.
 
@@ -40,7 +40,7 @@ Source responses capture their snapshot when a request begins and return it afte
 5. As a developer, I want a team-only pre-event state, so that I can test event setup before a schedule exists.
 6. As a developer, I want a scheduled-but-unplayed state, so that I can test the app when a schedule exists but results do not.
 7. As a developer, I want a dedicated first-match state, so that I can inspect the transition from schedule-only data to completed-match data.
-8. As a developer, I want to configure the update increment, so that I can trade off realism and test duration.
+8. As a developer, I want fixed +1, +5, and +10 match controls, so that I can move through the event at useful speeds without configuring simulator state.
 9. As a developer, I want each source to have an independent offset, so that TBA, Statbotics, and scouting can lag differently.
 10. As a developer, I want to change offsets during a run, so that I can reproduce unusual catch-up and partial-update situations.
 11. As a developer, I want programmable per-source response latency, so that asynchronous refresh behavior is reproducible.
@@ -85,8 +85,8 @@ Source responses capture their snapshot when a request begins and return it afte
 - TBA scheduled-but-unplayed matches use the observed `-1` alliance scores, empty winning alliance, null score breakdown, and null result timestamps.
 - Statbotics returns event/team-event EPA as available, but match/team-match collections contain only completed rows.
 - TBA, Statbotics, and scouting use independent effective cursors derived from one global ordinal event cursor plus source offsets.
-- The initial global states are `-1`, `0`, and `1`; after state `1`, each advance adds the programmable increment.
-- Source offsets, update increment, latency, delay scale, failure mode, and correction schedules are persisted automatically in an ignored local state file.
+- The initial global states are `-1`, `0`, and `1`; later controls add 1, 5, or 10 to the cursor.
+- Source offsets, latency, delay scale, failure mode, and correction schedules are persisted automatically in an ignored local state file.
 - Timeline reset preserves configuration; configuration reset restores scenario defaults; full reset does both.
 - Delayed responses return the request-start snapshot. The simulator logs recent requests in memory only.
 - The simulator supports simulator-first and fallback routing. Fallback mode attempts the real provider first and uses the simulator only after HTTP 404. Other primary-provider errors remain visible.
@@ -103,7 +103,7 @@ Source responses capture their snapshot when a request begins and return it afte
 - HTTP tests cover provider-shaped payloads, status codes, CORS, delay behavior, request-start snapshots, failure modes, control endpoints, and state/log responses.
 - Browser tests start and stop the simulator themselves, use simulator-first routing, reset state, and set all timing values explicitly.
 - One fallback-routing test runs with primary provider requests enabled and verifies simulator use only after 404.
-- End-to-end tests verify the `-1` team-only state, `0` schedule state, first result at `1`, programmable increments, independent offsets, partial source updates, no-show team behavior, source failure retention, correction application, and final event completion.
+- End-to-end tests verify the `-1` team-only state, `0` schedule state, first result at `1`, fixed match increments, current match labels, independent offsets, partial source updates, no-show team behavior, source failure retention, correction application, and final event completion.
 - Human exploratory testing focuses on trust and usability: stale indicators, partial data, correction messaging, refresh interactions, event switching, and whether users can tell what is unavailable without seeing fabricated values.
 - Tests assert externally observable behavior and use existing unit-test and Playwright conventions rather than coupling to simulator implementation details.
 

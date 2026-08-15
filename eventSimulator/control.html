@@ -13,7 +13,8 @@
   .event-header { align-items: center; display: flex; gap: 16px; justify-content: space-between; }
   .event-header h1 { margin: 16px 0; }
   .build-hash { color: GrayText; font-size: 0.8rem; margin-left: 8px; }
-  .event-header button { flex: 0 0 auto; }
+  .advance-controls { align-items: center; display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+  .current-match { font-size: 1.1rem; font-weight: 700; margin-right: 8px; white-space: nowrap; }
   #connectionStatus { border: 1px solid color-mix(in srgb, CanvasText 25%, Canvas); border-radius: 8px; margin-bottom: 12px; padding: 10px 12px; }
   #connectionStatus.connected { border-color: #16a34a; }
   #connectionStatus.waiting { border-color: #d97706; }
@@ -32,13 +33,18 @@
     <li>Open <code>http://127.0.0.1:8787/</code> for this control page and <code>http://127.0.0.1:4174/</code> for the analysis app. The launcher creates the temporary local routing configuration automatically.</li>
     <li>Click <strong>Reset timeline</strong>, then confirm the state shows <code>cursor: -1</code> and <code>phase: team-only</code>.</li>
     <li>In the analysis app, open <strong>Admin Event Control</strong>, enter <code>2026evsim</code>, set the <strong>Scouting URL</strong> to <code>http://127.0.0.1:8787/api/scouting/2026evsim</code>, and click <strong>Load</strong>. Leave the TBA auth key blank; simulator-first routing supplies TBA locally.</li>
-    <li>To prove the apps are connected, click <strong>Advance</strong> here, then click <strong>Refresh Sources</strong> in the analysis app. The simulator state cursor should advance and the analysis data should update.</li>
+    <li>To prove the apps are connected, click one of the <strong>+1</strong>, <strong>+5</strong>, or <strong>+10</strong> match buttons here, then click <strong>Refresh Sources</strong> in the analysis app. The current match and analysis data should update.</li>
   </ol>
   <p><strong>Machine check:</strong> open <code>http://127.0.0.1:8787/state</code>. It should return JSON with <code>scenario: 2026evsim</code>. Close the launcher PowerShell window when finished.</p>
 </section>
 <div class="event-header">
   <h1>2026evsim <span id="buildHash" class="build-hash">Build: __BUILD_HASH__</span></h1>
-  <button id="advance" onclick="post('advance')">Advance</button>
+  <div class="advance-controls" aria-label="Match controls">
+    <span class="current-match">Current match: <strong id="currentMatch">Loading…</strong></span>
+    <button id="advance-1" onclick="post('advance', { amount: 1 })">+1</button>
+    <button id="advance-5" onclick="post('advance', { amount: 5 })">+5</button>
+    <button id="advance-10" onclick="post('advance', { amount: 10 })">+10</button>
+  </div>
 </div>
 <div id="connectionStatus" class="waiting" role="status">Checking analysis connection…</div>
 <div class="offset-controls" aria-label="Source cursor offsets">
@@ -55,6 +61,7 @@
 <script>
 const setupToggle = document.querySelector('#setupToggle');
 const setupInstructions = document.querySelector('#setupInstructions');
+const currentMatch = document.querySelector('#currentMatch');
 const offsetInputs = {
   tba: document.querySelector('#tbaOffset'),
   statbotics: document.querySelector('#statboticsOffset'),
@@ -81,6 +88,7 @@ function renderConnectionStatus(value){
 }
 function renderState(value){
   renderConnectionStatus(value);
+  currentMatch.textContent = value?.currentMatch || 'Event complete';
   for (const [source, input] of Object.entries(offsetInputs)) {
     if (document.activeElement !== input && value?.offsets?.[source] != null) input.value = value.offsets[source];
   }

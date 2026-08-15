@@ -38,6 +38,16 @@ function matchOrder(matches) {
   });
 }
 
+function matchLabel(match) {
+  if (!match) return "Event complete";
+  const level = match.comp_level || match.compLevel;
+  const number = Number(match.match_number ?? match.matchNumber);
+  if (level === "qm") return `Qual ${number}`;
+  const name = { ef: "Eighths", qf: "Quarters", sf: "Semis", f: "Finals" }[level] || String(level || "Match");
+  const set = Number(match.set_number ?? match.setNumber);
+  return Number.isFinite(set) && set > 0 ? `${name} ${set}-${number}` : `${name} ${number}`;
+}
+
 function effectiveCursor(state, source) { return Math.max(-1, state.cursor + (state.offsets[source] || 0)); }
 
 function buildTbaProjections(matches) {
@@ -82,7 +92,6 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
   const resetAll = () => { state = clone(defaults); requests.length = 0; requestGeneration++; persist(); return getState(); };
   const setState = (updates = {}) => {
     if (updates.cursor != null) state.cursor = Math.max(-1, Number(updates.cursor));
-    if (updates.increment != null) state.increment = Math.max(1, Number(updates.increment));
     for (const source of sourceNames) {
       if (updates.offsets?.[source] != null) state.offsets[source] = Number(updates.offsets[source]);
       if (updates.latencyMs?.[source] != null) state.latencyMs[source] = Math.max(0, Number(updates.latencyMs[source]));
@@ -92,7 +101,7 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
     if (updates.corrections) state.corrections = clone(updates.corrections);
     persist(); return getState();
   };
-  const advance = (amount = state.increment) => { state.cursor += Math.max(1, Number(amount)); persist(); return getState(); };
+  const advance = (amount = 1) => { state.cursor += Math.max(1, Number(amount)); persist(); return getState(); };
 
   function payload(source) {
     const cursor = effectiveCursor(state, source);
@@ -157,6 +166,6 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
       requests.splice(50);
     }
   };
-  const getState = () => ({ scenario: scenario.id, cursor: state.cursor, phase: state.cursor < 0 ? "team-only" : state.cursor === 0 ? "scheduled" : "results", increment: state.increment, offsets: clone(state.offsets), latencyMs: clone(state.latencyMs), delayScale: state.delayScale, failures: clone(state.failures), corrections: clone(state.corrections), totalSequence: ordered.length, requests: requests.map(({ signature, dataSignature, ...request }) => request) });
+  const getState = () => ({ scenario: scenario.id, cursor: state.cursor, currentMatch: matchLabel(ordered[state.cursor < 0 ? 0 : state.cursor]), phase: state.cursor < 0 ? "team-only" : state.cursor === 0 ? "scheduled" : "results", offsets: clone(state.offsets), latencyMs: clone(state.latencyMs), delayScale: state.delayScale, failures: clone(state.failures), corrections: clone(state.corrections), totalSequence: ordered.length, requests: requests.map(({ signature, dataSignature, ...request }) => request) });
   return { scenario, fixtures, defaults, getState, setState, advance, resetTimeline, resetConfig, resetAll, get, effectiveCursor: (source) => effectiveCursor(state, source), requestGeneration: () => requestGeneration, recordRequest, responseDelay: (source) => (state.latencyMs[source] || 0) * state.delayScale };
 }
