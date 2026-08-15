@@ -1276,16 +1276,22 @@ select {
 }
 
 .matchup-alliance-card.red .matchup-team-tone-dark,
+.matchup-alliance-card.red .matchup-team-rank-1,
 .matchup-bar-segment.red.matchup-team-tone-dark { background: #991b1b; color: #fff; }
 .matchup-alliance-card.red .matchup-team-tone-medium,
+.matchup-alliance-card.red .matchup-team-rank-2,
 .matchup-bar-segment.red.matchup-team-tone-medium { background: #dc6b6b; color: #fff; }
 .matchup-alliance-card.red .matchup-team-tone-light,
+.matchup-alliance-card.red .matchup-team-rank-3,
 .matchup-bar-segment.red.matchup-team-tone-light { background: #fecaca; color: #7f1d1d; }
 .matchup-alliance-card.blue .matchup-team-tone-dark,
+.matchup-alliance-card.blue .matchup-team-rank-1,
 .matchup-bar-segment.blue.matchup-team-tone-dark { background: #1e3a8a; color: #fff; }
 .matchup-alliance-card.blue .matchup-team-tone-medium,
+.matchup-alliance-card.blue .matchup-team-rank-2,
 .matchup-bar-segment.blue.matchup-team-tone-medium { background: #5f86d8; color: #fff; }
 .matchup-alliance-card.blue .matchup-team-tone-light,
+.matchup-alliance-card.blue .matchup-team-rank-3,
 .matchup-bar-segment.blue.matchup-team-tone-light { background: #bfdbfe; color: #1e3a8a; }
 
 .matchup-actual-bar {
