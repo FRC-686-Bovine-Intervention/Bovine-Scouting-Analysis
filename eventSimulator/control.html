@@ -62,7 +62,7 @@ function renderConnectionStatus(value){
     return;
   }
   const ageSeconds = Math.max(0, Math.round((Date.now() - Date.parse(latest.at)) / 1000));
-  const isConnected = ageSeconds <= 15;
+  const isConnected = ageSeconds <= 45;
   connectionStatus.className = isConnected ? 'connected' : 'waiting';
   connectionStatus.textContent = `${isConnected ? 'Connected' : 'No recent traffic'} — last ${latest.source}/${latest.kind} request at cursor ${latest.cursor}, ${ageSeconds}s ago (checks every 5 seconds)`;
 }
