@@ -11,6 +11,9 @@ assert.match(fs.readFileSync("scripts/start-localhost.ps1", "utf8"), /firebase\.
 assert.match(fs.readFileSync("scripts/start-localhost.ps1", "utf8"), /-lt 60/);
 assert.match(fs.readFileSync("scripts/start-localhost.ps1", "utf8"), /ProcessName -in/);
 assert.match(fs.readFileSync("scripts/stop-localhost.ps1", "utf8"), /ProcessName -in/);
+assert.match(fs.readFileSync("scripts/start-localhost.ps1", "utf8"), /local-web-server\.mjs/);
+assert.match(fs.readFileSync("scripts/start-event-simulator.ps1", "utf8"), /local-web-server\.mjs/);
+assert.match(fs.readFileSync("scripts/local-web-server.mjs", "utf8"), /__DEPLOYMENT_REVISION__/);
 assert.match(fs.readFileSync("index.html", "utf8"), /styles\.css\?revision=__DEPLOYMENT_REVISION__-event-simulator-runtime-11/);
 assert.match(fs.readFileSync("index.html", "utf8"), /app\.js\?revision=__DEPLOYMENT_REVISION__-event-simulator-runtime-11/);
 assert.match(fs.readFileSync("index.html", "utf8"), /deployment-revision\.local\.js\?revision=event-simulator-runtime-10/);

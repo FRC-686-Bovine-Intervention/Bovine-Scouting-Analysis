@@ -12,7 +12,6 @@ $emulatorPidFile = Join-Path $repoRoot ".firebase-emulators.pid"
 $localRevisionPath = Join-Path $repoRoot "src\deployment-revision.local.js"
 $localBuildHash = (git -C $repoRoot rev-parse --short HEAD 2>$null).Trim()
 Set-Content -LiteralPath $localRevisionPath -Value "globalThis.__LOCAL_BUILD_HASH = '$localBuildHash';" -Encoding utf8
-$pythonCommand = Get-Command python -ErrorAction Stop
 $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
 if (-not $nodeCommand) {
   $installedNode = Join-Path ${env:ProgramFiles} "nodejs\node.exe"
@@ -63,8 +62,8 @@ if (Test-Path -LiteralPath $pidFile) {
 
 if (-not $serverProcess) {
   $serverProcess = Start-Process `
-    -FilePath $pythonCommand.Source `
-    -ArgumentList "-m", "http.server", "$Port", "--bind", $HostAddress `
+    -FilePath $nodeCommand.Source `
+    -ArgumentList (Join-Path $repoRoot "scripts\local-web-server.mjs"), $repoRoot, "$Port", $HostAddress, $localBuildHash `
     -WorkingDirectory $repoRoot `
     -WindowStyle Hidden `
     -PassThru
