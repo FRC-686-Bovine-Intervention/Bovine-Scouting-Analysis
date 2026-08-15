@@ -9,6 +9,8 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "event-simulator-"));
 const engine = createEngine({ root, statePath: path.join(temp, "state.json") });
 
 assert.equal(engine.getState().phase, "team-only");
+assert.deepEqual(engine.getState().offsets, { tba: -1, statbotics: -1, scouting: -1 });
+engine.setState({ offsets: { tba: 0, statbotics: 0, scouting: 0 } });
 assert.equal(engine.get("tba", "teams").some((team) => team.team_number === 4638), true);
 assert.equal(engine.get("tba", "matches").length, 0);
 engine.advance();
