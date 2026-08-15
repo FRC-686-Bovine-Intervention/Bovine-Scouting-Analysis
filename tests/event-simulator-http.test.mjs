@@ -39,6 +39,7 @@ assert.equal((await get("/api/statbotics/v3/matches/2026evsim")).length, 1);
 assert.equal((await get("/api/statbotics/v3/team_matches/2026evsim")).length, 6);
 assert.equal((await get("/api/scouting/2026evsim")).meta.eventKey, "2026evsim");
 assert.equal((await get("/api/scouting/2026evsim")).schema.schemaId, "2026-match-v1");
+assert.equal((await get("/api/scouting/2026evsim/schema")).schemaId, "2026-match-v1");
 const offsetState = await post("/control/set", { cursor: 1, offsets: { scouting: 2 } });
 assert.equal(offsetState.offsets.scouting, 2);
 assert.equal((await get("/api/scouting/2026evsim")).entries.length > 0, true);

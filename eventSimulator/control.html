@@ -32,7 +32,7 @@
     <li>Start both local services with <code>powershell -ExecutionPolicy Bypass -File .\scripts\start-event-simulator.ps1</code>. Keep that PowerShell window open while testing.</li>
     <li>Open <code>http://127.0.0.1:8787/</code> for this control page and <code>http://127.0.0.1:4174/</code> for the analysis app. The launcher creates the temporary local routing configuration automatically.</li>
     <li>Click <strong>Reset timeline</strong>, then confirm the state shows <code>cursor: -1</code> and <code>phase: team-only</code>.</li>
-    <li>In the analysis app, open <strong>Admin Event Control</strong>, enter <code>2026evsim</code>, set the <strong>Scouting URL</strong> to <code>http://127.0.0.1:8787/api/scouting/2026evsim</code>, and click <strong>Load</strong>. Leave the TBA auth key blank; simulator-first routing supplies TBA locally.</li>
+    <li>In the analysis app, open <strong>Admin Event Control</strong>, enter <code>2026evsim</code>, set the <strong>Scouting URL</strong> to <code>http://127.0.0.1:8787/api/scouting/2026evsim</code>, set the <strong>Scouting Profile</strong> URL/path to <code>http://127.0.0.1:8787/api/scouting/2026evsim/schema</code>, and click <strong>Load</strong>. Leave the TBA auth key blank; simulator-first routing supplies TBA locally.</li>
     <li>To prove the apps are connected, click one of the <strong>+1</strong>, <strong>+5</strong>, or <strong>+10</strong> match buttons here, then click <strong>Refresh Sources</strong> in the analysis app. The current match and analysis data should update.</li>
   </ol>
   <p><strong>Machine check:</strong> open <code>http://127.0.0.1:8787/state</code>. It should return JSON with <code>scenario: 2026evsim</code>. Close the launcher PowerShell window when finished.</p>

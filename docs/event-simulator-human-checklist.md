@@ -6,7 +6,7 @@
 2. Run `powershell -ExecutionPolicy Bypass -File .\scripts\start-event-simulator.ps1` and leave that window open.
 3. Open `http://127.0.0.1:8787/` for simulator controls and `http://127.0.0.1:4174/` for the analysis app.
 4. On the simulator page, click **Reset timeline** and confirm `cursor: -1` / `phase: team-only`.
-5. In the analysis app, open **Admin Event Control**, enter `2026evsim`, and click **Load**. The TBA source should be **Ready**.
+5. In the analysis app, open **Admin Event Control**, enter `2026evsim`, set Scouting Data to `http://127.0.0.1:8787/api/scouting/2026evsim`, set Scouting Profile to `http://127.0.0.1:8787/api/scouting/2026evsim/schema`, and click **Load**. The TBA and scouting sources should be **Ready**.
 6. Click **+1**, **+5**, or **+10** in the simulator and **Refresh Sources** in the analysis app. Confirm the current match label and analysis source timestamps update.
 
 The simulator page has the same steps behind its **Show setup instructions** button. The machine-readable check is `http://127.0.0.1:8787/state`.
