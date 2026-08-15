@@ -67,5 +67,6 @@ engine.recordRequest({ source: "tba", kind: "teams", cursor: -1, at: "2026-08-14
 assert.equal(engine.getState().requests.length, 2);
 assert.equal(engine.getState().requests[0].repeatCount, 1);
 assert.equal("signature" in engine.getState().requests[0], false);
+assert.equal("dataSignature" in engine.getState().requests[0], false);
 assert.equal(rewriteEventKeys({ key: "2026chcmp_qm1", url: "x/2026chcmp" }, "2026chcmp", "2026evsim").key, "2026evsim_qm1");
 console.log("PASS event simulator engine");

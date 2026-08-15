@@ -45,6 +45,7 @@ const coalesced = await get("/state");
 assert.equal(coalesced.requests.length, 1);
 assert.equal(coalesced.requests[0].repeatCount, 2);
 assert.equal("signature" in coalesced.requests[0], false);
+assert.equal("dataSignature" in coalesced.requests[0], false);
 const cors = await fetch(url("/state"));
 assert.equal(cors.headers.get("access-control-allow-origin"), "*");
 await new Promise((resolve) => server.close(resolve));

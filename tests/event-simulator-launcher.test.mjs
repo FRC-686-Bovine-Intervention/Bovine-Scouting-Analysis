@@ -4,6 +4,8 @@ assert.equal(fs.existsSync("scripts/start-event-simulator.ps1"), true);
 assert.match(fs.readFileSync("scripts/start-event-simulator.ps1", "utf8"), /RoutingMode/);
 assert.match(fs.readFileSync("scripts/start-event-simulator.ps1", "utf8"), /__LOCAL_BUILD_HASH/);
 assert.match(fs.readFileSync("scripts/start-event-simulator.ps1", "utf8"), /health check/);
+assert.match(fs.readFileSync("scripts/start-event-simulator.ps1", "utf8"), /Get-NetTCPConnection -LocalPort \$SimulatorPort/);
+assert.match(fs.readFileSync("scripts/start-event-simulator.ps1", "utf8"), /Stop-Process -Id \$existingPid/);
 assert.match(fs.readFileSync("scripts/start-localhost.ps1", "utf8"), /firebase\.cmd/);
 assert.match(fs.readFileSync("scripts/start-localhost.ps1", "utf8"), /-lt 60/);
 assert.match(fs.readFileSync("scripts/start-localhost.ps1", "utf8"), /ProcessName -in/);

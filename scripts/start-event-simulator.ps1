@@ -10,6 +10,12 @@ $root = Split-Path -Parent $PSScriptRoot
 $localBuildHash = (git -C $root rev-parse --short HEAD 2>$null).Trim()
 $statePath = Join-Path ([System.IO.Path]::GetTempPath()) ("event-simulator-" + [guid]::NewGuid().ToString('N') + '.json')
 $previousStatePath = $env:EVENT_SIMULATOR_STATE
+$existingListeners = @(Get-NetTCPConnection -LocalPort $SimulatorPort -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique)
+foreach ($existingPid in $existingListeners) {
+  $existingProcess = Get-Process -Id $existingPid -ErrorAction SilentlyContinue
+  if ($existingProcess -and $existingProcess.ProcessName -eq 'node') { Stop-Process -Id $existingPid -Force -ErrorAction SilentlyContinue }
+}
+$existingListeners | ForEach-Object { Start-Sleep -Milliseconds 200 }
 $env:EVENT_SIMULATOR_STATE = $statePath
 $sim = Start-Process node -ArgumentList @('eventSimulator/server.mjs', $SimulatorPort) -WorkingDirectory $root -PassThru -WindowStyle Hidden
 $configPath = Join-Path $root 'runtime-config.local.js'
