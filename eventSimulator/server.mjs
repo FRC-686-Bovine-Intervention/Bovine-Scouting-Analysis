@@ -13,7 +13,17 @@ const body = async (req) => { let text = ""; for await (const chunk of req) text
 function buildHash() {
   try {
     const match = fs.readFileSync(revisionPath, "utf8").match(/__DEPLOYMENT_REVISION\s*=\s*["']([^"']+)["']/);
-    return match?.[1] || "unknown";
+    const revision = match?.[1] || "unknown";
+    if (revision !== "local checkout") return revision;
+    try {
+      const gitPath = path.resolve(here, "../.git");
+      const gitDir = fs.statSync(gitPath).isFile()
+        ? path.resolve(path.dirname(gitPath), fs.readFileSync(gitPath, "utf8").trim().replace(/^gitdir:\s*/, ""))
+        : gitPath;
+      const head = fs.readFileSync(path.join(gitDir, "HEAD"), "utf8").trim();
+      const commit = head.startsWith("ref:") ? fs.readFileSync(path.join(gitDir, head.slice(5).trim()), "utf8").trim() : head;
+      return commit ? `${revision} / ${commit.slice(0, 7)}` : revision;
+    } catch { return revision; }
   } catch { return "unknown"; }
 }
 function controlPage() { return fs.readFileSync(controlPagePath, "utf8").replaceAll("__BUILD_HASH__", buildHash()); }

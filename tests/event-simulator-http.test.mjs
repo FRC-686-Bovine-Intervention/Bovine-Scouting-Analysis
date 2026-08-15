@@ -17,6 +17,7 @@ const post = async (path, value = {}) => (await fetch(url(path), { method: "POST
 const controlHtml = await (await fetch(url("/"))).text();
 assert.match(controlHtml, /id="buildHash"/);
 assert.doesNotMatch(controlHtml, /__BUILD_HASH__/);
+assert.match(controlHtml, /Build: local checkout \/ [0-9a-f]{7,40}/);
 
 assert.equal((await get("/state")).cursor, -1);
 assert.equal((await get("/api/tba/event/2026evsim/teams")).length, 55);
