@@ -25,6 +25,10 @@ This repo is configured as a single-context repo. See `docs/agents/domain.md`.
 - For in-app browser checks, use the shared checkout's localhost server (or start a local HTTP server) and navigate to its `http://localhost` URL. Run the repository's Playwright scripts only in an environment where the `playwright` package is available to the project runtime.
 - For authenticated local browser checks without production authentication, follow [`docs/authenticated-local-browser-test-harness.md`](docs/authenticated-local-browser-test-harness.md) and run `node .browser-test/authenticated-local-harness.mjs` after starting the local stack.
 
+### Local simulator and emulator lifecycle
+
+- When working with the Event Simulator and Firebase local emulators, restart the local emulator stack after every commit so the running process uses the committed code. Refresh the local build revision and verify emulator readiness before handing work back.
+
 ### Deployment guidance
 
 - Before deploying Firebase Hosting or directing someone to a development or production deployment, read `docs/development-and-deployment-workflow.md`.
