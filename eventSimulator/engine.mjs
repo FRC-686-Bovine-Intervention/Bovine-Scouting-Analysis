@@ -75,10 +75,11 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
   };
   let state = loadState();
   const requests = [];
+  let requestGeneration = 0;
   const persist = () => { fs.mkdirSync(path.dirname(statePath), { recursive: true }); fs.writeFileSync(statePath, JSON.stringify(state, null, 2)); };
   const resetTimeline = () => { state.cursor = defaults.cursor; persist(); return getState(); };
   const resetConfig = () => { state = { ...clone(defaults), cursor: state.cursor }; persist(); return getState(); };
-  const resetAll = () => { state = clone(defaults); requests.length = 0; persist(); return getState(); };
+  const resetAll = () => { state = clone(defaults); requests.length = 0; requestGeneration++; persist(); return getState(); };
   const setState = (updates = {}) => {
     if (updates.cursor != null) state.cursor = Math.max(-1, Number(updates.cursor));
     if (updates.increment != null) state.increment = Math.max(1, Number(updates.increment));
@@ -142,5 +143,5 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
     if (source === "statbotics") return kind === "event" ? data.event : kind === "team-events" ? data.teamEvents : kind === "team-matches" ? data.teamMatches : data.matches;
     return data;
   }
-  return { scenario, fixtures, defaults, getState, setState, advance, resetTimeline, resetConfig, resetAll, get, effectiveCursor: (source) => effectiveCursor(state, source), recordRequest: (request) => { requests.unshift(request); requests.splice(50); }, responseDelay: (source) => (state.latencyMs[source] || 0) * state.delayScale };
+  return { scenario, fixtures, defaults, getState, setState, advance, resetTimeline, resetConfig, resetAll, get, effectiveCursor: (source) => effectiveCursor(state, source), requestGeneration: () => requestGeneration, recordRequest: (request, generation = requestGeneration) => { if (generation !== requestGeneration) return; requests.unshift(request); requests.splice(50); }, responseDelay: (source) => (state.latencyMs[source] || 0) * state.delayScale };
 }
