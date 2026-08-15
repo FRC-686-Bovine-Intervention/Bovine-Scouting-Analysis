@@ -13,6 +13,7 @@ assert.match(fs.readFileSync("scripts/start-localhost.ps1", "utf8"), /ProcessNam
 assert.match(fs.readFileSync("scripts/stop-localhost.ps1", "utf8"), /ProcessName -in/);
 assert.match(fs.readFileSync("scripts/start-localhost.ps1", "utf8"), /local-web-server\.mjs/);
 assert.match(fs.readFileSync("scripts/start-event-simulator.ps1", "utf8"), /local-web-server\.mjs/);
+assert.match(fs.readFileSync("scripts/start-event-simulator.ps1", "utf8"), /offsets = @\{ tba = 0; statbotics = -2; scouting = -1 \}/);
 assert.match(fs.readFileSync("scripts/local-web-server.mjs", "utf8"), /__DEPLOYMENT_REVISION__/);
 assert.match(fs.readFileSync("scripts/local-web-server.mjs", "utf8"), /"\.mjs": "text\/javascript/);
 assert.match(fs.readFileSync("src/app.js", "utf8"), /simulator-startup-refresh/);
