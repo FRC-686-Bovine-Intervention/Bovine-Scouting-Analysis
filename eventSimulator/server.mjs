@@ -6,8 +6,17 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const engine = createEngine({ root: path.resolve(here, ".."), statePath: process.env.EVENT_SIMULATOR_STATE || path.join(here, ".state.json") });
+const controlPagePath = path.join(here, "control.html");
+const revisionPath = path.resolve(here, "../src/deployment-revision.js");
 const json = (res, status, value) => { res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*" }); res.end(JSON.stringify(value)); };
 const body = async (req) => { let text = ""; for await (const chunk of req) text += chunk; return text ? JSON.parse(text) : {}; };
+function buildHash() {
+  try {
+    const match = fs.readFileSync(revisionPath, "utf8").match(/__DEPLOYMENT_REVISION\s*=\s*["']([^"']+)["']/);
+    return match?.[1] || "unknown";
+  } catch { return "unknown"; }
+}
+function controlPage() { return fs.readFileSync(controlPagePath, "utf8").replaceAll("__BUILD_HASH__", buildHash()); }
 
 function route(pathname) {
   const parts = pathname.split("/").filter(Boolean);
@@ -42,7 +51,7 @@ export function createServer({ simulator = engine } = {}) { return http.createSe
       simulator.recordRequest({ source, kind, cursor: simulator.effectiveCursor(source), at: new Date().toISOString() }, generation);
       const delay = simulator.responseDelay(source); return setTimeout(() => json(res, 200, snapshot), delay);
     }
-    if (url.pathname === "/" || url.pathname === "/control.html") { res.writeHead(200, { "content-type": "text/html" }); return res.end(fs.readFileSync(path.join(here, "control.html"))); }
+    if (url.pathname === "/" || url.pathname === "/control.html") { res.writeHead(200, { "content-type": "text/html" }); return res.end(controlPage()); }
     json(res, 404, { error: "not found" });
   } catch (error) { json(res, error.statusCode || 500, { error: error.message }); }
 }); }

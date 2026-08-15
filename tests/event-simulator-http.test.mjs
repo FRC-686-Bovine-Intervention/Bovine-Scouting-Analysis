@@ -14,6 +14,10 @@ const url = (path) => `http://127.0.0.1:${port}${path}`;
 const get = async (path) => (await fetch(url(path))).json();
 const post = async (path, value = {}) => (await fetch(url(path), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) })).json();
 
+const controlHtml = await (await fetch(url("/"))).text();
+assert.match(controlHtml, /id="buildHash"/);
+assert.doesNotMatch(controlHtml, /__BUILD_HASH__/);
+
 assert.equal((await get("/state")).cursor, -1);
 assert.equal((await get("/api/tba/event/2026evsim/teams")).length, 55);
 assert.equal((await get("/api/tba/event/2026evsim/matches")).length, 0);

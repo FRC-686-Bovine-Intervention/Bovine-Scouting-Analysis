@@ -12,6 +12,7 @@
   code { white-space: pre-wrap; }
   .event-header { align-items: center; display: flex; gap: 16px; justify-content: space-between; }
   .event-header h1 { margin: 16px 0; }
+  .build-hash { color: GrayText; font-size: 0.8rem; margin-left: 8px; }
   .event-header button { flex: 0 0 auto; }
   #state { height: 320px; margin: 0; overflow: auto; padding: 16px; border-radius: 8px; background: color-mix(in srgb, CanvasText 8%, Canvas); }
   .reset-controls { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
@@ -30,7 +31,7 @@
   <p><strong>Machine check:</strong> open <code>http://127.0.0.1:8787/state</code>. It should return JSON with <code>scenario: 2026evsim</code>. Close the launcher PowerShell window when finished.</p>
 </section>
 <div class="event-header">
-  <h1>2026evsim</h1>
+  <h1>2026evsim <span id="buildHash" class="build-hash">Build: __BUILD_HASH__</span></h1>
   <button id="advance" onclick="post('advance')">Advance</button>
 </div>
 <pre id="state" aria-label="Simulator event log">Loading…</pre>
