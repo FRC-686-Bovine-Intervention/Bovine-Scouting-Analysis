@@ -166,6 +166,6 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
       requests.splice(50);
     }
   };
-  const getState = () => ({ scenario: scenario.id, cursor: state.cursor, currentMatch: matchLabel(ordered[state.cursor < 0 ? 0 : state.cursor]), phase: state.cursor < 0 ? "team-only" : state.cursor === 0 ? "scheduled" : "results", offsets: clone(state.offsets), latencyMs: clone(state.latencyMs), delayScale: state.delayScale, failures: clone(state.failures), corrections: clone(state.corrections), totalSequence: ordered.length, requests: requests.map(({ signature, dataSignature, ...request }) => request) });
+  const getState = () => ({ scenario: scenario.id, cursor: state.cursor, currentMatch: state.cursor < 0 ? "Pre-Event" : state.cursor === 0 ? "Schedule Released" : matchLabel(ordered[state.cursor - 1]), phase: state.cursor < 0 ? "team-only" : state.cursor === 0 ? "scheduled" : "results", offsets: clone(state.offsets), latencyMs: clone(state.latencyMs), delayScale: state.delayScale, failures: clone(state.failures), corrections: clone(state.corrections), totalSequence: ordered.length, requests: requests.map(({ signature, dataSignature, ...request }) => request) });
   return { scenario, fixtures, defaults, getState, setState, advance, resetTimeline, resetConfig, resetAll, get, effectiveCursor: (source) => effectiveCursor(state, source), requestGeneration: () => requestGeneration, recordRequest, responseDelay: (source) => (state.latencyMs[source] || 0) * state.delayScale };
 }
