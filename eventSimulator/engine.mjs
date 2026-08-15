@@ -103,7 +103,10 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
       const teams = rewriteEventKeys(fixtures.tbaTeams, scenario.sourceEventKey, scenario.id);
       if (cursor < 0) return { event, teams, matches: [], rankings: [], stats: { oprs: {}, dprs: {}, ccwms: {} } };
       const visible = new Set(ordered.slice(0, Math.max(0, cursor)));
-      const matches = fixtures.tbaMatches.map((match) => visible.has(match) ? match : unplayed(match));
+      const schedule = cursor <= qualification.length
+        ? fixtures.tbaMatches.filter((match) => match.comp_level === "qm")
+        : fixtures.tbaMatches;
+      const matches = schedule.map((match) => visible.has(match) ? match : unplayed(match));
       const result = { event, teams, matches: rewriteEventKeys(matches, scenario.sourceEventKey, scenario.id) };
       const projections = buildTbaProjections(ordered.slice(0, Math.max(0, cursor)));
       result.rankings = rewriteEventKeys(projections.rankings, scenario.sourceEventKey, scenario.id);

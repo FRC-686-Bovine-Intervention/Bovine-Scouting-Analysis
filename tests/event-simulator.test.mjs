@@ -44,6 +44,11 @@ assert.equal(engine.get("tba", "oprs").oprs[first[0].alliances.red.team_keys[0]]
 engine.setState({ cursor: engine.getState().totalSequence });
 assert.equal(engine.get("tba", "oprs").oprs["frc4638"], undefined);
 assert.equal(engine.get("tba", "rankings").rankings.some((row) => row.team_key === "frc4638"), false);
+const qualificationCount = engine.fixtures.tbaMatches.filter((match) => match.comp_level === "qm").length;
+engine.setState({ cursor: qualificationCount });
+assert.equal(engine.get("tba", "matches").some((match) => match.comp_level !== "qm"), false);
+engine.setState({ cursor: qualificationCount + 1 });
+assert.equal(engine.get("tba", "matches").some((match) => match.comp_level !== "qm"), true);
 engine.setState({ cursor: -1, increment: 3, offsets: { tba: 2, statbotics: -1, scouting: 1 }, latencyMs: { tba: 12 }, delayScale: 0.5, corrections: [{ source: "tba", cursor: 1, path: "event.name", value: "Corrected" }] });
 assert.equal(engine.effectiveCursor("tba"), 1);
 assert.equal(engine.effectiveCursor("statbotics"), -1);
