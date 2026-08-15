@@ -33,6 +33,8 @@ assert.equal(engine.get("scouting", "scouting").entries.length, 0);
 engine.setState({ cursor: 1, offsets: { scouting: 0 } });
 const scouting = engine.get("scouting", "scouting");
 assert.equal(scouting.meta.eventKey, "2026evsim");
+assert.equal(scouting.schema.schemaId, "2026-match-v1");
+assert.ok(scouting.schema.expectedScoutingFields.includes("autoFuelPct"));
 assert.ok(scouting.entries.every((entry) => Number(entry.matchNumber) === Number(scouting.entries[0]?.matchNumber)));
 assert.equal(scouting.entries.some((entry) => entry.teamNumber === 4638), false);
 engine.setState({ failures: { scouting: "empty" } });

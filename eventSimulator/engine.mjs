@@ -135,7 +135,14 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
       const ordinal = qualification.findIndex((item) => item.match_number === match) + 1;
       return ordinal > 0 && ordinal <= cursor;
     });
-    return applyCorrections(source, rewriteEventKeys({ ...fixtures.scouting, meta: { ...fixtures.scouting.meta, eventKey: scenario.id }, entries: visible }, scenario.sourceEventKey, scenario.id), cursor);
+    const schema = fixtures.scoutingSchema?.schema;
+    const result = {
+      ...fixtures.scouting,
+      ...(schema ? { schema } : {}),
+      meta: { ...fixtures.scouting.meta, eventKey: scenario.id },
+      entries: visible,
+    };
+    return applyCorrections(source, rewriteEventKeys(result, scenario.sourceEventKey, scenario.id), cursor);
   }
   function applyCorrections(source, value, cursor) {
     for (const correction of state.corrections || []) {
