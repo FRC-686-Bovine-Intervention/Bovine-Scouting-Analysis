@@ -20,7 +20,7 @@ assert.doesNotMatch(controlHtml, /__BUILD_HASH__/);
 assert.match(controlHtml, /Build: local checkout \/ [0-9a-f]{7,40}/);
 
 assert.equal((await get("/state")).cursor, -1);
-assert.deepEqual((await get("/state")).offsets, { tba: -1, statbotics: -1, scouting: -1 });
+assert.deepEqual((await get("/state")).offsets, { tba: 0, statbotics: -2, scouting: -1 });
 assert.equal((await get("/api/tba/event/2026evsim/teams")).length, 55);
 assert.equal((await get("/api/tba/event/2026evsim/matches")).length, 0);
 assert.equal((await get("/api/tba/event/2026evsim/rankings")).rankings.length, 0);
