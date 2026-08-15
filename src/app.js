@@ -4814,6 +4814,7 @@ async function openSharedCachedEvent(eventKey, options = {}) {
 }
 
 async function restoreSharedCachedActiveEvent() {
+  if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first") return false;
   const eventKey = normalizeText(state.pendingSharedActiveEventKey || state.activeEventKey);
   state.pendingSharedActiveEventKey = "";
   if (!eventKey || globalEventCatalog.some((eventModel) => eventModel?.key === eventKey) || !sharedCachedEventByKey(eventKey)) return false;
@@ -4821,6 +4822,7 @@ async function restoreSharedCachedActiveEvent() {
 }
 
 function persistSharedActiveEvent(eventKey) {
+  if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first") return;
   const api = globalThis.firebaseEventStateApi;
   if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin" || !eventKey) return;
   const saveSequence = ++sharedActiveEventSaveSequence;
@@ -4836,6 +4838,7 @@ function persistSharedActiveEvent(eventKey) {
 }
 
 function startSharedActiveEventSync() {
+  if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first") return;
   const api = globalThis.firebaseEventStateApi;
   if (!api || !globalThis.firebaseCurrentUser) return;
   stopSharedActiveEventSync?.();
