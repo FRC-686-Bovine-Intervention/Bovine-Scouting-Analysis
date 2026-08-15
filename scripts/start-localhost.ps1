@@ -20,7 +20,8 @@ if (-not $nodeCommand) {
     throw "Node.js is required to seed the Firebase emulators. Install Node.js or add node.exe to PATH before running this script."
   }
 }
-$firebaseCommand = Get-Command firebase -ErrorAction SilentlyContinue
+$firebaseCommand = Get-Command (Join-Path ${env:APPDATA} "npm\firebase.cmd") -ErrorAction SilentlyContinue
+if (-not $firebaseCommand) { $firebaseCommand = Get-Command firebase.cmd -ErrorAction SilentlyContinue }
 if (-not $firebaseCommand) {
   $installedFirebase = Join-Path ${env:APPDATA} "npm\firebase.cmd"
   if (Test-Path -LiteralPath $installedFirebase) {
@@ -35,10 +36,14 @@ if (-not $javaCommand) {
   if ($bundledJava) {
     $env:JAVA_HOME = Split-Path -Parent (Split-Path -Parent $bundledJava.FullName)
     $env:Path = "$(Split-Path -Parent $bundledJava.FullName);$env:Path"
+    $javaCommand = Get-Command $bundledJava.FullName
   } else {
     throw "Java is required for the Firebase Auth and Firestore emulators. Install a JDK or set JAVA_HOME before running this script."
   }
 }
+$javaBin = Split-Path -Parent $javaCommand.Source
+$env:JAVA_HOME = Split-Path -Parent $javaBin
+$env:Path = "$javaBin;$env:Path"
 
 $serverProcess = $null
 if (Test-Path -LiteralPath $pidFile) {
@@ -67,7 +72,10 @@ if (-not $serverProcess) {
 $emulatorProcess = $null
 if (Test-Path -LiteralPath $emulatorPidFile) {
   $existingEmulatorPid = Get-Content -LiteralPath $emulatorPidFile -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($existingEmulatorPid) { $emulatorProcess = Get-Process -Id ([int]$existingEmulatorPid) -ErrorAction SilentlyContinue }
+  if ($existingEmulatorPid) {
+    $candidate = Get-Process -Id ([int]$existingEmulatorPid) -ErrorAction SilentlyContinue
+    if ($candidate -and $candidate.ProcessName -in @("node", "firebase", "powershell", "pwsh")) { $emulatorProcess = $candidate }
+  }
   if (-not $emulatorProcess) { Remove-Item -LiteralPath $emulatorPidFile -ErrorAction SilentlyContinue }
 }
 
@@ -75,7 +83,7 @@ if (-not $emulatorProcess) {
   $emulatorProcess = Start-Process -FilePath $firebaseCommand.Source -ArgumentList "emulators:start", "--only", "auth,firestore", "--project", "bovine-scouting-analysis" -WorkingDirectory $repoRoot -WindowStyle Hidden -PassThru
   Set-Content -LiteralPath $emulatorPidFile -Value $emulatorProcess.Id
   $seeded = $false
-  for ($attempt = 0; $attempt -lt 20 -and -not $seeded; $attempt++) {
+  for ($attempt = 0; $attempt -lt 60 -and -not $seeded; $attempt++) {
     Start-Sleep -Milliseconds 500
     $seedOutput = & $nodeCommand.Source (Join-Path $repoRoot "scripts\seed-firebase-emulators.mjs") 2>&1
     $seeded = ($LASTEXITCODE -eq 0)

@@ -28,6 +28,9 @@ Remove-Item -LiteralPath $pidFile -ErrorAction SilentlyContinue
 
 if (Test-Path -LiteralPath $emulatorPidFile) {
   $emulatorPid = Get-Content -LiteralPath $emulatorPidFile -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($emulatorPid -and (Get-Process -Id ([int]$emulatorPid) -ErrorAction SilentlyContinue)) { Stop-Process -Id ([int]$emulatorPid) }
+  if ($emulatorPid) {
+    $candidate = Get-Process -Id ([int]$emulatorPid) -ErrorAction SilentlyContinue
+    if ($candidate -and $candidate.ProcessName -in @("node", "firebase", "powershell", "pwsh")) { Stop-Process -Id ([int]$emulatorPid) }
+  }
   Remove-Item -LiteralPath $emulatorPidFile -ErrorAction SilentlyContinue
 }
