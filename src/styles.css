@@ -350,6 +350,26 @@ select {
   color: var(--accent-strong);
 }
 
+.nav-button.has-quality-alert {
+  color: #9b2c2c;
+  border-color: #d9a441;
+  background: #fff7d6;
+}
+
+.nav-quality-alert {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: #b42318;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .admin-quality-banner {
   display: flex;
   flex-wrap: wrap;

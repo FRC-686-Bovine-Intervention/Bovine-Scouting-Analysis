@@ -39,7 +39,11 @@ function compareScoutingFieldDefinitions(previousFields = [], currentFields = []
 
   const added = current.filter((fieldDefinition) => !previousById.has(fieldDefinition.id));
   const removed = previous.filter((fieldDefinition) => !currentById.has(fieldDefinition.id));
-  return { added, removed, typeChanged: [] };
+  const typeChanged = current.filter((fieldDefinition) => {
+    const previousField = previousById.get(fieldDefinition.id);
+    return previousField && previousField.type && fieldDefinition.type && previousField.type !== fieldDefinition.type;
+  });
+  return { added, removed, typeChanged };
 }
 
 function nodeId(kind, id) {

@@ -53,7 +53,16 @@ runTest("compareScoutingFieldDefinitions reports added and removed fields", () =
 
   assert.deepEqual(JSON.parse(JSON.stringify(diff.added.map((fieldDefinition) => fieldDefinition.id))), ["newCyclePlan"]);
   assert.deepEqual(JSON.parse(JSON.stringify(diff.removed.map((fieldDefinition) => fieldDefinition.id))), ["defenseRating"]);
-  assert.deepEqual(JSON.parse(JSON.stringify(diff.typeChanged)), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(diff.typeChanged.map((fieldDefinition) => fieldDefinition.id))), ["driverNote"]);
+});
+
+runTest("compareScoutingFieldDefinitions reports changed metric types", () => {
+  const context = loadBrowserContext(["src/metric-engine.js", "src/scouting-dependency-diagnostics.js"]);
+  const result = context.ScoutingDependencyDiagnostics.compareScoutingFieldDefinitions(
+    [{ id: "fuel", type: "number" }],
+    [{ id: "fuel", type: "string" }],
+  );
+  assert.deepEqual(result.typeChanged.map((field) => field.id), ["fuel"]);
 });
 
 runTest("compareScoutingFieldDefinitions treats string schema field ids as committed fields", () => {

@@ -2485,11 +2485,40 @@ function currentScoutingDiagnosticsState() {
     currentPridgeResponseDefinitions(),
     currentAvailableTbaFormulaIdentifiers(),
   );
+  const hasScoutingData = currentScoutingSubmissions().length > 0
+    || Number(state.importResult?.summary?.rowCount || 0) > 0;
+  const schemaLocation = currentScoutingAttachment()?.location || {};
+  const schemaSourceConfigured = Boolean(
+    normalizeText(schemaLocation.schemaPath)
+    || normalizeText(schemaLocation.schemaUrl),
+  );
+  const schemaLoaded = Boolean(normalizeText(state.importSchemaJsonText))
+    || (schemaSourceConfigured && Boolean(normalizeText(currentScoutingAttachment()?.schemaSignature)));
   return {
     committedFields,
     currentDiagnostics,
     pendingDiagnostics,
     pridgeDiagnostics,
+    schemaStatus: {
+      hasScoutingData,
+      loaded: schemaLoaded,
+      missing: hasScoutingData && !schemaLoaded,
+    },
+  };
+}
+
+function adminDataQualityAlertState(diagnosticsState = currentScoutingDiagnosticsState()) {
+  const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
+  const schemaMismatch = schemaDiffHasChanges(diagnosticsSelection.diagnostics?.schemaDiff);
+  const schemaMissing = Boolean(diagnosticsState?.schemaStatus?.missing);
+  const pridgeMismatch = Boolean(diagnosticsState?.pridgeDiagnostics?.hasIssues);
+  const reviewPending = flaggedSubmissionGroups().length > 0;
+  return {
+    active: schemaMismatch || schemaMissing || pridgeMismatch || reviewPending,
+    schemaMismatch,
+    schemaMissing,
+    pridgeMismatch,
+    reviewPending,
   };
 }
 
@@ -2701,6 +2730,7 @@ function schemaDiffHasChanges(schemaDiff = {}) {
   return Boolean(
     (schemaDiff.added && schemaDiff.added.length)
     || (schemaDiff.removed && schemaDiff.removed.length)
+    || (schemaDiff.typeChanged && schemaDiff.typeChanged.length)
   );
 }
 
@@ -6453,15 +6483,22 @@ function renderSchemaDiffSummary(schemaDiff) {
   if (!schemaDiff) return `<p class="muted">No schema diagnostics available.</p>`;
   const added = schemaDiff.added || [];
   const removed = schemaDiff.removed || [];
-  if (!added.length && !removed.length) {
+  const typeChanged = schemaDiff.typeChanged || [];
+  if (!added.length && !removed.length && !typeChanged.length) {
     return `<p class="muted">No schema drift detected.</p>`;
   }
   return `
     <div class="issue-list">
       ${added.map((fieldDefinition) => `<div class="issue-row good"><strong>Added</strong><span>${escapeHtml(fieldDefinition.label || fieldDefinition.id)} (${escapeHtml(fieldDefinition.id)})</span></div>`).join("")}
       ${removed.map((fieldDefinition) => `<div class="issue-row warn"><strong>Removed</strong><span>${escapeHtml(fieldDefinition.label || fieldDefinition.id)} (${escapeHtml(fieldDefinition.id)})</span></div>`).join("")}
+      ${typeChanged.map((fieldDefinition) => `<div class="issue-row danger"><strong>Type changed</strong><span>${escapeHtml(fieldDefinition.label || fieldDefinition.id)} (${escapeHtml(fieldDefinition.id)})</span></div>`).join("")}
     </div>
   `;
+}
+
+function renderScoutingSchemaStatus(schemaStatus) {
+  if (!schemaStatus?.missing) return "";
+  return `<div class="issue-row danger"><strong>Scouting schema not loaded</strong><span>Scouting data has arrived, but no schema file is loaded to verify its expected metrics.</span></div>`;
 }
 
 function renderSchemaReconciliationCards(model = currentScoutingSchemaReconciliationModel()) {
@@ -7519,9 +7556,13 @@ function icon(name) {
 
 function navButton(item) {
   const active = state.activeView === item.view ? "active" : "";
+  const qualityAlert = item.view === "adminDataQuality" ? adminDataQualityAlertState() : null;
+  const alertClass = qualityAlert?.active ? "has-quality-alert" : "";
+  const alertLabel = qualityAlert?.active ? " Data quality needs attention" : "";
   return `
-    <button class="nav-button ${active}" data-view="${item.view}" title="${item.label}" aria-label="${item.label}">
+    <button class="nav-button ${active} ${alertClass}" data-view="${item.view}" title="${item.label}${alertLabel}" aria-label="${item.label}${alertLabel}">
       <span class="nav-icon">${icon(item.icon)}</span>
+      ${qualityAlert?.active ? '<span class="nav-quality-alert" aria-hidden="true">!</span>' : ""}
       <span class="nav-label">${item.label}</span>
     </button>
   `;
@@ -9564,10 +9605,9 @@ function renderAdminEventControl() {
   const mismatchMessage = currentScoutingMismatchMessage(result);
   const sourceStatusIssues = issues.filter((issue) => issue !== mismatchMessage);
   const diagnosticsState = currentScoutingDiagnosticsState();
-  const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
-  const diagnosticsNonEmpty = schemaDiffHasChanges(diagnosticsSelection.diagnostics?.schemaDiff)
-    || Boolean(diagnosticsState.pridgeDiagnostics?.hasIssues);
-  const reviewNonEmpty = reviewGroups.length > 0;
+  const qualityAlert = adminDataQualityAlertState(diagnosticsState);
+  const diagnosticsNonEmpty = qualityAlert.schemaMismatch || qualityAlert.schemaMissing || qualityAlert.pridgeMismatch;
+  const reviewNonEmpty = qualityAlert.reviewPending;
   return `
     <div class="grid">
       ${(diagnosticsNonEmpty || reviewNonEmpty) ? `<div class="admin-quality-banner" role="status">
@@ -9774,7 +9814,9 @@ function renderAdminDataQuality() {
   return `<div class="grid cols-2">
     <article class="card">
       <h2>Schema Diagnostics</h2>
+      ${renderScoutingSchemaStatus(diagnosticsState.schemaStatus)}
       ${renderPridgeResponseDiagnostics(diagnosticsState.pridgeDiagnostics)}
+      ${activeDiagnostics?.schemaDiff?.typeChanged?.length ? renderSchemaDiffSummary({ typeChanged: activeDiagnostics.schemaDiff.typeChanged }) : ""}
       ${reconciliationModel ? renderSchemaReconciliationCards(reconciliationModel) : renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
       ${reconciliationModel ? `<div class="button-row">
         <button type="button" id="updateCurrentSchemaFromDiagnosticsButton"${reconciliationModel.readyToPersist ? "" : " disabled"}>Update Current Schema</button>

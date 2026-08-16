@@ -19,6 +19,9 @@ const userControl = sectionBetween("function renderAdminUserControl()", "functio
 
 assert.match(source, /view: "adminEventControl", label: "Admin Event Control"/);
 assert.match(source, /view: "adminDataQuality", label: "Admin Data Quality"/);
+assert.match(source, /Scouting schema not loaded/);
+assert.match(source, /has-quality-alert/);
+assert.match(source, /schemaStatus: \{/);
 assert.doesNotMatch(source, /view: "quality"/);
 assert.doesNotMatch(source, /function renderQuality\(/);
 assert.doesNotMatch(source, /quality: renderQuality/);
