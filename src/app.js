@@ -7382,6 +7382,47 @@ function renderDeploymentBanner() {
   const label = hostname.includes("localhost") || hostname.startsWith("127.") ? "LOCAL DEVELOPMENT" : "DEVELOPMENT / PREVIEW";
   return `<div class="deployment-banner" role="status">${label} — commit <span class="deployment-revision" style="text-transform: lowercase">${developmentRevision}</span> — changes and data may not match production</div>`;
 }
+function renderSidebar(event) {
+  return `
+    <div class="brand-row">
+      <div>
+        <p class="eyebrow">Bovine</p>
+        <h1>Scouting Analysis</h1>
+      </div>
+      <button class="icon-button" id="menuToggle" title="${state.menuExpanded ? "Collapse menu" : "Expand menu"}" aria-label="${state.menuExpanded ? "Collapse menu" : "Expand menu"}">
+        ${icon("menu")}
+      </button>
+    </div>
+    <div class="event-chip">
+      <span class="muted">${escapeHtml(displaySeasonHeading(event))}</span>
+      <strong>${escapeHtml(displayEventName(event))}</strong>
+      <span class="muted">${Math.max(event.matchesComplete, importedMatchCount())} matches imported</span>
+    </div>
+    <nav class="nav-list">
+      ${visibleNavItems().map((item, index, items) => `${index === items.findIndex((navItem) => navItem.view.startsWith("admin")) ? '<div class="nav-divider" role="separator" aria-label="Admin pages"></div>' : ""}${navButton(item)}`).join("")}
+    </nav>
+  `;
+}
+
+function renderTopbar(event) {
+  return `
+    <div class="page-title">
+      <p class="eyebrow">${escapeHtml(displaySeasonHeading(event))}</p>
+      <h1>${escapeHtml(displayEventName(event))}</h1>
+    </div>
+    <div class="split-row">
+      ${renderGlobalRecentMatchControl()}
+      ${renderThemeToggle()}
+      <div class="user-identity" aria-label="Signed in as ${state.user}">
+        ${icon("user")}
+        <span>${state.user}</span>
+        ${isAdmin() ? `<span class="user-role">Admin</span>` : ""}
+      </div>
+      <button class="action-button" id="logoutButton" type="button">Logout</button>
+    </div>
+  `;
+}
+
 function renderNow(reason = "unspecified") {
   const renderStartedAt = perfNow();
   const interactionState = captureRenderInteractionState();
@@ -7419,10 +7460,20 @@ function renderNow(reason = "unspecified") {
     }
   }
 
-  app.innerHTML = `
+  const shell = app.querySelector(".app-shell");
+  const sidebar = shell?.querySelector('[data-render-region="sidebar"]');
+  const topbar = shell?.querySelector('[data-render-region="topbar"]');
+  const contentRegion = shell?.querySelector('[data-render-region="content"]');
+  if (shell && sidebar && topbar && contentRegion) {
+    shell.className = `app-shell ${state.menuExpanded ? "menu-expanded" : "menu-collapsed"}`;
+    sidebar.innerHTML = renderSidebar(event);
+    topbar.innerHTML = renderTopbar(event);
+    contentRegion.innerHTML = content;
+  } else {
+    app.innerHTML = `
     ${renderDeploymentBanner()}
     <div class="app-shell ${state.menuExpanded ? "menu-expanded" : "menu-collapsed"}">
-      <aside class="sidebar">
+      <aside class="sidebar" data-render-region="sidebar">
         <div class="brand-row">
           <div>
             <p class="eyebrow">Bovine</p>
@@ -7442,7 +7493,7 @@ function renderNow(reason = "unspecified") {
         </nav>
       </aside>
       <main class="main">
-        <header class="topbar">
+        <header class="topbar" data-render-region="topbar">
           <div class="page-title">
             <p class="eyebrow">${escapeHtml(displaySeasonHeading(event))}</p>
             <h1>${escapeHtml(displayEventName(event))}</h1>
@@ -7458,10 +7509,11 @@ function renderNow(reason = "unspecified") {
             <button class="action-button" id="logoutButton" type="button">Logout</button>
           </div>
         </header>
-        <section class="content">${content}</section>
+        <section class="content" data-render-region="content">${content}</section>
       </main>
     </div>
-  `;
+    `;
+  }
 
   bindShellEvents();
   restoreRenderInteractionState(interactionState);
