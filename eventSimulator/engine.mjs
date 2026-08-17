@@ -159,7 +159,11 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
     const data = payload(source);
     if (source === "tba") return kind === "event" ? data.event : kind === "teams" ? data.teams : kind === "matches" ? data.matches : kind === "rankings" ? { rankings: data.rankings } : data.stats;
     if (source === "statbotics") return kind === "event" ? data.event : kind === "team-events" ? data.teamEvents : kind === "team-matches" ? data.teamMatches : data.matches;
-    return kind === "schema" ? data.schema : data;
+    if (kind === "schema") {
+      const schemaArtifact = rewriteEventKeys(fixtures.scoutingSchema, scenario.sourceEventKey, scenario.id);
+      return { ...schemaArtifact, meta: { ...schemaArtifact.meta, season: scenario.year, eventKey: scenario.id } };
+    }
+    return data;
   }
   const recordRequest = (request, generation = requestGeneration) => {
     if (generation !== requestGeneration) return;
