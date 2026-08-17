@@ -9,7 +9,7 @@
     "statboticsEvent": "../src/real-source-cache/2026chcmp-statbotics-event.json",
     "statboticsTeamEvents": "../src/real-source-cache/2026chcmp-statbotics-team-events.json",
     "scouting": "../tests/fixtures/canonical-scouting-datasets/2026chcmp.json",
-    "scoutingSchema": "../tests/fixtures/canonical-scouting-datasets/2026chcmp_profile-v1.json"
+    "scoutingSchema": "../tests/fixtures/canonical-scouting-datasets/2026chcmp_schema-test.json"
   },
   "defaults": {
     "cursor": -1,

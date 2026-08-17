@@ -44,6 +44,10 @@ assert.equal(schemaArtifact.meta.format, "frc-scouting-analysis/v1");
 assert.equal(schemaArtifact.meta.eventKey, "2026evsim");
 assert.equal(schemaArtifact.schema.schemaId, "2026-match-v1");
 assert.ok(Array.isArray(schemaArtifact.schema.expectedScoutingFields));
+assert.deepEqual(
+  schemaArtifact.schema.pridgeResponseDefinitions.map((definition) => definition.id),
+  ["tbaTotalAutoPoints", "tbaTotalTeleopPoints", "tbaTotalEndgamePoints"],
+);
 assert.equal(schemaArtifact.profile.id, "canonical-json-v1");
 const offsetState = await post("/control/set", { cursor: 1, offsets: { scouting: 2 } });
 assert.equal(offsetState.offsets.scouting, 2);
