@@ -11421,10 +11421,10 @@ function bindViewEvents() {
     });
   });
   document.querySelector("#importSourceUrl")?.addEventListener("input", (event) => {
-    setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: false, persistAttachment: true });
+    setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: true, persistAttachment: true });
   });
   document.querySelector("#importSourceUrl")?.addEventListener("change", async (event) => {
-    setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: false });
+    setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: true });
     await applyScoutingSourceInputChange({
       forceReload: true,
       scoutingImportSource: "manual-source-change",

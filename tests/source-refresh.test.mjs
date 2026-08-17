@@ -109,6 +109,13 @@ runTest("simulator scouting refresh polls on every five-second loop tick", () =>
   );
 });
 
+runTest("simulator scouting policy is recognized from the event attachment id", () => {
+  const context = loadBrowserContext(["src/source-refresh.js"]);
+  const policy = context.SourceRefresh.defaultPolicyForSource({ kind: "scouting", sourceId: "scouting-2026evsim-default" });
+  assert.equal(policy.baseIntervalMs, 5 * 1000);
+  assert.equal(policy.pollEveryTick, true);
+});
+
 runTest("source refresh policy normalizes visible source statuses to ready, stale, and error", () => {
   const context = loadBrowserContext(["src/source-refresh.js"]);
   const policy = context.SourceRefresh.defaultPolicyForSource({ kind: "scouting", sourceId: "attachment-1" });

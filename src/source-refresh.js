@@ -5,7 +5,8 @@ function normalizeText(value) {
 
 function defaultPolicyForSource(source) {
   if (source?.kind === "scouting") {
-    const simulatorMode = globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first";
+    const simulatorMode = globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first"
+      || /evsim|simulator/i.test(normalizeText(source?.sourceId));
     return {
       baseIntervalMs: simulatorMode ? 5 * 1000 : 2 * 60 * 1000,
       staleAfterMs: 15 * 60 * 1000,
