@@ -4381,8 +4381,17 @@ function captureRenderInteractionState() {
     selectionStart: typeof activeElement?.selectionStart === "number" ? activeElement.selectionStart : null,
     selectionEnd: typeof activeElement?.selectionEnd === "number" ? activeElement.selectionEnd : null,
     value: typeof activeElement?.value === "string" ? activeElement.value : null,
+    controls: [],
     scroll: [],
   };
+  app.querySelectorAll("input[id], select[id], textarea[id]").forEach((element) => {
+    interactionState.controls.push({
+      id: element.id,
+      value: typeof element.value === "string" ? element.value : null,
+      checked: typeof element.checked === "boolean" ? element.checked : null,
+      selectedIndex: typeof element.selectedIndex === "number" ? element.selectedIndex : null,
+    });
+  });
   app.querySelectorAll("[data-builder-list-scroll], [data-builder-grid-column-scroll], [data-builder-grid-shell]").forEach((element) => {
     const key = element.dataset.builderListScroll || element.dataset.builderGridColumnScroll || "shell";
     interactionState.scroll.push({
@@ -4398,9 +4407,18 @@ function captureRenderInteractionState() {
   return interactionState;
 }
 
-function restoreRenderInteractionState(interactionState) {
+function restoreRenderInteractionState(interactionState, options = {}) {
   if (!interactionState) return;
   requestAnimationFrame(() => {
+    if (options.preserveControls === true) {
+      interactionState.controls.forEach((saved) => {
+        const element = document.getElementById(saved.id);
+        if (!element) return;
+        if (saved.value !== null && "value" in element) element.value = saved.value;
+        if (saved.checked !== null && "checked" in element) element.checked = saved.checked;
+        if (saved.selectedIndex !== null && "selectedIndex" in element) element.selectedIndex = saved.selectedIndex;
+      });
+    }
     interactionState.scroll.forEach((saved) => {
       const element = document.querySelector(saved.selector);
       if (!element) return;
@@ -7516,7 +7534,7 @@ function renderNow(reason = "unspecified") {
   }
 
   bindShellEvents();
-  restoreRenderInteractionState(interactionState);
+  restoreRenderInteractionState(interactionState, { preserveControls: reason.startsWith("background.") });
   focusScheduleLastPlayed();
   recordScoutingPerf("render", renderStartedAt, { activeView: state.activeView, reason });
 }
