@@ -2586,7 +2586,9 @@ function currentScoutingDiagnosticsState() {
 
 function adminDataQualityAlertState(diagnosticsState = currentScoutingDiagnosticsState()) {
   const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
-  const schemaMismatch = schemaDiffHasChanges(diagnosticsSelection.diagnostics?.schemaDiff);
+  const reconciliationModel = currentScoutingSchemaReconciliationModel();
+  const schemaMismatch = schemaDiffHasChanges(diagnosticsSelection.diagnostics?.schemaDiff)
+    && !reconciliationModel?.readyToPersist;
   const schemaMissing = Boolean(diagnosticsState?.schemaStatus?.missing);
   const pridgeMismatch = Boolean(diagnosticsState?.pridgeDiagnostics?.hasIssues);
   const reviewPending = flaggedSubmissionGroups().length > 0;

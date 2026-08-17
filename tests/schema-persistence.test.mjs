@@ -117,7 +117,7 @@ function loadAppContext(options = {}) {
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
     .replace(/\nbootstrapApp\(\);\s*/, "\n")
-    + "\nglobalThis.__activeEventTestApi = { applyAdminEventCodeDraft, applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, currentDataSources, loadArbitraryEventCode, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, refreshDataSource, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
+    + "\nglobalThis.__activeEventTestApi = { adminDataQualityAlertState, applyAdminEventCodeDraft, applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, currentDataSources, loadArbitraryEventCode, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, refreshDataSource, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -1174,6 +1174,7 @@ await runTest("current event diagnostics still expose schema reconciliation when
       rawMetrics: { newField: 1 },
     },
   ];
+  state.importSchemaJsonText = "{}";
   context.registerScoutingProfile(eventModel, {
     id: "canonical-json-v1",
     label: "Canonical JSON",
@@ -1191,6 +1192,7 @@ await runTest("current event diagnostics still expose schema reconciliation when
 
   assert.equal(model.readyToPersist, true);
   assert.equal(model.draftProfileDefinition.derivedEquations[0].formula, "sum(scouting.newField)");
+  assert.equal(context.__activeEventTestApi.adminDataQualityAlertState().schemaMismatch, false);
 });
 
 await runTest("current event drift still offers remap actions when pending import diagnostics are clean", async () => {
