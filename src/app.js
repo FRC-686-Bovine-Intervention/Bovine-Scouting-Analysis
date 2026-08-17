@@ -553,7 +553,8 @@ function noteUserInteraction() {
 }
 
 function renderCanInterruptInteraction() {
-  return !interactiveElement() || perfNow() - recentUserInteractionAt < 250;
+  const openDialog = app?.querySelector('[role="dialog"]:not([aria-hidden="true"])');
+  return (!interactiveElement() && !openDialog) || perfNow() - recentUserInteractionAt < 250;
 }
 
 function flushPendingRender() {
@@ -4382,6 +4383,10 @@ function captureRenderInteractionState() {
     selectionEnd: typeof activeElement?.selectionEnd === "number" ? activeElement.selectionEnd : null,
     value: typeof activeElement?.value === "string" ? activeElement.value : null,
     controls: [],
+    windowScroll: {
+      x: Number(globalThis.scrollX || 0),
+      y: Number(globalThis.scrollY || 0),
+    },
     scroll: [],
   };
   app.querySelectorAll("input[id], select[id], textarea[id]").forEach((element) => {
@@ -4418,6 +4423,9 @@ function restoreRenderInteractionState(interactionState, options = {}) {
         if (saved.checked !== null && "checked" in element) element.checked = saved.checked;
         if (saved.selectedIndex !== null && "selectedIndex" in element) element.selectedIndex = saved.selectedIndex;
       });
+    }
+    if (interactionState.windowScroll && typeof globalThis.scrollTo === "function") {
+      globalThis.scrollTo(interactionState.windowScroll.x, interactionState.windowScroll.y);
     }
     interactionState.scroll.forEach((saved) => {
       const element = document.querySelector(saved.selector);
