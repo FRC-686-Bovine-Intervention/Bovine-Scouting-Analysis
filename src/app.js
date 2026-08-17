@@ -516,6 +516,10 @@ function activateEventSelection(token, options = {}) {
 
 const app = document.querySelector("#app");
 let scheduleFocusPending = false;
+let renderInProgress = false;
+let pendingRenderRequest = null;
+let renderFlushScheduled = false;
+let recentUserInteractionAt = 0;
 installGlobalRecoveryGuards();
 
 function perfNow() {
@@ -539,6 +543,52 @@ function resetScoutingPerf() {
   Object.keys(scoutingPerf.counters).forEach((key) => delete scoutingPerf.counters[key]);
 }
 
+function interactiveElement(element = document.activeElement) {
+  if (!element || element === document.body || !app?.contains(element)) return false;
+  return element.matches?.("select, input, textarea, button, [contenteditable='true'], [role='dialog']") === true;
+}
+
+function noteUserInteraction() {
+  recentUserInteractionAt = perfNow();
+}
+
+function renderCanInterruptInteraction() {
+  return !interactiveElement() || perfNow() - recentUserInteractionAt < 250;
+}
+
+function flushPendingRender() {
+  if (!pendingRenderRequest || renderFlushScheduled) return;
+  if (!renderCanInterruptInteraction()) return;
+  renderFlushScheduled = true;
+  requestAnimationFrame(() => {
+    renderFlushScheduled = false;
+    const request = pendingRenderRequest;
+    pendingRenderRequest = null;
+    if (request) render(request.reason);
+  });
+}
+
+function queueRenderRequest(reason) {
+  if (pendingRenderRequest) incrementScoutingPerfCounter("renderCoalesces");
+  pendingRenderRequest = { reason: reason || "unspecified" };
+  incrementScoutingPerfCounter("renderDeferrals");
+  recordScoutingPerf("render.deferred", perfNow(), { reason: reason || "unspecified" });
+}
+
+function installRenderInteractionCoordinator() {
+  ["click", "change", "input", "keydown", "pointerup"].forEach((eventName) => {
+    document.addEventListener(eventName, () => {
+      noteUserInteraction();
+      if (eventName !== "click") flushPendingRender();
+    }, true);
+  });
+  ["blur", "focusout"].forEach((eventName) => {
+    document.addEventListener(eventName, () => {
+      requestAnimationFrame(flushPendingRender);
+    }, true);
+  });
+}
+
 globalThis.scoutingPerfDiagnostics = { snapshot: scoutingPerfSnapshot, reset: resetScoutingPerf };
 
 function installScoutingLongTaskObserver() {
@@ -560,6 +610,7 @@ function installScoutingLongTaskObserver() {
 }
 
 installScoutingLongTaskObserver();
+installRenderInteractionCoordinator();
 
 function recordScoutingPerf(label, startedAt, details = {}) {
   const safeDetails = { ...details };
@@ -7331,7 +7382,7 @@ function renderDeploymentBanner() {
   const label = hostname.includes("localhost") || hostname.startsWith("127.") ? "LOCAL DEVELOPMENT" : "DEVELOPMENT / PREVIEW";
   return `<div class="deployment-banner" role="status">${label} — commit <span class="deployment-revision" style="text-transform: lowercase">${developmentRevision}</span> — changes and data may not match production</div>`;
 }
-function render() {
+function renderNow(reason = "unspecified") {
   const renderStartedAt = perfNow();
   const interactionState = captureRenderInteractionState();
   const event = currentEvent();
@@ -7415,7 +7466,25 @@ function render() {
   bindShellEvents();
   restoreRenderInteractionState(interactionState);
   focusScheduleLastPlayed();
-  recordScoutingPerf("render", renderStartedAt, { activeView: state.activeView });
+  recordScoutingPerf("render", renderStartedAt, { activeView: state.activeView, reason });
+}
+
+function render(reason = "unspecified") {
+  if (!renderCanInterruptInteraction()) {
+    queueRenderRequest(reason);
+    return;
+  }
+  if (renderInProgress) {
+    queueRenderRequest(reason);
+    return;
+  }
+  renderInProgress = true;
+  try {
+    renderNow(reason);
+  } finally {
+    renderInProgress = false;
+    flushPendingRender();
+  }
 }
 
 function focusScheduleLastPlayed() {
