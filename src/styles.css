@@ -1273,7 +1273,7 @@ select {
 
 .matchup-alliances {
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
+  align-items: stretch;
   margin-top: 24px;
 }
 
@@ -1286,7 +1286,12 @@ select {
   padding: 16px;
 }
 
+.matchup-alliance-card {
+  display: flex;
+}
+
 .matchup-match-number {
+  align-self: center;
   display: grid;
   place-items: center;
   min-width: 160px;
@@ -1302,6 +1307,7 @@ select {
 }
 
 .matchup-team-row {
+  flex: 1;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
