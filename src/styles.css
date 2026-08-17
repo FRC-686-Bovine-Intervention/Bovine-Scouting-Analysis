@@ -1197,6 +1197,29 @@ select {
   align-items: center;
 }
 
+.match-row.schedule-current {
+  background: #FFFF66;
+}
+
+.match-row.schedule-highlight-team {
+  background: #FABF8F;
+}
+
+.match-row.schedule-complete {
+  background: #D9D9D9;
+}
+
+.schedule-highlight-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.schedule-highlight-control input {
+  width: 96px;
+}
+
 .match-link {
   width: 140px;
   font-weight: 800;

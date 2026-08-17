@@ -214,6 +214,7 @@ const storageKeys = {
   picklistCompareMetric: "frc-scouting-picklist-compare-metric",
   selectedTeam: "frc-scouting-selected-team",
   selectedMatch: "frc-scouting-selected-match",
+  highlightTeam: "frc-scouting-highlight-team",
   menuExpanded: "frc-scouting-menu-expanded",
   loadedPicklists: "frc-scouting-loaded-picklists",
   allianceBoard: "frc-scouting-alliance-board",
@@ -387,6 +388,7 @@ const state = {
   picklistCompareMetric: "",
   selectedTeam: initialEvent.teams[0]?.number || 0,
   selectedMatch: initialEvent.matches[0]?.id || initialEvent.matches[0]?.number || 0,
+  highlightTeam: 686,
   matchupMetricSelections: [...defaultMatchupMetricIds],
   matchupNormalization: "shared",
   menuExpanded: readStoredItem(storageKeys.menuExpanded) === "true",
@@ -4461,6 +4463,7 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.picklistCompareMetric), state.picklistCompareMetric);
   localStorage.setItem(eventStorageKey(storageKeys.selectedTeam), String(state.selectedTeam));
   localStorage.setItem(eventStorageKey(storageKeys.selectedMatch), String(state.selectedMatch));
+  localStorage.setItem(eventStorageKey(storageKeys.highlightTeam), String(state.highlightTeam || ""));
   localStorage.setItem(eventStorageKey(storageKeys.menuExpanded), String(state.menuExpanded));
   localStorage.setItem(eventStorageKey(storageKeys.picklists), JSON.stringify(state.picklists));
   localStorage.setItem(eventStorageKey(storageKeys.sortEquations), JSON.stringify(state.sortEquations));
@@ -5161,6 +5164,8 @@ function hydrateEventState(eventKey) {
   state.picklistCompareMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.picklistCompareMetric, resolvedEventKey), eventModel);
   state.selectedTeam = Number(readStoredItem(storageKeys.selectedTeam, resolvedEventKey)) || eventModel.teams[0]?.number || 0;
   state.selectedMatch = readStoredItem(storageKeys.selectedMatch, resolvedEventKey) || eventModel.matches[0]?.id || eventModel.matches[0]?.number || 0;
+  const storedHighlightTeam = readStoredItem(storageKeys.highlightTeam, resolvedEventKey);
+  state.highlightTeam = normalizeHighlightTeam(storedHighlightTeam === null ? 686 : storedHighlightTeam);
   state.picklists = normalizePicklists(readStoredJson(storageKeys.picklists, eventModel.seedPicklists, resolvedEventKey), eventModel);
   state.sortEquations = normalizeSortEquations(readStoredJson(storageKeys.sortEquations, eventModel.seedSortEquations, resolvedEventKey), eventModel);
   state.activePicklist = resolvePicklistId(readStoredItem(storageKeys.activePicklist, resolvedEventKey), state.picklists) || state.picklists[0]?.id || "";
@@ -8797,15 +8802,28 @@ function scheduleMatchGroup(match) {
   return match?.compLevel === "qm" ? "quals" : "playoffs";
 }
 
+function normalizeHighlightTeam(value) {
+  const teamNumber = Number(value);
+  return Number.isInteger(teamNumber) && teamNumber > 0 ? teamNumber : 0;
+}
+
 function matchHasScore(match) {
   if (match?.hasScore !== undefined) return match.hasScore === true;
   return Number(match?.redScore) >= 0 && Number(match?.blueScore) >= 0;
 }
 
-function scheduleRow(match, lastPlayedMatch) {
-  const isLastPlayed = lastPlayedMatch && matchIdentity(match) === matchIdentity(lastPlayedMatch);
+function scheduleRow(match, currentMatch, highlightTeam) {
+  const isCurrent = currentMatch && matchIdentity(match) === matchIdentity(currentMatch);
+  const hasHighlightTeam = highlightTeam > 0 && [...(match.red || []), ...(match.blue || [])].includes(highlightTeam);
+  const className = isCurrent
+    ? "schedule-current"
+    : hasHighlightTeam
+      ? "schedule-highlight-team"
+      : matchHasScore(match)
+        ? "schedule-complete"
+        : "";
   return `
-    <article class="match-row" data-match-row="${escapeAttribute(matchIdentity(match))}"${isLastPlayed ? ' data-schedule-last-played="true"' : ""} title="Open ${escapeAttribute(matchupMatchLabel(match))} matchup">
+    <article class="match-row ${className}" data-match-row="${escapeAttribute(matchIdentity(match))}"${isCurrent ? ' data-schedule-last-played="true"' : ""} title="Open ${escapeAttribute(matchupMatchLabel(match))} matchup">
       <button class="match-link" data-match="${escapeAttribute(matchIdentity(match))}">${escapeHtml(matchupMatchLabel(match))}</button>
       <span class="alliance red">${match.red.map((team) => `<button class="pill team-pill" data-team="${team}">${team}</button>`).join("")}</span>
       <span class="alliance blue">${match.blue.map((team) => `<button class="pill team-pill" data-team="${team}">${team}</button>`).join("")}</span>
@@ -8813,11 +8831,11 @@ function scheduleRow(match, lastPlayedMatch) {
   `;
 }
 
-function renderScheduleSection(label, matches, lastPlayedMatch, open) {
+function renderScheduleSection(label, matches, currentMatch, highlightTeam, open) {
   return `
     <details class="schedule-section"${open ? " open" : ""}>
       <summary><span>${label}</span><span class="muted">${matches.length} matches</span></summary>
-      <div class="grid">${matches.map((match) => scheduleRow(match, lastPlayedMatch)).join("")}</div>
+      <div class="grid">${matches.map((match) => scheduleRow(match, currentMatch, highlightTeam)).join("")}</div>
     </details>
   `;
 }
@@ -8826,16 +8844,20 @@ function renderSchedule() {
   const matches = currentMatches();
   const qualifications = matches.filter((match) => scheduleMatchGroup(match) === "quals");
   const playoffs = matches.filter((match) => scheduleMatchGroup(match) === "playoffs");
-  const lastPlayedMatch = matches.filter(matchHasScore).at(-1) || null;
+  const currentMatch = matches.find((match) => !matchHasScore(match)) || null;
   return `
     <div class="section-heading">
       <div>
         <h2>Match Schedule</h2>
       </div>
+      <label class="schedule-highlight-control">
+        Highlight Team
+        <input id="scheduleHighlightTeam" type="number" min="1" step="1" value="${state.highlightTeam || ""}" placeholder="686" />
+      </label>
     </div>
     <div class="schedule-sections">
-      ${renderScheduleSection("Qualifications", qualifications, lastPlayedMatch, playoffs.length === 0)}
-      ${playoffs.length ? renderScheduleSection("Playoffs", playoffs, lastPlayedMatch, true) : ""}
+      ${renderScheduleSection("Qualifications", qualifications, currentMatch, state.highlightTeam, playoffs.length === 0)}
+      ${playoffs.length ? renderScheduleSection("Playoffs", playoffs, currentMatch, state.highlightTeam, true) : ""}
     </div>
   `;
 }
@@ -11122,6 +11144,11 @@ function bindViewEvents() {
       saveState();
       render();
     });
+  });
+  document.querySelector("#scheduleHighlightTeam")?.addEventListener("change", (event) => {
+    state.highlightTeam = normalizeHighlightTeam(event.target.value);
+    saveState();
+    render();
   });
   document.querySelectorAll("[data-drag-team]").forEach((element) => {
     element.addEventListener("dragstart", (event) => {
