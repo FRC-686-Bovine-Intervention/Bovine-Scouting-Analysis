@@ -13,7 +13,15 @@ function parseScoutingSchemaSignatureFields(signature) {
   if (!text) return [];
   try {
     const parsed = JSON.parse(text);
-    return Array.isArray(parsed?.fields) ? parsed.fields : [];
+    return Array.isArray(parsed?.fields)
+      ? parsed.fields.map((fieldDefinition) => (
+          fieldDefinition
+          && typeof fieldDefinition === "object"
+          && !Object.prototype.hasOwnProperty.call(fieldDefinition, "typeDeclared")
+            ? { ...fieldDefinition, typeDeclared: false }
+            : fieldDefinition
+        ))
+      : [];
   } catch {
     return [];
   }
