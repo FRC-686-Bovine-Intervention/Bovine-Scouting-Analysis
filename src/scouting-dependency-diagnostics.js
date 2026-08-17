@@ -45,6 +45,7 @@ function compareScoutingFieldDefinitions(previousFields = [], currentFields = []
     const previousField = previousById.get(fieldDefinition.id);
     return previousField
       && previousField.typeDeclared
+      && fieldDefinition.typeDeclared
       && previousField.type
       && fieldDefinition.type
       && previousField.type !== fieldDefinition.type;
