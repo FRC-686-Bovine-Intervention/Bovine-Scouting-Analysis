@@ -65,6 +65,15 @@ runTest("compareScoutingFieldDefinitions reports changed metric types", () => {
   assert.deepEqual(result.typeChanged.map((field) => field.id), ["fuel"]);
 });
 
+runTest("compareScoutingFieldDefinitions ignores first observed types without a declared prior type", () => {
+  const context = loadBrowserContext(["src/metric-engine.js", "src/scouting-dependency-diagnostics.js"]);
+  const result = context.ScoutingDependencyDiagnostics.compareScoutingFieldDefinitions(
+    [{ id: "alliance" }, { id: "overallNotes" }],
+    [{ id: "alliance", type: "string" }, { id: "overallNotes", type: "string" }],
+  );
+  assert.deepEqual(result.typeChanged, []);
+});
+
 runTest("compareScoutingFieldDefinitions treats string schema field ids as committed fields", () => {
   const context = loadBrowserContext(["src/metric-engine.js", "src/scouting-dependency-diagnostics.js"]);
   const diff = context.ScoutingDependencyDiagnostics.compareScoutingFieldDefinitions(
