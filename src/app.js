@@ -2591,7 +2591,7 @@ function adminDataQualityAlertState(diagnosticsState = currentScoutingDiagnostic
     && !reconciliationModel?.readyToPersist;
   const schemaMissing = Boolean(diagnosticsState?.schemaStatus?.missing);
   const pridgeMismatch = Boolean(diagnosticsState?.pridgeDiagnostics?.hasIssues);
-  const reviewPending = flaggedSubmissionGroups().length > 0;
+  const reviewPending = standaloneFlaggedSubmissionGroups().length > 0;
   return {
     active: schemaMismatch || schemaMissing || pridgeMismatch || reviewPending,
     schemaMismatch,
@@ -6289,6 +6289,13 @@ function flaggedSubmissionGroups() {
     .filter((submission) => submissionNeedsReview(submission) && !duplicateKeys.has(duplicateSubmissionKey(submission)))
     .map((submission) => ({ key: `single:${submission.id}`, submissions: [submission] }));
   return [...duplicate, ...standalone];
+}
+
+function standaloneFlaggedSubmissionGroups() {
+  const duplicateKeys = new Set(duplicateGroups().map((group) => group.key));
+  return currentScoutingSubmissions()
+    .filter((submission) => submissionNeedsReview(submission) && !duplicateKeys.has(duplicateSubmissionKey(submission)))
+    .map((submission) => ({ key: `single:${submission.id}`, submissions: [submission] }));
 }
 
 function pushActivity(message) {

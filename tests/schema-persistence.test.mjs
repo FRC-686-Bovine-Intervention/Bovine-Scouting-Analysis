@@ -1195,6 +1195,42 @@ await runTest("current event diagnostics still expose schema reconciliation when
   assert.equal(context.__activeEventTestApi.adminDataQualityAlertState().schemaMismatch, false);
 });
 
+await runTest("duplicate scouting submissions do not activate the data quality alert", () => {
+  const context = loadAppContext();
+  const state = context.__scoutingAppState;
+  const eventModel = context.eventCatalog[0];
+  state.activeEventKey = eventModel.key;
+  state.scoutingSubmissions = [
+    {
+      id: "submission-a",
+      eventKey: eventModel.key,
+      teamNumber: 686,
+      matchNumber: 1,
+      rawMetrics: {},
+      confidenceReasons: ["duplicate_submission"],
+      validity: "flagged",
+    },
+    {
+      id: "submission-b",
+      eventKey: eventModel.key,
+      teamNumber: 686,
+      matchNumber: 1,
+      rawMetrics: {},
+      confidenceReasons: ["duplicate_submission"],
+      validity: "flagged",
+    },
+  ];
+
+  const alert = context.__activeEventTestApi.adminDataQualityAlertState({
+    diagnostics: { schemaDiff: {} },
+    schemaStatus: { missing: false },
+    pridgeDiagnostics: { hasIssues: false },
+  });
+
+  assert.equal(alert.reviewPending, false);
+  assert.equal(alert.active, false);
+});
+
 await runTest("current event drift still offers remap actions when pending import diagnostics are clean", async () => {
   const context = loadAppContext({
     schemaFields: [{ id: "oldField", label: "Old Field", type: "number", unit: "count" }],
