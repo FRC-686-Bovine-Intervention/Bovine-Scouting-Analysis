@@ -2,9 +2,9 @@
 
 Make the application’s rendering architecture safe for active user interaction across every page while preserving responsiveness during background refreshes and calculations.
 
-GitHub publication was attempted while the service was degraded. The approved breakdown is recorded here as the local source of truth until GitHub is healthy again.
+GitHub migration is complete. The canonical closed issues are [#159](https://github.com/FRC-686-Bovine-Intervention/Bovine-Scouting-Analysis/issues/159), [#161](https://github.com/FRC-686-Bovine-Intervention/Bovine-Scouting-Analysis/issues/161), [#162](https://github.com/FRC-686-Bovine-Intervention/Bovine-Scouting-Analysis/issues/162), [#163](https://github.com/FRC-686-Bovine-Intervention/Bovine-Scouting-Analysis/issues/163), and [#164](https://github.com/FRC-686-Bovine-Intervention/Bovine-Scouting-Analysis/issues/164). Duplicate issue [#160](https://github.com/FRC-686-Bovine-Intervention/Bovine-Scouting-Analysis/issues/160) is closed as a duplicate of #159.
 
-## Add an app-wide interaction-safe render coordinator — COMPLETE
+## [#159 Add an app-wide interaction-safe render coordinator](https://github.com/FRC-686-Bovine-Intervention/Bovine-Scouting-Analysis/issues/159) — COMPLETE / CLOSED
 
 **What to build:** Create one render coordinator that makes UI updates safe during user interaction and exposes enough timing context to diagnose responsiveness problems.
 
@@ -17,7 +17,7 @@ GitHub publication was attempted while the service was degraded. The approved br
 - [x] Record render reason and whether the render was immediate, coalesced, or deferred.
 - [x] Preserve long-task and pRidge timing diagnostics.
 
-## Keep the application shell and active controls mounted — COMPLETE
+## [#161 Keep the application shell and active controls mounted](https://github.com/FRC-686-Bovine-Intervention/Bovine-Scouting-Analysis/issues/161) — COMPLETE / CLOSED
 
 **What to build:** Stop full application DOM replacement from interrupting navigation, forms, selects, scrolling, modals, and builders across every page.
 
@@ -28,7 +28,7 @@ GitHub publication was attempted while the service was degraded. The approved br
 - [x] Preserve control focus, selection, input values, scroll positions, and modal state.
 - [x] Attach shared event handling to stable shell elements.
 
-## Make background refreshes update data regions without interrupting users — COMPLETE
+## [#162 Make background refreshes update data regions without interrupting users](https://github.com/FRC-686-Bovine-Intervention/Bovine-Scouting-Analysis/issues/162) — COMPLETE / CLOSED
 
 **What to build:** Apply interaction-safe updates to simulator refreshes, provider refreshes, deferred Analysis calculations, and Firebase synchronization.
 
@@ -39,7 +39,7 @@ GitHub publication was attempted while the service was degraded. The approved br
 - [x] Render only when refreshed data changes the visible page.
 - [x] Keep pRidge and long-task measurements tied to the refresh that caused them.
 
-## Migrate remaining interactive page regions and remove the full-render fallback — COMPLETE
+## [#163 Migrate remaining interactive page regions and remove the full-render fallback](https://github.com/FRC-686-Bovine-Intervention/Bovine-Scouting-Analysis/issues/163) — COMPLETE / CLOSED
 
 **What to build:** Bring scouting import, schedule, derived equations, picklists, alliance selection, admin controls, and other interactive regions onto the stable rendering path.
 
@@ -50,7 +50,7 @@ GitHub publication was attempted while the service was degraded. The approved br
 - [x] Modals and scrollable regions remain stable during refreshes.
 - [x] The full-app replacement path is no longer used for normal updates.
 
-## Add cross-page responsiveness and interaction regression coverage — COMPLETE
+## [#164 Add cross-page responsiveness and interaction regression coverage](https://github.com/FRC-686-Bovine-Intervention/Bovine-Scouting-Analysis/issues/164) — COMPLETE / CLOSED
 
 **What to build:** Verify interaction continuity and responsiveness across every page while refreshes and long tasks are active.
 
