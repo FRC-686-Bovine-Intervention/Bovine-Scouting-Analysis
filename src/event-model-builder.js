@@ -7,6 +7,7 @@ const buildMetricCatalog =
   || seasonFramework.buildMetrics
   || ((eventModel) => eventModel?.metrics || []);
 const computeEventPridge = priorRidge.computeEventPridge;
+const computeEventPridgeTrend = priorRidge.computeEventPridgeTrend;
 const computeEventPridgeBatch = priorRidge.computeEventPridgeBatch;
 const PRIDGE_RESPONSE_IDS = new Set([
   "tbaTotalAutoPoints",
@@ -439,6 +440,8 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, tbaComponents, teamMatch
 }
 
 function buildEventModelFromPayloads(payload) {
+  const perfNow = () => globalThis.performance?.now?.() ?? Date.now();
+  const pridgeStartedAt = perfNow();
   const deferPridgeTrends = payload?.deferPridgeTrends === true;
   const deferPridgeComputation = payload?.deferPridgeComputation === true;
   const explicitScouterMetricDefinitions = Array.isArray(payload?.scouterMetricDefinitions) ? payload.scouterMetricDefinitions : [];
@@ -484,8 +487,18 @@ function buildEventModelFromPayloads(payload) {
   let pridgeResult = null;
   let pridgeError = "";
   let pridgeDiagnostics = [];
+  let pridgeTotalDurationMs = 0;
+  let pridgeTrendDurationMs = 0;
+  let pridgeTrendProfiling = {
+    scheduleQualificationCount: qualificationMatches.length,
+    completedQualificationCount: 0,
+    trendFitCount: 0,
+    trendCacheHits: 0,
+    trendCacheMisses: 0,
+  };
   const pridgeResponseResults = {};
   if (!deferPridgeComputation && matches.length && (payload.statboticsTeamEvents || []).length) {
+    const totalStartedAt = perfNow();
     try {
       const responseSets = [
         { id: "__total", matches: qualificationMatches },
@@ -502,8 +515,10 @@ function buildEventModelFromPayloads(payload) {
       if (!pridgeResult && typeof computeEventPridge === "function") {
         pridgeResult = computeEventPridge(qualificationMatches, payload.statboticsTeamEvents || [], { responseName: "score", digits: 1 });
       }
+      pridgeTotalDurationMs = Math.round((perfNow() - totalStartedAt) * 100) / 100;
     } catch (error) {
       pridgeError = String(error?.message || "Unable to compute pRidge.");
+      pridgeTotalDurationMs = Math.round((perfNow() - totalStartedAt) * 100) / 100;
     }
   }
   const teamsWithPridge = teams.map((team) => {
@@ -530,26 +545,17 @@ function buildEventModelFromPayloads(payload) {
     };
   });
   if (!deferPridgeComputation && !deferPridgeTrends && typeof computeEventPridge === "function" && matches.length && (payload.statboticsTeamEvents || []).length) {
-    const cumulativeByTeam = new Map(teamsWithPridge.map((team) => [team.number, []]));
-    matches.filter((match) => match.compLevel === "qm").forEach((match) => {
-      try {
-        const result = computeEventPridge((payload.tbaMatches || []).filter((candidate) => {
-          const number = Number(candidate?.match_number);
-          return candidate?.comp_level === "qm" && Number.isFinite(number) && number <= Number(match.number);
-        }), payload.statboticsTeamEvents || [], { responseName: "score", digits: 1 });
-        cumulativeByTeam.forEach((entries, teamNumber) => {
-          const value = result.ratings?.[teamNumber];
-          if (Number.isFinite(Number(value))) entries.push({ key: match.number, value: Number(value) });
-        });
-      } catch {
-        // A partial event can be temporarily underdetermined; leave that point unavailable.
-      }
-    });
+    const trendStartedAt = perfNow();
+    const trendResult = typeof computeEventPridgeTrend === "function"
+      ? computeEventPridgeTrend(payload.tbaMatches || [], payload.statboticsTeamEvents || [], { responseName: "score", digits: 1 })
+      : { entriesByTeam: new Map(), profiling: pridgeTrendProfiling };
+    pridgeTrendProfiling = trendResult.profiling || pridgeTrendProfiling;
     teamsWithPridge.forEach((team) => {
-      const trendEntries = cumulativeByTeam.get(team.number) || [];
+      const trendEntries = trendResult.entriesByTeam.get(team.number) || [];
       team.sources.pridge.trendEntries = trendEntries;
       team.sources.pridge.trend = trendEntries.map((entry) => entry.value);
     });
+    pridgeTrendDurationMs = Math.round((perfNow() - trendStartedAt) * 100) / 100;
   }
   return {
     pridgeComputationDeferred: deferPridgeComputation,
@@ -566,6 +572,12 @@ function buildEventModelFromPayloads(payload) {
     derivedMetricDefinitions: explicitDerivedMetricDefinitions,
     pridgeResponseDefinitions,
     pridgeDiagnostics,
+    profiling: {
+      eventModelBuildDurationMs: Math.round((perfNow() - pridgeStartedAt) * 100) / 100,
+      pridgeTotalDurationMs,
+      pridgeTrendDurationMs,
+      ...pridgeTrendProfiling,
+    },
     metrics: buildMetricCatalog(eventSchema),
     teams: teamsWithPridge,
     teamNumbers: teamsWithPridge.map((team) => team.number),

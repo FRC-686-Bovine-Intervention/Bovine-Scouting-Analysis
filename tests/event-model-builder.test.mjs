@@ -4,12 +4,29 @@ import vm from "node:vm";
 
 const source = fs.readFileSync(new URL("../src/event-model-builder.js", import.meta.url), "utf8");
 let pridgeCalls = 0;
+let trendCalls = 0;
 const context = {
   ScoutingSchemaRuntime: { buildMetricCatalog: () => [] },
   PriorRidge: {
     computeEventPridge: () => {
       pridgeCalls += 1;
       return { ratings: { 1: 1, 2: 2 }, lambda: 0.1, matchCount: 1 };
+    },
+    computeEventPridgeTrend: (_matches, _teamEvents) => {
+      trendCalls += 1;
+      return {
+        entriesByTeam: new Map([
+          [1, Array.from({ length: 80 }, (_, index) => ({ key: index + 1, value: 1 }))],
+          [2, Array.from({ length: 80 }, (_, index) => ({ key: index + 1, value: 2 }))],
+        ]),
+        profiling: {
+          scheduleQualificationCount: 80,
+          completedQualificationCount: 80,
+          trendFitCount: 0,
+          trendCacheHits: 0,
+          trendCacheMisses: 0,
+        },
+      };
     },
   },
   MetricEngine: {
@@ -25,6 +42,7 @@ const context = {
   Set,
   String,
   JSON,
+  Date,
 };
 context.globalThis = context;
 vm.runInNewContext(source, context, { filename: "src/event-model-builder.js" });
@@ -134,7 +152,10 @@ assert.equal(pridgeCalls, 1, "Applying schema definitions to a ready event shoul
 assert.equal(readyWithDefinitions.teams[0].sources.pridge.components["epa.total_points"], 1);
 
 pridgeCalls = 0;
+trendCalls = 0;
 const eager = context.EventModelBuilder.buildEventModelFromProviderBundle(bundle);
-assert.equal(pridgeCalls, 81, "Eager event construction should retain the existing cumulative trend behavior.");
+assert.equal(pridgeCalls, 1, "Eager event construction should compute the event total once.");
+assert.equal(trendCalls, 1, "Eager event construction should delegate trend calculation once.");
 assert.equal(eager.teams[0].sources.pridge.trendEntries.length, 80);
-console.log("PASS cached event construction can defer quadratic cumulative pRidge trends while retaining eager behavior");
+assert.equal(eager.profiling.trendFitCount, 0);
+console.log("PASS cached event construction delegates incremental pRidge trends");

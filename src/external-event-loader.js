@@ -468,6 +468,7 @@ async function loadEventByCode(eventCode, options = {}) {
   return {
     eventKey: normalizedEventCode,
     eventModel,
+    profiling: eventModel.profiling || {},
     sourceStates,
     warnings,
     rawSourceArtifacts: [

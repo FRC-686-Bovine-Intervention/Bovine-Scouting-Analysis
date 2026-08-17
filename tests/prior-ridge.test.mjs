@@ -252,6 +252,34 @@ runTest("computeEventPridgeBatch safely separates response coverage groups", () 
   assert.equal(batch.__diagnostics.length > 0, true);
 });
 
+runTest("computeEventPridgeTrend computes each completed prefix once and reuses it", () => {
+  const context = loadBrowserContext(["src/prior-ridge.js"]);
+  const matches = loadJson("src/real-source-cache/2026chcmp-tba-matches.json").filter((match) => match.comp_level === "qm");
+  const teamEvents = loadJson("src/real-source-cache/2026chcmp-statbotics-team-events.json");
+  const completed = matches.slice(0, 4);
+  const unplayed = matches.slice(4, 14).map((match) => ({
+    ...match,
+    alliances: {
+      ...match.alliances,
+      red: { ...match.alliances.red, score: -1 },
+      blue: { ...match.alliances.blue, score: -1 },
+    },
+  }));
+  const scheduledMatches = [...completed, ...unplayed];
+  const first = context.PriorRidge.computeEventPridgeTrend(scheduledMatches, teamEvents);
+  const second = context.PriorRidge.computeEventPridgeTrend(scheduledMatches, teamEvents);
+
+  assert.equal(first.profiling.scheduleQualificationCount, 14);
+  assert.equal(first.profiling.completedQualificationCount, 4);
+  assert.equal(first.profiling.trendFitCount, 4);
+  assert.equal(first.profiling.trendCacheHits, 0);
+  const firstTeamNumber = first.entriesByTeam.keys().next().value;
+  assert.equal(first.entriesByTeam.get(firstTeamNumber).length, 4);
+  assert.equal(second.profiling.trendFitCount, 0);
+  assert.equal(second.profiling.trendCacheHits, 4);
+  assert.deepEqual(second.entriesByTeam.get(firstTeamNumber), first.entriesByTeam.get(firstTeamNumber));
+});
+
 [
   {
     eventKey: "2024mdsev",

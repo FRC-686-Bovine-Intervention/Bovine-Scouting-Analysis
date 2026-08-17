@@ -541,6 +541,26 @@ function resetScoutingPerf() {
 
 globalThis.scoutingPerfDiagnostics = { snapshot: scoutingPerfSnapshot, reset: resetScoutingPerf };
 
+function installScoutingLongTaskObserver() {
+  if (typeof globalThis.PerformanceObserver !== "function") return;
+  try {
+    const observer = new globalThis.PerformanceObserver((list) => {
+      list.getEntries().forEach((entry) => {
+        recordScoutingPerf("browser.longtask", perfNow() - Number(entry.duration || 0), {
+          taskDurationMs: Math.round(Number(entry.duration || 0) * 100) / 100,
+          attributionCount: Array.isArray(entry.attribution) ? entry.attribution.length : 0,
+        });
+        incrementScoutingPerfCounter("longTasks");
+      });
+    });
+    observer.observe({ type: "longtask", buffered: true });
+  } catch {
+    // Long-task timing is optional and unavailable in some browsers.
+  }
+}
+
+installScoutingLongTaskObserver();
+
 function recordScoutingPerf(label, startedAt, details = {}) {
   const safeDetails = { ...details };
   if (safeDetails.error) {
@@ -5207,12 +5227,17 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
   state.eventLookupPending = true;
   state.eventLookupResult = { kind: "info", message: `Loading ${normalizedEventCode} from external providers...` };
   render();
+  const externalLoadStartedAt = perfNow();
   try {
     const loadResult = await loadExternalEventByCode(normalizedEventCode, {
       tbaAuthKey: state.tbaAuthKey,
       statboticsBaseUrl: state.statboticsBaseUrl,
       deferPridgeTrends: options.deferPridgeTrends === true,
       deferPridgeComputation: options.deferPridgeComputation === true,
+    });
+    recordScoutingPerf("external.eventLoad.end", externalLoadStartedAt, {
+      eventKey: normalizedEventCode,
+      ...(loadResult?.profiling || loadResult?.eventModel?.profiling || {}),
     });
     if (!isCurrentLoad()) return false;
     const registeredEvent = registerEventModel(loadResult.eventModel);
@@ -5270,6 +5295,10 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     render();
     return true;
   } catch (error) {
+    recordScoutingPerf("external.eventLoad.error", externalLoadStartedAt, {
+      eventKey: normalizedEventCode,
+      error: error?.message || String(error || ""),
+    });
     if (!isCurrentLoad()) return false;
     markTbaAuthFailure(error);
     markFrcApiAuthFailure(error);

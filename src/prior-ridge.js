@@ -246,6 +246,88 @@ function computeEventPridge(matches, teamEvents, options = {}) {
   };
 }
 
+const trendCache = new Map();
+const TREND_CACHE_LIMIT = 256;
+
+function trendCacheKey(matches, teamEvents, options = {}) {
+  const responseName = String(options.responseName || "score").trim().toLowerCase();
+  const lambdaGrid = Array.isArray(options.lambdaGrid) ? options.lambdaGrid : defaultLambdaGrid();
+  const matchFingerprint = (Array.isArray(matches) ? matches : []).map((match) => ({
+    key: match?.key || "",
+    number: match?.match_number ?? "",
+    red: match?.alliances?.red?.team_keys || [],
+    blue: match?.alliances?.blue?.team_keys || [],
+    redScore: match?.alliances?.red?.score ?? null,
+    blueScore: match?.alliances?.blue?.score ?? null,
+    redBreakdown: match?.score_breakdown?.red || null,
+    blueBreakdown: match?.score_breakdown?.blue || null,
+  }));
+  const priors = (Array.isArray(teamEvents) ? teamEvents : [])
+    .map((teamEvent) => [Number(teamEvent?.team), finiteNumber(teamEvent?.epa?.stats?.start)])
+    .filter(([team, prior]) => Number.isFinite(team) && prior !== null)
+    .sort(([left], [right]) => left - right);
+  return JSON.stringify({ responseName, lambdaGrid, digits: options.digits ?? 1, matches: matchFingerprint, priors });
+}
+
+function cacheTrendResult(key, result) {
+  trendCache.set(key, result);
+  if (trendCache.size > TREND_CACHE_LIMIT) trendCache.delete(trendCache.keys().next().value);
+  return result;
+}
+
+function computeEventPridgeTrend(matches, teamEvents, options = {}) {
+  const qualificationMatches = (Array.isArray(matches) ? matches : [])
+    .filter((match) => match?.comp_level === "qm")
+    .sort((left, right) => Number(left?.match_number || 0) - Number(right?.match_number || 0));
+  const entriesByTeam = new Map();
+  let completedMatchCount = 0;
+  let cacheHits = 0;
+  let cacheMisses = 0;
+  let previousMatches = [];
+
+  qualificationMatches.forEach((match) => {
+    let input;
+    try {
+      input = buildPriorRidgeInput([...previousMatches, match], teamEvents, options);
+    } catch {
+      return;
+    }
+    if (!input.design.length || input.matches.length <= previousMatches.length) return;
+    previousMatches = [...previousMatches, match];
+    completedMatchCount = input.matches.length;
+    const key = trendCacheKey(previousMatches, teamEvents, options);
+    let result = trendCache.get(key);
+    if (result) {
+      cacheHits += 1;
+    } else {
+      try {
+        result = computeEventPridge(previousMatches, teamEvents, options);
+        cacheMisses += 1;
+        cacheTrendResult(key, result);
+      } catch {
+        cacheMisses += 1;
+        return;
+      }
+    }
+    Object.entries(result.ratings || {}).forEach(([teamNumber, value]) => {
+      if (!Number.isFinite(Number(value))) return;
+      if (!entriesByTeam.has(Number(teamNumber))) entriesByTeam.set(Number(teamNumber), []);
+      entriesByTeam.get(Number(teamNumber)).push({ key: Number(match.match_number), value: Number(value) });
+    });
+  });
+
+  return {
+    entriesByTeam,
+    profiling: {
+      scheduleQualificationCount: qualificationMatches.length,
+      completedQualificationCount: completedMatchCount,
+      trendFitCount: cacheMisses,
+      trendCacheHits: cacheHits,
+      trendCacheMisses: cacheMisses,
+    },
+  };
+}
+
 function computeEventPridgeBatch(responseSets, teamEvents, options = {}) {
   const inputs = (Array.isArray(responseSets) ? responseSets : [])
     .map((entry) => ({ id: entry?.id, input: buildPriorRidgeInput(entry?.matches, teamEvents, options) }))
@@ -289,6 +371,7 @@ globalThis.PriorRidge = {
   fitPriorRidge,
   fitPriorRidgeBatch,
   computeEventPridge,
+  computeEventPridgeTrend,
   computeEventPridgeBatch,
 };
 })();
