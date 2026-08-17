@@ -16,6 +16,10 @@ function looksLikeGoogleSheetUrl(value) {
   return /\/spreadsheets\/d\/[a-zA-Z0-9-_]+/.test(normalizeText(value));
 }
 
+function looksLikeScoutingApiUrl(value) {
+  return /\/api\/scouting(?:\/|$)/i.test(normalizeText(value));
+}
+
 function fileExtension(value) {
   const normalized = normalizeText(value).split(/[?#]/)[0];
   const match = normalized.match(/\.([a-z0-9]+)$/i);
@@ -288,12 +292,14 @@ function activeScoutingAttachmentSchemaSourceValue(workspace) {
 function activeScoutingAttachmentFormat(workspace, eventModel) {
   const attachment = activeScoutingAttachment(workspace);
   const explicitFormat = normalizeText(attachment?.format).toLowerCase();
+  const url = normalizeText(attachment?.location?.url) || normalizeText(eventModel?.sheet?.url);
+  if (looksLikeScoutingApiUrl(url)) return "scouting-json";
   if (explicitFormat) return explicitFormat;
   if (attachment?.locationKind === "embedded-sample" || normalizeText(attachment?.location?.sampleKey)) return "legacy-sheet-csv";
-  const url = normalizeText(attachment?.location?.url) || normalizeText(eventModel?.sheet?.url);
   const path = normalizeText(attachment?.location?.path);
   const extension = fileExtension(url) || fileExtension(path);
   if (extension === "json") return "scouting-json";
+  if (looksLikeScoutingApiUrl(url)) return "scouting-json";
   if (extension === "csv" || extension === "tsv") return "legacy-sheet-csv";
   if (looksLikeGoogleSheetUrl(url)) return "legacy-sheet-url";
   return "legacy-sheet-url";

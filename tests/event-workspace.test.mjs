@@ -603,6 +603,28 @@ runTest("describeActiveScoutingAttachmentLoad classifies sample, sheet, and json
   assert.equal(jsonLoad.kind, "remote-json");
   assert.equal(jsonLoad.canLoad, true);
 
+  const simulatorWorkspace = context.EventWorkspace.createEventWorkspace(
+    { key: "2026evsim", season: 2026, name: "Simulator" },
+    {
+      activeScoutingAttachmentId: "simulator-attachment",
+      sources: {
+        scouting: [
+          {
+            attachmentId: "simulator-attachment",
+            format: "legacy-sheet-url",
+            locationKind: "url",
+            location: { url: "http://127.0.0.1:8787/api/scouting/2026evsim" },
+            autoLoad: true,
+          },
+        ],
+      },
+    },
+  );
+  const simulatorLoad = context.EventWorkspace.describeActiveScoutingAttachmentLoad(simulatorWorkspace, {});
+  assert.equal(context.EventWorkspace.activeScoutingAttachmentFormat(simulatorWorkspace, {}), "scouting-json");
+  assert.equal(simulatorLoad.kind, "remote-json");
+  assert.equal(simulatorLoad.canLoad, true);
+
   const localJsonWorkspace = context.EventWorkspace.createEventWorkspace(
     {
       key: "2026localjson",

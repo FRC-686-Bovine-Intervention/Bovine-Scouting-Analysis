@@ -871,6 +871,7 @@ function inferredScoutingAttachmentFormat(currentFormat, source) {
   const normalizedSource = normalizeScoutingSourceUrl(source).split(/[?#]/)[0];
   const normalizedFormat = normalizeText(currentFormat).toLowerCase();
   if (/\.json$/i.test(normalizedSource)) return "scouting-json";
+  if (/\/api\/scouting(?:\/|$)/i.test(normalizedSource)) return "scouting-json";
   if (/\.(csv|tsv|txt)$/i.test(normalizedSource)) return "legacy-sheet-csv";
   if (/\/spreadsheets\/d\/[a-zA-Z0-9-_]+/.test(normalizedSource)) return "legacy-sheet-url";
   return normalizedFormat || "scouting-json";
