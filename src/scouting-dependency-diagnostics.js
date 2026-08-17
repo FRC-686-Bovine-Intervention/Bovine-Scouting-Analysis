@@ -27,8 +27,10 @@ function normalizeFieldDefinitions(fieldDefinitions = []) {
         : (normalizeText(fieldDefinition?.label) || normalizeText(fieldDefinition?.id)),
       type: inferFieldType(fieldDefinition),
       unit: typeof fieldDefinition === "string" ? "" : normalizeText(fieldDefinition?.unit),
-      typeDeclared: typeof fieldDefinition !== "string"
-        && (Boolean(normalizeText(fieldDefinition?.type)) || normalizeText(fieldDefinition?.unit).toLowerCase() === "text"),
+      typeDeclared: typeof fieldDefinition?.typeDeclared === "boolean"
+        ? fieldDefinition.typeDeclared
+        : typeof fieldDefinition !== "string"
+          && (Boolean(normalizeText(fieldDefinition?.type)) || normalizeText(fieldDefinition?.unit).toLowerCase() === "text"),
     }))
     .filter((fieldDefinition) => fieldDefinition.id);
 }

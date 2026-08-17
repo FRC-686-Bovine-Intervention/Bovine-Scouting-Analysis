@@ -306,6 +306,7 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
           label: (typeof field === "string" ? "" : normalizeText(field?.label)) || normalizeText(normalizedField?.label) || fieldId,
           type: (typeof field === "string" ? "" : normalizeText(field?.type)) || normalizeText(normalizedField?.type),
           unit: (typeof field === "string" ? "" : normalizeText(field?.unit)) || normalizeText(normalizedField?.unit),
+          typeDeclared: normalizedField?.typeDeclared === true,
         };
       }),
       submissions: parsedRows,

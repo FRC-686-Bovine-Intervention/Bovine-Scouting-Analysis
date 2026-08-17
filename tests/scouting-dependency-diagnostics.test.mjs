@@ -83,6 +83,15 @@ runTest("compareScoutingFieldDefinitions ignores an undeclared current type", ()
   assert.deepEqual(result.typeChanged, []);
 });
 
+runTest("compareScoutingFieldDefinitions ignores inferred prior types", () => {
+  const context = loadBrowserContext(["src/metric-engine.js", "src/scouting-dependency-diagnostics.js"]);
+  const result = context.ScoutingDependencyDiagnostics.compareScoutingFieldDefinitions(
+    [{ id: "alliance", type: "number", typeDeclared: false }],
+    [{ id: "alliance", type: "string", unit: "text" }],
+  );
+  assert.deepEqual(result.typeChanged, []);
+});
+
 runTest("compareScoutingFieldDefinitions treats string schema field ids as committed fields", () => {
   const context = loadBrowserContext(["src/metric-engine.js", "src/scouting-dependency-diagnostics.js"]);
   const diff = context.ScoutingDependencyDiagnostics.compareScoutingFieldDefinitions(

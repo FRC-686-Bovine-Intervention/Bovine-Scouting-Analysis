@@ -200,11 +200,14 @@ function canonicalSchemaFieldName(fieldDefinition) {
 
 function normalizeSchemaField(fieldDefinition, expectedField = null) {
   const fieldId = canonicalSchemaFieldName(fieldDefinition) || normalizeText(expectedField?.id);
+  const explicitType = normalizeText(fieldDefinition?.type);
+  const explicitUnit = normalizeText(fieldDefinition?.unit);
   return {
     id: fieldId,
     label: normalizeText(fieldDefinition?.label) || fieldId,
     type: inferCanonicalFieldType({ ...(expectedField || {}), ...(fieldDefinition || {}), id: fieldId }),
-    unit: normalizeText(fieldDefinition?.unit) || normalizeText(expectedField?.unit),
+    unit: explicitUnit || normalizeText(expectedField?.unit),
+    typeDeclared: typeof fieldDefinition !== "string" && Boolean(explicitType || explicitUnit),
   };
 }
 
@@ -479,6 +482,7 @@ function validateCanonicalSchema(payload, eventModel, activeEventKey, schemaPayl
         label: fieldLabel || fieldId,
         type: fieldType || "string",
         unit: normalizeText(normalizedField?.unit),
+        typeDeclared: normalizedField?.typeDeclared === true,
       });
     });
   }
