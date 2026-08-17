@@ -5,10 +5,12 @@ function normalizeText(value) {
 
 function defaultPolicyForSource(source) {
   if (source?.kind === "scouting") {
+    const simulatorMode = globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first";
     return {
-      baseIntervalMs: 2 * 60 * 1000,
+      baseIntervalMs: simulatorMode ? 5 * 1000 : 2 * 60 * 1000,
       staleAfterMs: 15 * 60 * 1000,
-      maxBackoffMs: 20 * 60 * 1000,
+      maxBackoffMs: simulatorMode ? 60 * 1000 : 20 * 60 * 1000,
+      pollEveryTick: simulatorMode,
     };
   }
   return {
@@ -58,6 +60,7 @@ function sourceStatusBadgeClassName(status) {
 
 function shouldPollSource(source, policy, now = Date.now()) {
   if (source?.pollingEnabled === false) return false;
+  if (policy?.pollEveryTick) return true;
   const nextPollAt = Date.parse(normalizeText(source?.nextPollAt) || "");
   if (!nextPollAt) return true;
   return now >= nextPollAt;

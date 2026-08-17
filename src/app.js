@@ -1401,7 +1401,7 @@ function ensureSourceRefreshLoop() {
   sourceRefreshIntervalId = globalThis.setInterval(() => {
     maybePollActiveScoutingAttachment();
     maybePollExternalSources();
-  }, 30000);
+  }, 5000);
 }
 
 async function refreshDataSource(sourceId, options = {}) {

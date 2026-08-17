@@ -163,7 +163,7 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
   }
   const recordRequest = (request, generation = requestGeneration) => {
     if (generation !== requestGeneration) return;
-    const signature = request.dataSignature || `${request.source}/${request.kind}/${request.cursor}`;
+    const signature = `${request.source}/${request.kind}`;
     const existingIndex = requests.findIndex((item) => item.signature === signature);
     if (existingIndex >= 0) {
       const existing = requests.splice(existingIndex, 1)[0];
