@@ -6292,9 +6292,11 @@ function flaggedSubmissionGroups() {
 }
 
 function standaloneFlaggedSubmissionGroups() {
-  const duplicateKeys = new Set(duplicateGroups().map((group) => group.key));
   return currentScoutingSubmissions()
-    .filter((submission) => submissionNeedsReview(submission) && !duplicateKeys.has(duplicateSubmissionKey(submission)))
+    .filter((submission) => (
+      submissionNeedsReview(submission)
+      && !(submission.confidenceReasons || []).includes("duplicate_submission")
+    ))
     .map((submission) => ({ key: `single:${submission.id}`, submissions: [submission] }));
 }
 
