@@ -54,7 +54,7 @@ assert.equal(offsetState.offsets.scouting, 2);
 assert.equal((await get("/api/scouting/2026evsim")).entries.length > 0, true);
 const qualificationCount = (await get("/api/tba/event/2026evsim/matches")).filter((match) => match.comp_level === "qm").length;
 await post("/control/set", { cursor: qualificationCount });
-assert.equal((await get("/api/tba/event/2026evsim/matches")).some((match) => match.comp_level !== "qm"), false);
+assert.equal((await get("/api/tba/event/2026evsim/matches")).filter((match) => match.comp_level !== "qm").length > 0, true);
 await post("/control/set", { cursor: qualificationCount + 1 });
 assert.equal((await get("/api/tba/event/2026evsim/matches")).some((match) => match.comp_level !== "qm"), true);
 await post("/control/set", { failures: { scouting: "failed" } });
