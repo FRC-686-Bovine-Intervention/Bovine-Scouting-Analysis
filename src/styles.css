@@ -1209,6 +1209,21 @@ select {
   background: #D9D9D9;
 }
 
+[data-theme="dark"] .match-row.schedule-current {
+  background: #665f00;
+  color: #fff7b2;
+}
+
+[data-theme="dark"] .match-row.schedule-highlight-team {
+  background: #7a4524;
+  color: #ffe2cc;
+}
+
+[data-theme="dark"] .match-row.schedule-complete {
+  background: #46505c;
+  color: #eef3f8;
+}
+
 .schedule-highlight-control {
   display: inline-flex;
   align-items: center;
