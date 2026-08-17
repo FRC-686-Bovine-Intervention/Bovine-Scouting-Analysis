@@ -35,6 +35,11 @@ async function login(page) {
   } else {
     throw new Error("No supported login surface was found.");
   }
+  await page.waitForSelector("#sharedCachedEventSelect, [data-view=picklistBuilder]", { state: "visible", timeout: 15000 });
+  if (await page.locator("#sharedCachedEventSelect").count()) {
+    await page.locator("#sharedCachedEventSelect").selectOption("2026local");
+    await page.waitForSelector('[data-view="picklistBuilder"]', { state: "visible", timeout: 15000 });
+  }
   await page.waitForSelector('[data-view="picklistBuilder"]', { state: "visible" });
 }
 

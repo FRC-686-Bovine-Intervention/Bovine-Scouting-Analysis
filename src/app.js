@@ -520,6 +520,7 @@ let renderInProgress = false;
 let pendingRenderRequest = null;
 let renderFlushScheduled = false;
 let recentUserInteractionAt = 0;
+let userRenderPriorityUntil = 0;
 installGlobalRecoveryGuards();
 
 function perfNow() {
@@ -548,8 +549,11 @@ function interactiveElement(element = document.activeElement) {
   return element.matches?.("select, input, textarea, button, [contenteditable='true'], [role='dialog']") === true;
 }
 
-function noteUserInteraction() {
+function noteUserInteraction(eventName = "") {
   recentUserInteractionAt = perfNow();
+  if (["click", "change", "input", "keydown", "pointerup"].includes(eventName)) {
+    userRenderPriorityUntil = recentUserInteractionAt + 1000;
+  }
 }
 
 function renderCanInterruptInteraction() {
@@ -579,7 +583,7 @@ function queueRenderRequest(reason) {
 function installRenderInteractionCoordinator() {
   ["click", "change", "input", "keydown", "pointerup"].forEach((eventName) => {
     document.addEventListener(eventName, () => {
-      noteUserInteraction();
+      noteUserInteraction(eventName);
       if (eventName !== "click") flushPendingRender();
     }, true);
   });
@@ -7554,7 +7558,8 @@ function render(reason = "unspecified", options = {}) {
     flushPendingRender();
     return;
   }
-  if (!renderCanInterruptInteraction()) {
+  const userActionCanRender = !isBackgroundRender && perfNow() < userRenderPriorityUntil;
+  if (!renderCanInterruptInteraction() && !userActionCanRender) {
     queueRenderRequest(reason);
     return;
   }

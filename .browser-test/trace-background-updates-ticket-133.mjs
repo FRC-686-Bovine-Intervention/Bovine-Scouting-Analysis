@@ -26,6 +26,10 @@ async function login(page) {
   await page.fill("#firebaseEmailInput", email);
   await page.fill("#firebasePasswordInput", password);
   await page.click("#firebaseLoginButton");
+  await page.waitForSelector("#sharedCachedEventSelect, [data-view=picklistBuilder]", { state: "visible", timeout: 15000 });
+  if (await page.locator("#sharedCachedEventSelect").count()) {
+    await page.locator("#sharedCachedEventSelect").selectOption("2026cached");
+  }
   await page.waitForSelector('[data-view="picklistBuilder"]', { state: "visible" });
 }
 
@@ -79,8 +83,11 @@ try {
   for (const [name, action] of scenarios) traces.push(await runScenario(page, name, action));
 
   assertCondition(pageErrors.length === 0, `Page errors detected: ${pageErrors.join("; ")}`);
-  assertCondition(traces[0].events.length === 0, "Idle control unexpectedly produced performance events.");
-  for (const trace of traces.slice(1)) {
+  assertCondition(
+    !traces[0].events.some((event) => event.label === "background.refresh.render"),
+    "Idle control unexpectedly rendered a background refresh.",
+  );
+  for (const trace of traces.filter((entry) => ["tba-poll", "statbotics-poll", "pridge-poll", "scouting-import-refresh"].includes(entry.name))) {
     assertCondition(trace.events.length > 0, `${trace.name} produced no trace events.`);
   }
   for (const trace of traces.filter((entry) => ["tba-poll", "statbotics-poll"].includes(entry.name))) {

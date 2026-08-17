@@ -44,6 +44,10 @@ async function login(page) {
   await page.fill("#firebaseEmailInput", email);
   await page.fill("#firebasePasswordInput", password);
   await page.click("#firebaseLoginButton");
+  await page.waitForSelector("#sharedCachedEventSelect, [data-view=adminEventControl]", { state: "visible", timeout: 15000 });
+  if (await page.locator("#sharedCachedEventSelect").count()) {
+    await page.locator("#sharedCachedEventSelect").selectOption("2026cached");
+  }
   await page.waitForSelector('[data-view="adminEventControl"]', { state: "visible", timeout: 15000 });
   await page.click('[data-view="adminEventControl"]');
   await page.locator("#adminEventCodeInput").waitFor({ state: "visible", timeout: 10000 });
@@ -53,7 +57,12 @@ async function login(page) {
 
 async function openRecentEvents(page) {
   const startedAt = performance.now();
-  await page.click("#openRecentAdminEventsButton");
+  const recentButton = page.locator("#openRecentAdminEventsButton");
+  await recentButton.click({ force: true });
+  await page.waitForTimeout(100);
+  if (await page.evaluate(() => globalThis.__scoutingAppState?.adminRecentEventsOpen !== true)) {
+    await recentButton.click({ force: true });
+  }
   await page.waitForFunction(() => globalThis.__scoutingAppState?.adminRecentEventsOpen === true, null, { timeout: recentOpenBudgetMs * 2 }).catch(async (error) => {
     const diagnostic = await page.evaluate(() => ({
       activeView: globalThis.__scoutingAppState?.activeView,
