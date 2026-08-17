@@ -8336,7 +8336,9 @@ function scheduleAnalysisCalculation(selection, key) {
     } finally {
       if (pendingAnalysisCalculation?.key === key) pendingAnalysisCalculation = null;
     }
-    if (state.activeView === "analysis" && analysisResultKey(selection) === key) render();
+    if (state.activeView === "analysis" && analysisResultKey(selection) === key) {
+      render("background.analysis.calculation");
+    }
   }, 0);
 }
 
