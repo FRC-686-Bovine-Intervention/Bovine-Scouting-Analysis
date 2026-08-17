@@ -564,7 +564,7 @@ function flushPendingRender() {
     renderFlushScheduled = false;
     const request = pendingRenderRequest;
     pendingRenderRequest = null;
-    if (request) render(request.reason);
+    if (request) render(request.reason, { fromQueue: true });
   });
 }
 
@@ -1459,7 +1459,7 @@ function maybePollExternalSources() {
         console.error("Polling external source failed", sourceId, error);
         markExternalSourceFailure(sourceId, error?.message || `Unable to refresh ${sourceId}.`);
         saveState();
-        render();
+        render("background.refresh.error");
       })
       .finally(() => {
         pendingExternalRefreshSourceIds.delete(sourceId);
@@ -1527,7 +1527,7 @@ async function refreshDataSource(sourceId, options = {}) {
   saveState();
   if (didChange || trigger === "manual") {
     recordScoutingPerf("background.refresh.render", startedAt, { sourceId, trigger, changed: didChange, activeView: state.activeView });
-    render();
+    render("background.refresh");
   }
   recordScoutingPerf("background.refresh.end", startedAt, {
     sourceId,
@@ -5035,7 +5035,7 @@ async function syncSharedProfilesForEvent(eventKey = state.activeEventKey) {
       });
       state.scoutingProfileCatalog = normalizeScoutingProfileCatalog({ ...state.scoutingProfileCatalog, [eventKey]: mergedProfiles });
       saveState();
-      renderSafely();
+      renderSafely("background.sync.profiles");
       recordScoutingPerf("background.sync.end", startedAt, { path: "profiles", changed: true, activeEventKey: eventKey });
       return true;
     }
@@ -5087,7 +5087,7 @@ async function syncSharedSubmissionsForEvent(eventKey = state.activeEventKey) {
       localStorage.removeItem(eventStorageKey(storageKeys.scoutingSubmissions, resolvedEventKey));
       backfillScoutingProfilesFromSubmissions(currentEvent());
       saveState();
-      renderSafely();
+      renderSafely("background.sync.submissions");
       recordScoutingPerf("background.sync.end", startedAt, { path: "submissions", changed: true, activeEventKey: resolvedEventKey });
       return true;
     }
@@ -7521,7 +7521,13 @@ function renderNow(reason = "unspecified") {
   recordScoutingPerf("render", renderStartedAt, { activeView: state.activeView, reason });
 }
 
-function render(reason = "unspecified") {
+function render(reason = "unspecified", options = {}) {
+  const isBackgroundRender = reason.startsWith("background.");
+  if (isBackgroundRender && options.fromQueue !== true) {
+    queueRenderRequest(reason);
+    flushPendingRender();
+    return;
+  }
   if (!renderCanInterruptInteraction()) {
     queueRenderRequest(reason);
     return;
@@ -7601,9 +7607,9 @@ function bindNoEventScreenEvents() {
   });
 }
 
-function renderSafely() {
+function renderSafely(reason = "unspecified") {
   try {
-    render();
+    render(reason);
   } catch (error) {
     console.error("App bootstrap failed", error);
     renderRecoveryScreen(error);
