@@ -32,9 +32,14 @@ function unplayed(match) {
 }
 
 function matchOrder(matches) {
+  const compOrder = { qm: 0, ef: 1, qf: 2, sf: 3, f: 4 };
   return matches.filter(isCompleted).sort((a, b) => {
-    const phase = (m) => m.comp_level === "qm" ? 0 : 1;
-    return phase(a) - phase(b) || (a.comp_level === "qm" ? a.match_number - b.match_number : String(a.key).localeCompare(String(b.key)));
+    const levelA = String(a.comp_level || "").toLowerCase();
+    const levelB = String(b.comp_level || "").toLowerCase();
+    return (compOrder[levelA] ?? 9) - (compOrder[levelB] ?? 9)
+      || Number(a.match_number || 0) - Number(b.match_number || 0)
+      || Number(a.set_number || 0) - Number(b.set_number || 0)
+      || String(a.key).localeCompare(String(b.key));
   });
 }
 
