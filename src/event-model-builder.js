@@ -363,6 +363,17 @@ function normalizeMatches(matches) {
     .filter((match) => match.red.length === 3 && match.blue.length === 3);
 }
 
+function normalizePlayoffAlliances(alliances) {
+  return (Array.isArray(alliances) ? alliances : []).map((alliance, index) => ({
+    number: Number(alliance?.number ?? index + 1),
+    name: normalizeText(alliance?.name) || `Alliance ${Number(alliance?.number ?? index + 1)}`,
+    picks: (alliance?.picks || []).map(parseTeamNumberFromKey).filter(Number.isFinite),
+    backup: alliance?.backup?.team || alliance?.backup ? parseTeamNumberFromKey(alliance.backup?.team || alliance.backup) : null,
+    status: alliance?.status && typeof alliance.status === "object" ? { ...alliance.status } : null,
+  })).filter((alliance) => Number.isFinite(alliance.number) && alliance.number > 0)
+    .sort((left, right) => left.number - right.number);
+}
+
 function parseTeamNumberFromKey(value) {
   return Number(String(value || "").replace("frc", ""));
 }
@@ -483,6 +494,7 @@ function buildEventModelFromPayloads(payload) {
     })
     .sort((left, right) => left.number - right.number);
   const matches = normalizeMatches(payload.tbaMatches || []);
+  const playoffAlliances = normalizePlayoffAlliances(payload.tbaAlliances);
   const qualificationMatches = (payload.tbaMatches || []).filter((match) => match?.comp_level === "qm");
   let pridgeResult = null;
   let pridgeError = "";
@@ -565,6 +577,7 @@ function buildEventModelFromPayloads(payload) {
     seasonLabel: "",
     matchesComplete: matches.length,
     matches,
+    playoffAlliances,
     scoringComponents: [],
     scoringMatrixPresets: eventSchema.scoringMatrixPresets || [],
     scouterMetricDefinitions: explicitScouterMetricDefinitions,
@@ -650,6 +663,7 @@ function buildEventModelFromProviderBundle(bundle) {
     tbaEvent: bundle.tbaEvent || {},
     tbaTeams: bundle.tbaTeams || [],
     tbaMatches: bundle.tbaMatches || [],
+    tbaAlliances: bundle.tbaAlliances || [],
     tbaRankings: bundle.tbaRankings || {},
     tbaTeamStats: bundle.tbaTeamStats || bundle.tbaOprs || {},
     statboticsEvent: bundle.statboticsEvent || {},

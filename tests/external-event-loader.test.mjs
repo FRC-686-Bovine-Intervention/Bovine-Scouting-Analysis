@@ -82,6 +82,9 @@ await runTest("loadEventByCode builds an event model and ready provider states f
       { team_number: 555, nickname: "Epsilon" },
       { team_number: 666, nickname: "Zeta" },
     ],
+    [`${baseUrls.tba}/event/2026test/alliances`]: [
+      { number: 1, picks: ["frc111", "frc222", "frc333"], status: { playoff_status: "active" } },
+    ],
     [`${baseUrls.tba}/event/2026test/matches`]: [
       {
         comp_level: "qm",
@@ -202,6 +205,7 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   });
 
   assert.equal(result.eventModel.key, "2026test");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.playoffAlliances)), [{ number: 1, name: "Alliance 1", picks: [111, 222, 333], backup: null, status: { playoff_status: "active" } }]);
   assert.equal(result.eventModel.catalogSource, "dynamic-external");
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.scouterMetricDefinitions || [])), []);
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.formulaFieldDefinitions || [])), []);

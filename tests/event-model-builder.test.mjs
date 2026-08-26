@@ -70,6 +70,10 @@ const bundle = {
 
 const playoffBundle = {
   ...bundle,
+  tbaAlliances: [
+    { number: 2, picks: ["frc2", "frc4", "frc6"], status: { playoff_status: "eliminated", record: { losses: 2 } } },
+    { number: 1, picks: ["frc1", "frc3", "frc5", "frc999"], status: { playoff_status: "active" } },
+  ],
   tbaMatches: [
     ...bundle.tbaMatches,
     {
@@ -102,6 +106,10 @@ assert.deepEqual(playoffEvent.matches.slice(-2).map((match) => ({ id: match.id, 
   { id: "2019chcmp_sf1m1", compLevel: "sf", setNumber: 1, number: 1 },
 ]);
 assert.equal(playoffEvent.matches.at(-2).hasScore, true);
+assert.deepEqual(JSON.parse(JSON.stringify(playoffEvent.playoffAlliances)), [
+  { number: 1, name: "Alliance 1", picks: [1, 3, 5, 999], backup: null, status: { playoff_status: "active" } },
+  { number: 2, name: "Alliance 2", picks: [2, 4, 6], backup: null, status: { playoff_status: "eliminated", record: { losses: 2 } } },
+]);
 console.log("PASS event model includes playoff matches with stable identities");
 
 const deferred = context.EventModelBuilder.buildEventModelFromProviderBundle({ ...bundle, deferPridgeTrends: true });

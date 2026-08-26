@@ -263,6 +263,7 @@ const navItems = [
   { view: "rankings", label: "Rankings", icon: "rankings" },
   { view: "schedule", label: "Match Schedule", icon: "schedule" },
   { view: "matchup", label: "Matchup", icon: "matchup" },
+  { view: "bracket", label: "Playoff Bracket", icon: "bracket" },
   { view: "analysis", label: "Analysis", icon: "analysis" },
   { view: "derivedBuilder", label: "Derived Equation Builder", icon: "derivedBuilder" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
@@ -7747,6 +7748,7 @@ function icon(name) {
     bullseye: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>',
     schedule: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/>',
     matchup: '<text x="12" y="17" text-anchor="middle" font-size="16" font-weight="700" fill="currentColor" stroke="none">vs.</text>',
+    bracket: '<path d="M4 5h6v5H4zM14 14h6v5h-6zM4 14h6v5H4zM10 7.5h4v9h-4"/>',
     quality: '<path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5"/><path d="M12 17h.01"/>',
     debug: '<path d="M9 3h6l1 3h3v6a6 6 0 0 1-12 0V6h3l1-3Z"/><path d="M9 12h.01M15 12h.01M10 16h4"/>',
     picklists: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
@@ -7781,6 +7783,7 @@ function viewTitle(view) {
     derivedBuilder: "Derived Equation Builder",
     schedule: "Match Schedule",
     matchup: "Matchup",
+    bracket: "Playoff Bracket",
     picklistBuilder: "Picklist Builder",
     alliance: "Alliance Selection",
     adminEventControl: "Admin Event Control",
@@ -7845,6 +7848,7 @@ function renderView() {
     derivedBuilder: renderDerivedBuilder,
     schedule: renderSchedule,
     matchup: renderMatchup,
+    bracket: renderPlayoffBracket,
     picklistBuilder: renderPicklistBuilder,
     alliance: renderAlliance,
     adminEventControl: renderAdminEventControl,
@@ -8860,6 +8864,63 @@ function renderSchedule() {
       ${playoffs.length ? renderScheduleSection("Playoffs", playoffs, currentMatch, state.highlightTeam, true) : ""}
     </div>
   `;
+}
+
+function playoffAllianceIsEliminated(alliance) {
+  const status = normalizeText(alliance?.status?.playoff_status || alliance?.status?.playoffStatus).toLowerCase();
+  const losses = Number(alliance?.status?.record?.losses);
+  return ["eliminated", "lost", "out"].includes(status) || losses >= 2;
+}
+
+function playoffAllianceNumbers(eventModel = currentEvent()) {
+  const alliances = Array.isArray(eventModel?.playoffAlliances) ? eventModel.playoffAlliances : [];
+  return Array.from({ length: 8 }, (_, index) => alliances.find((alliance) => alliance.number === index + 1) || { number: index + 1, name: `Alliance ${index + 1}`, picks: [], status: null });
+}
+
+function renderPlayoffAllianceCard(alliance) {
+  const eliminated = playoffAllianceIsEliminated(alliance);
+  const highlighted = state.highlightTeam > 0 && alliance.picks.includes(state.highlightTeam);
+  const teamNumbers = alliance.picks.filter((team, index, values) => Number.isFinite(team) && values.indexOf(team) === index);
+  return `<article class="playoff-alliance-card ${eliminated ? "playoff-eliminated" : ""} ${highlighted ? "schedule-highlight-team" : ""}">
+    <header><strong>Alliance ${escapeHtml(String(alliance.number))}</strong></header>
+    <div class="playoff-alliance-teams">${teamNumbers.length
+      ? teamNumbers.map((number) => {
+        const team = teamByNumber(number);
+        return `<button class="playoff-team ${highlighted && number === state.highlightTeam ? "playoff-highlight-team" : ""}" data-team="${number}" ${eliminated ? "aria-disabled=\"true\"" : ""}>${escapeHtml(team ? `${team.number} ${team.name}` : String(number))}</button>`;
+      }).join("")
+      : `<span class="muted">Teams pending</span>`}</div>
+  </article>`;
+}
+
+function renderPlayoffBracketMatch(match) {
+  const highlighted = state.highlightTeam > 0 && [...(match.red || []), ...(match.blue || [])].includes(state.highlightTeam);
+  const score = match.hasScore ? `${match.redScore} - ${match.blueScore}` : "Not played";
+  return `<article class="playoff-bracket-match ${highlighted ? "schedule-highlight-team" : ""}">
+    <header><strong>${escapeHtml(matchupMatchLabel(match))}</strong><span>${escapeHtml(score)}</span></header>
+    <div class="playoff-bracket-alliance red">${match.red.map((team) => escapeHtml(String(team))).join(" · ") || "TBD"}</div>
+    <div class="playoff-bracket-alliance blue">${match.blue.map((team) => escapeHtml(String(team))).join(" · ") || "TBD"}</div>
+  </article>`;
+}
+
+function renderPlayoffBracket() {
+  const event = currentEvent();
+  const playoffMatches = (event.matches || []).filter((match) => match.compLevel !== "qm");
+  const rounds = [
+    ["Quarterfinals", "qf"],
+    ["Semifinals", "sf"],
+    ["Finals", "f"],
+  ].map(([label, compLevel]) => ({ label, matches: playoffMatches.filter((match) => match.compLevel === compLevel) })).filter((round) => round.matches.length);
+  const alliances = playoffAllianceNumbers(event);
+  return `<div class="playoff-bracket-page">
+    <div class="section-heading">
+      <div><h2>Playoff Bracket</h2><p class="muted">FIRST double-elimination playoff bracket</p></div>
+      <label class="schedule-highlight-control">Highlight Team
+        <input id="playoffBracketHighlightTeam" type="number" min="1" step="1" value="${state.highlightTeam || ""}" placeholder="686" />
+      </label>
+    </div>
+    <div class="playoff-alliance-grid">${alliances.map(renderPlayoffAllianceCard).join("")}</div>
+    <div class="playoff-bracket-grid">${rounds.length ? rounds.map((round) => `<section class="playoff-bracket-round"><h3>${round.label}</h3>${round.matches.map(renderPlayoffBracketMatch).join("")}</section>`).join("") : `<p class="muted">Playoff matches will appear here when TBA publishes the bracket.</p>`}</div>
+  </div>`;
 }
 
 function renderMatchup() {
@@ -11146,6 +11207,11 @@ function bindViewEvents() {
     });
   });
   document.querySelector("#scheduleHighlightTeam")?.addEventListener("change", (event) => {
+    state.highlightTeam = normalizeHighlightTeam(event.target.value);
+    saveState();
+    render();
+  });
+  document.querySelector("#playoffBracketHighlightTeam")?.addEventListener("change", (event) => {
     state.highlightTeam = normalizeHighlightTeam(event.target.value);
     saveState();
     render();

@@ -347,10 +347,11 @@ async function loadEventByCode(eventCode, options = {}) {
   const tbaHeaders = { Accept: "application/json" };
   if (tbaAuthKey) tbaHeaders["X-TBA-Auth-Key"] = tbaAuthKey;
 
-  const [tbaEventResult, tbaTeamsResult, tbaMatchesResult, tbaRankingsResult, tbaTeamStatsResult, statboticsResult] = await Promise.all([
+  const [tbaEventResult, tbaTeamsResult, tbaMatchesResult, tbaAlliancesResult, tbaRankingsResult, tbaTeamStatsResult, statboticsResult] = await Promise.all([
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}`, { ...options, headers: tbaHeaders })),
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/teams`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/teams`, { ...options, headers: tbaHeaders })),
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/matches`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/matches`, { ...options, headers: tbaHeaders })),
+    settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/alliances`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/alliances`, { ...options, headers: tbaHeaders })),
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/rankings`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/rankings`, { ...options, headers: tbaHeaders })),
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/oprs`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/oprs`, { ...options, headers: tbaHeaders })),
     loadStatboticsBundle(statboticsBaseUrl, statboticsFallbackBaseUrl, normalizedEventCode, options),
@@ -379,6 +380,7 @@ async function loadEventByCode(eventCode, options = {}) {
     tbaEvent: tbaEventResult.value?.payload || {},
     tbaTeams: Array.isArray(tbaTeamsResult.value?.payload) ? tbaTeamsResult.value.payload : [],
     tbaMatches: Array.isArray(tbaMatchesResult.value?.payload) ? tbaMatchesResult.value.payload : [],
+    tbaAlliances: tbaAlliancesResult.ok && Array.isArray(tbaAlliancesResult.value?.payload) ? tbaAlliancesResult.value.payload : [],
     tbaRankings: tbaRankingsResult.ok ? (tbaRankingsResult.value?.payload || {}) : {},
     tbaTeamStats: tbaTeamStatsResult.ok ? (tbaTeamStatsResult.value?.payload || {}) : {},
     statboticsEvent: statboticsEventResult.ok ? (statboticsEventResult.value?.payload || {}) : {},
@@ -391,6 +393,9 @@ async function loadEventByCode(eventCode, options = {}) {
   });
 
   const warnings = [];
+  if (!tbaAlliancesResult.ok && Number(tbaEventResult.value?.payload?.playoff_type) > 0) {
+    warnings.push(formatProviderError("The Blue Alliance playoff alliances", tbaAlliancesResult.error));
+  }
   if (!tbaRankingsResult.ok) {
     warnings.push(formatProviderError("The Blue Alliance rankings", tbaRankingsResult.error));
   }
@@ -472,7 +477,7 @@ async function loadEventByCode(eventCode, options = {}) {
     sourceStates,
     warnings,
     rawSourceArtifacts: [
-      ["tba-event", tbaEventResult], ["tba-teams", tbaTeamsResult], ["tba-matches", tbaMatchesResult], ["tba-rankings", tbaRankingsResult], ["tba-oprs", tbaTeamStatsResult], ["statbotics-event", statboticsEventResult], ["statbotics-team-events", statboticsTeamEventsResult],
+      ["tba-event", tbaEventResult], ["tba-teams", tbaTeamsResult], ["tba-matches", tbaMatchesResult], ["tba-alliances", tbaAlliancesResult], ["tba-rankings", tbaRankingsResult], ["tba-oprs", tbaTeamStatsResult], ["statbotics-event", statboticsEventResult], ["statbotics-team-events", statboticsTeamEventsResult],
       ["statbotics-matches", statboticsTeamMatchesResult.responses[0] ? { ok: true, value: statboticsTeamMatchesResult.responses[0] } : { ok: false }],
     ].filter(([, result]) => result.ok).map(([sourceId, result]) => ({
       sourceId,

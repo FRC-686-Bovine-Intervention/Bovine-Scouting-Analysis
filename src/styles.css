@@ -1292,6 +1292,77 @@ select {
   margin-top: 24px;
 }
 
+.playoff-alliance-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(110px, 1fr));
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.playoff-alliance-card,
+.playoff-bracket-match {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 8px;
+}
+
+.playoff-alliance-card.playoff-eliminated {
+  opacity: 0.48;
+  filter: grayscale(1);
+}
+
+.playoff-alliance-teams,
+.playoff-bracket-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.playoff-team {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 4px 0;
+  text-align: left;
+}
+
+.playoff-bracket-grid {
+  grid-template-columns: repeat(3, minmax(190px, 1fr));
+  margin-top: 16px;
+}
+
+.playoff-bracket-round {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.playoff-bracket-round h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.playoff-bracket-match header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.playoff-bracket-alliance {
+  margin-top: 6px;
+  padding: 5px;
+  border-radius: 4px;
+}
+
+.playoff-bracket-alliance.red { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.playoff-bracket-alliance.blue { background: color-mix(in srgb, var(--info) 14%, transparent); }
+
+@media (max-width: 1100px) {
+  .playoff-alliance-grid { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
+  .playoff-bracket-grid { grid-template-columns: repeat(2, minmax(190px, 1fr)); }
+}
+
 .matchup-alliance-card,
 .matchup-metric-card {
   border: 1px solid var(--line);
