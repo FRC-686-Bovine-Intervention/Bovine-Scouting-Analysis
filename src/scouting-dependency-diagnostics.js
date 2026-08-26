@@ -18,6 +18,7 @@ function inferFieldType(fieldDefinition = {}) {
 
 function normalizeFieldDefinitions(fieldDefinitions = []) {
   return (fieldDefinitions || [])
+<<<<<<< HEAD
     .map((fieldDefinition) => ({
       id: typeof fieldDefinition === "string"
         ? normalizeText(fieldDefinition)
@@ -32,6 +33,26 @@ function normalizeFieldDefinitions(fieldDefinitions = []) {
         : typeof fieldDefinition !== "string"
           && (Boolean(normalizeText(fieldDefinition?.type)) || normalizeText(fieldDefinition?.unit).toLowerCase() === "text"),
     }))
+=======
+    .map((fieldDefinition) => {
+      const hasTypeMetadata = typeof fieldDefinition !== "string"
+        && Object.prototype.hasOwnProperty.call(fieldDefinition || {}, "typeDeclared");
+      return {
+        id: typeof fieldDefinition === "string"
+          ? normalizeText(fieldDefinition)
+          : normalizeText(fieldDefinition?.id),
+        label: typeof fieldDefinition === "string"
+          ? normalizeText(fieldDefinition)
+          : (normalizeText(fieldDefinition?.label) || normalizeText(fieldDefinition?.id)),
+        type: inferFieldType(fieldDefinition),
+        unit: typeof fieldDefinition === "string" ? "" : normalizeText(fieldDefinition?.unit),
+        typeDeclared: hasTypeMetadata
+          ? Boolean(fieldDefinition.typeDeclared)
+          : typeof fieldDefinition !== "string"
+            && (Boolean(normalizeText(fieldDefinition?.type)) || normalizeText(fieldDefinition?.unit).toLowerCase() === "text"),
+      };
+    })
+>>>>>>> 1afd434 (Suppress legacy inferred schema type changes)
     .filter((fieldDefinition) => fieldDefinition.id);
 }
 

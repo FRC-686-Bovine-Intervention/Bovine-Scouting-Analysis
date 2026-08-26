@@ -306,7 +306,13 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
           label: (typeof field === "string" ? "" : normalizeText(field?.label)) || normalizeText(normalizedField?.label) || fieldId,
           type: (typeof field === "string" ? "" : normalizeText(field?.type)) || normalizeText(normalizedField?.type),
           unit: (typeof field === "string" ? "" : normalizeText(field?.unit)) || normalizeText(normalizedField?.unit),
+<<<<<<< HEAD
           typeDeclared: normalizedField?.typeDeclared === true,
+=======
+          typeDeclared: typeof field !== "string"
+            ? Boolean(normalizeText(field?.type)) || normalizeText(field?.unit).toLowerCase() === "text"
+            : Boolean(normalizedField?.typeDeclared),
+>>>>>>> 1afd434 (Suppress legacy inferred schema type changes)
         };
       }),
       submissions: parsedRows,

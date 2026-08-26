@@ -14,6 +14,7 @@ function parseScoutingSchemaSignatureFields(signature) {
   try {
     const parsed = JSON.parse(text);
     return Array.isArray(parsed?.fields)
+<<<<<<< HEAD
       ? parsed.fields.map((fieldDefinition) => (
           fieldDefinition
           && typeof fieldDefinition === "object"
@@ -21,6 +22,13 @@ function parseScoutingSchemaSignatureFields(signature) {
             ? { ...fieldDefinition, typeDeclared: false }
             : fieldDefinition
         ))
+=======
+      ? parsed.fields.map((field) => {
+          if (typeof field === "string" || !field || typeof field !== "object") return field;
+          // Legacy signatures materialized inferred types but had no declaration metadata.
+          return { ...field, typeDeclared: field.typeDeclared === true };
+        })
+>>>>>>> 1afd434 (Suppress legacy inferred schema type changes)
       : [];
   } catch {
     return [];
