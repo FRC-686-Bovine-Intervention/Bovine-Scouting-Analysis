@@ -70,11 +70,7 @@ runTest("buildScoutingDiagnosticsState parses committed schema signatures and co
   assert.equal(state.pendingDiagnostics.schemaDiff.removed.some((fieldDefinition) => fieldDefinition.id === "driverSignal"), true);
 });
 
-<<<<<<< HEAD
 runTest("legacy schema signatures treat unmarked types as inferred", () => {
-=======
-runTest("buildScoutingDiagnosticsState ignores legacy inferred type changes", () => {
->>>>>>> 1afd434 (Suppress legacy inferred schema type changes)
   const context = loadBrowserContext([
     "src/metric-engine.js",
     "src/scouting-dependency-diagnostics.js",
@@ -82,43 +78,10 @@ runTest("buildScoutingDiagnosticsState ignores legacy inferred type changes", ()
   ]);
 
   const state = context.ScoutingDiagnosticsState.buildScoutingDiagnosticsState({
-<<<<<<< HEAD
     committedSchemaSignature: JSON.stringify({ fields: [{ id: "alliance", type: "number" }] }),
     currentFieldDefinitions: [{ id: "alliance", type: "string", unit: "text" }],
   });
 
   assert.equal(state.currentDiagnostics.schemaDiff.typeChanged.length, 0);
   assert.equal(state.committedFields[0].typeDeclared, false);
-=======
-    committedSchemaSignature: JSON.stringify({
-      fields: [
-        { id: "alliance", type: "number" },
-        { id: "startingPosition", type: "number" },
-      ],
-    }),
-    currentFieldDefinitions: [
-      { id: "alliance", type: "string" },
-      { id: "startingPosition", type: "string" },
-    ],
-  });
-
-  assert.deepEqual(state.currentDiagnostics.schemaDiff.typeChanged, []);
-});
-
-runTest("buildScoutingDiagnosticsState still reports explicit type changes", () => {
-  const context = loadBrowserContext([
-    "src/metric-engine.js",
-    "src/scouting-dependency-diagnostics.js",
-    "src/scouting-diagnostics-state.js",
-  ]);
-
-  const state = context.ScoutingDiagnosticsState.buildScoutingDiagnosticsState({
-    committedSchemaSignature: JSON.stringify({
-      fields: [{ id: "cycles", type: "number", typeDeclared: true }],
-    }),
-    currentFieldDefinitions: [{ id: "cycles", type: "string" }],
-  });
-
-  assert.deepEqual(state.currentDiagnostics.schemaDiff.typeChanged.map((field) => field.id), ["cycles"]);
->>>>>>> 1afd434 (Suppress legacy inferred schema type changes)
 });

@@ -31,13 +31,9 @@ function normalizeSchemaFieldEntry(fieldDefinition) {
     label: (typeof fieldDefinition === "string" ? "" : fieldDefinition.label) || fieldId,
     type: explicitType || (explicitUnit ? (explicitUnit.toLowerCase() === "text" ? "string" : "number") : ""),
     unit: explicitUnit,
-<<<<<<< HEAD
     typeDeclared: typeof fieldDefinition !== "string" && typeof fieldDefinition?.typeDeclared === "boolean"
       ? fieldDefinition.typeDeclared
       : typeof fieldDefinition !== "string" && Boolean(explicitType || explicitUnit),
-=======
-    typeDeclared: Boolean(explicitType) || explicitUnit.toLowerCase() === "text",
->>>>>>> 1afd434 (Suppress legacy inferred schema type changes)
   };
 }
 
