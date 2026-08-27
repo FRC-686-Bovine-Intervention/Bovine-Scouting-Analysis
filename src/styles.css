@@ -1514,8 +1514,8 @@ select {
   text-overflow: ellipsis;
 }
 
-.playoff-bracket-alliance.red { background: color-mix(in srgb, var(--danger) 14%, transparent); }
-.playoff-bracket-alliance.blue { background: color-mix(in srgb, var(--info) 14%, transparent); }
+.playoff-bracket-alliance.red { background: color-mix(in srgb, var(--danger) 14%, var(--panel)); }
+.playoff-bracket-alliance.blue { background: color-mix(in srgb, var(--info) 14%, var(--panel)); }
 
 @media (max-width: 1100px) {
   .playoff-alliance-grid { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
