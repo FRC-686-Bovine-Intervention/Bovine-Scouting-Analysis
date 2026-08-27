@@ -1414,7 +1414,7 @@ select {
 
 .playoff-bracket-slot {
   position: relative;
-  z-index: 2;
+  z-index: 4;
   grid-column: var(--bracket-column);
   grid-row: var(--bracket-row) / span 2;
   min-width: 0;
@@ -1436,7 +1436,7 @@ select {
   left: 64px;
   width: calc(100% - 64px);
   height: 832px;
-  z-index: 0;
+  z-index: 3;
   pointer-events: none;
 }
 

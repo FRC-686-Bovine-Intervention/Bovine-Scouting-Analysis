@@ -8943,7 +8943,7 @@ function renderPlayoffBracket() {
       <div class="playoff-bracket-column-labels">${["Round 1", "Round 2", "Round 3", "Round 4", "Round 5", "Finals"].map((label) => `<h3>${label}</h3>`).join("")}</div>
       <div class="playoff-bracket-lane-labels"><span>Upper bracket</span><span>Lower bracket</span></div>
       <svg class="playoff-bracket-connectors" viewBox="0 0 1100 832" preserveAspectRatio="none" aria-hidden="true">
-        <path d="M171 38H183V142H195 M171 142H183V558H195 M171 246H183V350H195 M171 350H183V766H195 M354 90H366V194H562 M354 298H366V194H562 M354 90H366V714H378 M354 766H366V714H378 M354 298H366V506H378 M354 558H366V506H378 M538 506H550V610H562 M538 714H550V610H562 M721 194H733V506H745 M721 610H733V506H745 M905 506H917V350H929 M721 194H917V350H929" />
+        <path d="M175 5H184V57H192 M175 109H184V57H192 M175 5H184V525H192 M175 109H184V525H192 M175 213H184V265H192 M175 317H184V265H192 M175 213H184V733H192 M175 317H184V733H192 M359 57H367V161H558 M359 265H367V161H558 M359 57H367V681H375 M359 733H367V681H375 M359 265H367V473H375 M359 525H367V473H375 M543 473H551V577H558 M543 681H551V577H558 M725 161H734V473H742 M725 577H734V473H742 M908 473H916V317H924 M725 161H916V317H924" />
       </svg>
       <div class="playoff-bracket-slots">${playoffBracketSlots.map((slot) => {
         const match = slot.label.startsWith("M") ? matchesByNumber.get(Number(slot.label.slice(1))) : null;
