@@ -1202,12 +1202,14 @@ select {
 }
 
 .match-row.schedule-highlight-team {
-  background: #FABF8F;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 .playoff-alliance-card.schedule-highlight-team,
 .playoff-bracket-match.schedule-highlight-team {
-  background: #FABF8F;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 .match-row.schedule-complete {
@@ -1220,14 +1222,14 @@ select {
 }
 
 [data-theme="dark"] .match-row.schedule-highlight-team {
-  background: #7a4524;
-  color: #ffe2cc;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 [data-theme="dark"] .playoff-alliance-card.schedule-highlight-team,
 [data-theme="dark"] .playoff-bracket-match.schedule-highlight-team {
-  background: #7a4524;
-  color: #ffe2cc;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 .playoff-bracket-match.schedule-highlight-team .playoff-bracket-alliance.red {

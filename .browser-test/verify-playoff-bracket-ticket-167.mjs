@@ -64,6 +64,8 @@ try {
       highlightedTeamMatches: [...document.querySelectorAll(".playoff-bracket-match.schedule-highlight-team")].filter((node) => node.textContent.includes("686")).map((node) => node.querySelector("strong")?.textContent.trim()),
       finalCardPositions: [...document.querySelectorAll(".playoff-bracket-finals .playoff-bracket-match")].map((node) => node.getBoundingClientRect().top),
       highlightedAllianceBackgrounds: (() => { const match = [...document.querySelectorAll(".playoff-bracket-match.schedule-highlight-team")].find((node) => node.querySelector("strong")?.textContent.trim() === "M4"); return match ? [...match.querySelectorAll(".playoff-bracket-alliance")].map((node) => getComputedStyle(node).backgroundColor) : []; })(),
+      highlightBackground: getComputedStyle(document.querySelector(".playoff-bracket-match.schedule-highlight-team")).backgroundColor,
+      accentSoft: getComputedStyle(document.documentElement).getPropertyValue("--accent-soft").trim(),
       eliminated: document.querySelectorAll(".playoff-alliance-card.playoff-eliminated").length,
       bracketMatches: document.querySelectorAll(".playoff-bracket-match").length,
       bracketRounds: [...document.querySelectorAll(".playoff-bracket-column-labels h3")].map((node) => node.textContent.trim()),
@@ -89,6 +91,7 @@ try {
   assert.equal(result.finalCardPositions.length, 2, "Both finals matches are rendered.");
   assert.ok(result.finalCardPositions[1] > result.finalCardPositions[0], "Finals 2 is below Finals 1.");
   assert.ok(result.highlightedAllianceBackgrounds.every((background) => !background.startsWith("rgba")), "Highlighted red and blue alliance strips remain opaque.");
+  assert.notEqual(result.highlightBackground, "rgb(250, 191, 143)", "The beige highlight color is no longer used.");
   assert.equal(result.eliminated, 1);
   assert.equal(result.bracketMatches, 15, "The rendered bracket reserves every Figure 10-2 match slot plus both finals.");
   assert.deepEqual(result.bracketRounds, ["Round 1", "Round 2", "Round 3", "Round 4", "Round 5", "Finals"]);
