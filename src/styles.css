@@ -1202,12 +1202,19 @@ select {
 }
 
 .match-row.schedule-highlight-team {
-  background: #FABF8F;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 .playoff-alliance-card.schedule-highlight-team,
 .playoff-bracket-match.schedule-highlight-team {
-  background: #FABF8F;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.playoff-bracket-match.schedule-current {
+  background: #FFFF66;
+  color: var(--text);
 }
 
 .match-row.schedule-complete {
@@ -1220,22 +1227,23 @@ select {
 }
 
 [data-theme="dark"] .match-row.schedule-highlight-team {
-  background: #7a4524;
-  color: #ffe2cc;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 [data-theme="dark"] .playoff-alliance-card.schedule-highlight-team,
 [data-theme="dark"] .playoff-bracket-match.schedule-highlight-team {
-  background: #7a4524;
-  color: #ffe2cc;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
-.playoff-bracket-match.schedule-highlight-team .playoff-bracket-alliance.red {
-  background: color-mix(in srgb, var(--danger) 22%, var(--panel));
+[data-theme="dark"] .playoff-bracket-match.schedule-current {
+  background: #665f00;
+  color: #fff7b2;
 }
 
-.playoff-bracket-match.schedule-highlight-team .playoff-bracket-alliance.blue {
-  background: color-mix(in srgb, var(--info) 22%, var(--panel));
+.playoff-bracket-match.schedule-highlight-team .playoff-bracket-alliance {
+  color: var(--text);
 }
 
 [data-theme="dark"] .match-row.schedule-complete {
@@ -1502,8 +1510,8 @@ select {
   text-overflow: ellipsis;
 }
 
-.playoff-bracket-alliance.red { background: color-mix(in srgb, var(--danger) 14%, transparent); }
-.playoff-bracket-alliance.blue { background: color-mix(in srgb, var(--info) 14%, transparent); }
+.playoff-bracket-alliance.red { background: color-mix(in srgb, var(--danger) 14%, var(--panel)); }
+.playoff-bracket-alliance.blue { background: color-mix(in srgb, var(--info) 14%, var(--panel)); }
 
 @media (max-width: 1100px) {
   .playoff-alliance-grid { grid-template-columns: repeat(4, minmax(130px, 1fr)); }

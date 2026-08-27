@@ -61,9 +61,14 @@ try {
       allianceTeamGap: getComputedStyle(document.querySelector(".playoff-alliance-teams")).rowGap,
       highlightedAllianceCards: document.querySelectorAll(".playoff-alliance-card.schedule-highlight-team").length,
       nextMatch: document.querySelector('[data-playoff-next="true"] strong')?.textContent.trim(),
+      nextMatchClass: document.querySelector('[data-playoff-next="true"]')?.className,
       highlightedTeamMatches: [...document.querySelectorAll(".playoff-bracket-match.schedule-highlight-team")].filter((node) => node.textContent.includes("686")).map((node) => node.querySelector("strong")?.textContent.trim()),
       finalCardPositions: [...document.querySelectorAll(".playoff-bracket-finals .playoff-bracket-match")].map((node) => node.getBoundingClientRect().top),
       highlightedAllianceBackgrounds: (() => { const match = [...document.querySelectorAll(".playoff-bracket-match.schedule-highlight-team")].find((node) => node.querySelector("strong")?.textContent.trim() === "M4"); return match ? [...match.querySelectorAll(".playoff-bracket-alliance")].map((node) => getComputedStyle(node).backgroundColor) : []; })(),
+      normalAllianceBackgrounds: (() => { const match = [...document.querySelectorAll(".playoff-bracket-match")].find((node) => node.querySelector("strong")?.textContent.trim() === "M1"); return match ? [...match.querySelectorAll(".playoff-bracket-alliance")].map((node) => getComputedStyle(node).backgroundColor) : []; })(),
+      nextAllianceBackgrounds: (() => { const match = document.querySelector('[data-playoff-next="true"]'); return match ? [...match.querySelectorAll(".playoff-bracket-alliance")].map((node) => getComputedStyle(node).backgroundColor) : []; })(),
+      highlightBackground: getComputedStyle(document.querySelector(".playoff-bracket-match.schedule-highlight-team")).backgroundColor,
+      accentSoft: getComputedStyle(document.documentElement).getPropertyValue("--accent-soft").trim(),
       eliminated: document.querySelectorAll(".playoff-alliance-card.playoff-eliminated").length,
       bracketMatches: document.querySelectorAll(".playoff-bracket-match").length,
       bracketRounds: [...document.querySelectorAll(".playoff-bracket-column-labels h3")].map((node) => node.textContent.trim()),
@@ -85,10 +90,14 @@ try {
   assert.equal(result.allianceTeamGap, "0px", "Alliance card team names have no extra gap.");
   assert.equal(result.highlightedAllianceCards, 1, "The selected team highlights its alliance card.");
   assert.equal(result.nextMatch, "M2", "The next unplayed playoff match is highlighted.");
+  assert.match(result.nextMatchClass, /schedule-current/, "The next playoff match uses the schedule current-match highlight.");
   assert.deepEqual(result.highlightedTeamMatches, ["M4", "M8"], "Resolved downstream playoff matches highlight the selected team.");
   assert.equal(result.finalCardPositions.length, 2, "Both finals matches are rendered.");
   assert.ok(result.finalCardPositions[1] > result.finalCardPositions[0], "Finals 2 is below Finals 1.");
   assert.ok(result.highlightedAllianceBackgrounds.every((background) => !background.startsWith("rgba")), "Highlighted red and blue alliance strips remain opaque.");
+  assert.deepEqual(result.highlightedAllianceBackgrounds, result.normalAllianceBackgrounds, "Team highlighting does not alter red and blue alliance strip colors.");
+  assert.ok(result.nextAllianceBackgrounds.every((background) => !background.startsWith("rgba")), "The yellow next-match alliance strips remain opaque.");
+  assert.notEqual(result.highlightBackground, "rgb(250, 191, 143)", "The beige highlight color is no longer used.");
   assert.equal(result.eliminated, 1);
   assert.equal(result.bracketMatches, 15, "The rendered bracket reserves every Figure 10-2 match slot plus both finals.");
   assert.deepEqual(result.bracketRounds, ["Round 1", "Round 2", "Round 3", "Round 4", "Round 5", "Finals"]);
@@ -120,6 +129,48 @@ try {
     globalThis.render();
   });
   assert.equal(await page.locator(".playoff-alliance-card:nth-child(2).playoff-eliminated").count(), 1, "Two recorded playoff losses gray an alliance without status metadata.");
+  await page.evaluate(() => {
+    const fixture = globalThis.__ticket167Fixture;
+    const completedBracketMatch = (number, compLevel, setNumber) => ({ id: `bracket-${compLevel}-${number}`, number: compLevel === "f" ? number : 1, compLevel, setNumber, red: [1, 2, 3], blue: [4, 5, 6], redScore: 100, blueScore: 90, hasScore: true });
+    fixture.matches = [
+      ...Array.from({ length: 4 }, (_, index) => completedBracketMatch(index + 1, "qf", index + 1)),
+      ...Array.from({ length: 8 }, (_, index) => completedBracketMatch(index + 6, "sf", index + 6)),
+    ];
+    globalThis.render();
+  });
+  assert.equal(await page.locator('[data-playoff-next="true"] strong').textContent(), "M5", "M5 is next after M1-M4 complete.");
+  await page.evaluate(() => {
+    const fixture = globalThis.__ticket167Fixture;
+    fixture.matches.splice(4, 0, { id: "bracket-sf-5", number: 1, compLevel: "sf", setNumber: 5, red: [1, 2, 3], blue: [4, 5, 6], redScore: -1, blueScore: -1, hasScore: false });
+    fixture.matches[4].hasScore = true;
+    fixture.matches[4].redScore = 100;
+    fixture.matches[4].blueScore = 90;
+    globalThis.render();
+  });
+  assert.equal(await page.locator('[data-playoff-next="true"] strong').textContent(), "Finals", "The static finals placeholder is next before TBA returns a Finals record.");
+  await page.evaluate(() => {
+    const fixture = globalThis.__ticket167Fixture;
+    const finalMatch = (number) => ({ id: `bracket-f-${number}`, number, compLevel: "f", red: [1, 2, 3], blue: [4, 5, 6], redScore: -1, blueScore: -1, hasScore: false });
+    fixture.matches.push(finalMatch(1), finalMatch(2), finalMatch(3));
+    globalThis.render();
+  });
+  assert.equal(await page.locator('[data-playoff-next="true"] strong').textContent(), "Final 1", "Final 1 is next when the finals record first appears.");
+  await page.evaluate(() => {
+    const fixture = globalThis.__ticket167Fixture;
+    fixture.matches[13].hasScore = true;
+    fixture.matches[13].redScore = 100;
+    fixture.matches[13].blueScore = 90;
+    globalThis.render();
+  });
+  assert.equal(await page.locator('[data-playoff-next="true"] strong').textContent(), "Final 2", "Final 2 is next after Final 1 completes.");
+  await page.evaluate(() => {
+    const fixture = globalThis.__ticket167Fixture;
+    fixture.matches[14].hasScore = true;
+    fixture.matches[14].redScore = 100;
+    fixture.matches[14].blueScore = 90;
+    globalThis.render();
+  });
+  assert.equal(await page.locator('[data-playoff-next="true"] strong').textContent(), "Final 3", "Final 3 is next after Final 2 completes.");
   assert.equal(result.highlightDefault, "686");
   assert.equal(result.boardOverflowX, "visible", "The fluid bracket should not need an inner horizontal scrollbar.");
   assert.equal(result.boardOverflowY, "visible", "The bracket should not create a redundant inner vertical scrollbar.");
