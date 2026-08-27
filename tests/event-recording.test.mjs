@@ -59,6 +59,15 @@ assert.equal(engine.get("tba", "matches").length, 0);
 engine.advance();
 assert.equal(engine.getState().eventTag, "qual-1");
 assert.equal(engine.get("tba", "matches").length, 1);
+const partialRecordingPath = path.join(temp, "partial-recording");
+fs.cpSync(path.join(temp, "2026test"), partialRecordingPath, { recursive: true });
+const partialCursorPath = path.join(partialRecordingPath, "cursors", "000002.json");
+const partialCursor = JSON.parse(fs.readFileSync(partialCursorPath, "utf8"));
+delete partialCursor.providers.statbotics.endpoints.teamMatches;
+fs.writeFileSync(partialCursorPath, JSON.stringify(partialCursor, null, 2));
+const partialEngine = createRecordedEngine({ recordingPath: partialRecordingPath, statePath: path.join(temp, "partial-simulator-state.json") });
+partialEngine.setState({ cursor: 2 });
+assert.throws(() => partialEngine.get("statbotics", "team-matches"), /unavailable in this recorded cursor/);
 
 const configPath = path.join(temp, "recorder-config.json");
 fs.writeFileSync(configPath, JSON.stringify({ events: ["2026test"], outputRoot: temp, tbaAuthKey: "must-not-be-read", statusPort: 8899 }));
