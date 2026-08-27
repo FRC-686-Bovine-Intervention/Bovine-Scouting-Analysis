@@ -19,10 +19,11 @@ function isCompleted(match) {
   return match && match.alliances?.red?.score != null && match.alliances?.blue?.score != null && match.alliances.red.score >= 0 && match.alliances.blue.score >= 0;
 }
 
-function unplayed(match) {
+function unplayed(match, hideTeams = false) {
   const copy = clone(match);
   for (const alliance of ["red", "blue"]) {
     if (copy.alliances?.[alliance]) copy.alliances[alliance].score = -1;
+    if (hideTeams && copy.alliances?.[alliance]) copy.alliances[alliance].team_keys = [];
     if (copy.score_breakdown) copy.score_breakdown[alliance] = null;
   }
   copy.winning_alliance = "";
@@ -84,6 +85,7 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
   const fixtures = Object.fromEntries(Object.entries(scenario.fixtures).map(([key, file]) => [key, loadFixture(root, file)]));
   const qualification = fixtures.tbaMatches.filter((match) => match.comp_level === "qm");
   const ordered = matchOrder(fixtures.tbaMatches);
+  const initialPlayoffMatches = ordered.filter((match) => match.comp_level === "sf").slice(0, 4);
   const defaults = clone(scenario.defaults);
   const loadState = () => {
     try { return { ...clone(defaults), ...JSON.parse(fs.readFileSync(statePath, "utf8")), offsets: { ...defaults.offsets, ...JSON.parse(fs.readFileSync(statePath, "utf8")).offsets }, latencyMs: { ...defaults.latencyMs, ...JSON.parse(fs.readFileSync(statePath, "utf8")).latencyMs }, failures: { ...defaults.failures, ...JSON.parse(fs.readFileSync(statePath, "utf8")).failures } }; } catch { return clone(defaults); }
@@ -120,7 +122,10 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
       const schedule = cursor >= qualification.length
         ? fixtures.tbaMatches
         : fixtures.tbaMatches.filter((match) => match.comp_level === "qm");
-      const matches = schedule.map((match) => visible.has(match) ? match : unplayed(match));
+      const matches = schedule.map((match) => {
+        const known = visible.has(match) || initialPlayoffMatches.includes(match);
+        return known ? match : unplayed(match, match.comp_level !== "qm");
+      });
       const result = { event, teams, matches: rewriteEventKeys(matches, scenario.sourceEventKey, scenario.id), alliances: cursor >= qualification.length ? clone(fixtures.tbaAlliances || []) : [] };
       const projections = buildTbaProjections(ordered.slice(0, Math.max(0, cursor)));
       result.rankings = rewriteEventKeys(projections.rankings, scenario.sourceEventKey, scenario.id);
