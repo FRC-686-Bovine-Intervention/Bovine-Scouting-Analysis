@@ -8915,13 +8915,39 @@ function playoffBracketMatchNumber(match) {
   return null;
 }
 
-function renderPlayoffBracketMatch(match, label = "Match") {
+function playoffBracketResolvedSource(source, matchesByNumber, alliancesByNumber, seen = new Set()) {
+  const text = normalizeText(source);
+  const allianceMatch = text.match(/^Alliance (\d+)$/i);
+  if (allianceMatch) {
+    const alliance = alliancesByNumber.get(Number(allianceMatch[1]));
+    return alliance?.picks?.length ? alliance.picks : text;
+  }
+  const matchSource = text.match(/^(Winner|Loser) of M(\d+)$/i);
+  if (!matchSource) return text || "TBD";
+  const sourceNumber = Number(matchSource[2]);
+  if (seen.has(sourceNumber)) return text;
+  const sourceMatch = matchesByNumber.get(sourceNumber);
+  if (!sourceMatch?.hasScore) return text;
+  const winningAlliance = normalizeText(sourceMatch.winningAlliance).toLowerCase();
+  const winnerSide = winningAlliance === "red" || winningAlliance === "blue"
+    ? winningAlliance
+    : sourceMatch.redScore > sourceMatch.blueScore ? "red" : sourceMatch.blueScore > sourceMatch.redScore ? "blue" : "";
+  if (!winnerSide) return text;
+  const side = matchSource[1].toLowerCase() === "winner" ? winnerSide : winnerSide === "red" ? "blue" : "red";
+  const teams = sourceMatch[side];
+  return teams?.length ? teams : text;
+}
+
+function renderPlayoffBracketMatch(match, label = "Match", sources = {}, context = {}) {
   const highlighted = state.highlightTeam > 0 && [...(match?.red || []), ...(match?.blue || [])].includes(state.highlightTeam);
   const score = match?.hasScore ? `${match.redScore} - ${match.blueScore}` : "Not played";
+  const red = match?.red?.length ? match.red : playoffBracketResolvedSource(sources.red, context.matchesByNumber, context.alliancesByNumber);
+  const blue = match?.blue?.length ? match.blue : playoffBracketResolvedSource(sources.blue, context.matchesByNumber, context.alliancesByNumber);
+  const formatAlliance = (teams) => Array.isArray(teams) ? teams.map((team) => escapeHtml(String(team))).join(" · ") : escapeHtml(String(teams || "TBD"));
   return `<article class="playoff-bracket-match ${highlighted ? "schedule-highlight-team" : ""}">
     <header><strong>${escapeHtml(label)}</strong><span>${escapeHtml(score)}</span></header>
-    <div class="playoff-bracket-alliance red">${match?.red?.map((team) => escapeHtml(String(team))).join(" · ") || "TBD"}</div>
-    <div class="playoff-bracket-alliance blue">${match?.blue?.map((team) => escapeHtml(String(team))).join(" · ") || "TBD"}</div>
+    <div class="playoff-bracket-alliance red">${formatAlliance(red)}</div>
+    <div class="playoff-bracket-alliance blue">${formatAlliance(blue)}</div>
   </article>`;
 }
 
@@ -8931,6 +8957,8 @@ function renderPlayoffBracket() {
   const matchesByNumber = new Map(playoffMatches.map((match) => [playoffBracketMatchNumber(match), match]));
   const finals = playoffMatches.filter((match) => match.compLevel === "f");
   const alliances = playoffAllianceNumbers(event);
+  const alliancesByNumber = new Map(alliances.map((alliance) => [alliance.number, alliance]));
+  const bracketContext = { matchesByNumber, alliancesByNumber };
   return `<div class="playoff-bracket-page">
     <div class="section-heading">
       <div><h2>Playoff Bracket</h2><p class="muted">FIRST double-elimination playoff bracket</p></div>
@@ -8947,7 +8975,7 @@ function renderPlayoffBracket() {
       </svg>
       <div class="playoff-bracket-slots">${playoffBracketSlots.map((slot) => {
         const match = slot.label.startsWith("M") ? matchesByNumber.get(Number(slot.label.slice(1))) : null;
-        const cards = slot.bracket === "finals" && finals.length ? finals.map((final, index) => renderPlayoffBracketMatch(final, `Final ${index + 1}`)).join("") : renderPlayoffBracketMatch(match, slot.label);
+        const cards = slot.bracket === "finals" && finals.length ? finals.map((final, index) => renderPlayoffBracketMatch(final, `Final ${index + 1}`, slot, bracketContext)).join("") : renderPlayoffBracketMatch(match, slot.label, slot, bracketContext);
         return `<section class="playoff-bracket-slot playoff-bracket-${slot.bracket}" style="--bracket-column:${slot.column};--bracket-row:${slot.row}">${cards}</section>`;
       }).join("")}</div>
     </div>
