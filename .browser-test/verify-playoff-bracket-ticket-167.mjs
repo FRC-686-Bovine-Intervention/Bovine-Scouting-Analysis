@@ -65,6 +65,7 @@ try {
       highlightedTeamMatches: [...document.querySelectorAll(".playoff-bracket-match.schedule-highlight-team")].filter((node) => node.textContent.includes("686")).map((node) => node.querySelector("strong")?.textContent.trim()),
       finalCardPositions: [...document.querySelectorAll(".playoff-bracket-finals .playoff-bracket-match")].map((node) => node.getBoundingClientRect().top),
       highlightedAllianceBackgrounds: (() => { const match = [...document.querySelectorAll(".playoff-bracket-match.schedule-highlight-team")].find((node) => node.querySelector("strong")?.textContent.trim() === "M4"); return match ? [...match.querySelectorAll(".playoff-bracket-alliance")].map((node) => getComputedStyle(node).backgroundColor) : []; })(),
+      normalAllianceBackgrounds: (() => { const match = [...document.querySelectorAll(".playoff-bracket-match")].find((node) => node.querySelector("strong")?.textContent.trim() === "M1"); return match ? [...match.querySelectorAll(".playoff-bracket-alliance")].map((node) => getComputedStyle(node).backgroundColor) : []; })(),
       nextAllianceBackgrounds: (() => { const match = document.querySelector('[data-playoff-next="true"]'); return match ? [...match.querySelectorAll(".playoff-bracket-alliance")].map((node) => getComputedStyle(node).backgroundColor) : []; })(),
       highlightBackground: getComputedStyle(document.querySelector(".playoff-bracket-match.schedule-highlight-team")).backgroundColor,
       accentSoft: getComputedStyle(document.documentElement).getPropertyValue("--accent-soft").trim(),
@@ -94,6 +95,7 @@ try {
   assert.equal(result.finalCardPositions.length, 2, "Both finals matches are rendered.");
   assert.ok(result.finalCardPositions[1] > result.finalCardPositions[0], "Finals 2 is below Finals 1.");
   assert.ok(result.highlightedAllianceBackgrounds.every((background) => !background.startsWith("rgba")), "Highlighted red and blue alliance strips remain opaque.");
+  assert.deepEqual(result.highlightedAllianceBackgrounds, result.normalAllianceBackgrounds, "Team highlighting does not alter red and blue alliance strip colors.");
   assert.ok(result.nextAllianceBackgrounds.every((background) => !background.startsWith("rgba")), "The yellow next-match alliance strips remain opaque.");
   assert.notEqual(result.highlightBackground, "rgb(250, 191, 143)", "The beige highlight color is no longer used.");
   assert.equal(result.eliminated, 1);

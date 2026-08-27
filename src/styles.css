@@ -1242,12 +1242,8 @@ select {
   color: #fff7b2;
 }
 
-.playoff-bracket-match.schedule-highlight-team .playoff-bracket-alliance.red {
-  background: color-mix(in srgb, var(--danger) 22%, var(--panel));
-}
-
-.playoff-bracket-match.schedule-highlight-team .playoff-bracket-alliance.blue {
-  background: color-mix(in srgb, var(--info) 22%, var(--panel));
+.playoff-bracket-match.schedule-highlight-team .playoff-bracket-alliance {
+  color: var(--text);
 }
 
 [data-theme="dark"] .match-row.schedule-complete {
