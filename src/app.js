@@ -8982,7 +8982,7 @@ function renderPlayoffBracketMatch(match, label = "Match", sources = {}, context
     const prefix = alliance ? `A${alliance.number}: ` : "";
     return escapeHtml(`${prefix}${orderedTeams.map((team) => String(team)).join(" - ")}`);
   };
-  return `<article class="playoff-bracket-match ${highlighted || isNext ? "schedule-highlight-team" : ""}"${isNext ? ' data-playoff-next="true"' : ""}>
+  return `<article class="playoff-bracket-match ${highlighted ? "schedule-highlight-team" : ""} ${isNext ? "schedule-current" : ""}"${isNext ? ' data-playoff-next="true"' : ""}>
     <header><strong>${escapeHtml(label)}</strong><span>${escapeHtml(score)}</span></header>
     <div class="playoff-bracket-alliance red">${formatAlliance(red)}</div>
     <div class="playoff-bracket-alliance blue">${formatAlliance(blue)}</div>

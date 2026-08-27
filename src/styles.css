@@ -1212,6 +1212,11 @@ select {
   color: var(--accent-strong);
 }
 
+.playoff-bracket-match.schedule-current {
+  background: #FFFF66;
+  color: var(--text);
+}
+
 .match-row.schedule-complete {
   background: #D9D9D9;
 }
@@ -1230,6 +1235,11 @@ select {
 [data-theme="dark"] .playoff-bracket-match.schedule-highlight-team {
   background: var(--accent-soft);
   color: var(--accent-strong);
+}
+
+[data-theme="dark"] .playoff-bracket-match.schedule-current {
+  background: #665f00;
+  color: #fff7b2;
 }
 
 .playoff-bracket-match.schedule-highlight-team .playoff-bracket-alliance.red {
