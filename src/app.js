@@ -8970,11 +8970,11 @@ function playoffBracketOrderedTeams(teams, alliancesByNumber) {
 }
 
 function renderPlayoffBracketMatch(match, label = "Match", sources = {}, context = {}) {
-  const highlighted = state.highlightTeam > 0 && [...(match?.red || []), ...(match?.blue || [])].includes(state.highlightTeam);
   const isNext = Boolean(match && context.nextPlayoffMatch && matchIdentity(match) === matchIdentity(context.nextPlayoffMatch));
   const score = match?.hasScore ? `${match.redScore} - ${match.blueScore}` : "Not played";
   const red = match?.red?.length ? match.red : playoffBracketResolvedSource(sources.red, context.matchesByNumber, context.alliancesByNumber);
   const blue = match?.blue?.length ? match.blue : playoffBracketResolvedSource(sources.blue, context.matchesByNumber, context.alliancesByNumber);
+  const highlighted = state.highlightTeam > 0 && [red, blue].some((teams) => Array.isArray(teams) && teams.map((team) => Number(team)).includes(state.highlightTeam));
   const formatAlliance = (teams) => {
     if (!Array.isArray(teams)) return escapeHtml(String(teams || "TBD"));
     const orderedTeams = playoffBracketOrderedTeams(teams, context.alliancesByNumber);

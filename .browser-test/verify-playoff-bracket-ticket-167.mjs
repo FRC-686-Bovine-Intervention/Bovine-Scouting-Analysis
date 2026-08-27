@@ -22,7 +22,8 @@ await page.addInitScript(() => {
     teamNumbers: teams.map((team) => team.number),
     matches: [
       { id: "2026bracket_qf1m1", number: 1, compLevel: "qf", setNumber: 1, red: [3, 1, 2], blue: [4, 5, 6], redScore: 100, blueScore: 90, hasScore: true },
-      { id: "2026bracket_qf1m2", number: 2, compLevel: "qf", setNumber: 2, red: [686, 8, 9], blue: [1, 2, 3], redScore: -1, blueScore: -1, hasScore: false },
+      { id: "2026bracket_qf1m2", number: 2, compLevel: "qf", setNumber: 2, red: [7, 8, 9], blue: [1, 2, 3], redScore: -1, blueScore: -1, hasScore: false },
+      { id: "2026bracket_qf1m4", number: 4, compLevel: "qf", setNumber: 4, red: [686, 8, 9], blue: [1, 2, 3], redScore: 95, blueScore: 90, hasScore: true },
     ],
     playoffAlliances: [
       { number: 1, name: "Alliance 1", picks: [1, 2, 3], status: { playoff_status: "active" } },
@@ -58,6 +59,7 @@ try {
       allianceTeamGap: getComputedStyle(document.querySelector(".playoff-alliance-teams")).rowGap,
       highlightedAllianceCards: document.querySelectorAll(".playoff-alliance-card.schedule-highlight-team").length,
       nextMatch: document.querySelector('[data-playoff-next="true"] strong')?.textContent.trim(),
+      highlightedTeamMatches: [...document.querySelectorAll(".playoff-bracket-match.schedule-highlight-team")].filter((node) => node.textContent.includes("686")).map((node) => node.querySelector("strong")?.textContent.trim()),
       eliminated: document.querySelectorAll(".playoff-alliance-card.playoff-eliminated").length,
       bracketMatches: document.querySelectorAll(".playoff-bracket-match").length,
       bracketRounds: [...document.querySelectorAll(".playoff-bracket-column-labels h3")].map((node) => node.textContent.trim()),
@@ -79,6 +81,7 @@ try {
   assert.equal(result.allianceTeamGap, "0px", "Alliance card team names have no extra gap.");
   assert.equal(result.highlightedAllianceCards, 1, "The selected team highlights its alliance card.");
   assert.equal(result.nextMatch, "M2", "The next unplayed playoff match is highlighted.");
+  assert.deepEqual(result.highlightedTeamMatches, ["M4", "M8"], "Resolved downstream playoff matches highlight the selected team.");
   assert.equal(result.eliminated, 1);
   assert.equal(result.bracketMatches, 14, "The rendered bracket reserves every Figure 10-2 match slot.");
   assert.deepEqual(result.bracketRounds, ["Round 1", "Round 2", "Round 3", "Round 4", "Round 5", "Finals"]);
