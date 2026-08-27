@@ -9,6 +9,7 @@ if (!playwrightPath) throw new Error("Playwright is unavailable.");
 const { chromium } = await import(pathToFileURL(playwrightPath).href);
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH || "C:/Users/rich/AppData/Local/ms-playwright/chromium-1228/chrome-win64/chrome.exe" });
 const page = await browser.newPage();
+await page.setViewportSize({ width: 1818, height: 716 });
 
 await page.addInitScript(() => {
   const teams = Array.from({ length: 9 }, (_, index) => ({ number: index + 1, name: `Team ${index + 1}`, flags: [], matches: [], sources: {}, derived: {} }));
@@ -34,7 +35,7 @@ await page.addInitScript(() => {
 try {
   await page.goto("http://localhost:4175", { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => globalThis.__scoutingAppState);
-  const result = await page.evaluate(() => {
+  await page.evaluate(() => {
     globalThis.firebaseCurrentUser = { uid: "test-user" };
     const state = globalThis.__scoutingAppState;
     globalThis.eventCatalog.splice(0, globalThis.eventCatalog.length, globalThis.__ticket167Fixture);
@@ -43,6 +44,9 @@ try {
     state.activeView = "bracket";
     state.highlightTeam = 686;
     globalThis.render();
+    return { ready: true };
+  });
+  const result = await page.evaluate(() => {
     return {
       nav: document.querySelector('[data-view="bracket"]')?.getAttribute("title"),
       cards: document.querySelectorAll(".playoff-alliance-card").length,
@@ -65,7 +69,7 @@ try {
   assert.equal(result.bracketMatches, 14, "The rendered bracket reserves every Figure 10-2 match slot.");
   assert.deepEqual(result.bracketRounds, ["Round 1", "Round 2", "Round 3", "Round 4", "Round 5", "Finals"]);
   assert.deepEqual(result.lanes, ["Upper bracket", "Lower bracket"]);
-  assert.match(result.connectorPath, /M180 40H192/);
+  assert.match(result.connectorPath, /M150 40H170/);
   assert.equal(result.score, "100 - 90");
   assert.equal(result.highlightDefault, "686");
   console.log("PASS rendered playoff bracket supports eight cards, three/four-team alliances, scores, and elimination state");
