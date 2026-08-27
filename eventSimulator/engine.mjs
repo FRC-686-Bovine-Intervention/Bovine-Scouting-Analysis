@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { loadRecording, providerPayload } from "./recording.mjs";
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const sourceNames = ["tba", "statbotics", "scouting"];
@@ -190,4 +191,43 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
   };
   const getState = () => ({ scenario: scenario.id, cursor: state.cursor, currentMatch: state.cursor < 0 ? "Pre-Event" : state.cursor === 0 ? "Schedule Released" : matchLabel(ordered[state.cursor - 1]), phase: state.cursor < 0 ? "team-only" : state.cursor === 0 ? "scheduled" : "results", offsets: clone(state.offsets), latencyMs: clone(state.latencyMs), delayScale: state.delayScale, failures: clone(state.failures), corrections: clone(state.corrections), totalSequence: ordered.length, requests: requests.map(({ signature, dataSignature, ...request }) => request) });
   return { scenario, fixtures, defaults, getState, setState, advance, resetTimeline, resetConfig, resetAll, get, effectiveCursor: (source) => effectiveCursor(state, source), requestGeneration: () => requestGeneration, recordRequest, responseDelay: (source) => (state.latencyMs[source] || 0) * state.delayScale };
+}
+
+export function createRecordedEngine({ recordingPath, statePath = path.resolve("eventSimulator/.recorded-state.json") } = {}) {
+  if (!recordingPath) throw new Error("A recording path is required.");
+  const recording = loadRecording(recordingPath);
+  let state = { cursor: 0 };
+  try { state = { ...state, ...JSON.parse(fs.readFileSync(statePath, "utf8")) }; } catch {}
+  const persist = () => { fs.mkdirSync(path.dirname(statePath), { recursive: true }); fs.writeFileSync(statePath, JSON.stringify(state, null, 2)); };
+  const active = () => recording.cursors[Math.max(0, Math.min(recording.cursors.length - 1, Number(state.cursor) || 0))];
+  const sourceState = (source) => active()?.providers?.[source];
+  const get = (source, kind) => {
+    const provider = sourceState(source);
+    const payloads = providerPayload(provider);
+    if (!provider || provider.status === "error" && !Object.keys(payloads).length) throw Object.assign(new Error(provider?.error || `${source} is unavailable`), { statusCode: 503 });
+    if (source === "tba") return payloads[kind] ?? (kind === "rankings" ? { rankings: [] } : kind === "oprs" ? { oprs: {}, dprs: {}, ccwms: {} } : []);
+    if (source === "statbotics") return payloads[kind === "team-events" ? "teamEvents" : kind === "team-matches" ? "teamMatches" : kind] ?? [];
+    return payloads[kind] ?? {};
+  };
+  const getState = () => {
+    const cursor = active();
+    return {
+      mode: "recording",
+      scenario: recording.manifest.eventCode,
+      recordingPath,
+      cursor: state.cursor,
+      cursorCount: recording.cursors.length,
+      currentMatch: cursor?.eventTag || "Event complete",
+      eventTag: cursor?.eventTag || "event-complete",
+      recordedAt: cursor?.recordedAt || "",
+      offsets: { tba: 0, statbotics: 0, scouting: 0 },
+      requests: [],
+    };
+  };
+  const setState = (updates = {}) => { if (updates.cursor != null) state.cursor = Math.max(0, Math.min(recording.cursors.length - 1, Number(updates.cursor))); persist(); return getState(); };
+  const advance = (amount = 1) => setState({ cursor: state.cursor + Math.max(1, Number(amount)) });
+  const resetTimeline = () => setState({ cursor: 0 });
+  const resetConfig = () => getState();
+  const resetAll = () => setState({ cursor: 0 });
+  return { getState, setState, advance, resetTimeline, resetConfig, resetAll, get, effectiveCursor: () => state.cursor, requestGeneration: () => 0, recordRequest: () => {}, responseDelay: () => 0 };
 }

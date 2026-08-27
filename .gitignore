@@ -10,5 +10,7 @@ firestore-debug.log
 .localhost-server.4173.pid
 firestore-debug.log
 eventSimulator/.state.json
+eventSimulator/.recorded-state.json
+recordings/
 runtime-config.local.js
 src/deployment-revision.local.js

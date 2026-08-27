@@ -1,11 +1,14 @@
 import http from "node:http";
-import { createEngine } from "./engine.mjs";
+import { createEngine, createRecordedEngine } from "./engine.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const engine = createEngine({ root: path.resolve(here, ".."), statePath: process.env.EVENT_SIMULATOR_STATE || path.join(here, ".state.json") });
+const recordingPath = process.env.EVENT_SIMULATOR_RECORDING || "";
+const engine = recordingPath
+  ? createRecordedEngine({ recordingPath: path.resolve(recordingPath), statePath: process.env.EVENT_SIMULATOR_STATE || path.join(here, ".recorded-state.json") })
+  : createEngine({ root: path.resolve(here, ".."), statePath: process.env.EVENT_SIMULATOR_STATE || path.join(here, ".state.json") });
 const controlPagePath = path.join(here, "control.html");
 const revisionPath = path.resolve(here, "../src/deployment-revision.js");
 const json = (res, status, value) => { res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*" }); res.end(JSON.stringify(value)); };

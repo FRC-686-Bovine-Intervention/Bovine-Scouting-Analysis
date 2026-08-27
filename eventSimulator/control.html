@@ -37,10 +37,10 @@
   </ol>
   <p><strong>Machine check:</strong> open <code>http://127.0.0.1:8787/state</code>. It should return JSON with <code>scenario: 2026evsim</code>. Close the launcher PowerShell window when finished.</p>
 </section>
-<div class="event-header">
-  <h1>2026evsim <span id="buildHash" class="build-hash">Build: __BUILD_HASH__</span></h1>
+  <div class="event-header">
+  <h1><span id="scenarioName">2026evsim</span> <span id="buildHash" class="build-hash">Build: __BUILD_HASH__</span></h1>
   <div class="advance-controls" aria-label="Match controls">
-    <span class="current-match">Current match: <strong id="currentMatch">Loading…</strong></span>
+    <span class="current-match">Event position: <strong id="currentMatch">Loading…</strong></span>
     <button id="advance-1" onclick="post('advance', { amount: 1 })">+1</button>
     <button id="advance-5" onclick="post('advance', { amount: 5 })">+5</button>
     <button id="advance-10" onclick="post('advance', { amount: 10 })">+10</button>
@@ -62,6 +62,7 @@
 const setupToggle = document.querySelector('#setupToggle');
 const setupInstructions = document.querySelector('#setupInstructions');
 const currentMatch = document.querySelector('#currentMatch');
+const scenarioName = document.querySelector('#scenarioName');
 const offsetInputs = {
   tba: document.querySelector('#tbaOffset'),
   statbotics: document.querySelector('#statboticsOffset'),
@@ -89,6 +90,7 @@ function renderConnectionStatus(value){
 function renderState(value){
   renderConnectionStatus(value);
   currentMatch.textContent = value?.currentMatch || 'Event complete';
+  scenarioName.textContent = value?.scenario || 'Event Simulator';
   for (const [source, input] of Object.entries(offsetInputs)) {
     if (document.activeElement !== input && value?.offsets?.[source] != null) input.value = value.offsets[source];
   }
