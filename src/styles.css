@@ -1312,7 +1312,11 @@ select {
   filter: grayscale(1);
 }
 
-.playoff-alliance-teams,
+.playoff-alliance-teams {
+  display: grid;
+  gap: 0;
+}
+
 .playoff-bracket-grid {
   display: grid;
   gap: 6px;
