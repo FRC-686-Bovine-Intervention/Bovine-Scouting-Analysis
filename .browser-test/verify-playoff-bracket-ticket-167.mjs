@@ -22,10 +22,12 @@ await page.addInitScript(() => {
     teamNumbers: teams.map((team) => team.number),
     matches: [
       { id: "2026bracket_qf1m1", number: 1, compLevel: "qf", setNumber: 1, red: [3, 1, 2], blue: [4, 5, 6], redScore: 100, blueScore: 90, hasScore: true },
+      { id: "2026bracket_qf1m2", number: 2, compLevel: "qf", setNumber: 2, red: [686, 8, 9], blue: [1, 2, 3], redScore: -1, blueScore: -1, hasScore: false },
     ],
     playoffAlliances: [
       { number: 1, name: "Alliance 1", picks: [1, 2, 3], status: { playoff_status: "active" } },
       { number: 2, name: "Alliance 2", picks: [4, 5, 6, 7], status: { playoff_status: "eliminated" } },
+      { number: 3, name: "Alliance 3", picks: [686, 8, 9], status: { playoff_status: "active" } },
     ],
     matchesComplete: 1, scoringComponents: [], metrics: [], seedPicklists: [], seedSortEquations: [], formulaFieldDefinitions: [], dataSources: [],
   };
@@ -54,6 +56,8 @@ try {
       secondTeams: document.querySelectorAll(".playoff-alliance-card:nth-child(2) .playoff-team").length,
       firstAllianceOrder: [...document.querySelectorAll(".playoff-alliance-card:nth-child(1) .playoff-team")].map((node) => node.textContent.trim()),
       allianceTeamGap: getComputedStyle(document.querySelector(".playoff-alliance-teams")).rowGap,
+      highlightedAllianceCards: document.querySelectorAll(".playoff-alliance-card.schedule-highlight-team").length,
+      nextMatch: document.querySelector('[data-playoff-next="true"] strong')?.textContent.trim(),
       eliminated: document.querySelectorAll(".playoff-alliance-card.playoff-eliminated").length,
       bracketMatches: document.querySelectorAll(".playoff-bracket-match").length,
       bracketRounds: [...document.querySelectorAll(".playoff-bracket-column-labels h3")].map((node) => node.textContent.trim()),
@@ -73,6 +77,8 @@ try {
   assert.equal(result.secondTeams, 4, "World Championship-style alliances show four picks.");
   assert.deepEqual(result.firstAllianceOrder, ["1 Team 1", "2 Team 2", "3 Team 3"], "Alliance cards preserve TBA captain/pick order.");
   assert.equal(result.allianceTeamGap, "0px", "Alliance card team names have no extra gap.");
+  assert.equal(result.highlightedAllianceCards, 1, "The selected team highlights its alliance card.");
+  assert.equal(result.nextMatch, "M2", "The next unplayed playoff match is highlighted.");
   assert.equal(result.eliminated, 1);
   assert.equal(result.bracketMatches, 14, "The rendered bracket reserves every Figure 10-2 match slot.");
   assert.deepEqual(result.bracketRounds, ["Round 1", "Round 2", "Round 3", "Round 4", "Round 5", "Finals"]);
@@ -95,6 +101,15 @@ try {
     { label: "M5", red: "Loser of M1", blue: "Loser of M2" },
     { label: "M7", red: "Winner of M1", blue: "Winner of M2" },
   ], "Pending input matches retain the target graphic source labels.");
+  await page.evaluate(() => {
+    globalThis.__ticket167Fixture.playoffAlliances[1].status = { playoff_status: "active" };
+    globalThis.__ticket167Fixture.matches.push(
+      { id: "2026bracket_sf99m1", compLevel: "sf", setNumber: 99, number: 1, red: [4, 5, 6], blue: [1, 2, 3], redScore: 90, blueScore: 100, winningAlliance: "blue", hasScore: true },
+      { id: "2026bracket_sf100m1", compLevel: "sf", setNumber: 100, number: 1, red: [4, 5, 6], blue: [1, 2, 3], redScore: 80, blueScore: 100, winningAlliance: "blue", hasScore: true },
+    );
+    globalThis.render();
+  });
+  assert.equal(await page.locator(".playoff-alliance-card:nth-child(2).playoff-eliminated").count(), 1, "Two recorded playoff losses gray an alliance without status metadata.");
   assert.equal(result.highlightDefault, "686");
   assert.equal(result.boardOverflowX, "visible", "The fluid bracket should not need an inner horizontal scrollbar.");
   assert.equal(result.boardOverflowY, "visible", "The bracket should not create a redundant inner vertical scrollbar.");

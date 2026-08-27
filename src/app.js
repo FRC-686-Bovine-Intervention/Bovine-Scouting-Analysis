@@ -8866,10 +8866,24 @@ function renderSchedule() {
   `;
 }
 
-function playoffAllianceIsEliminated(alliance) {
+function playoffAllianceIsEliminated(alliance, eventModel = currentEvent()) {
   const status = normalizeText(alliance?.status?.playoff_status || alliance?.status?.playoffStatus).toLowerCase();
   const losses = Number(alliance?.status?.record?.losses);
-  return ["eliminated", "lost", "out"].includes(status) || losses >= 2;
+  if (["eliminated", "lost", "out"].includes(status) || losses >= 2) return true;
+  const picks = new Set((alliance?.picks || []).map((team) => Number(team)).filter(Number.isFinite));
+  if (!picks.size) return false;
+  const recordedLosses = (eventModel?.matches || []).filter((match) => {
+    if (match?.compLevel === "qm" || !matchHasScore(match)) return false;
+    const sides = [match.red || [], match.blue || []];
+    const sideIndex = sides.findIndex((side) => side.filter((team) => picks.has(Number(team))).length >= Math.min(3, picks.size));
+    if (sideIndex < 0) return false;
+    const winningAlliance = normalizeText(match.winningAlliance).toLowerCase();
+    const winnerSide = winningAlliance === "red" || winningAlliance === "blue"
+      ? winningAlliance
+      : match.redScore > match.blueScore ? "red" : match.blueScore > match.redScore ? "blue" : "";
+    return winnerSide && winnerSide !== ["red", "blue"][sideIndex];
+  }).length;
+  return recordedLosses >= 2;
 }
 
 function playoffAllianceNumbers(eventModel = currentEvent()) {
@@ -8877,8 +8891,8 @@ function playoffAllianceNumbers(eventModel = currentEvent()) {
   return Array.from({ length: 8 }, (_, index) => alliances.find((alliance) => alliance.number === index + 1) || { number: index + 1, name: `Alliance ${index + 1}`, picks: [], status: null });
 }
 
-function renderPlayoffAllianceCard(alliance) {
-  const eliminated = playoffAllianceIsEliminated(alliance);
+function renderPlayoffAllianceCard(alliance, eventModel = currentEvent()) {
+  const eliminated = playoffAllianceIsEliminated(alliance, eventModel);
   const highlighted = state.highlightTeam > 0 && alliance.picks.includes(state.highlightTeam);
   const teamNumbers = alliance.picks.filter((team, index, values) => Number.isFinite(team) && values.indexOf(team) === index);
   return `<article class="playoff-alliance-card ${eliminated ? "playoff-eliminated" : ""} ${highlighted ? "schedule-highlight-team" : ""}">
@@ -8957,6 +8971,7 @@ function playoffBracketOrderedTeams(teams, alliancesByNumber) {
 
 function renderPlayoffBracketMatch(match, label = "Match", sources = {}, context = {}) {
   const highlighted = state.highlightTeam > 0 && [...(match?.red || []), ...(match?.blue || [])].includes(state.highlightTeam);
+  const isNext = Boolean(match && context.nextPlayoffMatch && matchIdentity(match) === matchIdentity(context.nextPlayoffMatch));
   const score = match?.hasScore ? `${match.redScore} - ${match.blueScore}` : "Not played";
   const red = match?.red?.length ? match.red : playoffBracketResolvedSource(sources.red, context.matchesByNumber, context.alliancesByNumber);
   const blue = match?.blue?.length ? match.blue : playoffBracketResolvedSource(sources.blue, context.matchesByNumber, context.alliancesByNumber);
@@ -8967,7 +8982,7 @@ function renderPlayoffBracketMatch(match, label = "Match", sources = {}, context
     const prefix = alliance ? `A${alliance.number}: ` : "";
     return escapeHtml(`${prefix}${orderedTeams.map((team) => String(team)).join(" - ")}`);
   };
-  return `<article class="playoff-bracket-match ${highlighted ? "schedule-highlight-team" : ""}">
+  return `<article class="playoff-bracket-match ${highlighted || isNext ? "schedule-highlight-team" : ""}"${isNext ? ' data-playoff-next="true"' : ""}>
     <header><strong>${escapeHtml(label)}</strong><span>${escapeHtml(score)}</span></header>
     <div class="playoff-bracket-alliance red">${formatAlliance(red)}</div>
     <div class="playoff-bracket-alliance blue">${formatAlliance(blue)}</div>
@@ -8981,7 +8996,16 @@ function renderPlayoffBracket() {
   const finals = playoffMatches.filter((match) => match.compLevel === "f");
   const alliances = playoffAllianceNumbers(event);
   const alliancesByNumber = new Map(alliances.map((alliance) => [alliance.number, alliance]));
-  const bracketContext = { matchesByNumber, alliancesByNumber };
+  const nextPlayoffMatch = [...playoffMatches]
+    .sort((left, right) => {
+      const leftNumber = playoffBracketMatchNumber(left);
+      const rightNumber = playoffBracketMatchNumber(right);
+      const leftOrder = left.compLevel === "f" ? 14 + Number(left.number || 0) : leftNumber;
+      const rightOrder = right.compLevel === "f" ? 14 + Number(right.number || 0) : rightNumber;
+      return (Number.isFinite(leftOrder) ? leftOrder : Number.POSITIVE_INFINITY) - (Number.isFinite(rightOrder) ? rightOrder : Number.POSITIVE_INFINITY);
+    })
+    .find((match) => !matchHasScore(match)) || null;
+  const bracketContext = { matchesByNumber, alliancesByNumber, nextPlayoffMatch };
   return `<div class="playoff-bracket-page">
     <div class="section-heading">
       <div><h2>Playoff Bracket</h2><p class="muted">FIRST double-elimination playoff bracket</p></div>
@@ -8989,7 +9013,7 @@ function renderPlayoffBracket() {
         <input id="playoffBracketHighlightTeam" type="number" min="1" step="1" value="${state.highlightTeam || ""}" placeholder="686" />
       </label>
     </div>
-    <div class="playoff-alliance-grid">${alliances.map(renderPlayoffAllianceCard).join("")}</div>
+    <div class="playoff-alliance-grid">${alliances.map((alliance) => renderPlayoffAllianceCard(alliance, event)).join("")}</div>
     <div class="playoff-bracket-board" aria-label="Six-round double-elimination playoff bracket">
       <div class="playoff-bracket-column-labels">${["Round 1", "Round 2", "Round 3", "Round 4", "Round 5", "Finals"].map((label) => `<h3>${label}</h3>`).join("")}</div>
       <div class="playoff-bracket-lane-labels"><span>Upper bracket</span><span>Lower bracket</span></div>
