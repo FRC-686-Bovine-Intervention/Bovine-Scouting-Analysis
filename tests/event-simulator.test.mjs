@@ -54,6 +54,7 @@ const qualificationCount = engine.fixtures.tbaMatches.filter((match) => match.co
 engine.setState({ cursor: qualificationCount });
 const scheduledPlayoffs = engine.get("tba", "matches").filter((match) => match.comp_level !== "qm");
 assert.equal(scheduledPlayoffs.length > 0, true);
+assert.equal(scheduledPlayoffs.every((match) => match.alliances.red.score === -1 && match.alliances.blue.score === -1), true);
 assert.equal(scheduledPlayoffs.filter((match) => match.comp_level === "sf" && match.set_number <= 4).every((match) => match.alliances.red.team_keys.length > 0 && match.alliances.blue.team_keys.length > 0), true);
 assert.equal(scheduledPlayoffs.filter((match) => match.comp_level === "sf" && match.set_number > 4).every((match) => match.alliances.red.team_keys.length === 0 && match.alliances.blue.team_keys.length === 0), true);
 assert.equal(scheduledPlayoffs.filter((match) => match.comp_level === "f").every((match) => match.alliances.red.team_keys.length === 0 && match.alliances.blue.team_keys.length === 0), true);

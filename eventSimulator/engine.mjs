@@ -123,8 +123,9 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
         ? fixtures.tbaMatches
         : fixtures.tbaMatches.filter((match) => match.comp_level === "qm");
       const matches = schedule.map((match) => {
-        const known = visible.has(match) || initialPlayoffMatches.includes(match);
-        return known ? match : unplayed(match, match.comp_level !== "qm");
+        if (visible.has(match)) return match;
+        const roundOneMatch = initialPlayoffMatches.includes(match);
+        return unplayed(match, match.comp_level !== "qm" && !roundOneMatch);
       });
       const result = { event, teams, matches: rewriteEventKeys(matches, scenario.sourceEventKey, scenario.id), alliances: cursor >= qualification.length ? clone(fixtures.tbaAlliances || []) : [] };
       const projections = buildTbaProjections(ordered.slice(0, Math.max(0, cursor)));
