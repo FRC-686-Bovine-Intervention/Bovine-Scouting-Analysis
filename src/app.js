@@ -8938,12 +8938,35 @@ function playoffBracketResolvedSource(source, matchesByNumber, alliancesByNumber
   return teams?.length ? teams : text;
 }
 
+function playoffBracketAllianceForTeams(teams, alliancesByNumber) {
+  if (!Array.isArray(teams) || !teams.length) return null;
+  const teamNumbers = teams.map((team) => Number(team)).filter(Number.isFinite);
+  return [...alliancesByNumber.values()].find((alliance) => {
+    const picks = (alliance.picks || []).map((team) => Number(team)).filter(Number.isFinite);
+    return teamNumbers.every((team) => picks.includes(team));
+  }) || null;
+}
+
+function playoffBracketOrderedTeams(teams, alliancesByNumber) {
+  if (!Array.isArray(teams)) return teams;
+  const alliance = playoffBracketAllianceForTeams(teams, alliancesByNumber);
+  if (!alliance) return teams;
+  const activeTeams = new Set(teams.map((team) => Number(team)));
+  return alliance.picks.filter((team) => activeTeams.has(Number(team)));
+}
+
 function renderPlayoffBracketMatch(match, label = "Match", sources = {}, context = {}) {
   const highlighted = state.highlightTeam > 0 && [...(match?.red || []), ...(match?.blue || [])].includes(state.highlightTeam);
   const score = match?.hasScore ? `${match.redScore} - ${match.blueScore}` : "Not played";
   const red = match?.red?.length ? match.red : playoffBracketResolvedSource(sources.red, context.matchesByNumber, context.alliancesByNumber);
   const blue = match?.blue?.length ? match.blue : playoffBracketResolvedSource(sources.blue, context.matchesByNumber, context.alliancesByNumber);
-  const formatAlliance = (teams) => Array.isArray(teams) ? teams.map((team) => escapeHtml(String(team))).join(" · ") : escapeHtml(String(teams || "TBD"));
+  const formatAlliance = (teams) => {
+    if (!Array.isArray(teams)) return escapeHtml(String(teams || "TBD"));
+    const orderedTeams = playoffBracketOrderedTeams(teams, context.alliancesByNumber);
+    const alliance = playoffBracketAllianceForTeams(orderedTeams, context.alliancesByNumber);
+    const prefix = alliance ? `A${alliance.number}: ` : "";
+    return escapeHtml(`${prefix}${orderedTeams.map((team) => String(team)).join(" - ")}`);
+  };
   return `<article class="playoff-bracket-match ${highlighted ? "schedule-highlight-team" : ""}">
     <header><strong>${escapeHtml(label)}</strong><span>${escapeHtml(score)}</span></header>
     <div class="playoff-bracket-alliance red">${formatAlliance(red)}</div>

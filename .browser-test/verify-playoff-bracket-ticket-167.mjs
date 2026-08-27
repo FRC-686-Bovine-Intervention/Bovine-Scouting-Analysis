@@ -21,7 +21,7 @@ await page.addInitScript(() => {
     teams,
     teamNumbers: teams.map((team) => team.number),
     matches: [
-      { id: "2026bracket_qf1m1", number: 1, compLevel: "qf", setNumber: 1, red: [1, 2, 3], blue: [4, 5, 6], redScore: 100, blueScore: 90, hasScore: true },
+      { id: "2026bracket_qf1m1", number: 1, compLevel: "qf", setNumber: 1, red: [3, 1, 2], blue: [4, 5, 6], redScore: 100, blueScore: 90, hasScore: true },
     ],
     playoffAlliances: [
       { number: 1, name: "Alliance 1", picks: [1, 2, 3], status: { playoff_status: "active" } },
@@ -58,6 +58,7 @@ try {
       lanes: [...document.querySelectorAll(".playoff-bracket-lane-labels span")].map((node) => node.textContent.trim()),
       connectorPath: document.querySelector(".playoff-bracket-connectors path")?.getAttribute("d"),
       score: document.querySelector(".playoff-bracket-match header span")?.textContent.trim(),
+      firstMatchRed: document.querySelector('.playoff-bracket-match strong')?.closest('.playoff-bracket-match')?.querySelector('.red')?.textContent.trim(),
       downstream: [...document.querySelectorAll(".playoff-bracket-match")].filter((node) => ["M5", "M7"].includes(node.querySelector("strong")?.textContent)).map((node) => ({ label: node.querySelector("strong").textContent, red: node.querySelector(".red").textContent.trim(), blue: node.querySelector(".blue").textContent.trim() })),
       highlightDefault: document.querySelector("#playoffBracketHighlightTeam")?.value,
       boardOverflowX: getComputedStyle(document.querySelector(".playoff-bracket-board")).overflowX,
@@ -75,9 +76,10 @@ try {
   assert.match(result.connectorPath, /M175 5H184/);
   assert.equal(result.score, "100 - 90");
   assert.deepEqual(result.downstream, [
-    { label: "M5", red: "4 · 5 · 6", blue: "Loser of M2" },
-    { label: "M7", red: "1 · 2 · 3", blue: "Winner of M2" },
-  ], "Completed input matches populate their downstream alliances.");
+    { label: "M5", red: "A2: 4 - 5 - 6", blue: "Loser of M2" },
+    { label: "M7", red: "A1: 1 - 2 - 3", blue: "Winner of M2" },
+  ], "Completed input matches populate ordered, identified downstream alliances.");
+  assert.equal(result.firstMatchRed, "A1: 1 - 2 - 3", "Bracket rows identify alliances and use captain/pick order.");
   await page.evaluate(() => {
     globalThis.__ticket167Fixture.matches[0].hasScore = false;
     globalThis.__ticket167Fixture.matches[0].redScore = -1;
