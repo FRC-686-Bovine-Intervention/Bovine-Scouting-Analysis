@@ -8929,6 +8929,12 @@ function playoffBracketMatchNumber(match) {
   return null;
 }
 
+function playoffBracketMatchOrder(match) {
+  if (match?.compLevel === "f") return 14 + Number(match.number || 0);
+  const bracketNumber = playoffBracketMatchNumber(match);
+  return Number.isFinite(bracketNumber) ? bracketNumber : Number.POSITIVE_INFINITY;
+}
+
 function playoffBracketResolvedSource(source, matchesByNumber, alliancesByNumber, seen = new Set()) {
   const text = normalizeText(source);
   const allianceMatch = text.match(/^Alliance (\d+)$/i);
@@ -8997,13 +9003,7 @@ function renderPlayoffBracket() {
   const alliances = playoffAllianceNumbers(event);
   const alliancesByNumber = new Map(alliances.map((alliance) => [alliance.number, alliance]));
   const nextPlayoffMatch = [...playoffMatches]
-    .sort((left, right) => {
-      const leftNumber = playoffBracketMatchNumber(left);
-      const rightNumber = playoffBracketMatchNumber(right);
-      const leftOrder = left.compLevel === "f" ? 14 + Number(left.number || 0) : leftNumber;
-      const rightOrder = right.compLevel === "f" ? 14 + Number(right.number || 0) : rightNumber;
-      return (Number.isFinite(leftOrder) ? leftOrder : Number.POSITIVE_INFINITY) - (Number.isFinite(rightOrder) ? rightOrder : Number.POSITIVE_INFINITY);
-    })
+    .sort((left, right) => playoffBracketMatchOrder(left) - playoffBracketMatchOrder(right))
     .find((match) => !matchHasScore(match)) || null;
   const bracketContext = { matchesByNumber, alliancesByNumber, nextPlayoffMatch };
   return `<div class="playoff-bracket-page">

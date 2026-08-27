@@ -125,6 +125,44 @@ try {
     globalThis.render();
   });
   assert.equal(await page.locator(".playoff-alliance-card:nth-child(2).playoff-eliminated").count(), 1, "Two recorded playoff losses gray an alliance without status metadata.");
+  await page.evaluate(() => {
+    const fixture = globalThis.__ticket167Fixture;
+    const completedBracketMatch = (number, compLevel, setNumber) => ({ id: `bracket-${compLevel}-${number}`, number: compLevel === "f" ? number : 1, compLevel, setNumber, red: [1, 2, 3], blue: [4, 5, 6], redScore: 100, blueScore: 90, hasScore: true });
+    fixture.matches = [
+      ...Array.from({ length: 4 }, (_, index) => completedBracketMatch(index + 1, "qf", index + 1)),
+      { ...completedBracketMatch(5, "sf", 5), hasScore: false, redScore: -1, blueScore: -1 },
+      ...Array.from({ length: 8 }, (_, index) => completedBracketMatch(index + 6, "sf", index + 6)),
+      ...Array.from({ length: 3 }, (_, index) => completedBracketMatch(index + 1, "f", null)),
+    ];
+    fixture.matches[13].hasScore = false;
+    fixture.matches[13].redScore = -1;
+    fixture.matches[13].blueScore = -1;
+    fixture.matches[14].hasScore = false;
+    fixture.matches[14].redScore = -1;
+    fixture.matches[14].blueScore = -1;
+    fixture.matches[15].hasScore = false;
+    fixture.matches[15].redScore = -1;
+    fixture.matches[15].blueScore = -1;
+    globalThis.render();
+  });
+  assert.equal(await page.locator('[data-playoff-next="true"] strong').textContent(), "M5", "M5 is next after M1-M4 complete.");
+  await page.evaluate(() => {
+    globalThis.__ticket167Fixture.matches[4].hasScore = true;
+    globalThis.__ticket167Fixture.matches[4].redScore = 100;
+    globalThis.__ticket167Fixture.matches[4].blueScore = 90;
+    globalThis.__ticket167Fixture.matches[13].hasScore = true;
+    globalThis.__ticket167Fixture.matches[13].redScore = 100;
+    globalThis.__ticket167Fixture.matches[13].blueScore = 90;
+    globalThis.render();
+  });
+  assert.equal(await page.locator('[data-playoff-next="true"] strong').textContent(), "Final 2", "Final 2 is next after Final 1 completes.");
+  await page.evaluate(() => {
+    globalThis.__ticket167Fixture.matches[14].hasScore = true;
+    globalThis.__ticket167Fixture.matches[14].redScore = 100;
+    globalThis.__ticket167Fixture.matches[14].blueScore = 90;
+    globalThis.render();
+  });
+  assert.equal(await page.locator('[data-playoff-next="true"] strong').textContent(), "Final 3", "Final 3 is next after Final 2 completes.");
   assert.equal(result.highlightDefault, "686");
   assert.equal(result.boardOverflowX, "visible", "The fluid bracket should not need an inner horizontal scrollbar.");
   assert.equal(result.boardOverflowY, "visible", "The bracket should not create a redundant inner vertical scrollbar.");
