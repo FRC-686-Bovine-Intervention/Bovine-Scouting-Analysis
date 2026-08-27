@@ -8976,7 +8976,9 @@ function playoffBracketOrderedTeams(teams, alliancesByNumber) {
 }
 
 function renderPlayoffBracketMatch(match, label = "Match", sources = {}, context = {}) {
-  const isNext = context.nextPlayoffLabel === label || Boolean(match && context.nextPlayoffMatch && matchIdentity(match) === matchIdentity(context.nextPlayoffMatch));
+  const isNext = context.nextPlayoffLabel === label
+    || (label === "Finals" && context.nextPlayoffLabel === "Final 1")
+    || Boolean(match && context.nextPlayoffMatch && matchIdentity(match) === matchIdentity(context.nextPlayoffMatch));
   const score = match?.hasScore ? `${match.redScore} - ${match.blueScore}` : "Not played";
   const red = match?.red?.length ? match.red : playoffBracketResolvedSource(sources.red, context.matchesByNumber, context.alliancesByNumber);
   const blue = match?.blue?.length ? match.blue : playoffBracketResolvedSource(sources.blue, context.matchesByNumber, context.alliancesByNumber);
@@ -9011,7 +9013,9 @@ function renderPlayoffBracket() {
       if (nextBracketSlot) return playoffBracketMatchNumber(match) === Number(nextBracketSlot.label.slice(1));
       return !matchHasScore(match);
     }) || null;
-  const nextPlayoffLabel = nextBracketSlot?.label || (nextPlayoffMatch?.compLevel === "f" ? `Final ${nextPlayoffMatch.number}` : null);
+  const nextPlayoffLabel = nextBracketSlot?.label
+    || (nextPlayoffMatch?.compLevel === "f" ? `Final ${nextPlayoffMatch.number}` : null)
+    || (!finals.length ? "Final 1" : null);
   const bracketContext = { matchesByNumber, alliancesByNumber, nextPlayoffMatch, nextPlayoffLabel };
   return `<div class="playoff-bracket-page">
     <div class="section-heading">

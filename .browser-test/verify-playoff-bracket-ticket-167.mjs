@@ -135,17 +135,7 @@ try {
     fixture.matches = [
       ...Array.from({ length: 4 }, (_, index) => completedBracketMatch(index + 1, "qf", index + 1)),
       ...Array.from({ length: 8 }, (_, index) => completedBracketMatch(index + 6, "sf", index + 6)),
-      ...Array.from({ length: 3 }, (_, index) => completedBracketMatch(index + 1, "f", null)),
     ];
-    fixture.matches[12].hasScore = false;
-    fixture.matches[12].redScore = -1;
-    fixture.matches[12].blueScore = -1;
-    fixture.matches[13].hasScore = false;
-    fixture.matches[13].redScore = -1;
-    fixture.matches[13].blueScore = -1;
-    fixture.matches[14].hasScore = false;
-    fixture.matches[14].redScore = -1;
-    fixture.matches[14].blueScore = -1;
     globalThis.render();
   });
   assert.equal(await page.locator('[data-playoff-next="true"] strong').textContent(), "M5", "M5 is next after M1-M4 complete.");
@@ -155,6 +145,18 @@ try {
     fixture.matches[4].hasScore = true;
     fixture.matches[4].redScore = 100;
     fixture.matches[4].blueScore = 90;
+    globalThis.render();
+  });
+  assert.equal(await page.locator('[data-playoff-next="true"] strong').textContent(), "Finals", "The static finals placeholder is next before TBA returns a Finals record.");
+  await page.evaluate(() => {
+    const fixture = globalThis.__ticket167Fixture;
+    const finalMatch = (number) => ({ id: `bracket-f-${number}`, number, compLevel: "f", red: [1, 2, 3], blue: [4, 5, 6], redScore: -1, blueScore: -1, hasScore: false });
+    fixture.matches.push(finalMatch(1), finalMatch(2), finalMatch(3));
+    globalThis.render();
+  });
+  assert.equal(await page.locator('[data-playoff-next="true"] strong').textContent(), "Final 1", "Final 1 is next when the finals record first appears.");
+  await page.evaluate(() => {
+    const fixture = globalThis.__ticket167Fixture;
     fixture.matches[13].hasScore = true;
     fixture.matches[13].redScore = 100;
     fixture.matches[13].blueScore = 90;
