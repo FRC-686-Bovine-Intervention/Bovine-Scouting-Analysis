@@ -69,37 +69,57 @@ async function fetchJson(url, headers, etag, fetchImpl = fetch) {
 }
 
 async function pollProvider(previous, endpointFactories, baseUrl, headers, eventCode, fallbackBaseUrl = "", fetchImpl = fetch) {
-  let endpointState = { ...(previous?.endpoints || {}) };
-  let usedFallback = false;
-  let effectiveBaseUrl = baseUrl;
-  try {
-    for (const [name, factory] of Object.entries(endpointFactories)) {
-      const old = endpointState[name] || {};
-      const result = await fetchJson(factory(baseUrl, eventCode), headers, old.etag, fetchImpl);
-      if (!result.notModified) endpointState[name] = { payload: result.payload, etag: result.etag };
-    }
-  } catch (primaryError) {
-    if (!fallbackBaseUrl) throw primaryError;
-    endpointState = { ...(previous?.endpoints || {}) };
-    effectiveBaseUrl = fallbackBaseUrl;
-    usedFallback = true;
-    for (const [name, factory] of Object.entries(endpointFactories)) {
-      const old = endpointState[name] || {};
-      const result = await fetchJson(factory(fallbackBaseUrl, eventCode), headers, old.etag, fetchImpl);
-      if (!result.notModified) endpointState[name] = { payload: result.payload, etag: result.etag };
-    }
+  const endpointState = { ...(previous?.endpoints || {}) };
+  for (const [name, factory] of Object.entries(endpointFactories)) {
+    const old = endpointState[name] || {};
+    const attempt = async (url, usedFallback) => {
+      try {
+        const result = await fetchJson(url, headers, old.etag, fetchImpl);
+        return {
+          ...(result.notModified ? old : { payload: result.payload, etag: result.etag }),
+          status: "ready",
+          sourceUrl: url,
+          usedFallback,
+          fetchedAt: new Date().toISOString(),
+          error: "",
+        };
+      } catch (error) {
+        return { error };
+      }
+    };
+    let next = await attempt(factory(baseUrl, eventCode), false);
+    if (next.error && fallbackBaseUrl) next = await attempt(factory(fallbackBaseUrl, eventCode), true);
+    endpointState[name] = next.error
+      ? { ...old, status: "error", sourceUrl: old.sourceUrl || baseUrl, usedFallback: old.usedFallback || false, fetchedAt: new Date().toISOString(), error: next.error.message }
+      : next;
   }
+  const endpointValues = Object.values(endpointState);
+  const ready = endpointValues.filter((value) => value.status === "ready").length;
   return {
-    status: "ready",
-    sourceUrl: effectiveBaseUrl,
-    usedFallback,
+    status: ready === endpointValues.length ? "ready" : ready ? "partial" : "error",
+    sourceUrl: endpointValues.find((value) => value.sourceUrl)?.sourceUrl || baseUrl,
+    usedFallback: endpointValues.some((value) => value.usedFallback),
     endpoints: endpointState,
-    error: "",
+    error: endpointValues.find((value) => value.error)?.error || "",
   };
 }
 
 function providerPayload(state) {
-  return Object.fromEntries(Object.entries(state?.endpoints || {}).map(([name, value]) => [name, clone(value.payload)]));
+  return Object.fromEntries(Object.entries(state?.endpoints || {}).filter(([, value]) => Object.prototype.hasOwnProperty.call(value, "payload")).map(([name, value]) => [name, clone(value.payload)]));
+}
+
+export function loadRecorderConfig(configPath = process.env.EVENT_RECORDER_CONFIG || "") {
+  if (!configPath) return {};
+  const config = JSON.parse(fs.readFileSync(path.resolve(configPath), "utf8"));
+  return {
+    events: Array.isArray(config.events) ? config.events : typeof config.events === "string" ? config.events.split(",") : [],
+    outputRoot: config.outputRoot,
+    tbaBaseUrl: config.tbaBaseUrl,
+    statboticsBaseUrl: config.statboticsBaseUrl,
+    statboticsFallbackBaseUrl: config.statboticsFallbackBaseUrl,
+    pollIntervalsMs: config.pollIntervalsMs,
+    statusPort: config.statusPort,
+  };
 }
 
 function writeJson(filePath, value) {
@@ -158,7 +178,7 @@ export function createRecorder({ eventCode, outputRoot = path.resolve("recording
       lastPollAt[source] = now;
       await pollProviderNow(source);
     }
-    const comparable = Object.fromEntries(Object.entries(providers).map(([source, value]) => [source, { status: value.status, sourceUrl: value.sourceUrl, usedFallback: value.usedFallback, payload: providerPayload(value) }]));
+    const comparable = Object.fromEntries(Object.entries(providers).map(([source, value]) => [source, { status: value.status, sourceUrl: value.sourceUrl, usedFallback: value.usedFallback, error: value.error, endpoints: Object.fromEntries(Object.entries(value.endpoints || {}).map(([name, endpoint]) => [name, { status: endpoint.status, sourceUrl: endpoint.sourceUrl, usedFallback: endpoint.usedFallback, error: endpoint.error, payload: endpoint.payload }])) }]));
     const nextFingerprint = fingerprint(comparable);
     if (nextFingerprint === latestFingerprint) return null;
     const record = store.saveCursor({ eventTag: eventTag(providerPayload(providers.tba), providerPayload(providers.statbotics)), providers: clone(providers) }, { latestFingerprint: nextFingerprint, lastPollAt });
@@ -175,6 +195,27 @@ export function loadRecording(recordingPath) {
   const cursors = Array.from({ length: manifest.cursorCount }, (_, cursor) => JSON.parse(fs.readFileSync(path.join(recordingPath, "cursors", `${String(cursor).padStart(6, "0")}.json`), "utf8")));
   if (cursors.some((cursor, index) => cursor.cursor !== index)) throw new Error("Recording cursors are incomplete or out of order.");
   return { manifest, cursors };
+}
+
+export function createRecorderService({ events = [], recorderOptions = {}, intervalMs = 1000 } = {}) {
+  const recorders = events.map((eventCode) => createRecorder({ ...recorderOptions, eventCode }));
+  let timer = null;
+  let running = false;
+  async function poll() { for (const recorder of recorders) await recorder.poll(); return status(); }
+  function start() {
+    if (running) return status();
+    running = true;
+    timer = setInterval(() => poll().catch((error) => console.error(error)), intervalMs);
+    return status();
+  }
+  function stop() {
+    if (timer) clearInterval(timer);
+    timer = null;
+    running = false;
+    return status();
+  }
+  function status() { return { running, events: recorders.map((recorder) => recorder.status()) }; }
+  return { poll, start, stop, status };
 }
 
 export { eventTag, normalizeEventCode, providerPayload };

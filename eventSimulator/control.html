@@ -23,6 +23,9 @@
   .offset-controls input { box-sizing: border-box; min-width: 92px; padding: 8px; }
   #state { height: 640px; margin: 0; overflow: auto; padding: 16px; border-radius: 8px; background: color-mix(in srgb, CanvasText 8%, Canvas); }
   .reset-controls { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
+  .recording-controls { align-items: end; display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  .recording-controls label { display: flex; flex-direction: column; gap: 4px; }
+  .recording-controls select { min-width: 260px; padding: 8px; }
 </style>
 <button id="setupToggle" type="button" aria-expanded="false" aria-controls="setupInstructions">Show setup instructions</button>
 <section id="setupInstructions" hidden>
@@ -47,6 +50,11 @@
   </div>
 </div>
 <div id="connectionStatus" class="waiting" role="status">Checking analysis connection…</div>
+<div class="recording-controls" aria-label="Recorded event playback">
+  <label for="recordingSelect">Recorded event<select id="recordingSelect"><option value="">Synthetic scenario (current)</option></select></label>
+  <button id="loadRecording" type="button">Load recording</button>
+  <span id="recordingStatus" role="status"></span>
+</div>
 <div class="offset-controls" aria-label="Source cursor offsets">
   <label for="tbaOffset">TBA offset<input id="tbaOffset" type="number" step="1" inputmode="numeric"></label>
   <label for="statboticsOffset">Statbotics offset<input id="statboticsOffset" type="number" step="1" inputmode="numeric"></label>
@@ -63,6 +71,9 @@ const setupToggle = document.querySelector('#setupToggle');
 const setupInstructions = document.querySelector('#setupInstructions');
 const currentMatch = document.querySelector('#currentMatch');
 const scenarioName = document.querySelector('#scenarioName');
+const recordingSelect = document.querySelector('#recordingSelect');
+const loadRecordingButton = document.querySelector('#loadRecording');
+const recordingStatus = document.querySelector('#recordingStatus');
 const offsetInputs = {
   tba: document.querySelector('#tbaOffset'),
   statbotics: document.querySelector('#statboticsOffset'),
@@ -91,6 +102,7 @@ function renderState(value){
   renderConnectionStatus(value);
   currentMatch.textContent = value?.currentMatch || 'Event complete';
   scenarioName.textContent = value?.scenario || 'Event Simulator';
+  recordingStatus.textContent = value?.mode === 'recording' ? `Recording: ${value.cursorCount || 0} cursors` : 'Synthetic scenario';
   for (const [source, input] of Object.entries(offsetInputs)) {
     if (document.activeElement !== input && value?.offsets?.[source] != null) input.value = value.offsets[source];
   }
@@ -106,5 +118,21 @@ async function post(action, value = {}){
 for (const [source, input] of Object.entries(offsetInputs)) {
   input.addEventListener('change', () => post('set', { offsets: { [source]: Number(input.value) || 0 } }));
 }
+async function loadRecordings(){
+  const result = await fetch('/recordings').then(r=>r.json());
+  for (const recording of result.recordings || []) {
+    const option = document.createElement('option');
+    option.value = recording.eventCode;
+    option.textContent = `${recording.eventCode} (${recording.valid ? `${recording.cursorCount} cursors` : 'invalid'})`;
+    option.disabled = !recording.valid;
+    recordingSelect.append(option);
+  }
+}
+loadRecordingButton.addEventListener('click', async () => {
+  if (!recordingSelect.value) return;
+  const response = await fetch('/control/load-recording', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ eventCode: recordingSelect.value }) });
+  renderState(await response.json());
+});
+loadRecordings().catch((error) => { recordingStatus.textContent = error.message; });
 refresh(); setInterval(refresh, 5000);
 </script>

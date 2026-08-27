@@ -59,7 +59,7 @@ assert.equal(scheduledPlayoffs.filter((match) => match.comp_level === "sf" && ma
 assert.equal(scheduledPlayoffs.filter((match) => match.comp_level === "sf" && match.set_number > 4).every((match) => match.alliances.red.team_keys.length === 0 && match.alliances.blue.team_keys.length === 0), true);
 assert.equal(scheduledPlayoffs.filter((match) => match.comp_level === "f").every((match) => match.alliances.red.team_keys.length === 0 && match.alliances.blue.team_keys.length === 0), true);
 assert.equal(engine.get("tba", "alliances").length, 8);
-assert.equal(engine.get("tba", "alliances")[0].picks.length, 4);
+assert.deepEqual(engine.get("tba", "alliances").map((alliance) => alliance.picks.length), [3, 3, 3, 4, 3, 3, 3, 3]);
 engine.setState({ cursor: qualificationCount + 1 });
 assert.equal(engine.get("tba", "matches").some((match) => match.comp_level !== "qm"), true);
 engine.setState({ cursor: qualificationCount + 13 });
