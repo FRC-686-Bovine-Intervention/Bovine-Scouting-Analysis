@@ -1330,7 +1330,7 @@ select {
 .playoff-bracket-board {
   position: relative;
   min-width: 1312px;
-  min-height: 450px;
+  min-height: 760px;
   margin-top: 16px;
   overflow-x: auto;
   padding: 0 0 12px 112px;
@@ -1357,11 +1357,11 @@ select {
 
 .playoff-bracket-lane-labels {
   position: absolute;
-  top: 42px;
+  top: 72px;
   left: 0;
   z-index: 2;
   display: grid;
-  gap: 156px;
+  gap: 300px;
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 700;
@@ -1372,9 +1372,24 @@ select {
 
 .playoff-bracket-slots {
   position: relative;
-  grid-template-rows: repeat(16, 24px);
+  grid-template-rows: repeat(16, 44px);
   row-gap: 0;
   z-index: 1;
+}
+
+.playoff-bracket-slots::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: repeating-linear-gradient(
+    to right,
+    var(--panel-soft) 0,
+    var(--panel-soft) 180px,
+    transparent 180px,
+    transparent 204px
+  );
+  opacity: 0.8;
 }
 
 .playoff-bracket-slot {
@@ -1391,10 +1406,10 @@ select {
 
 .playoff-bracket-connectors {
   position: absolute;
-  top: 42px;
+  top: 72px;
   left: 112px;
   width: calc(100% - 112px);
-  height: 420px;
+  height: 704px;
   z-index: 0;
   pointer-events: none;
 }

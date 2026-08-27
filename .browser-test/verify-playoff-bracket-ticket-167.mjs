@@ -65,7 +65,7 @@ try {
   assert.equal(result.bracketMatches, 14, "The rendered bracket reserves every Figure 10-2 match slot.");
   assert.deepEqual(result.bracketRounds, ["Round 1", "Round 2", "Round 3", "Round 4", "Round 5", "Finals"]);
   assert.deepEqual(result.lanes, ["Upper bracket", "Lower bracket"]);
-  assert.match(result.connectorPath, /M190 43H210/);
+  assert.match(result.connectorPath, /M180 40H192/);
   assert.equal(result.score, "100 - 90");
   assert.equal(result.highlightDefault, "686");
   console.log("PASS rendered playoff bracket supports eight cards, three/four-team alliances, scores, and elimination state");

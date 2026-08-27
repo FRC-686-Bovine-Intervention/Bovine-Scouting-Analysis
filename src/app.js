@@ -8893,13 +8893,20 @@ function renderPlayoffAllianceCard(alliance) {
 }
 
 const playoffBracketSlots = [
-  { label: "M1", column: 1, row: 1, bracket: "upper" }, { label: "M2", column: 1, row: 5, bracket: "upper" },
-  { label: "M3", column: 1, row: 9, bracket: "upper" }, { label: "M4", column: 1, row: 13, bracket: "upper" },
-  { label: "M5", column: 1, row: 3, bracket: "lower" }, { label: "M6", column: 1, row: 11, bracket: "lower" },
-  { label: "M7", column: 2, row: 3, bracket: "upper" }, { label: "M8", column: 2, row: 11, bracket: "upper" },
-  { label: "M9", column: 2, row: 7, bracket: "lower" }, { label: "M10", column: 2, row: 15, bracket: "lower" },
-  { label: "M11", column: 3, row: 7, bracket: "upper" }, { label: "M12", column: 3, row: 11, bracket: "lower" },
-  { label: "M13", column: 4, row: 11, bracket: "lower" }, { label: "Finals", column: 6, row: 9, bracket: "finals" },
+  { label: "M1", column: 1, row: 1, bracket: "upper", red: "Alliance 1", blue: "Alliance 8" },
+  { label: "M2", column: 1, row: 3, bracket: "upper", red: "Alliance 4", blue: "Alliance 5" },
+  { label: "M3", column: 1, row: 5, bracket: "upper", red: "Alliance 2", blue: "Alliance 7" },
+  { label: "M4", column: 1, row: 7, bracket: "upper", red: "Alliance 3", blue: "Alliance 6" },
+  { label: "M5", column: 2, row: 11, bracket: "lower", red: "Loser of M1", blue: "Loser of M2" },
+  { label: "M6", column: 2, row: 15, bracket: "lower", red: "Loser of M3", blue: "Loser of M4" },
+  { label: "M7", column: 2, row: 2, bracket: "upper", red: "Winner of M1", blue: "Winner of M2" },
+  { label: "M8", column: 2, row: 6, bracket: "upper", red: "Winner of M3", blue: "Winner of M4" },
+  { label: "M9", column: 3, row: 14, bracket: "lower", red: "Loser of M7", blue: "Winner of M6" },
+  { label: "M10", column: 3, row: 10, bracket: "lower", red: "Loser of M8", blue: "Winner of M5" },
+  { label: "M11", column: 4, row: 4, bracket: "upper", red: "Winner of M7", blue: "Winner of M8" },
+  { label: "M12", column: 4, row: 12, bracket: "lower", red: "Winner of M10", blue: "Winner of M9" },
+  { label: "M13", column: 5, row: 10, bracket: "lower", red: "Loser of M11", blue: "Winner of M12" },
+  { label: "Finals", column: 6, row: 7, bracket: "finals", red: "Winner of M11", blue: "Winner of M13" },
 ];
 
 function playoffBracketMatchNumber(match) {
@@ -8935,8 +8942,8 @@ function renderPlayoffBracket() {
     <div class="playoff-bracket-board" aria-label="Six-round double-elimination playoff bracket">
       <div class="playoff-bracket-column-labels">${["Round 1", "Round 2", "Round 3", "Round 4", "Round 5", "Finals"].map((label) => `<h3>${label}</h3>`).join("")}</div>
       <div class="playoff-bracket-lane-labels"><span>Upper bracket</span><span>Lower bracket</span></div>
-      <svg class="playoff-bracket-connectors" viewBox="0 0 1200 420" preserveAspectRatio="none" aria-hidden="true">
-        <path d="M190 43H210V91H230 M190 139H210V91H230 M190 235H210V283H230 M190 331H210V283H230 M390 91H410V187H430 M390 283H410V187H430 M390 187H410V283H430 M390 379H410V283H430 M590 187H610V283H630 M590 283H610V331H830 M790 331H810V235H830 M990 235H1010V283H1030" />
+      <svg class="playoff-bracket-connectors" viewBox="0 0 1200 704" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M180 40H192V128H204 M180 128H192V480H204 M180 216H192V304H204 M180 304H192V656H204 M384 84H396V172H612 M384 260H396V172H612 M384 84H396V436H408 M384 656H396V612H408 M384 260H396V436H408 M384 480H396V436H408 M588 436H600V524H612 M588 612H600V524H612 M792 172H804V436H816 M792 524H804V436H816 M996 436H1008V304H1020 M792 172H1008V304H1020" />
       </svg>
       <div class="playoff-bracket-slots">${playoffBracketSlots.map((slot) => {
         const match = slot.label.startsWith("M") ? matchesByNumber.get(Number(slot.label.slice(1))) : null;
