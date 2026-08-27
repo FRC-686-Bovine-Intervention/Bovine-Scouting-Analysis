@@ -1329,20 +1329,20 @@ select {
 
 .playoff-bracket-board {
   position: relative;
-  width: 1212px;
-  max-width: 100%;
+  width: 100%;
+  max-width: none;
   min-width: 0;
   min-height: 760px;
   margin-top: 16px;
-  overflow-x: auto;
+  overflow: visible;
   padding: 0 0 12px 112px;
 }
 
 .playoff-bracket-column-labels,
 .playoff-bracket-slots {
   display: grid;
-  grid-template-columns: repeat(6, 150px);
-  column-gap: 40px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  column-gap: 24px;
 }
 
 .playoff-bracket-column-labels {
@@ -1395,9 +1395,9 @@ select {
   background: repeating-linear-gradient(
     to right,
     var(--panel-soft) 0,
-    var(--panel-soft) 150px,
-    transparent 150px,
-    transparent 190px
+    var(--panel-soft) calc(16.6667% - 4px),
+    transparent calc(16.6667% - 4px),
+    transparent 16.6667%
   );
   opacity: 0.8;
 }
@@ -1471,7 +1471,6 @@ select {
 
 @media (max-width: 1100px) {
   .playoff-alliance-grid { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
-  .playoff-bracket-board { width: 1212px; }
 }
 
 .matchup-alliance-card,

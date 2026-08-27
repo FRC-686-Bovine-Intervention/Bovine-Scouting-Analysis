@@ -59,6 +59,8 @@ try {
       connectorPath: document.querySelector(".playoff-bracket-connectors path")?.getAttribute("d"),
       score: document.querySelector(".playoff-bracket-match header span")?.textContent.trim(),
       highlightDefault: document.querySelector("#playoffBracketHighlightTeam")?.value,
+      boardOverflowX: getComputedStyle(document.querySelector(".playoff-bracket-board")).overflowX,
+      boardOverflowY: getComputedStyle(document.querySelector(".playoff-bracket-board")).overflowY,
     };
   });
   assert.equal(result.nav, "Playoff Bracket");
@@ -72,6 +74,8 @@ try {
   assert.match(result.connectorPath, /M150 40H170/);
   assert.equal(result.score, "100 - 90");
   assert.equal(result.highlightDefault, "686");
+  assert.equal(result.boardOverflowX, "visible", "The fluid bracket should not need an inner horizontal scrollbar.");
+  assert.equal(result.boardOverflowY, "visible", "The bracket should not create a redundant inner vertical scrollbar.");
   console.log("PASS rendered playoff bracket supports eight cards, three/four-team alliances, scores, and elimination state");
 } finally {
   await browser.close();
