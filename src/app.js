@@ -8976,7 +8976,7 @@ function playoffBracketOrderedTeams(teams, alliancesByNumber) {
 }
 
 function renderPlayoffBracketMatch(match, label = "Match", sources = {}, context = {}) {
-  const isNext = Boolean(match && context.nextPlayoffMatch && matchIdentity(match) === matchIdentity(context.nextPlayoffMatch));
+  const isNext = context.nextPlayoffLabel === label || Boolean(match && context.nextPlayoffMatch && matchIdentity(match) === matchIdentity(context.nextPlayoffMatch));
   const score = match?.hasScore ? `${match.redScore} - ${match.blueScore}` : "Not played";
   const red = match?.red?.length ? match.red : playoffBracketResolvedSource(sources.red, context.matchesByNumber, context.alliancesByNumber);
   const blue = match?.blue?.length ? match.blue : playoffBracketResolvedSource(sources.blue, context.matchesByNumber, context.alliancesByNumber);
@@ -9002,10 +9002,17 @@ function renderPlayoffBracket() {
   const finals = playoffMatches.filter((match) => match.compLevel === "f");
   const alliances = playoffAllianceNumbers(event);
   const alliancesByNumber = new Map(alliances.map((alliance) => [alliance.number, alliance]));
+  const nextBracketSlot = playoffBracketSlots
+    .filter((slot) => slot.label.startsWith("M"))
+    .find((slot) => !matchHasScore(matchesByNumber.get(Number(slot.label.slice(1))))) || null;
   const nextPlayoffMatch = [...playoffMatches]
     .sort((left, right) => playoffBracketMatchOrder(left) - playoffBracketMatchOrder(right))
-    .find((match) => !matchHasScore(match)) || null;
-  const bracketContext = { matchesByNumber, alliancesByNumber, nextPlayoffMatch };
+    .find((match) => {
+      if (nextBracketSlot) return playoffBracketMatchNumber(match) === Number(nextBracketSlot.label.slice(1));
+      return !matchHasScore(match);
+    }) || null;
+  const nextPlayoffLabel = nextBracketSlot?.label || (nextPlayoffMatch?.compLevel === "f" ? `Final ${nextPlayoffMatch.number}` : null);
+  const bracketContext = { matchesByNumber, alliancesByNumber, nextPlayoffMatch, nextPlayoffLabel };
   return `<div class="playoff-bracket-page">
     <div class="section-heading">
       <div><h2>Playoff Bracket</h2><p class="muted">FIRST double-elimination playoff bracket</p></div>
