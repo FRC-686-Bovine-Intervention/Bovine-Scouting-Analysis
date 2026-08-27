@@ -4,20 +4,21 @@ function normalizeText(value) {
 }
 
 function defaultPolicyForSource(source) {
+  const simulatorMode = globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first";
   if (source?.kind === "scouting") {
-    const simulatorMode = globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first"
-      || /evsim|simulator/i.test(normalizeText(source?.sourceId));
+    const scoutingSimulatorMode = simulatorMode || /evsim|simulator/i.test(normalizeText(source?.sourceId));
     return {
-      baseIntervalMs: simulatorMode ? 5 * 1000 : 2 * 60 * 1000,
+      baseIntervalMs: scoutingSimulatorMode ? 5 * 1000 : 2 * 60 * 1000,
       staleAfterMs: 15 * 60 * 1000,
-      maxBackoffMs: simulatorMode ? 60 * 1000 : 20 * 60 * 1000,
-      pollEveryTick: simulatorMode,
+      maxBackoffMs: scoutingSimulatorMode ? 60 * 1000 : 20 * 60 * 1000,
+      pollEveryTick: scoutingSimulatorMode,
     };
   }
   return {
-    baseIntervalMs: 5 * 60 * 1000,
+    baseIntervalMs: simulatorMode ? 5 * 1000 : 5 * 60 * 1000,
     staleAfterMs: 15 * 60 * 1000,
-    maxBackoffMs: 60 * 60 * 1000,
+    maxBackoffMs: simulatorMode ? 60 * 1000 : 60 * 60 * 1000,
+    pollEveryTick: simulatorMode,
   };
 }
 

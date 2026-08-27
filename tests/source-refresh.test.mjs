@@ -109,6 +109,19 @@ runTest("simulator scouting refresh polls on every five-second loop tick", () =>
   );
 });
 
+runTest("simulator external refresh polls on every five-second loop tick", () => {
+  const context = loadBrowserContext(["src/source-refresh.js"], {
+    __EVENT_SIMULATOR_CONFIG: { mode: "simulator-first" },
+  });
+  const policy = context.SourceRefresh.defaultPolicyForSource({ kind: "external", sourceId: "tba" });
+  assert.equal(policy.baseIntervalMs, 5 * 1000);
+  assert.equal(policy.pollEveryTick, true);
+  assert.equal(
+    context.SourceRefresh.shouldPollSource({ nextPollAt: "2099-01-01T00:00:00Z", pollingEnabled: true }, policy),
+    true,
+  );
+});
+
 runTest("simulator scouting policy is recognized from the event attachment id", () => {
   const context = loadBrowserContext(["src/source-refresh.js"]);
   const policy = context.SourceRefresh.defaultPolicyForSource({ kind: "scouting", sourceId: "scouting-2026evsim-default" });
