@@ -1374,10 +1374,11 @@ select {
   position: absolute;
   left: 0;
   white-space: nowrap;
+  transform: rotate(180deg);
 }
 
-.playoff-bracket-lane-labels span:nth-child(1) { top: 0; }
-.playoff-bracket-lane-labels span:nth-child(2) { top: 300px; }
+.playoff-bracket-lane-labels span:nth-child(1) { top: 110px; }
+.playoff-bracket-lane-labels span:nth-child(2) { top: 460px; }
 
 .playoff-bracket-slots {
   position: relative;
@@ -1417,6 +1418,12 @@ select {
   grid-column: var(--bracket-column);
   grid-row: var(--bracket-row) / span 2;
   min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.playoff-bracket-slot .playoff-bracket-match {
+  width: calc(100% - 24px);
 }
 
 .playoff-bracket-slot .playoff-bracket-match + .playoff-bracket-match {
@@ -1435,8 +1442,10 @@ select {
 
 .playoff-bracket-connectors path {
   fill: none;
-  stroke: var(--line);
-  stroke-width: 2;
+  stroke: var(--accent-strong);
+  stroke-width: 3;
+  stroke-linecap: square;
+  filter: drop-shadow(0 0 1px var(--panel));
   vector-effect: non-scaling-stroke;
 }
 
