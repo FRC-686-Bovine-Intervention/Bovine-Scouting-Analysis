@@ -8892,24 +8892,37 @@ function renderPlayoffAllianceCard(alliance) {
   </article>`;
 }
 
-function renderPlayoffBracketMatch(match) {
-  const highlighted = state.highlightTeam > 0 && [...(match.red || []), ...(match.blue || [])].includes(state.highlightTeam);
-  const score = match.hasScore ? `${match.redScore} - ${match.blueScore}` : "Not played";
+const playoffBracketSlots = [
+  { label: "M1", column: 1, row: 1, bracket: "upper" }, { label: "M2", column: 1, row: 5, bracket: "upper" },
+  { label: "M3", column: 1, row: 9, bracket: "upper" }, { label: "M4", column: 1, row: 13, bracket: "upper" },
+  { label: "M5", column: 1, row: 3, bracket: "lower" }, { label: "M6", column: 1, row: 11, bracket: "lower" },
+  { label: "M7", column: 2, row: 3, bracket: "upper" }, { label: "M8", column: 2, row: 11, bracket: "upper" },
+  { label: "M9", column: 2, row: 7, bracket: "lower" }, { label: "M10", column: 2, row: 15, bracket: "lower" },
+  { label: "M11", column: 3, row: 7, bracket: "upper" }, { label: "M12", column: 3, row: 11, bracket: "lower" },
+  { label: "M13", column: 4, row: 11, bracket: "lower" }, { label: "Finals", column: 6, row: 9, bracket: "finals" },
+];
+
+function playoffBracketMatchNumber(match) {
+  if (match?.compLevel === "sf") return Number(match.setNumber);
+  if (match?.compLevel === "qf") return Number(match.setNumber || match.number);
+  return null;
+}
+
+function renderPlayoffBracketMatch(match, label = "Match") {
+  const highlighted = state.highlightTeam > 0 && [...(match?.red || []), ...(match?.blue || [])].includes(state.highlightTeam);
+  const score = match?.hasScore ? `${match.redScore} - ${match.blueScore}` : "Not played";
   return `<article class="playoff-bracket-match ${highlighted ? "schedule-highlight-team" : ""}">
-    <header><strong>${escapeHtml(matchupMatchLabel(match))}</strong><span>${escapeHtml(score)}</span></header>
-    <div class="playoff-bracket-alliance red">${match.red.map((team) => escapeHtml(String(team))).join(" · ") || "TBD"}</div>
-    <div class="playoff-bracket-alliance blue">${match.blue.map((team) => escapeHtml(String(team))).join(" · ") || "TBD"}</div>
+    <header><strong>${escapeHtml(label)}</strong><span>${escapeHtml(score)}</span></header>
+    <div class="playoff-bracket-alliance red">${match?.red?.map((team) => escapeHtml(String(team))).join(" · ") || "TBD"}</div>
+    <div class="playoff-bracket-alliance blue">${match?.blue?.map((team) => escapeHtml(String(team))).join(" · ") || "TBD"}</div>
   </article>`;
 }
 
 function renderPlayoffBracket() {
   const event = currentEvent();
   const playoffMatches = (event.matches || []).filter((match) => match.compLevel !== "qm");
-  const rounds = [
-    ["Quarterfinals", "qf"],
-    ["Semifinals", "sf"],
-    ["Finals", "f"],
-  ].map(([label, compLevel]) => ({ label, matches: playoffMatches.filter((match) => match.compLevel === compLevel) })).filter((round) => round.matches.length);
+  const matchesByNumber = new Map(playoffMatches.map((match) => [playoffBracketMatchNumber(match), match]));
+  const finals = playoffMatches.filter((match) => match.compLevel === "f");
   const alliances = playoffAllianceNumbers(event);
   return `<div class="playoff-bracket-page">
     <div class="section-heading">
@@ -8919,7 +8932,18 @@ function renderPlayoffBracket() {
       </label>
     </div>
     <div class="playoff-alliance-grid">${alliances.map(renderPlayoffAllianceCard).join("")}</div>
-    <div class="playoff-bracket-grid">${rounds.length ? rounds.map((round) => `<section class="playoff-bracket-round"><h3>${round.label}</h3>${round.matches.map(renderPlayoffBracketMatch).join("")}</section>`).join("") : `<p class="muted">Playoff matches will appear here when TBA publishes the bracket.</p>`}</div>
+    <div class="playoff-bracket-board" aria-label="Six-round double-elimination playoff bracket">
+      <div class="playoff-bracket-column-labels">${["Round 1", "Round 2", "Round 3", "Round 4", "Round 5", "Finals"].map((label) => `<h3>${label}</h3>`).join("")}</div>
+      <div class="playoff-bracket-lane-labels"><span>Upper bracket</span><span>Lower bracket</span></div>
+      <svg class="playoff-bracket-connectors" viewBox="0 0 1200 420" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M190 43H210V91H230 M190 139H210V91H230 M190 235H210V283H230 M190 331H210V283H230 M390 91H410V187H430 M390 283H410V187H430 M390 187H410V283H430 M390 379H410V283H430 M590 187H610V283H630 M590 283H610V331H830 M790 331H810V235H830 M990 235H1010V283H1030" />
+      </svg>
+      <div class="playoff-bracket-slots">${playoffBracketSlots.map((slot) => {
+        const match = slot.label.startsWith("M") ? matchesByNumber.get(Number(slot.label.slice(1))) : null;
+        const cards = slot.bracket === "finals" && finals.length ? finals.map((final, index) => renderPlayoffBracketMatch(final, `Final ${index + 1}`)).join("") : renderPlayoffBracketMatch(match, slot.label);
+        return `<section class="playoff-bracket-slot playoff-bracket-${slot.bracket}" style="--bracket-column:${slot.column};--bracket-row:${slot.row}">${cards}</section>`;
+      }).join("")}</div>
+    </div>
   </div>`;
 }
 
