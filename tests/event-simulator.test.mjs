@@ -14,6 +14,7 @@ assert.deepEqual(engine.getState().offsets, { tba: 0, statbotics: -2, scouting: 
 engine.setState({ offsets: { tba: 0, statbotics: 0, scouting: 0 } });
 assert.equal(engine.get("tba", "teams").some((team) => team.team_number === 4638), true);
 assert.equal(engine.get("tba", "matches").length, 0);
+assert.deepEqual(engine.get("tba", "alliances"), []);
 engine.advance();
 assert.equal(engine.getState().phase, "scheduled");
 assert.equal(engine.getState().currentMatch, "Schedule Released");
@@ -52,6 +53,8 @@ assert.equal(engine.get("tba", "rankings").rankings.some((row) => row.team_key =
 const qualificationCount = engine.fixtures.tbaMatches.filter((match) => match.comp_level === "qm").length;
 engine.setState({ cursor: qualificationCount });
 assert.equal(engine.get("tba", "matches").filter((match) => match.comp_level !== "qm").length > 0, true);
+assert.equal(engine.get("tba", "alliances").length, 8);
+assert.equal(engine.get("tba", "alliances")[0].picks.length, 4);
 engine.setState({ cursor: qualificationCount + 1 });
 assert.equal(engine.get("tba", "matches").some((match) => match.comp_level !== "qm"), true);
 engine.setState({ cursor: qualificationCount + 13 });

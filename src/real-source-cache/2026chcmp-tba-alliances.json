@@ -1,0 +1,10 @@
+[
+  { "number": 1, "name": "Alliance 1", "picks": ["frc449", "frc5549", "frc836", "frc10004"], "status": { "playoff_status": "active" } },
+  { "number": 2, "name": "Alliance 2", "picks": ["frc1727", "frc4099", "frc9072", "frc10224"], "status": { "playoff_status": "active" } },
+  { "number": 3, "name": "Alliance 3", "picks": ["frc614", "frc686", "frc1908", "frc2068"], "status": { "playoff_status": "active" } },
+  { "number": 4, "name": "Alliance 4", "picks": ["frc2199", "frc5338", "frc2106", "frc2377"], "status": { "playoff_status": "active" } },
+  { "number": 5, "name": "Alliance 5", "picks": ["frc401", "frc346", "frc619", "frc2421"], "status": { "playoff_status": "active" } },
+  { "number": 6, "name": "Alliance 6", "picks": ["frc540", "frc122", "frc1629", "frc2537"], "status": { "playoff_status": "active" } },
+  { "number": 7, "name": "Alliance 7", "picks": ["frc3136", "frc11415", "frc1086", "frc2890"], "status": { "playoff_status": "active" } },
+  { "number": 8, "name": "Alliance 8", "picks": ["frc422", "frc8592", "frc1731", "frc3258"], "status": { "playoff_status": "active" } }
+]

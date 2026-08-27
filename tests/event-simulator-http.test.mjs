@@ -25,6 +25,7 @@ assert.deepEqual((await get("/state")).offsets, { tba: 0, statbotics: -2, scouti
 assert.equal((await get("/api/tba/event/2026evsim/teams")).length, 55);
 assert.equal((await get("/api/tba/event/2026evsim/matches")).length, 0);
 assert.equal((await get("/api/tba/event/2026evsim/rankings")).rankings.length, 0);
+assert.deepEqual(await get("/api/tba/event/2026evsim/alliances"), []);
 await post("/control/set", { offsets: { tba: 0, statbotics: 0, scouting: 0 } });
 await post("/control/advance", { amount: 1 });
 assert.equal((await get("/state")).currentMatch, "Schedule Released");
@@ -55,6 +56,9 @@ assert.equal((await get("/api/scouting/2026evsim")).entries.length > 0, true);
 const qualificationCount = (await get("/api/tba/event/2026evsim/matches")).filter((match) => match.comp_level === "qm").length;
 await post("/control/set", { cursor: qualificationCount });
 assert.equal((await get("/api/tba/event/2026evsim/matches")).filter((match) => match.comp_level !== "qm").length > 0, true);
+const alliances = await get("/api/tba/event/2026evsim/alliances");
+assert.equal(alliances.length, 8);
+assert.equal(alliances.every((alliance) => alliance.picks.length === 4), true);
 await post("/control/set", { cursor: qualificationCount + 1 });
 assert.equal((await get("/api/tba/event/2026evsim/matches")).some((match) => match.comp_level !== "qm"), true);
 await post("/control/set", { cursor: qualificationCount + 13 });

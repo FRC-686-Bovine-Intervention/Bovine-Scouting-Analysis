@@ -115,13 +115,13 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
     if (source === "tba") {
       const event = rewriteEventKeys(fixtures.tbaEvent, scenario.sourceEventKey, scenario.id);
       const teams = rewriteEventKeys(fixtures.tbaTeams, scenario.sourceEventKey, scenario.id);
-      if (cursor < 0) return { event, teams, matches: [], rankings: [], stats: { oprs: {}, dprs: {}, ccwms: {} } };
+      if (cursor < 0) return { event, teams, matches: [], alliances: [], rankings: [], stats: { oprs: {}, dprs: {}, ccwms: {} } };
       const visible = new Set(ordered.slice(0, Math.max(0, cursor)));
       const schedule = cursor >= qualification.length
         ? fixtures.tbaMatches
         : fixtures.tbaMatches.filter((match) => match.comp_level === "qm");
       const matches = schedule.map((match) => visible.has(match) ? match : unplayed(match));
-      const result = { event, teams, matches: rewriteEventKeys(matches, scenario.sourceEventKey, scenario.id) };
+      const result = { event, teams, matches: rewriteEventKeys(matches, scenario.sourceEventKey, scenario.id), alliances: cursor >= qualification.length ? clone(fixtures.tbaAlliances || []) : [] };
       const projections = buildTbaProjections(ordered.slice(0, Math.max(0, cursor)));
       result.rankings = rewriteEventKeys(projections.rankings, scenario.sourceEventKey, scenario.id);
       result.stats = rewriteEventKeys(projections.stats, scenario.sourceEventKey, scenario.id);
@@ -162,7 +162,7 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
   }
   function get(source, kind) {
     const data = payload(source);
-    if (source === "tba") return kind === "event" ? data.event : kind === "teams" ? data.teams : kind === "matches" ? data.matches : kind === "rankings" ? { rankings: data.rankings } : data.stats;
+    if (source === "tba") return kind === "event" ? data.event : kind === "teams" ? data.teams : kind === "matches" ? data.matches : kind === "alliances" ? data.alliances : kind === "rankings" ? { rankings: data.rankings } : data.stats;
     if (source === "statbotics") return kind === "event" ? data.event : kind === "team-events" ? data.teamEvents : kind === "team-matches" ? data.teamMatches : data.matches;
     if (kind === "schema") {
       const schemaArtifact = rewriteEventKeys(fixtures.scoutingSchema, scenario.sourceEventKey, scenario.id);
