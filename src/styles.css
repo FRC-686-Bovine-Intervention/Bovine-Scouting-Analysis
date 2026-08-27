@@ -1230,6 +1230,14 @@ select {
   color: #ffe2cc;
 }
 
+.playoff-bracket-match.schedule-highlight-team .playoff-bracket-alliance.red {
+  background: color-mix(in srgb, var(--danger) 22%, var(--panel));
+}
+
+.playoff-bracket-match.schedule-highlight-team .playoff-bracket-alliance.blue {
+  background: color-mix(in srgb, var(--info) 22%, var(--panel));
+}
+
 [data-theme="dark"] .match-row.schedule-complete {
   background: #46505c;
   color: #eef3f8;
@@ -1435,6 +1443,11 @@ select {
   min-width: 0;
   display: flex;
   justify-content: center;
+}
+
+.playoff-bracket-finals {
+  flex-direction: column;
+  align-items: center;
 }
 
 .playoff-bracket-slot .playoff-bracket-match {
