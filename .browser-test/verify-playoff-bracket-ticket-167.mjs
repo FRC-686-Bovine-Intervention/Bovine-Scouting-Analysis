@@ -52,6 +52,7 @@ try {
       cards: document.querySelectorAll(".playoff-alliance-card").length,
       firstTeams: document.querySelectorAll(".playoff-alliance-card:nth-child(1) .playoff-team").length,
       secondTeams: document.querySelectorAll(".playoff-alliance-card:nth-child(2) .playoff-team").length,
+      firstAllianceOrder: [...document.querySelectorAll(".playoff-alliance-card:nth-child(1) .playoff-team")].map((node) => node.textContent.trim()),
       eliminated: document.querySelectorAll(".playoff-alliance-card.playoff-eliminated").length,
       bracketMatches: document.querySelectorAll(".playoff-bracket-match").length,
       bracketRounds: [...document.querySelectorAll(".playoff-bracket-column-labels h3")].map((node) => node.textContent.trim()),
@@ -69,6 +70,7 @@ try {
   assert.equal(result.cards, 8, "The bracket always reserves eight alliance cards.");
   assert.equal(result.firstTeams, 3, "Regular events show three alliance picks.");
   assert.equal(result.secondTeams, 4, "World Championship-style alliances show four picks.");
+  assert.deepEqual(result.firstAllianceOrder, ["1 Team 1", "2 Team 2", "3 Team 3"], "Alliance cards preserve TBA captain/pick order.");
   assert.equal(result.eliminated, 1);
   assert.equal(result.bracketMatches, 14, "The rendered bracket reserves every Figure 10-2 match slot.");
   assert.deepEqual(result.bracketRounds, ["Round 1", "Round 2", "Round 3", "Round 4", "Round 5", "Finals"]);
