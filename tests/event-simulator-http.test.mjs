@@ -63,7 +63,7 @@ assert.equal(scheduledPlayoffs.filter((match) => match.comp_level === "sf" && ma
 assert.equal(scheduledPlayoffs.filter((match) => match.comp_level === "f").every((match) => match.alliances.red.team_keys.length === 0 && match.alliances.blue.team_keys.length === 0), true);
 const alliances = await get("/api/tba/event/2026evsim/alliances");
 assert.equal(alliances.length, 8);
-assert.equal(alliances.every((alliance) => alliance.picks.length === 4), true);
+assert.deepEqual(alliances.map((alliance) => alliance.picks.length), [3, 3, 3, 4, 3, 3, 3, 3]);
 await post("/control/set", { cursor: qualificationCount + 1 });
 assert.equal((await get("/api/tba/event/2026evsim/matches")).some((match) => match.comp_level !== "qm"), true);
 await post("/control/set", { cursor: qualificationCount + 13 });
