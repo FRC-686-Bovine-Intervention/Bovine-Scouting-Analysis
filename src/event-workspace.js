@@ -16,6 +16,10 @@ function looksLikeGoogleSheetUrl(value) {
   return /\/spreadsheets\/d\/[a-zA-Z0-9-_]+/.test(normalizeText(value));
 }
 
+function looksLikeScoutingApiUrl(value) {
+  return /\/api\/scouting(?:\/|$)/i.test(normalizeText(value));
+}
+
 function fileExtension(value) {
   const normalized = normalizeText(value).split(/[?#]/)[0];
   const match = normalized.match(/\.([a-z0-9]+)$/i);
@@ -46,6 +50,7 @@ function createExternalSourceState(sourceId, eventModel, storedSource = {}) {
     pollingEnabled: storedSource.pollingEnabled !== undefined ? Boolean(storedSource.pollingEnabled) : true,
     error: normalizeText(storedSource.error) || "",
     sourceFingerprint: normalizeText(storedSource.sourceFingerprint) || "",
+    sourceRevision: Math.max(0, Number(storedSource.sourceRevision) || 0),
     provenance: {
       mode: normalizeText(storedSource?.provenance?.mode) || "local-snapshot",
       notes: normalizeText(storedSource?.provenance?.notes) || normalizeText(baseNotes?.notes),
@@ -160,6 +165,7 @@ function normalizeScoutingAttachment(attachment, eventModel) {
     schemaSignature: normalizeText(attachment?.schemaSignature),
     translatorVersion: normalizeText(attachment?.translatorVersion),
     sourceFingerprint: normalizeText(attachment?.sourceFingerprint),
+    sourceRevision: Math.max(0, Number(attachment?.sourceRevision) || 0),
     error: normalizeText(attachment?.error),
     lastAttemptedAt: normalizeText(attachment?.lastAttemptedAt),
     lastSuccessfulAt: normalizeText(attachment?.lastSuccessfulAt),
@@ -286,12 +292,14 @@ function activeScoutingAttachmentSchemaSourceValue(workspace) {
 function activeScoutingAttachmentFormat(workspace, eventModel) {
   const attachment = activeScoutingAttachment(workspace);
   const explicitFormat = normalizeText(attachment?.format).toLowerCase();
+  const url = normalizeText(attachment?.location?.url) || normalizeText(eventModel?.sheet?.url);
+  if (looksLikeScoutingApiUrl(url)) return "scouting-json";
   if (explicitFormat) return explicitFormat;
   if (attachment?.locationKind === "embedded-sample" || normalizeText(attachment?.location?.sampleKey)) return "legacy-sheet-csv";
-  const url = normalizeText(attachment?.location?.url) || normalizeText(eventModel?.sheet?.url);
   const path = normalizeText(attachment?.location?.path);
   const extension = fileExtension(url) || fileExtension(path);
   if (extension === "json") return "scouting-json";
+  if (looksLikeScoutingApiUrl(url)) return "scouting-json";
   if (extension === "csv" || extension === "tsv") return "legacy-sheet-csv";
   if (looksLikeGoogleSheetUrl(url)) return "legacy-sheet-url";
   return "legacy-sheet-url";
@@ -575,22 +583,27 @@ function markActiveScoutingAttachmentSuccess(workspace, update = {}) {
   const timestamp = normalizeText(update.timestamp) || new Date().toISOString();
   const activeAttachment = activeScoutingAttachment(workspace);
   const policy = defaultRefreshPolicyForSource({ kind: "scouting", sourceId: activeAttachment?.attachmentId });
-  return updateActiveScoutingAttachment(workspace, (attachment) => ({
-    ...attachment,
-    status: normalizeText(update.status) || "ready",
-    freshness: normalizeText(update.freshness) || computeSourceFreshness({ ...attachment, status: "ready", lastSuccessfulAt: timestamp }, policy, Date.parse(timestamp) || Date.now()),
-    error: "",
-    profileId: normalizeText(update.profileId) || attachment.profileId,
-    profileLabel: normalizeText(update.profileLabel) || attachment.profileLabel,
-    profileVersionKey: normalizeText(update.profileVersionKey) || attachment.profileVersionKey,
-    schemaSignature: normalizeText(update.schemaSignature) || attachment.schemaSignature,
-    translatorVersion: normalizeText(update.translatorVersion) || attachment.translatorVersion,
-    sourceFingerprint: normalizeText(update.sourceFingerprint) || attachment.sourceFingerprint,
-    lastAttemptedAt: timestamp,
-    lastSuccessfulAt: timestamp,
-    nextPollAt: normalizeText(update.nextPollAt) || computeSourceNextPollAt({ ...attachment, lastAttemptedAt: timestamp, consecutiveFailures: 0 }, policy, Date.parse(timestamp) || Date.now()),
-    consecutiveFailures: 0,
-  }));
+  return updateActiveScoutingAttachment(workspace, (attachment) => {
+    const nextFingerprint = normalizeText(update.sourceFingerprint) || attachment.sourceFingerprint;
+    const sourceChanged = Boolean(nextFingerprint) && nextFingerprint !== attachment.sourceFingerprint;
+    return ({
+      ...attachment,
+      status: normalizeText(update.status) || "ready",
+      freshness: normalizeText(update.freshness) || computeSourceFreshness({ ...attachment, status: "ready", lastSuccessfulAt: timestamp }, policy, Date.parse(timestamp) || Date.now()),
+      error: "",
+      profileId: normalizeText(update.profileId) || attachment.profileId,
+      profileLabel: normalizeText(update.profileLabel) || attachment.profileLabel,
+      profileVersionKey: normalizeText(update.profileVersionKey) || attachment.profileVersionKey,
+      schemaSignature: normalizeText(update.schemaSignature) || attachment.schemaSignature,
+      translatorVersion: normalizeText(update.translatorVersion) || attachment.translatorVersion,
+      sourceFingerprint: nextFingerprint,
+      sourceRevision: Math.max(0, Number(attachment.sourceRevision) || 0) + (sourceChanged ? 1 : 0),
+      lastAttemptedAt: timestamp,
+      lastSuccessfulAt: timestamp,
+      nextPollAt: normalizeText(update.nextPollAt) || computeSourceNextPollAt({ ...attachment, lastAttemptedAt: timestamp, consecutiveFailures: 0 }, policy, Date.parse(timestamp) || Date.now()),
+      consecutiveFailures: 0,
+    });
+  });
 }
 
 function markActiveScoutingAttachmentFailure(workspace, update = {}) {
@@ -634,21 +647,26 @@ function markExternalSourceAttempt(workspace, sourceId, update = {}) {
 function markExternalSourceSuccess(workspace, sourceId, update = {}) {
   const timestamp = normalizeText(update.timestamp) || new Date().toISOString();
   const policy = defaultRefreshPolicyForSource({ kind: "external", sourceId });
-  return updateExternalSource(workspace, sourceId, (source) => ({
-    ...source,
-    status: normalizeText(update.status) || "ready",
-    freshness: normalizeText(update.freshness) || computeSourceFreshness({ ...source, status: "ready", lastSuccessfulAt: timestamp }, policy, Date.parse(timestamp) || Date.now()),
-    error: "",
-    lastAttemptedAt: timestamp,
-    lastSuccessfulAt: timestamp,
-    nextPollAt: normalizeText(update.nextPollAt) || computeSourceNextPollAt({ ...source, lastAttemptedAt: timestamp, consecutiveFailures: 0 }, policy, Date.parse(timestamp) || Date.now()),
-    consecutiveFailures: 0,
-    sourceFingerprint: normalizeText(update.sourceFingerprint) || source.sourceFingerprint,
-    provenance: {
+  return updateExternalSource(workspace, sourceId, (source) => {
+    const nextFingerprint = normalizeText(update.sourceFingerprint) || source.sourceFingerprint;
+    const sourceChanged = Boolean(nextFingerprint) && nextFingerprint !== source.sourceFingerprint;
+    return ({
+      ...source,
+      status: normalizeText(update.status) || "ready",
+      freshness: normalizeText(update.freshness) || computeSourceFreshness({ ...source, status: "ready", lastSuccessfulAt: timestamp }, policy, Date.parse(timestamp) || Date.now()),
+      error: "",
+      lastAttemptedAt: timestamp,
+      lastSuccessfulAt: timestamp,
+      nextPollAt: normalizeText(update.nextPollAt) || computeSourceNextPollAt({ ...source, lastAttemptedAt: timestamp, consecutiveFailures: 0 }, policy, Date.parse(timestamp) || Date.now()),
+      consecutiveFailures: 0,
+      sourceFingerprint: nextFingerprint,
+      sourceRevision: Math.max(0, Number(source.sourceRevision) || 0) + (sourceChanged ? 1 : 0),
+      provenance: {
       ...(source.provenance || {}),
       ...(update.provenance || {}),
     },
-  }));
+    });
+  });
 }
 
 function markExternalSourceFailure(workspace, sourceId, update = {}) {

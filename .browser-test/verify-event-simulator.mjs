@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+const base = process.env.EVENT_SIMULATOR_URL || "http://127.0.0.1:8787";
+const get = async (path) => (await fetch(base + path)).json();
+const post = async (path, value = {}) => (await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) })).json();
+await post("/control/reset");
+assert.equal((await get("/state")).phase, "team-only");
+assert.equal((await get("/api/tba/event/2026evsim/teams")).some((team) => team.team_number === 4638), true);
+await post("/control/advance");
+assert.ok((await get("/api/tba/event/2026evsim/matches")).every((match) => match.alliances.red.score === -1));
+await post("/control/advance");
+assert.equal((await get("/api/statbotics/v3/matches/2026evsim")).length, 1);
+assert.equal((await get("/api/scouting/2026evsim")).meta.eventKey, "2026evsim");
+await post("/control/set", { offsets: { tba: 2, statbotics: -1, scouting: 1 }, latencyMs: { tba: 5 }, delayScale: 0 });
+const state = await get("/state");
+assert.deepEqual(state.offsets, { tba: 2, statbotics: -1, scouting: 1 });
+await post("/control/reset");
+console.log("PASS event simulator browser-contract smoke");

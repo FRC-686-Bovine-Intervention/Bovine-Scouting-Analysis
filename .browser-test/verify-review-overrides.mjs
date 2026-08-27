@@ -1,6 +1,8 @@
 import { chromium } from "playwright";
 
-const appUrl = "file:///D:/FIRST/Scouting/Bovine-Scouting-Analysis/index.html";
+const appUrl = process.env.SCOUTING_APP_URL || "http://localhost:4173/index.html";
+const localEmail = process.env.FIREBASE_LOCAL_ADMIN_EMAIL || "admin@example.test";
+const localPassword = process.env.FIREBASE_LOCAL_ADMIN_PASSWORD || "local-admin-password";
 
 function text(node) {
   return node ? node.trim().replace(/\s+/g, " ") : "";
@@ -16,19 +18,15 @@ async function waitForApp(page) {
 }
 
 async function login(page) {
-  const existingUser = page.locator("#existingUser");
-  if (await existingUser.count()) {
-    await existingUser.selectOption("Avery");
-    await page.click("#loginButton");
-    await page.waitForSelector('[data-view="teams"]');
-    return;
-  }
   if (await page.locator('[data-view="teams"]').count()) return;
-  throw new Error(`Login controls were not rendered. Body snapshot: ${text(await page.textContent("body"))}`);
+  await page.fill("#firebaseEmailInput", localEmail);
+  await page.fill("#firebasePasswordInput", localPassword);
+  await page.click("#firebaseLoginButton");
+  await page.waitForSelector('[data-view="teams"]');
 }
 
 async function openAdmin(page) {
-  await page.click('[data-view="admin"]');
+  await page.click('[data-view="adminEventControl"]');
   await page.waitForSelector("#adminEventSelect");
 }
 
@@ -105,8 +103,8 @@ async function clearEventScoutingState(page, eventKey) {
   }, eventKey);
 }
 
-async function openQuality(page) {
-  await page.click('[data-view="quality"]');
+async function openAdminQuality(page) {
+  await page.click('[data-view="adminDataQuality"]');
   await page.waitForTimeout(750);
 }
 
@@ -159,14 +157,14 @@ try {
   await waitForApp(page);
   await login(page);
   await openAdmin(page);
-  await switchEvent(page, "2026chcmp");
-  await clearEventScoutingState(page, "2026chcmp");
+  await switchEvent(page, "2026local");
+  await clearEventScoutingState(page, "2026local");
   await loadDuplicatePreview(page);
   result.previewDebug = await importDebugState(page);
   await page.locator("#commitImportButton").click();
   await page.waitForTimeout(1000);
   result.importDebug = await importDebugState(page);
-  await openQuality(page);
+  await openAdminQuality(page);
 
   result.initial = await snapshotReviewState(page);
   result.initialUi = await qualityDebug(page);
@@ -197,7 +195,7 @@ try {
   await page.reload();
   await waitForApp(page);
   await login(page);
-  await openQuality(page);
+  await openAdminQuality(page);
   result.afterReload = await snapshotReviewState(page);
   assert(result.afterReload.effective[0]?.validity === "flagged", `Expected the reset state to persist after reload. Got: ${JSON.stringify(result.afterReload)}`);
   assert(result.afterReload.effective[1]?.validity === "excluded", `Expected the exclude override to persist after reload. Got: ${JSON.stringify(result.afterReload)}`);

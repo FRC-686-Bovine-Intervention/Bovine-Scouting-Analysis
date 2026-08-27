@@ -82,6 +82,9 @@ await runTest("loadEventByCode builds an event model and ready provider states f
       { team_number: 555, nickname: "Epsilon" },
       { team_number: 666, nickname: "Zeta" },
     ],
+    [`${baseUrls.tba}/event/2026test/alliances`]: [
+      { number: 1, picks: ["frc111", "frc222", "frc333"], status: { playoff_status: "active" } },
+    ],
     [`${baseUrls.tba}/event/2026test/matches`]: [
       {
         comp_level: "qm",
@@ -95,6 +98,16 @@ await runTest("loadEventByCode builds an event model and ready provider states f
         score_breakdown: {
           red: { totalAutoPoints: 30, totalTeleopPoints: 100, endGameTowerPoints: 50 },
           blue: { totalAutoPoints: 20, totalTeleopPoints: 90, endGameTowerPoints: 40 },
+        },
+      },
+      {
+        comp_level: "qf",
+        set_number: 1,
+        match_number: 1,
+        key: "2026test_qf1m1",
+        alliances: {
+          red: { team_keys: ["frc111", "frc222", "frc333"], score: 200 },
+          blue: { team_keys: ["frc444", "frc555", "frc666"], score: 190 },
         },
       },
     ],
@@ -112,10 +125,11 @@ await runTest("loadEventByCode builds an event model and ready provider states f
       ccwms: { frc111: 41.4, frc222: 36.6, frc333: 33.7, frc444: 25.7, frc555: 23.4, frc666: 19.3 },
     },
     [`${baseUrls.statbotics}/event/2026test`]: { year: 2026, status: "In Progress" },
-    [`${baseUrls.statbotics}/matches?event=2026test`]: [
-      { comp_level: "qm", key: "2026test_qm1", match_number: 1, epas: { 111: { epa: 40.25 } } },
+    [`${baseUrls.statbotics}/team_matches?event=2026test&limit=10000`]: [
+      { team: 111, match: "2026test_qm1", epa: { total_points: 40.25, post: 41.75 } },
+      { team: 111, match: "2026test_qf1m1", epa: { total_points: 44.25, post: 45.75 } },
     ],
-    [`${baseUrls.statbotics}/team_events/event/2026test`]: [
+    [`${baseUrls.statbotics}/team_events/event/2026test`]: { data: [
       {
         team: 111,
         epa: {
@@ -170,7 +184,7 @@ await runTest("loadEventByCode builds an event model and ready provider states f
         },
         record: { qual: { count: 12, rank: 24, rps_per_match: 1.5 } },
       },
-    ],
+    ] },
     [`${baseUrls.statbotics}/team_match/111/2026test_qm1`]: {
       team: 111,
       match: "2026test_qm1",
@@ -191,10 +205,28 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   });
 
   assert.equal(result.eventModel.key, "2026test");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.playoffAlliances)), [{ number: 1, name: "Alliance 1", picks: [111, 222, 333], backup: null, status: { playoff_status: "active" } }]);
   assert.equal(result.eventModel.catalogSource, "dynamic-external");
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.scouterMetricDefinitions || [])), []);
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.formulaFieldDefinitions || [])), []);
-  assert.equal(result.eventModel.matches.length, 1);
+  assert.equal(result.eventModel.matches.length, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.matches[1])), {
+    id: "2026test_qf1m1",
+    compLevel: "qf",
+    setNumber: 1,
+    number: 1,
+    red: [111, 222, 333],
+    blue: [444, 555, 666],
+    redScore: 200,
+    blueScore: 190,
+    hasScore: true,
+    winningAlliance: "",
+    scoreBreakdown: null,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].sources.statbotics.trendEntries)), [{ key: 1, value: 41.75 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].sources.statbotics.playoffTrendEntries)), [
+    { key: 1, value: 45.75 },
+  ]);
   assert.equal(result.eventModel.teams.length, 6);
   assert.equal(result.eventModel.teams[0].eventRank, undefined);
   assert.equal(result.eventModel.teams[0].record.qual.wins, undefined);
@@ -213,8 +245,9 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.eventModel.teams[0].sources.statbotics.components["epa.stats.pre_elim"], 43);
   assert.equal(result.eventModel.teams[0].sources.statbotics.components["record.qual.rank"], 4);
   assert.equal(Array.isArray(result.eventModel.teams[0].sources.statbotics.trend), true);
-  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].sources.statbotics.trend)), [40.25]);
-  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].sources.statbotics.trendEntries)), [{ key: 1, value: 40.25 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].sources.statbotics.trend)), [41.75]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].sources.statbotics.trendEntries)), [{ key: 1, value: 41.75 }]);
+  assert.equal(result.eventModel.teams[0].sources.statbotics.components["epa.post"], 41.75);
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[1].sources.statbotics.trend)), []);
   assert.equal(result.eventModel.teams[0].sources.pridge.trendEntries.length, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].derived || {})), {});
@@ -601,6 +634,40 @@ await runTest("loadEventByCode requires a TBA auth key for live lookups", async 
       }),
     /Missing TBA auth key/i,
   );
+});
+
+await runTest("simulator TBA requests omit the empty auth header", async () => {
+  const context = loadBrowserContext([
+    "src/provider-routing.js",
+    "src/legacy-scouting-schema-seeds.js",
+    "src/season-framework.js",
+    "src/prior-ridge.js",
+    "src/event-model-builder.js",
+    "src/external-source-snapshots.js",
+    "src/external-event-loader.js",
+  ], {
+    __EVENT_SIMULATOR_CONFIG: {
+      mode: "simulator-first",
+      tbaUrl: "http://127.0.0.1:8787/api/tba",
+      statboticsUrl: "http://127.0.0.1:8787/api/statbotics",
+    },
+  });
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url, headers: options.headers || {} });
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+
+  await assert.rejects(
+    () => context.ExternalEventLoader.loadEventByCode("2026evsim", {
+      fetchImpl,
+      statboticsFallbackBaseUrl: "http://127.0.0.1:8787/api/statbotics",
+    }),
+    /The Blue Alliance event lookup failed/i,
+  );
+  const tbaCall = calls.find((call) => call.url.endsWith("/api/tba/event/2026evsim"));
+  assert.ok(tbaCall);
+  assert.equal(tbaCall.headers["X-TBA-Auth-Key"], undefined);
 });
 }
 

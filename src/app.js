@@ -1,5 +1,6 @@
 const globalEventCatalog = globalThis.eventCatalog || [];
 const externalEventLoader = globalThis.ExternalEventLoader || {};
+const providerRouting = globalThis.ProviderRouting || {};
 const importFoundation = globalThis.ImportFoundation || {};
 const externalSourceSnapshots = globalThis.ExternalSourceSnapshots || {};
 const dynamicScoutingFields = globalThis.DynamicScoutingFields || {};
@@ -26,6 +27,7 @@ const isHtmlDocumentText = importFoundation.isHtmlDocumentText || (() => false);
 const buildExternalSourceSnapshot = externalSourceSnapshots.buildExternalSourceSnapshot || ((sourceId, eventModel) => ({ eventKey: eventModel?.key, sourceId }));
 const buildExternalSnapshotFingerprint = externalSourceSnapshots.buildSnapshotFingerprint || ((value) => JSON.stringify(value || null));
 const seedWorkspaceExternalSourceFingerprints = externalSourceSnapshots.seedExternalSourceFingerprints || ((workspace) => workspace);
+const seedWorkspaceExternalSourcePolling = externalSourceSnapshots.seedExternalSourcePolling || ((workspace) => workspace);
 const localAttachmentFilesSupported = localFileAccess.supportsPersistentLocalFiles || (() => false);
 const pickLocalAttachmentFile = localFileAccess.pickAttachmentFile || (async () => {
   throw new Error("Persistent local scouting files are unavailable in this browser.");
@@ -212,6 +214,7 @@ const storageKeys = {
   picklistCompareMetric: "frc-scouting-picklist-compare-metric",
   selectedTeam: "frc-scouting-selected-team",
   selectedMatch: "frc-scouting-selected-match",
+  highlightTeam: "frc-scouting-highlight-team",
   menuExpanded: "frc-scouting-menu-expanded",
   loadedPicklists: "frc-scouting-loaded-picklists",
   allianceBoard: "frc-scouting-alliance-board",
@@ -260,7 +263,7 @@ const navItems = [
   { view: "rankings", label: "Rankings", icon: "rankings" },
   { view: "schedule", label: "Match Schedule", icon: "schedule" },
   { view: "matchup", label: "Matchup", icon: "matchup" },
-  { view: "quality", label: "Data Quality", icon: "quality" },
+  { view: "bracket", label: "Playoff Bracket", icon: "bracket" },
   { view: "analysis", label: "Analysis", icon: "analysis" },
   { view: "derivedBuilder", label: "Derived Equation Builder", icon: "derivedBuilder" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
@@ -307,6 +310,26 @@ mergePersistedDynamicEventsIntoCatalog();
 
 const defaultAllianceBoard = Array(24).fill(null);
 const defaultStatboticsMetricId = "source:statbotics:epa.total_points";
+const defaultMatchupMetricIds = [
+  defaultStatboticsMetricId,
+  "source:statbotics:epa.breakdown.auto_points",
+  "source:statbotics:epa.breakdown.teleop_points",
+  "source:statbotics:epa.breakdown.endgame_points",
+];
+const defaultMatchupMetricDefinitions = defaultMatchupMetricIds.map((id) => {
+  const componentId = id.slice("source:statbotics:".length);
+  return {
+    id,
+    kind: "source",
+    sourceId: "statbotics",
+    componentId,
+    label: `Statbotics ${componentId}`,
+    shortLabel: componentId,
+    unit: "pts",
+    granularity: "event",
+    type: "number",
+  };
+});
 const protectedEpaSortEquation = {
   id: protectedEpaSortId,
   name: "Statbotics",
@@ -328,9 +351,12 @@ function scoutingProfileLabel(profileId, fallbackLabel = "") {
 
 const defaultScoutingProfileId = "match-current-v2";
 const deploymentRevision = normalizeText(globalThis.__DEPLOYMENT_REVISION) || "local checkout";
+const localBuildHash = normalizeText(globalThis.__LOCAL_BUILD_HASH);
 const developmentRevision = /^[0-9a-f]{7,40}$/i.test(deploymentRevision)
   ? deploymentRevision.toLowerCase().slice(0, 7)
-  : deploymentRevision;
+  : deploymentRevision === "local checkout" && localBuildHash
+    ? `${deploymentRevision} / ${localBuildHash.toLowerCase().slice(0, 7)}`
+    : deploymentRevision;
 
 const storedActiveEventKey = normalizeText(readStoredItem(storageKeys.activeEvent)).toLowerCase();
 const initialEventKey = resolveEventKey(storedActiveEventKey);
@@ -362,7 +388,10 @@ const state = {
   teamDetailMetric: "",
   picklistCompareMetric: "",
   selectedTeam: initialEvent.teams[0]?.number || 0,
-  selectedMatch: initialEvent.matches[0]?.number || 0,
+  selectedMatch: initialEvent.matches[0]?.id || initialEvent.matches[0]?.number || 0,
+  highlightTeam: 686,
+  matchupMetricSelections: [...defaultMatchupMetricIds],
+  matchupNormalization: "shared",
   menuExpanded: readStoredItem(storageKeys.menuExpanded) === "true",
   picklists: [],
   sortEquations: [],
@@ -427,6 +456,7 @@ const state = {
   eventWorkspace: null,
   eventLookupPending: false,
   eventLookupResult: null,
+  requestedEventKey: initialEventKey,
   sharedCachedEvents: [],
   sharedCacheStatus: "",
   rawSourceCacheEventKey: "",
@@ -456,16 +486,44 @@ let pendingScoutingAutoloadToken = "";
 let attemptedScoutingAutoloadToken = "";
 const pendingExternalRefreshSourceIds = new Set();
 let sourceRefreshIntervalId = null;
+let eventLoadSequence = 0;
 let scoutingSubmissionRevision = 0;
 let scoutingSubmissionLoadSequence = 0;
 let allianceSourceScrollbarResizeObserver = null;
 let tbaAuthKeyConfigurationLoadSequence = 0;
 let frcSeasonMetadataLoadSequence = 0;
 const seasonMetadataUnsubscribers = new Map();
-const scoutingPerf = globalThis.__scoutingPerf || { events: [] };
+const scoutingPerf = globalThis.__scoutingPerf || { events: [], counters: {} };
+scoutingPerf.events = Array.isArray(scoutingPerf.events) ? scoutingPerf.events : [];
+scoutingPerf.counters = scoutingPerf.counters && typeof scoutingPerf.counters === "object" ? scoutingPerf.counters : {};
 globalThis.__scoutingPerf = scoutingPerf;
 
+function beginEventSelection(eventKey, source = "user") {
+  const normalizedEventKey = normalizeExternalEventCode(eventKey);
+  if (!normalizedEventKey) return null;
+  const token = { eventKey: normalizedEventKey, generation: ++eventLoadSequence, source };
+  state.requestedEventKey = normalizedEventKey;
+  return token;
+}
+
+function isCurrentEventSelection(token) {
+  return Boolean(token)
+    && token.generation === eventLoadSequence
+    && token.eventKey === state.requestedEventKey;
+}
+
+function activateEventSelection(token, options = {}) {
+  if (!isCurrentEventSelection(token)) return false;
+  return switchActiveEvent(token.eventKey, { ...options, selectionToken: token });
+}
+
 const app = document.querySelector("#app");
+let scheduleFocusPending = false;
+let renderInProgress = false;
+let pendingRenderRequest = null;
+let renderFlushScheduled = false;
+let recentUserInteractionAt = 0;
+let userRenderPriorityUntil = 0;
 installGlobalRecoveryGuards();
 
 function perfNow() {
@@ -473,21 +531,132 @@ function perfNow() {
   return Date.now();
 }
 
+function incrementScoutingPerfCounter(name, amount = 1) {
+  scoutingPerf.counters[name] = Math.max(0, Number(scoutingPerf.counters[name]) || 0) + amount;
+}
+
+function scoutingPerfSnapshot() {
+  return {
+    counters: { ...scoutingPerf.counters },
+    events: scoutingPerf.events.slice(-100).map((event) => ({ ...event })),
+  };
+}
+
+function resetScoutingPerf() {
+  scoutingPerf.events.splice(0, scoutingPerf.events.length);
+  Object.keys(scoutingPerf.counters).forEach((key) => delete scoutingPerf.counters[key]);
+}
+
+function interactiveElement(element = document.activeElement) {
+  if (!element || element === document.body || !app?.contains(element)) return false;
+  return element.matches?.("select, input, textarea, button, [contenteditable='true'], [role='dialog']") === true;
+}
+
+function noteUserInteraction(eventName = "") {
+  recentUserInteractionAt = perfNow();
+  if (["click", "change", "input", "keydown", "pointerup"].includes(eventName)) {
+    userRenderPriorityUntil = recentUserInteractionAt + 1000;
+  }
+}
+
+function renderCanInterruptInteraction() {
+  const openDialog = app?.querySelector('[role="dialog"]:not([aria-hidden="true"])');
+  return (!interactiveElement() && !openDialog) || perfNow() - recentUserInteractionAt < 250;
+}
+
+function flushPendingRender() {
+  if (!pendingRenderRequest || renderFlushScheduled) return;
+  if (!renderCanInterruptInteraction()) return;
+  renderFlushScheduled = true;
+  requestAnimationFrame(() => {
+    renderFlushScheduled = false;
+    const request = pendingRenderRequest;
+    pendingRenderRequest = null;
+    if (request) render(request.reason, { fromQueue: true });
+  });
+}
+
+function queueRenderRequest(reason) {
+  if (pendingRenderRequest) incrementScoutingPerfCounter("renderCoalesces");
+  pendingRenderRequest = { reason: reason || "unspecified" };
+  incrementScoutingPerfCounter("renderDeferrals");
+  recordScoutingPerf("render.deferred", perfNow(), { reason: reason || "unspecified" });
+}
+
+function installRenderInteractionCoordinator() {
+  ["click", "change", "input", "keydown", "pointerup"].forEach((eventName) => {
+    document.addEventListener(eventName, () => {
+      noteUserInteraction(eventName);
+      if (eventName !== "click") flushPendingRender();
+    }, true);
+  });
+  ["blur", "focusout"].forEach((eventName) => {
+    document.addEventListener(eventName, () => {
+      requestAnimationFrame(flushPendingRender);
+    }, true);
+  });
+}
+
+globalThis.scoutingPerfDiagnostics = { snapshot: scoutingPerfSnapshot, reset: resetScoutingPerf };
+
+function installScoutingLongTaskObserver() {
+  if (typeof globalThis.PerformanceObserver !== "function") return;
+  try {
+    const observer = new globalThis.PerformanceObserver((list) => {
+      list.getEntries().forEach((entry) => {
+        recordScoutingPerf("browser.longtask", perfNow() - Number(entry.duration || 0), {
+          taskDurationMs: Math.round(Number(entry.duration || 0) * 100) / 100,
+          attributionCount: Array.isArray(entry.attribution) ? entry.attribution.length : 0,
+        });
+        incrementScoutingPerfCounter("longTasks");
+      });
+    });
+    observer.observe({ type: "longtask", buffered: true });
+  } catch {
+    // Long-task timing is optional and unavailable in some browsers.
+  }
+}
+
+installScoutingLongTaskObserver();
+installRenderInteractionCoordinator();
+
 function recordScoutingPerf(label, startedAt, details = {}) {
+  const safeDetails = { ...details };
+  if (safeDetails.error) {
+    safeDetails.errorType = String(safeDetails.error?.name || "error");
+    delete safeDetails.error;
+  }
   const event = {
     label,
     durationMs: Math.round((perfNow() - startedAt) * 100) / 100,
     timestamp: new Date().toISOString(),
-    ...details,
+    ...safeDetails,
   };
   scoutingPerf.events.push(event);
   if (scoutingPerf.events.length > 100) scoutingPerf.events.splice(0, scoutingPerf.events.length - 100);
+  incrementScoutingPerfCounter("events");
+  if (label.startsWith("render")) incrementScoutingPerfCounter("renders");
+  if (label === "background.refresh.end" && details.changed === true) incrementScoutingPerfCounter("sourceChanges");
+  if (label === "background.refresh.end" && details.changed === false) incrementScoutingPerfCounter("unchangedSourcePolls");
   return event;
 }
 
 function bootstrapApp() {
   const startedAt = perfNow();
   try {
+    if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first" && state.activeEventKey) {
+      document.documentElement.dataset.theme = state.theme;
+      renderSafely();
+      ensureSourceRefreshLoop();
+      void loadArbitraryEventCode(state.activeEventKey, {
+        activeView: state.activeView,
+        source: "simulator-startup-refresh",
+        deferPridgeTrends: true,
+        deferPridgeComputation: true,
+      });
+      recordScoutingPerf("bootstrap.simulatorRefresh", startedAt, { eventKey: state.activeEventKey });
+      return;
+    }
     if (!eventModelByKey(state.activeEventKey)) {
       document.documentElement.dataset.theme = state.theme;
       renderSafely();
@@ -498,6 +667,7 @@ function bootstrapApp() {
     hydrateEventState(state.activeEventKey);
     recordScoutingPerf("bootstrap.hydrateEventState", hydrateStartedAt, { eventKey: state.activeEventKey });
     document.documentElement.dataset.theme = state.theme;
+    scheduleFocusPending = state.activeView === "schedule";
     const renderStartedAt = perfNow();
     renderSafely();
     recordScoutingPerf("bootstrap.renderSafely", renderStartedAt, { eventKey: state.activeEventKey, activeView: state.activeView });
@@ -635,6 +805,7 @@ function mergeProviderSourceState(currentSource = {}, nextSource = {}) {
   return {
     ...currentSource,
     ...nextSource,
+    nextPollAt: normalizeText(nextSource.nextPollAt) || normalizeText(currentSource.nextPollAt),
     provenance: {
       ...(currentSource.provenance || {}),
       ...(nextSource.provenance || {}),
@@ -667,11 +838,23 @@ function applyLoadedExternalSourceState(loadResult, options = {}) {
   const eventModel = loadResult?.eventModel || currentEvent();
   const eventKey = normalizeText(eventModel?.key) || state.activeEventKey;
   const storedWorkspace = readStoredJson(storageKeys.eventWorkspace, null, eventKey);
-  const seededWorkspace = createEventWorkspace(eventModel, storedWorkspace);
+  const seededWorkspace = seedWorkspaceExternalSourcePolling(createEventWorkspace(eventModel, storedWorkspace));
   const nextSources = { ...(seededWorkspace.sources || {}) };
   Object.entries(loadResult?.sourceStates || {}).forEach(([sourceId, sourceState]) => {
     nextSources[sourceId] = mergeProviderSourceState(nextSources[sourceId], sourceState);
   });
+  const currentModel = currentEvent();
+  const hasComputedPridge = (currentModel?.teams || []).some((team) => Number.isFinite(Number(team?.sources?.pridge?.total)));
+  if (hasComputedPridge && nextSources.pridge?.status === "error") {
+    nextSources.pridge = {
+      ...nextSources.pridge,
+      status: "ready",
+      freshness: "fresh",
+      error: "",
+      lastSuccessfulAt: nextSources.pridge.lastAttemptedAt || nextSources.pridge.lastSuccessfulAt,
+      consecutiveFailures: 0,
+    };
+  }
   state.eventWorkspace = {
     ...seededWorkspace,
     sources: nextSources,
@@ -767,6 +950,7 @@ function inferredScoutingAttachmentFormat(currentFormat, source) {
   const normalizedSource = normalizeScoutingSourceUrl(source).split(/[?#]/)[0];
   const normalizedFormat = normalizeText(currentFormat).toLowerCase();
   if (/\.json$/i.test(normalizedSource)) return "scouting-json";
+  if (/\/api\/scouting(?:\/|$)/i.test(normalizedSource)) return "scouting-json";
   if (/\.(csv|tsv|txt)$/i.test(normalizedSource)) return "legacy-sheet-csv";
   if (/\/spreadsheets\/d\/[a-zA-Z0-9-_]+/.test(normalizedSource)) return "legacy-sheet-url";
   return normalizedFormat || "scouting-json";
@@ -1251,8 +1435,27 @@ function maybePollActiveScoutingAttachment() {
 }
 
 function maybePollExternalSources() {
-  if (currentEvent()?.catalogSource === "dynamic-external") return;
   const workspace = currentEventWorkspace();
+  if (currentEvent()?.catalogSource === "dynamic-external") {
+    const due = ["tba", "statbotics", "pridge"].some((sourceId) => {
+      const source = workspace.sources?.[sourceId];
+      return source && source.pollingEnabled !== false && shouldPollRefreshSource(
+        source,
+        defaultRefreshPolicyForSource({ kind: "external", sourceId }),
+        Date.now(),
+      );
+    });
+    if (!due || pendingExternalRefreshSourceIds.has("dynamic-external")) return;
+    pendingExternalRefreshSourceIds.add("dynamic-external");
+    Promise.resolve(refreshDataSource("tba", { trigger: "poll" }))
+      .catch((error) => {
+        console.error("Polling live external sources failed", error);
+      })
+      .finally(() => {
+        pendingExternalRefreshSourceIds.delete("dynamic-external");
+      });
+    return;
+  }
   ["tba", "statbotics", "pridge"].forEach((sourceId) => {
     const source = workspace.sources?.[sourceId];
     if (!source || source.pollingEnabled === false || pendingExternalRefreshSourceIds.has(sourceId)) return;
@@ -1264,7 +1467,7 @@ function maybePollExternalSources() {
         console.error("Polling external source failed", sourceId, error);
         markExternalSourceFailure(sourceId, error?.message || `Unable to refresh ${sourceId}.`);
         saveState();
-        render();
+        render("background.refresh.error");
       })
       .finally(() => {
         pendingExternalRefreshSourceIds.delete(sourceId);
@@ -1277,24 +1480,40 @@ function ensureSourceRefreshLoop() {
   sourceRefreshIntervalId = globalThis.setInterval(() => {
     maybePollActiveScoutingAttachment();
     maybePollExternalSources();
-  }, 30000);
+  }, 5000);
 }
 
 async function refreshDataSource(sourceId, options = {}) {
+  const startedAt = perfNow();
+  const trigger = options.trigger || "manual";
+  recordScoutingPerf("background.refresh.start", startedAt, {
+    sourceId,
+    trigger,
+    activeView: state.activeView,
+    activeEventKey: state.activeEventKey,
+  });
   if (sourceId === "scouting") {
     saveCurrentScoutingAttachmentDraftFromDom({ render: false });
     await loadScoutingData({ autoCommit: true, scoutingImportSource: "manual-refresh", skipUnchanged: true, importDraftSource: "attached" });
+    recordScoutingPerf("background.refresh.end", startedAt, { sourceId, trigger, changed: null, activeView: state.activeView });
     return;
   }
   if (currentEvent()?.catalogSource === "dynamic-external") {
-    await loadArbitraryEventCode(currentEvent().key, {
+    const refreshEventKey = currentEvent().key;
+    const refreshed = await loadArbitraryEventCode(currentEvent().key, {
       activeView: state.activeView,
+      selectionToken: {
+        eventKey: refreshEventKey,
+        generation: eventLoadSequence,
+        source: "background",
+      },
+      activate: false,
     });
-    return;
+    recordScoutingPerf("background.refresh.end", startedAt, { sourceId, trigger, changed: true, activeView: state.activeView });
+    return refreshed;
   }
   const event = currentEvent();
   const label = { tba: "The Blue Alliance", statbotics: "Statbotics", pridge: "pRidge" }[sourceId] || sourceId;
-  const trigger = options.trigger || "manual";
   const snapshot = buildExternalSourceSnapshot(sourceId, event);
   const nextFingerprint = buildExternalSnapshotFingerprint(snapshot);
   const didChange = nextFingerprint !== currentExternalSourceFingerprint(sourceId);
@@ -1314,7 +1533,16 @@ async function refreshDataSource(sourceId, options = {}) {
     pushActivity(`Checked ${label} for ${displayEventName(event)}. No changes detected.`);
   }
   saveState();
-  render();
+  if (didChange || trigger === "manual") {
+    recordScoutingPerf("background.refresh.render", startedAt, { sourceId, trigger, changed: didChange, activeView: state.activeView });
+    render("background.refresh");
+  }
+  recordScoutingPerf("background.refresh.end", startedAt, {
+    sourceId,
+    trigger,
+    changed: didChange,
+    activeView: state.activeView,
+  });
 }
 
 async function refreshAllDataSources() {
@@ -1324,7 +1552,10 @@ async function refreshAllDataSources() {
 }
 
 async function refreshCurrentExternalSourcesImmediately() {
-  if (currentEvent()?.catalogSource === "dynamic-external") return;
+  if (currentEvent()?.catalogSource === "dynamic-external") {
+    await refreshDataSource("tba");
+    return;
+  }
   await Promise.all(["tba", "statbotics", "pridge"].map((sourceId) => refreshDataSource(sourceId)));
 }
 
@@ -1559,9 +1790,11 @@ async function applyRecentAdminEventSelection(value) {
   if (nextEventKey === state.activeEventKey) return true;
   state.adminRecentEventsOpen = false;
   if (sharedCachedEventByKey(nextEventKey)) {
-    return openSharedCachedEvent(nextEventKey, { activeView: "adminEventControl", persistShared: true });
+    return openSharedCachedEvent(nextEventKey, { activeView: "adminEventControl", persistShared: true, source: "user" });
   }
-  return switchActiveEvent(nextEventKey, { activeView: "adminEventControl" });
+  const switched = activateEventSelection(beginEventSelection(nextEventKey, "user"), { activeView: "adminEventControl" });
+  if (switched) void refreshCurrentExternalSourcesImmediately();
+  return switched;
 }
 
 function readCurrentScoutingAttachmentDraftFromDom() {
@@ -1615,16 +1848,21 @@ async function applyAdminEventCodeDraft(value, options = {}) {
     if (options.render !== false) render();
     return true;
   }
+  if (state.eventLookupPending && state.adminEventCodeDraft === normalizedEventCode) {
+    return false;
+  }
   state.adminEventCodeDraft = normalizedEventCode;
   if (sharedCachedEventByKey(normalizedEventCode)) {
-    return openSharedCachedEvent(normalizedEventCode, { activeView: "adminEventControl", persistShared: true });
+    const opened = await openSharedCachedEvent(normalizedEventCode, { activeView: "adminEventControl", persistShared: true, source: "user" });
+    if (opened) return true;
+    return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl", source: "user" });
   }
   if (globalEventCatalog.some((eventModel) => eventModel?.key === normalizedEventCode)) {
-    const switched = switchActiveEvent(normalizedEventCode, { activeView: "adminEventControl" });
+    const switched = activateEventSelection(beginEventSelection(normalizedEventCode, "user"), { activeView: "adminEventControl" });
     if (switched) void refreshCurrentExternalSourcesImmediately();
     return switched;
   }
-  return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl" });
+  return loadArbitraryEventCode(normalizedEventCode, { activeView: "adminEventControl", source: "user" });
 }
 
 async function applyScoutingSourceInputChange(options = {}) {
@@ -1997,12 +2235,18 @@ const currentTeamsCache = {
 const overlaidTeamCache = new Map();
 
 function currentOverlayCacheContext(eventModel = currentEvent()) {
+  const workspaceSources = currentEventWorkspace()?.sources || {};
+  const activeScoutingAttachment = activeEventWorkspaceScoutingAttachment(currentEventWorkspace());
   return {
     eventModel,
     eventKey: normalizeText(eventModel?.key),
     recentMatchCount: currentRecentMatchCount(),
     profileVersionKey: normalizeText(currentImportedProfileDefinition(eventModel)?.versionKey),
     schemaSignature: currentTeamsSchemaSignature(eventModel),
+    sourceRevisionKey: ["tba", "statbotics", "pridge"]
+      .map((sourceId) => `${sourceId}:${Math.max(0, Number(workspaceSources[sourceId]?.sourceRevision) || 0)}`)
+      .concat(`scouting:${Math.max(0, Number(activeScoutingAttachment?.sourceRevision) || 0)}`)
+      .join("|"),
     submissionRef: state.scoutingSubmissions,
     reviewOverrideRef: state.scoutingReviewOverrides,
   };
@@ -2028,6 +2272,7 @@ function currentTeams() {
     && currentTeamsCache.recentMatchCount === nextRecentMatchCount
     && currentTeamsCache.profileVersionKey === nextProfileVersionKey
     && currentTeamsCache.schemaSignature === nextSchemaSignature
+    && currentTeamsCache.sourceRevisionKey === cacheContext.sourceRevisionKey
     && currentTeamsCache.submissionRef === cacheContext.submissionRef
     && currentTeamsCache.reviewOverrideRef === cacheContext.reviewOverrideRef
   ) {
@@ -2049,6 +2294,16 @@ function currentMatches() {
   return currentEvent().matches;
 }
 
+function matchIdentity(match) {
+  return String(match?.id || `${match?.compLevel || "qm"}-${match?.setNumber || 0}-${match?.number || 0}`);
+}
+
+function findMatchBySelection(selection) {
+  const selected = String(selection ?? "");
+  return currentMatches().find((match) => matchIdentity(match) === selected)
+    || currentMatches().find((match) => Number.isFinite(Number(selection)) && match.number === Number(selection));
+}
+
 function runtimeMetricsForEventModel(eventModel = currentEvent()) {
   const runtimeEventModel = {
     ...eventModel,
@@ -2068,7 +2323,9 @@ function currentMetrics() {
 }
 
 function statboticsEpaMetric(eventModel = currentEvent()) {
-  return runtimeMetricsForEventModel(eventModel).find((metric) => metric.id === defaultStatboticsMetricId) || null;
+  return runtimeMetricsForEventModel(eventModel).find((metric) => metric.id === defaultStatboticsMetricId)
+    || defaultMatchupMetricDefinitions.find((metric) => metric.id === defaultStatboticsMetricId)
+    || null;
 }
 
 function formatMetricValueForDisplay(metric, value) {
@@ -2090,7 +2347,10 @@ function currentDataSources() {
     const sourceState = workspace.sources?.[definition.sourceId] || {};
     const policy = defaultRefreshPolicyForSource({ kind: "external", sourceId: definition.sourceId });
     const dataSourceNote = (event.dataSources || []).find((source) => String(source.name || "").includes(definition.label)) || {};
-    const authFailure = definition.sourceId === "tba"
+    const simulatorRouting = providerRouting.resolveProviderRouting ? providerRouting.resolveProviderRouting() : null;
+    const simulatorConfigured = globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first"
+      || /^(https?:\/\/)?(127\.0\.0\.1|localhost)(?::\d+)?\//i.test(simulatorRouting?.tbaBaseUrl || "");
+    const authFailure = definition.sourceId === "tba" && !simulatorConfigured
       ? authFailureMessage("TBA", state.tbaAuthKeyValidation)
       : "";
     return {
@@ -2110,6 +2370,11 @@ function currentDataSources() {
     };
   });
   const activeAttachment = currentScoutingAttachment();
+  const activeAttachmentLabel = normalizeText(activeAttachment?.label);
+  const defaultScoutingLabelMatch = activeAttachmentLabel.match(/^(.*)\s+Scouting$/i);
+  const scoutingSourceName = defaultScoutingLabelMatch
+    ? `${toDisplayEventLabel(defaultScoutingLabelMatch[1])} Scouting`
+    : toDisplayEventLabel(activeAttachmentLabel || "Scouting Data");
   const scoutingPolicy = defaultRefreshPolicyForSource({ kind: "scouting", sourceId: activeAttachment?.attachmentId });
   const scoutingStats = [
     { label: "Rows", value: state.scoutingSubmissions.length },
@@ -2135,7 +2400,7 @@ function currentDataSources() {
   return [
     {
       sourceId: "scouting",
-      name: activeAttachment?.label || "Scouting Data",
+      name: scoutingSourceName,
       status: visibleStatusForSource(activeAttachment || {}, scoutingPolicy, now),
       freshness: freshnessForSource(activeAttachment || {}, scoutingPolicy, now),
       notes: activeAttachment?.error || `${detectedScoutingSourceLabel(workspace, event)} | ${currentScoutingSourceUrl() || "No scouting source configured."}`,
@@ -2300,11 +2565,42 @@ function currentScoutingDiagnosticsState() {
     currentPridgeResponseDefinitions(),
     currentAvailableTbaFormulaIdentifiers(),
   );
+  const hasScoutingData = currentScoutingSubmissions().length > 0
+    || Number(state.importResult?.summary?.rowCount || 0) > 0;
+  const schemaLocation = currentScoutingAttachment()?.location || {};
+  const schemaSourceConfigured = Boolean(
+    normalizeText(schemaLocation.schemaPath)
+    || normalizeText(schemaLocation.schemaUrl),
+  );
+  const schemaLoaded = Boolean(normalizeText(state.importSchemaJsonText))
+    || (schemaSourceConfigured && Boolean(normalizeText(currentScoutingAttachment()?.schemaSignature)));
   return {
     committedFields,
     currentDiagnostics,
     pendingDiagnostics,
     pridgeDiagnostics,
+    schemaStatus: {
+      hasScoutingData,
+      loaded: schemaLoaded,
+      missing: hasScoutingData && !schemaLoaded,
+    },
+  };
+}
+
+function adminDataQualityAlertState(diagnosticsState = currentScoutingDiagnosticsState()) {
+  const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
+  const reconciliationModel = currentScoutingSchemaReconciliationModel();
+  const schemaMismatch = schemaDiffHasChanges(diagnosticsSelection.diagnostics?.schemaDiff)
+    && !reconciliationModel?.readyToPersist;
+  const schemaMissing = Boolean(diagnosticsState?.schemaStatus?.missing);
+  const pridgeMismatch = Boolean(diagnosticsState?.pridgeDiagnostics?.hasIssues);
+  const reviewPending = standaloneFlaggedSubmissionGroups().length > 0;
+  return {
+    active: schemaMismatch || schemaMissing || pridgeMismatch || reviewPending,
+    schemaMismatch,
+    schemaMissing,
+    pridgeMismatch,
+    reviewPending,
   };
 }
 
@@ -2419,8 +2715,7 @@ function schemaBaselinePridgeResponseDefinitions(eventModel, existingSchema = {}
 
 function applyCurrentPridgeResponseDefinitions(eventModel = currentEvent()) {
   const definitions = currentPridgeResponseDefinitions(eventModel);
-  if (!definitions.length) return eventModel;
-  const nextEventModel = applyPridgeResponseDefinitions(eventModel, definitions);
+  const nextEventModel = applyPridgeResponseDefinitions(eventModel, definitions, { force: true });
   if (nextEventModel && nextEventModel !== eventModel) registerEventModel(nextEventModel);
   return nextEventModel || eventModel;
 }
@@ -2517,6 +2812,7 @@ function schemaDiffHasChanges(schemaDiff = {}) {
   return Boolean(
     (schemaDiff.added && schemaDiff.added.length)
     || (schemaDiff.removed && schemaDiff.removed.length)
+    || (schemaDiff.typeChanged && schemaDiff.typeChanged.length)
   );
 }
 
@@ -2772,8 +3068,20 @@ function availableMetricSourceOrder(metric) {
   return ["scouter", "scouting", "tba", "statbotics", "pridge"].indexOf(metric?.sourceId) + 1 || 99;
 }
 
+function availableMetricIdentifierSourceOrder(identifier) {
+  const sourceId = String(identifier || "").split(".", 1)[0];
+  return { scouting: 1, tba: 2, statbotics: 3, pridge: 4 }[sourceId] || 0;
+}
+
 function orderedRankableMetrics(eventModel = currentEvent()) {
   return [...currentRankableMetrics(eventModel)].sort((left, right) =>
+    availableMetricSourceOrder(left) - availableMetricSourceOrder(right)
+    || metricTokenLabel(left).localeCompare(metricTokenLabel(right)),
+  );
+}
+
+function orderedMetrics(eventModel = currentEvent()) {
+  return [...runtimeMetricsForEventModel(eventModel)].sort((left, right) =>
     availableMetricSourceOrder(left) - availableMetricSourceOrder(right)
     || metricTokenLabel(left).localeCompare(metricTokenLabel(right)),
   );
@@ -2784,12 +3092,55 @@ function currentProfileEquationList(eventModel = currentEvent()) {
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+function currentBooleanScoutingFilterDefinitions(eventModel = currentEvent()) {
+  const definitions = new Map([
+    ["hasEntry", { id: "hasEntry", name: "scouting.hasEntry", label: "Has Entry", type: "boolean" }],
+    ...currentScouterMetricDefinitions(eventModel)
+      .filter((definition) => normalizeText(definition?.type).toLowerCase() === "boolean")
+      .map((definition) => [definition.id, definition]),
+  ]);
+  return [...definitions.values()].map((definition) => ({
+    id: `scouting.${definition.id}`,
+    name: `scouting.${definition.id}`,
+    label: definition.label || definition.id,
+    formula: `scouting.${definition.id} > 0`,
+  }));
+}
+
 function currentProfileFilterList(eventModel = currentEvent()) {
-  return currentProfileEquationList(eventModel);
+  const definitions = [
+    ...currentProfileEquationList(eventModel),
+    ...currentBooleanScoutingFilterDefinitions(eventModel),
+  ];
+  const teams = Array.isArray(eventModel?.teams) ? eventModel.teams : [];
+  if (!definitions.length || !teams.length) return [];
+
+  const evaluationCache = new Map();
+  const filterEvaluationCache = new Map();
+  const groupEvaluationCache = new Map();
+  const eventEvaluationCache = new Map();
+  return definitions.filter((definition) => {
+    let foundBooleanResult = false;
+    for (const team of teams) {
+      const result = evaluateEquationForTeam(team, definition.id, {
+        eventModel,
+        evaluationCache,
+        filterEvaluationCache,
+        groupEvaluationCache,
+        eventEvaluationCache,
+      }).result;
+      if (isErrorFormulaResult(result) || !isSeriesFormulaResult(result) || !metricEngine.isBooleanResult?.(result)) return false;
+      foundBooleanResult = true;
+    }
+    return foundBooleanResult;
+  });
 }
 
 function equationDefinitionById(id, eventModel = currentEvent()) {
-  return currentProfileEquationList(eventModel).find((definition) => definition.id === id) || null;
+  return [
+    ...currentProfileEquationList(eventModel),
+    ...currentBooleanScoutingFilterDefinitions(eventModel),
+  ].find((definition) => definition.id === id) || null;
 }
 
 function profileFilterDefinitionById(id, eventModel = currentEvent()) {
@@ -2964,7 +3315,7 @@ function pridgeComponentCandidates(componentId) {
 }
 
 function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
-  return [
+  const entries = [
     ...currentProfileDerivedEquationDefinitions(eventModel).map((definition) => ({ id: definition.name })),
     ...currentAvailableScoutingFieldDefinitions(eventModel).map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
     ...currentAvailableTbaFormulaIdentifiers(eventModel).map((id) => ({ id })),
@@ -2973,7 +3324,11 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
     ...runtimeMetricsForEventModel(eventModel)
       .filter((metric) => metric.kind === "source" && metric.sourceId === "pridge" && metric.componentId !== "total")
       .map((metric) => ({ id: `pridge.${pridgeFormulaComponentId(metric.componentId)}` })),
-  ].filter((entry, index, entries) => entries.findIndex((candidate) => candidate.id === entry.id) === index);
+  ].filter((entry, index, allEntries) => allEntries.findIndex((candidate) => candidate.id === entry.id) === index);
+  return entries.sort((left, right) => {
+    return availableMetricIdentifierSourceOrder(left.id) - availableMetricIdentifierSourceOrder(right.id)
+      || left.id.localeCompare(right.id);
+  });
 }
 
 function currentMetricDiscoverySchemaPayload() {
@@ -3324,17 +3679,28 @@ function buildTeamFormulaContext(team, eventModel = currentEvent()) {
   );
   const scoutingByMatch = new Map(scoutingMatches.map((match) => [match.matchNumber, match]));
   const tbaByMatch = new Map(tbaMatchMetricsByTeam(Number(baseTeam.number), eventModel).map((entry) => [entry.matchNumber, entry]));
+  const statboticsByMatch = new Map((baseTeam.sources?.statbotics?.trendEntries || [])
+    .map((entry) => [Number(entry.key), { ["epa.post"]: Number(entry.value) }]));
+  const pridgeByMatch = new Map((baseTeam.sources?.pridge?.trendEntries || [])
+    .map((entry) => [Number(entry.key), { ["epa.total_points"]: Number(entry.value) }]));
   const teamSchedule = (eventModel.matches || [])
     .filter((match) => match.red.includes(baseTeam.number) || match.blue.includes(baseTeam.number))
     .map((match) => match.number)
     .sort((left, right) => left - right);
-  const rowMatchNumbers = (teamSchedule.length ? teamSchedule : [...new Set([...scoutingByMatch.keys(), ...tbaByMatch.keys()])]).sort(
+  const rowMatchNumbers = (teamSchedule.length ? teamSchedule : [...new Set([
+    ...scoutingByMatch.keys(),
+    ...tbaByMatch.keys(),
+    ...statboticsByMatch.keys(),
+    ...pridgeByMatch.keys(),
+  ])]).sort(
     (left, right) => left - right,
   );
   const matchRows = rowMatchNumbers.map((matchNumber) => ({
     matchNumber,
     scouting: scoutingByMatch.get(matchNumber) || null,
     tba: tbaByMatch.get(matchNumber) || null,
+    statbotics: statboticsByMatch.get(matchNumber) || null,
+    pridge: pridgeByMatch.get(matchNumber) || null,
   }));
   const context = {
     baseTeam,
@@ -3651,6 +4017,9 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
   }
   if (identifier.startsWith("statbotics.")) {
     const componentId = identifier.slice("statbotics.".length);
+    if (componentId === "epa.post") {
+      return formulaSeriesFromRows(formulaContext.matchRows, (row) => readFormulaPathValue(row.statbotics || {}, componentId));
+    }
     const candidateFieldIds = [componentId];
     for (const candidateFieldId of candidateFieldIds) {
       const overlayValue = readFormulaPathValue(formulaContext.overlayTeam.sources?.statbotics?.components || {}, candidateFieldId);
@@ -3660,6 +4029,9 @@ function resolveFormulaIdentifier(identifier, formulaContext, evaluationCache, e
   }
   if (identifier.startsWith("pridge.")) {
     const componentId = identifier.slice("pridge.".length);
+    if (componentId === "epa.total_points") {
+      return formulaSeriesFromRows(formulaContext.matchRows, (row) => readFormulaPathValue(row.pridge || {}, componentId));
+    }
     if (componentId === "total") return formulaScalarValue(formulaContext.overlayTeam.sources?.pridge?.total ?? Number.NaN);
     const components = formulaContext.overlayTeam.sources?.pridge?.components || {};
     const value = pridgeComponentCandidates(componentId)
@@ -3995,6 +4367,9 @@ function restoreBuilderListScroll(view = state.activeView) {
     });
     requestAnimationFrame(() => {
       if (view !== "derivedBuilder") return;
+      const allowActiveScroll = scrollState.__allowActiveScroll === true;
+      delete scrollState.__allowActiveScroll;
+      if (!allowActiveScroll) return;
       if (state.builderFocus.derivedBuilder === "metrics" && state.activeDerivedPreviewMetricId) {
         const activeMetric = [...document.querySelectorAll("[data-derived-preview-metric]")]
           .find((item) => item.dataset.derivedPreviewMetric === state.activeDerivedPreviewMetricId);
@@ -4009,6 +4384,75 @@ function restoreBuilderListScroll(view = state.activeView) {
   });
 }
 
+function captureRenderInteractionState() {
+  const activeElement = document.activeElement;
+  const interactionState = {
+    activeId: activeElement && activeElement !== document.body && app.contains(activeElement) ? activeElement.id : "",
+    selectionStart: typeof activeElement?.selectionStart === "number" ? activeElement.selectionStart : null,
+    selectionEnd: typeof activeElement?.selectionEnd === "number" ? activeElement.selectionEnd : null,
+    value: typeof activeElement?.value === "string" ? activeElement.value : null,
+    controls: [],
+    windowScroll: {
+      x: Number(globalThis.scrollX || 0),
+      y: Number(globalThis.scrollY || 0),
+    },
+    scroll: [],
+  };
+  app.querySelectorAll("input[id], select[id], textarea[id]").forEach((element) => {
+    interactionState.controls.push({
+      id: element.id,
+      value: typeof element.value === "string" ? element.value : null,
+      checked: typeof element.checked === "boolean" ? element.checked : null,
+      selectedIndex: typeof element.selectedIndex === "number" ? element.selectedIndex : null,
+    });
+  });
+  app.querySelectorAll("[data-builder-list-scroll], [data-builder-grid-column-scroll], [data-builder-grid-shell]").forEach((element) => {
+    const key = element.dataset.builderListScroll || element.dataset.builderGridColumnScroll || "shell";
+    interactionState.scroll.push({
+      selector: element.dataset.builderListScroll
+        ? `[data-builder-list-scroll="${key}"]`
+        : element.dataset.builderGridColumnScroll
+          ? `[data-builder-grid-column-scroll="${key}"]`
+          : "[data-builder-grid-shell]",
+      scrollTop: element.scrollTop,
+      scrollLeft: element.scrollLeft,
+    });
+  });
+  return interactionState;
+}
+
+function restoreRenderInteractionState(interactionState, options = {}) {
+  if (!interactionState) return;
+  requestAnimationFrame(() => {
+    if (options.preserveControls === true) {
+      interactionState.controls.forEach((saved) => {
+        const element = document.getElementById(saved.id);
+        if (!element) return;
+        if (saved.value !== null && "value" in element) element.value = saved.value;
+        if (saved.checked !== null && "checked" in element) element.checked = saved.checked;
+        if (saved.selectedIndex !== null && "selectedIndex" in element) element.selectedIndex = saved.selectedIndex;
+      });
+    }
+    if (interactionState.windowScroll && typeof globalThis.scrollTo === "function") {
+      globalThis.scrollTo(interactionState.windowScroll.x, interactionState.windowScroll.y);
+    }
+    interactionState.scroll.forEach((saved) => {
+      const element = document.querySelector(saved.selector);
+      if (!element) return;
+      element.scrollTop = saved.scrollTop;
+      element.scrollLeft = saved.scrollLeft;
+    });
+    if (!interactionState.activeId) return;
+    const activeElement = document.getElementById(interactionState.activeId);
+    if (!activeElement) return;
+    if (interactionState.value !== null && "value" in activeElement) activeElement.value = interactionState.value;
+    activeElement.focus({ preventScroll: true });
+    if (interactionState.selectionStart !== null && typeof activeElement.setSelectionRange === "function") {
+      activeElement.setSelectionRange(interactionState.selectionStart, interactionState.selectionEnd);
+    }
+  });
+}
+
 function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.theme), state.theme);
   localStorage.setItem(eventStorageKey(storageKeys.activeEvent), state.activeEventKey);
@@ -4020,6 +4464,7 @@ function saveState() {
   localStorage.setItem(eventStorageKey(storageKeys.picklistCompareMetric), state.picklistCompareMetric);
   localStorage.setItem(eventStorageKey(storageKeys.selectedTeam), String(state.selectedTeam));
   localStorage.setItem(eventStorageKey(storageKeys.selectedMatch), String(state.selectedMatch));
+  localStorage.setItem(eventStorageKey(storageKeys.highlightTeam), String(state.highlightTeam || ""));
   localStorage.setItem(eventStorageKey(storageKeys.menuExpanded), String(state.menuExpanded));
   localStorage.setItem(eventStorageKey(storageKeys.picklists), JSON.stringify(state.picklists));
   localStorage.setItem(eventStorageKey(storageKeys.sortEquations), JSON.stringify(state.sortEquations));
@@ -4234,6 +4679,8 @@ function scoutingProfilesForEvent(eventModel = currentEvent()) {
 let stopSharedActiveEventSync = null;
 let sharedWorkspacePersistTimer = null;
 let pendingUserSharedActiveEventKey = "";
+let sharedActiveEventSaveQueue = Promise.resolve();
+let sharedActiveEventSaveSequence = 0;
 
 function sharedCachedEventByKey(eventKey) {
   const normalizedEventKey = normalizeText(eventKey).toLowerCase();
@@ -4408,6 +4855,8 @@ async function loadCachedScoutingData(eventKey, api) {
 }
 
 async function openSharedCachedEvent(eventKey, options = {}) {
+  const selectionToken = beginEventSelection(eventKey, options.source || "shared");
+  const isCurrentOpen = () => isCurrentEventSelection(selectionToken);
   const cachedEvent = sharedCachedEventByKey(eventKey);
   const api = globalThis.firebaseEventSourceCacheApi;
   const cachedEventLoader = globalThis.CachedEventLoader;
@@ -4420,19 +4869,21 @@ async function openSharedCachedEvent(eventKey, options = {}) {
   const cachedProviderIsStale = persistedCachedWorkspace?.sources?.tba?.freshness === "stale"
     || persistedCachedWorkspace?.sources?.statbotics?.freshness === "stale";
   if (inMemoryCachedEvent) {
-    switchActiveEvent(inMemoryCachedEvent.key, {
+    activateEventSelection(selectionToken, {
       activeView: options.activeView || state.activeView,
       persistShared: options.persistShared === true,
       preserveImportDraft: true,
     });
-    state.eventLookupResult = {
-      kind: cachedProviderIsStale ? "warn" : "success",
-      message: cachedProviderIsStale
-        ? `${inMemoryCachedEvent.key} opened from the already-loaded cached snapshot. Provider data is stale; refreshing live sources.`
-        : `${inMemoryCachedEvent.key} opened from the already-loaded cached snapshot.`,
-    };
-    render();
-    state.eventLookupPending = false;
+    if (isCurrentOpen()) {
+      state.eventLookupResult = {
+        kind: cachedProviderIsStale ? "warn" : "success",
+        message: cachedProviderIsStale
+          ? `${inMemoryCachedEvent.key} opened from the already-loaded cached snapshot. Provider data is stale; refreshing live sources.`
+          : `${inMemoryCachedEvent.key} opened from the already-loaded cached snapshot.`,
+      };
+    }
+    if (isCurrentOpen()) render();
+    if (isCurrentOpen()) state.eventLookupPending = false;
     return true;
   }
   let liveRefreshWarning = "";
@@ -4443,7 +4894,6 @@ async function openSharedCachedEvent(eventKey, options = {}) {
         if (cachedEventLoader.cacheFreshness(cachedTbaEvent?.manifest) === "stale") {
           const refreshed = await loadArbitraryEventCode(cachedEvent.key, {
             activeView: options.activeView || state.activeView,
-            allowDuplicate: true,
             deferPridgeComputation: true,
           });
           if (refreshed) return true;
@@ -4464,45 +4914,70 @@ async function openSharedCachedEvent(eventKey, options = {}) {
       seasonLabel: officialSeasonLabel(cachedEvent.season || result.eventModel.season) || cachedEvent.seasonLabel || result.eventModel.seasonLabel,
       catalogSource: "shared-cache",
     });
-    switchActiveEvent(registeredEvent.key, {
+    if (!isCurrentOpen()) return false;
+    activateEventSelection(selectionToken, {
       activeView: options.activeView || state.activeView,
       persistShared: options.persistShared === true,
       preserveImportDraft: true,
     });
     applyLoadedExternalSourceState({ ...result, eventModel: registeredEvent }, { render: false });
     await loadCachedScoutingData(registeredEvent.key, api);
-    state.eventLookupResult = {
-      kind: result.warnings.length || result.cacheFreshness === "stale" ? "warn" : "success",
-      message: `${registeredEvent.key} opened from the shared Firestore cache (${result.cacheFreshness}).${liveRefreshWarning ? ` Live refresh failed: ${liveRefreshWarning}` : ""}${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`,
-    };
-    render();
+    if (isCurrentOpen()) {
+      state.eventLookupResult = {
+        kind: result.warnings.length || result.cacheFreshness === "stale" ? "warn" : "success",
+        message: `${registeredEvent.key} opened from the shared Firestore cache (${result.cacheFreshness}).${liveRefreshWarning ? ` Live refresh failed: ${liveRefreshWarning}` : ""}${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`,
+      };
+    }
+    if (isCurrentOpen()) render();
     return true;
   } catch (error) {
-    state.eventLookupResult = { kind: "error", message: `Unable to open cached ${normalizeText(eventKey)}. ${error?.message || ""}`.trim() };
-    render();
+    if (isCurrentOpen() && state.tbaAuthKey && /No cached source is available/i.test(error?.message || "")) {
+      const liveLoaded = await loadArbitraryEventCode(eventKey, {
+        activeView: options.activeView || "adminEventControl",
+        deferPridgeTrends: true,
+        deferPridgeComputation: true,
+      });
+      if (liveLoaded) return true;
+    }
+    if (isCurrentOpen()) {
+      state.eventLookupResult = { kind: "error", message: `Unable to open cached ${normalizeText(eventKey)}. ${error?.message || ""}`.trim() };
+      render();
+    }
     return false;
   } finally {
-    state.eventLookupPending = false;
-    render();
+    if (isCurrentOpen()) {
+      state.eventLookupPending = false;
+      render();
+    }
   }
 }
 
 async function restoreSharedCachedActiveEvent() {
+  if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first") return false;
   const eventKey = normalizeText(state.pendingSharedActiveEventKey || state.activeEventKey);
   state.pendingSharedActiveEventKey = "";
   if (!eventKey || globalEventCatalog.some((eventModel) => eventModel?.key === eventKey) || !sharedCachedEventByKey(eventKey)) return false;
-  return openSharedCachedEvent(eventKey, { activeView: state.activeView });
+  return openSharedCachedEvent(eventKey, { activeView: state.activeView, source: "shared" });
 }
 
 function persistSharedActiveEvent(eventKey) {
+  if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first") return;
   const api = globalThis.firebaseEventStateApi;
   if (!api || !globalThis.firebaseCurrentUser || globalThis.firebaseUserRole !== "admin" || !eventKey) return;
-  void api.saveActiveEvent(eventKey).catch((error) => {
-    console.warn(`Unable to save shared active event ${eventKey}; keeping the local event.`, error);
-  });
+  const saveSequence = ++sharedActiveEventSaveSequence;
+  sharedActiveEventSaveQueue = sharedActiveEventSaveQueue
+    .catch(() => {})
+    .then(async () => {
+      if (saveSequence !== sharedActiveEventSaveSequence) return;
+      await api.saveActiveEvent(eventKey);
+    })
+    .catch((error) => {
+      console.warn(`Unable to save shared active event ${eventKey}; keeping the local event.`, error);
+    });
 }
 
 function startSharedActiveEventSync() {
+  if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first") return;
   const api = globalThis.firebaseEventStateApi;
   if (!api || !globalThis.firebaseCurrentUser) return;
   stopSharedActiveEventSync?.();
@@ -4511,17 +4986,20 @@ function startSharedActiveEventSync() {
     if (globalThis.firebaseUserRole !== "admin") pendingUserSharedActiveEventKey = "";
     if (pendingUserSharedActiveEventKey) {
       if (sharedEventKey !== pendingUserSharedActiveEventKey) return;
+      pendingUserSharedActiveEventKey = "";
     }
     if (!sharedEventKey) {
       persistSharedActiveEvent(state.activeEventKey);
       return;
     }
     if (!globalEventCatalog.some((eventModel) => eventModel.key === sharedEventKey)) {
-      if (sharedCachedEventByKey(sharedEventKey)) void openSharedCachedEvent(sharedEventKey, { activeView: state.activeView });
+      if (sharedCachedEventByKey(sharedEventKey)) void openSharedCachedEvent(sharedEventKey, { activeView: state.activeView, source: "shared" });
       else console.warn(`Shared active event ${sharedEventKey} is unavailable in this client; keeping ${state.activeEventKey}.`);
       return;
     }
-    if (sharedEventKey !== state.activeEventKey) switchActiveEvent(sharedEventKey, { persistShared: false });
+    if (sharedEventKey !== state.activeEventKey) {
+      activateEventSelection(beginEventSelection(sharedEventKey, "shared"), { persistShared: false });
+    }
   });
 }
 
@@ -4577,6 +5055,7 @@ function registerScoutingProfile(eventModel, profile) {
 }
 
 async function syncSharedProfilesForEvent(eventKey = state.activeEventKey) {
+  const startedAt = perfNow();
   const api = globalThis.firebaseProfileApi;
   if (!api || !globalThis.firebaseCurrentUser || !eventKey) return false;
   try {
@@ -4592,7 +5071,8 @@ async function syncSharedProfilesForEvent(eventKey = state.activeEventKey) {
       });
       state.scoutingProfileCatalog = normalizeScoutingProfileCatalog({ ...state.scoutingProfileCatalog, [eventKey]: mergedProfiles });
       saveState();
-      renderSafely();
+      renderSafely("background.sync.profiles");
+      recordScoutingPerf("background.sync.end", startedAt, { path: "profiles", changed: true, activeEventKey: eventKey });
       return true;
     }
     if (globalThis.firebaseUserRole === "admin") {
@@ -4600,8 +5080,10 @@ async function syncSharedProfilesForEvent(eventKey = state.activeEventKey) {
       await Promise.all(localProfiles.map((profile) => api.saveEventProfile(eventKey, profile)));
       console.info(`Seeded ${localProfiles.length} profile(s) to Firestore for ${eventKey}.`);
     }
+    recordScoutingPerf("background.sync.end", startedAt, { path: "profiles", changed: false, activeEventKey: eventKey });
   } catch (error) {
     console.warn(`Unable to sync shared profiles for ${eventKey}; keeping local profiles.`, error);
+    recordScoutingPerf("background.sync.error", startedAt, { path: "profiles", activeEventKey: eventKey, error: error?.message || String(error || "") });
   }
   return false;
 }
@@ -4629,6 +5111,7 @@ function backfillScoutingProfilesFromSubmissions(eventModel = currentEvent()) {
 }
 
 async function syncSharedSubmissionsForEvent(eventKey = state.activeEventKey) {
+  const startedAt = perfNow();
   const api = globalThis.firebaseSubmissionApi;
   const user = globalThis.firebaseCurrentUser;
   if (!api || !user) return false;
@@ -4640,16 +5123,19 @@ async function syncSharedSubmissionsForEvent(eventKey = state.activeEventKey) {
       localStorage.removeItem(eventStorageKey(storageKeys.scoutingSubmissions, resolvedEventKey));
       backfillScoutingProfilesFromSubmissions(currentEvent());
       saveState();
-      renderSafely();
+      renderSafely("background.sync.submissions");
+      recordScoutingPerf("background.sync.end", startedAt, { path: "submissions", changed: true, activeEventKey: resolvedEventKey });
       return true;
     }
     if (globalThis.firebaseUserRole === "admin" && state.scoutingSubmissions.length) {
       await api.saveEventSubmissions(resolvedEventKey, state.scoutingSubmissions);
       console.info(`Seeded ${state.scoutingSubmissions.length} scouting submission(s) to Firestore for ${resolvedEventKey}.`);
+      recordScoutingPerf("background.sync.end", startedAt, { path: "submissions", changed: true, activeEventKey: resolvedEventKey });
       return true;
     }
   } catch (error) {
     console.warn(`Unable to sync shared submissions for ${resolvedEventKey}; keeping local data.`, error);
+    recordScoutingPerf("background.sync.error", startedAt, { path: "submissions", activeEventKey: resolvedEventKey, error: error?.message || String(error || "") });
   }
   return false;
 }
@@ -4662,11 +5148,14 @@ function hydrateEventState(eventKey) {
   globalThis.__scoutingActiveEventKey = state.activeEventKey;
   const initialEventModel = currentEvent();
   ensureEventScopedScoutingProfiles(initialEventModel);
-  const eventModel = applyCurrentPridgeResponseDefinitions(currentEvent());
+  // Keep pRidge fitting out of event navigation. Totals are materialized when a
+  // dependent view first needs them; trend/response series remain deferred.
+  const eventModel = currentEvent();
   void syncSharedProfilesForEvent(resolvedEventKey);
   void syncSharedSubmissionsForEvent(resolvedEventKey);
   state.eventWorkspace = createEventWorkspace(eventModel, readStoredJson(storageKeys.eventWorkspace, null, resolvedEventKey));
-  const seededWorkspace = seedWorkspaceExternalSourceFingerprints(state.eventWorkspace, eventModel);
+  const fingerprintedWorkspace = seedWorkspaceExternalSourceFingerprints(state.eventWorkspace, eventModel);
+  const seededWorkspace = seedWorkspaceExternalSourcePolling(fingerprintedWorkspace);
   const repairedWorkspaceFingerprints = seededWorkspace !== state.eventWorkspace;
   state.eventWorkspace = seededWorkspace;
   state.activeView = normalizeView(readStoredItem(storageKeys.activeView, resolvedEventKey));
@@ -4675,7 +5164,9 @@ function hydrateEventState(eventKey) {
   state.teamDetailMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.teamDetailMetric, resolvedEventKey), eventModel);
   state.picklistCompareMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.picklistCompareMetric, resolvedEventKey), eventModel);
   state.selectedTeam = Number(readStoredItem(storageKeys.selectedTeam, resolvedEventKey)) || eventModel.teams[0]?.number || 0;
-  state.selectedMatch = Number(readStoredItem(storageKeys.selectedMatch, resolvedEventKey)) || eventModel.matches[0]?.number || 0;
+  state.selectedMatch = readStoredItem(storageKeys.selectedMatch, resolvedEventKey) || eventModel.matches[0]?.id || eventModel.matches[0]?.number || 0;
+  const storedHighlightTeam = readStoredItem(storageKeys.highlightTeam, resolvedEventKey);
+  state.highlightTeam = normalizeHighlightTeam(storedHighlightTeam === null ? 686 : storedHighlightTeam);
   state.picklists = normalizePicklists(readStoredJson(storageKeys.picklists, eventModel.seedPicklists, resolvedEventKey), eventModel);
   state.sortEquations = normalizeSortEquations(readStoredJson(storageKeys.sortEquations, eventModel.seedSortEquations, resolvedEventKey), eventModel);
   state.activePicklist = resolvePicklistId(readStoredItem(storageKeys.activePicklist, resolvedEventKey), state.picklists) || state.picklists[0]?.id || "";
@@ -4727,7 +5218,7 @@ function hydrateEventState(eventKey) {
     state.loadedSources = [`picklist:${state.picklists[0].id}`];
   }
   state.selectedTeam = teamByNumber(state.selectedTeam)?.number || eventModel.teams[0]?.number || 0;
-  state.selectedMatch = currentMatches().some((match) => match.number === state.selectedMatch) ? state.selectedMatch : eventModel.matches[0]?.number || 0;
+  state.selectedMatch = matchIdentity(findMatchBySelection(state.selectedMatch) || eventModel.matches[0]);
   state.contextMenu = null;
   state.inlineRename = null;
   state.picklistSelectedTeam = null;
@@ -4780,9 +5271,6 @@ function switchActiveEvent(eventKey, options = {}) {
     saveState();
     if (options.persistShared !== false) {
       pendingUserSharedActiveEventKey = resolvedEventKey;
-      setTimeout(() => {
-        if (pendingUserSharedActiveEventKey === resolvedEventKey) pendingUserSharedActiveEventKey = "";
-      }, 5000);
       persistSharedActiveEvent(resolvedEventKey);
     }
     if (options.rerunImportPreview) {
@@ -4823,10 +5311,12 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     render();
     return false;
   }
-  if (!options.allowDuplicate && state.eventLookupPending && state.adminEventCodeDraft === normalizedEventCode) return false;
+  const selectionToken = options.selectionToken || beginEventSelection(normalizedEventCode, options.source || "user");
+  const isCurrentLoad = () => isCurrentEventSelection(selectionToken);
   state.eventLookupPending = true;
   state.eventLookupResult = { kind: "info", message: `Loading ${normalizedEventCode} from external providers...` };
   render();
+  const externalLoadStartedAt = perfNow();
   try {
     const loadResult = await loadExternalEventByCode(normalizedEventCode, {
       tbaAuthKey: state.tbaAuthKey,
@@ -4834,14 +5324,24 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
       deferPridgeTrends: options.deferPridgeTrends === true,
       deferPridgeComputation: options.deferPridgeComputation === true,
     });
+    recordScoutingPerf("external.eventLoad.end", externalLoadStartedAt, {
+      eventKey: normalizedEventCode,
+      ...(loadResult?.profiling || loadResult?.eventModel?.profiling || {}),
+    });
+    if (!isCurrentLoad()) return false;
     const registeredEvent = registerEventModel(loadResult.eventModel);
     await refreshSharedSeasonMetadata();
     subscribeSharedSeasonMetadata();
-    switchActiveEvent(registeredEvent.key, {
-      activeView: options.activeView || "adminEventControl",
-      render: false,
-      preserveImportDraft: true,
-    });
+    if (!isCurrentLoad() || registeredEvent.key !== selectionToken.eventKey) return false;
+    if (options.activate === false) {
+      if (state.activeEventKey !== selectionToken.eventKey) return false;
+    } else {
+      activateEventSelection(selectionToken, {
+        activeView: options.activeView || "adminEventControl",
+        render: false,
+        preserveImportDraft: true,
+      });
+    }
     applyLoadedExternalSourceState(loadResult, { render: true });
     await refreshSharedSeasonMetadata();
     subscribeSharedSeasonMetadata();
@@ -4884,6 +5384,11 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     render();
     return true;
   } catch (error) {
+    recordScoutingPerf("external.eventLoad.error", externalLoadStartedAt, {
+      eventKey: normalizedEventCode,
+      error: error?.message || String(error || ""),
+    });
+    if (!isCurrentLoad()) return false;
     markTbaAuthFailure(error);
     markFrcApiAuthFailure(error);
     state.eventLookupResult = {
@@ -4893,8 +5398,10 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     render();
     return false;
   } finally {
-    state.eventLookupPending = false;
-    render();
+    if (isCurrentLoad()) {
+      state.eventLookupPending = false;
+      render();
+    }
   }
 }
 
@@ -5336,6 +5843,7 @@ function pairwisePicklistKeydown(event) {
   const pairwise = state.pairwisePicklist;
   if (!pairwise || pairwise.picklistId !== activePicklist().id) return false;
   const session = pairwise.session;
+  const interactionStartedAt = perfNow();
   if (event.key === "Escape") {
     event.preventDefault();
     if (session.mode === "sort") pairwise.session = PairwisePicklist.cancel(session);
@@ -5359,6 +5867,8 @@ function pairwisePicklistKeydown(event) {
     }
     render();
   } else return false;
+  recordScoutingPerf("pairwise.interaction", interactionStartedAt, { action: event.key, mode: session.mode });
+  if (event.key === "ArrowUp" || event.key === "ArrowDown") incrementScoutingPerfCounter("pairwiseInteractions");
   return true;
 }
 
@@ -5787,6 +6297,15 @@ function flaggedSubmissionGroups() {
   return [...duplicate, ...standalone];
 }
 
+function standaloneFlaggedSubmissionGroups() {
+  return currentScoutingSubmissions()
+    .filter((submission) => (
+      submissionNeedsReview(submission)
+      && !(submission.confidenceReasons || []).includes("duplicate_submission")
+    ))
+    .map((submission) => ({ key: `single:${submission.id}`, submissions: [submission] }));
+}
+
 function pushActivity(message) {
   state.activityLog = normalizeActivityLog([
     {
@@ -5957,11 +6476,15 @@ function overlayTeamWithScouting(baseTeam) {
     && cacheEntry.recentMatchCount === cacheContext.recentMatchCount
     && cacheEntry.profileVersionKey === cacheContext.profileVersionKey
     && cacheEntry.schemaSignature === cacheContext.schemaSignature
+    && cacheEntry.sourceRevisionKey === cacheContext.sourceRevisionKey
     && cacheEntry.submissionRef === cacheContext.submissionRef
     && cacheEntry.reviewOverrideRef === cacheContext.reviewOverrideRef
   ) {
+    incrementScoutingPerfCounter("overlayCacheHits");
     return cacheEntry.value;
   }
+  incrementScoutingPerfCounter("overlayCacheMisses");
+  incrementScoutingPerfCounter("overlayCacheInvalidations", cacheEntry ? 1 : 0);
   const overlaidTeam = buildTeamScoutingOverlay(baseTeam, {
     submissions: currentScoutingSubmissions(),
     scoringComponents: currentEvent().scoringComponents,
@@ -6088,15 +6611,22 @@ function renderSchemaDiffSummary(schemaDiff) {
   if (!schemaDiff) return `<p class="muted">No schema diagnostics available.</p>`;
   const added = schemaDiff.added || [];
   const removed = schemaDiff.removed || [];
-  if (!added.length && !removed.length) {
+  const typeChanged = schemaDiff.typeChanged || [];
+  if (!added.length && !removed.length && !typeChanged.length) {
     return `<p class="muted">No schema drift detected.</p>`;
   }
   return `
     <div class="issue-list">
       ${added.map((fieldDefinition) => `<div class="issue-row good"><strong>Added</strong><span>${escapeHtml(fieldDefinition.label || fieldDefinition.id)} (${escapeHtml(fieldDefinition.id)})</span></div>`).join("")}
       ${removed.map((fieldDefinition) => `<div class="issue-row warn"><strong>Removed</strong><span>${escapeHtml(fieldDefinition.label || fieldDefinition.id)} (${escapeHtml(fieldDefinition.id)})</span></div>`).join("")}
+      ${typeChanged.map((fieldDefinition) => `<div class="issue-row danger"><strong>Type changed</strong><span>${escapeHtml(fieldDefinition.label || fieldDefinition.id)} (${escapeHtml(fieldDefinition.id)})</span></div>`).join("")}
     </div>
   `;
+}
+
+function renderScoutingSchemaStatus(schemaStatus) {
+  if (!schemaStatus?.missing) return "";
+  return `<div class="issue-row danger"><strong>Scouting schema not loaded</strong><span>Scouting data has arrived, but no schema file is loaded to verify its expected metrics.</span></div>`;
 }
 
 function renderSchemaReconciliationCards(model = currentScoutingSchemaReconciliationModel()) {
@@ -6361,7 +6891,7 @@ function commitImportPreview(options = {}) {
 
 function switchImportContext(eventKey) {
   if (!eventKey) return;
-  switchActiveEvent(eventKey, {
+  activateEventSelection(beginEventSelection(eventKey, "user"), {
     activeView: "adminEventControl",
     preserveImportDraft: true,
     rerunImportPreview: true,
@@ -6728,7 +7258,7 @@ function filterStatusForTeam(team, filterId, eventModel = currentEvent()) {
   return null;
 }
 
-function applyAnalysisPredicateToEntries(team, entries, eventModel = currentEvent()) {
+function applyAnalysisFilterToEntries(team, entries, eventModel = currentEvent()) {
   const definition = activeAnalysisFilter(eventModel);
   const normalizedEntries = Array.isArray(entries) ? entries : [];
   if (!definition || !normalizedEntries.length) return normalizedEntries;
@@ -6864,9 +7394,7 @@ function goBack(fallbackView = "teams") {
   if (previous) {
     state.activeView = canView(previous.view) ? previous.view : fallbackView;
     state.selectedTeam = teamByNumber(previous.selectedTeam)?.number || currentEvent().teams[0].number;
-    state.selectedMatch = currentMatches().some((match) => match.number === previous.selectedMatch)
-      ? previous.selectedMatch
-      : currentEvent().matches[0].number;
+    state.selectedMatch = matchIdentity(findMatchBySelection(previous.selectedMatch) || currentEvent().matches[0]);
   } else {
     state.activeView = fallbackView;
   }
@@ -6883,8 +7411,10 @@ function toggleTheme() {
 function setView(view, options = {}) {
   const { recordHistory = true } = options;
   if (!canView(view)) view = "teams";
+  const enteringSchedule = view === "schedule" && state.activeView !== "schedule";
   if (recordHistory && state.activeView !== view) pushViewHistory();
   state.activeView = view;
+  if (enteringSchedule) scheduleFocusPending = true;
   state.contextMenu = null;
   state.inlineRename = null;
   saveState();
@@ -6899,7 +7429,50 @@ function renderDeploymentBanner() {
   const label = hostname.includes("localhost") || hostname.startsWith("127.") ? "LOCAL DEVELOPMENT" : "DEVELOPMENT / PREVIEW";
   return `<div class="deployment-banner" role="status">${label} — commit <span class="deployment-revision" style="text-transform: lowercase">${developmentRevision}</span> — changes and data may not match production</div>`;
 }
-function render() {
+function renderSidebar(event) {
+  return `
+    <div class="brand-row">
+      <div>
+        <p class="eyebrow">Bovine</p>
+        <h1>Scouting Analysis</h1>
+      </div>
+      <button class="icon-button" id="menuToggle" title="${state.menuExpanded ? "Collapse menu" : "Expand menu"}" aria-label="${state.menuExpanded ? "Collapse menu" : "Expand menu"}">
+        ${icon("menu")}
+      </button>
+    </div>
+    <div class="event-chip">
+      <span class="muted">${escapeHtml(displaySeasonHeading(event))}</span>
+      <strong>${escapeHtml(displayEventName(event))}</strong>
+      <span class="muted">${Math.max(event.matchesComplete, importedMatchCount())} matches imported</span>
+    </div>
+    <nav class="nav-list">
+      ${visibleNavItems().map((item, index, items) => `${index === items.findIndex((navItem) => navItem.view.startsWith("admin")) ? '<div class="nav-divider" role="separator" aria-label="Admin pages"></div>' : ""}${navButton(item)}`).join("")}
+    </nav>
+  `;
+}
+
+function renderTopbar(event) {
+  return `
+    <div class="page-title">
+      <p class="eyebrow">${escapeHtml(displaySeasonHeading(event))}</p>
+      <h1>${escapeHtml(displayEventName(event))}</h1>
+    </div>
+    <div class="split-row">
+      ${renderGlobalRecentMatchControl()}
+      ${renderThemeToggle()}
+      <div class="user-identity" aria-label="Signed in as ${state.user}">
+        ${icon("user")}
+        <span>${state.user}</span>
+        ${isAdmin() ? `<span class="user-role">Admin</span>` : ""}
+      </div>
+      <button class="action-button" id="logoutButton" type="button">Logout</button>
+    </div>
+  `;
+}
+
+function renderNow(reason = "unspecified") {
+  const renderStartedAt = perfNow();
+  const interactionState = captureRenderInteractionState();
   const event = currentEvent();
   if (!state.user) {
     renderLogin();
@@ -6934,13 +7507,23 @@ function render() {
     }
   }
 
-  app.innerHTML = `
+  const shell = app.querySelector(".app-shell");
+  const sidebar = shell?.querySelector('[data-render-region="sidebar"]');
+  const topbar = shell?.querySelector('[data-render-region="topbar"]');
+  const contentRegion = shell?.querySelector('[data-render-region="content"]');
+  if (shell && sidebar && topbar && contentRegion) {
+    shell.className = `app-shell ${state.menuExpanded ? "menu-expanded" : "menu-collapsed"}`;
+    sidebar.innerHTML = renderSidebar(event);
+    topbar.innerHTML = renderTopbar(event);
+    contentRegion.innerHTML = content;
+  } else {
+    app.innerHTML = `
     ${renderDeploymentBanner()}
     <div class="app-shell ${state.menuExpanded ? "menu-expanded" : "menu-collapsed"}">
-      <aside class="sidebar">
+      <aside class="sidebar" data-render-region="sidebar">
         <div class="brand-row">
           <div>
-            <p class="eyebrow">FRC</p>
+            <p class="eyebrow">Bovine</p>
             <h1>Scouting Analysis</h1>
           </div>
           <button class="icon-button" id="menuToggle" title="${state.menuExpanded ? "Collapse menu" : "Expand menu"}" aria-label="${state.menuExpanded ? "Collapse menu" : "Expand menu"}">
@@ -6953,11 +7536,11 @@ function render() {
           <span class="muted">${Math.max(event.matchesComplete, importedMatchCount())} matches imported</span>
         </div>
         <nav class="nav-list">
-          ${visibleNavItems().map((item) => navButton(item)).join("")}
+          ${visibleNavItems().map((item, index, items) => `${index === items.findIndex((navItem) => navItem.view.startsWith("admin")) ? '<div class="nav-divider" role="separator" aria-label="Admin pages"></div>' : ""}${navButton(item)}`).join("")}
         </nav>
       </aside>
       <main class="main">
-        <header class="topbar">
+        <header class="topbar" data-render-region="topbar">
           <div class="page-title">
             <p class="eyebrow">${escapeHtml(displaySeasonHeading(event))}</p>
             <h1>${escapeHtml(displayEventName(event))}</h1>
@@ -6973,12 +7556,49 @@ function render() {
             <button class="action-button" id="logoutButton" type="button">Logout</button>
           </div>
         </header>
-        <section class="content">${content}</section>
+        <section class="content" data-render-region="content">${content}</section>
       </main>
     </div>
-  `;
+    `;
+  }
 
   bindShellEvents();
+  restoreRenderInteractionState(interactionState, { preserveControls: reason.startsWith("background.") });
+  focusScheduleLastPlayed();
+  recordScoutingPerf("render", renderStartedAt, { activeView: state.activeView, reason });
+}
+
+function render(reason = "unspecified", options = {}) {
+  const isBackgroundRender = reason.startsWith("background.");
+  if (isBackgroundRender && options.fromQueue !== true) {
+    queueRenderRequest(reason);
+    flushPendingRender();
+    return;
+  }
+  const userActionCanRender = !isBackgroundRender && perfNow() < userRenderPriorityUntil;
+  if (!renderCanInterruptInteraction() && !userActionCanRender) {
+    queueRenderRequest(reason);
+    return;
+  }
+  if (renderInProgress) {
+    queueRenderRequest(reason);
+    return;
+  }
+  renderInProgress = true;
+  try {
+    renderNow(reason);
+  } finally {
+    renderInProgress = false;
+    flushPendingRender();
+  }
+}
+
+function focusScheduleLastPlayed() {
+  if (!scheduleFocusPending || state.activeView !== "schedule") return;
+  scheduleFocusPending = false;
+  const row = document.querySelector("[data-schedule-last-played=\"true\"]");
+  if (!row || typeof row.scrollIntoView !== "function") return;
+  requestAnimationFrame(() => row.scrollIntoView({ block: "center", behavior: "auto" }));
 }
 
 function renderNoEventLoaded() {
@@ -7035,9 +7655,9 @@ function bindNoEventScreenEvents() {
   });
 }
 
-function renderSafely() {
+function renderSafely(reason = "unspecified") {
   try {
-    render();
+    render(reason);
   } catch (error) {
     console.error("App bootstrap failed", error);
     renderRecoveryScreen(error);
@@ -7127,7 +7747,8 @@ function icon(name) {
       '<path d="M10.75 6.5h-1.4a2.1 2.1 0 0 0-2.1 2.1v8.9"/><path d="M6.7 10.5h4.2"/><path d="M13.8 10.4l4 5"/><path d="M17.8 10.4l-4 5"/>',
     bullseye: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>',
     schedule: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/>',
-    matchup: '<path d="M7 7h10"/><path d="M7 17h10"/><path d="M9 7a3 3 0 1 1 0 6"/><path d="M15 17a3 3 0 1 1 0-6"/>',
+    matchup: '<text x="12" y="17" text-anchor="middle" font-size="16" font-weight="700" fill="currentColor" stroke="none">vs.</text>',
+    bracket: '<path d="M4 5h6v5H4zM14 14h6v5h-6zM4 14h6v5H4zM10 7.5h4v9h-4"/>',
     quality: '<path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5"/><path d="M12 17h.01"/>',
     debug: '<path d="M9 3h6l1 3h3v6a6 6 0 0 1-12 0V6h3l1-3Z"/><path d="M9 12h.01M15 12h.01M10 16h4"/>',
     picklists: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
@@ -7141,9 +7762,13 @@ function icon(name) {
 
 function navButton(item) {
   const active = state.activeView === item.view ? "active" : "";
+  const qualityAlert = item.view === "adminDataQuality" ? adminDataQualityAlertState() : null;
+  const alertClass = qualityAlert?.active ? "has-quality-alert" : "";
+  const alertLabel = qualityAlert?.active ? " Data quality needs attention" : "";
   return `
-    <button class="nav-button ${active}" data-view="${item.view}" title="${item.label}" aria-label="${item.label}">
+    <button class="nav-button ${active} ${alertClass}" data-view="${item.view}" title="${item.label}${alertLabel}" aria-label="${item.label}${alertLabel}">
       <span class="nav-icon">${icon(item.icon)}</span>
+      ${qualityAlert?.active ? '<span class="nav-quality-alert" aria-hidden="true">!</span>' : ""}
       <span class="nav-label">${item.label}</span>
     </button>
   `;
@@ -7158,7 +7783,7 @@ function viewTitle(view) {
     derivedBuilder: "Derived Equation Builder",
     schedule: "Match Schedule",
     matchup: "Matchup",
-    quality: "Data Quality",
+    bracket: "Playoff Bracket",
     picklistBuilder: "Picklist Builder",
     alliance: "Alliance Selection",
     adminEventControl: "Admin Event Control",
@@ -7223,7 +7848,7 @@ function renderView() {
     derivedBuilder: renderDerivedBuilder,
     schedule: renderSchedule,
     matchup: renderMatchup,
-    quality: renderQuality,
+    bracket: renderPlayoffBracket,
     picklistBuilder: renderPicklistBuilder,
     alliance: renderAlliance,
     adminEventControl: renderAdminEventControl,
@@ -7390,7 +8015,7 @@ function renderTeams() {
 }
 
 function renderTeamDetail(team) {
-  const detailTrendMetrics = currentMetrics().filter((metric) => metricUsesMatchDistribution(team, metric));
+  const detailTrendMetrics = orderedMetrics().filter((metric) => metricUsesMatchDistribution(team, metric));
   const detailSelectedMetric = detailTrendMetrics.find((metric) => metric.id === state.teamDetailMetric) || null;
   const detailScoutingConfidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
   const detailOprMetric = metricById("source:tba:opr.total");
@@ -7425,7 +8050,7 @@ function renderTeamDetail(team) {
               <span class="muted">Metric</span>
               <select id="teamDetailMetricSelect" aria-label="Team detail metric">
                 <option value="" ${detailSelectedMetric ? "" : "selected"}>Select a metric</option>
-                ${detailTrendMetrics.map((item) => `<option value="${item.id}" ${item.id === detailSelectedMetric?.id ? "selected" : ""}>${item.label}</option>`).join("")}
+                ${detailTrendMetrics.map((item) => `<option value="${item.id}" ${item.id === detailSelectedMetric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
               </select>
             </label>
             <label class="team-trend-metric">
@@ -7512,7 +8137,7 @@ function analysisSeriesEntriesForMetric(team, metric, options = {}) {
   if (metric?.kind === "derived" && metric.definition?.expression) {
     const evaluation = derivedMetricEvaluation(team, metric, options);
     const normalizedEntries = filterResultEntries(evaluation.result).filter((entry) => Number.isFinite(Number(entry.value)));
-    const filteredEntries = applyAnalysisPredicateToEntries(team, normalizedEntries, currentEvent());
+    const filteredEntries = applyAnalysisFilterToEntries(team, normalizedEntries, currentEvent());
     return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
   }
   if (metric.kind === "source" && metric.sourceId === "tba" && metric.granularity === "match") {
@@ -7522,14 +8147,14 @@ function analysisSeriesEntriesForMetric(team, metric, options = {}) {
         value: Number(row?.[metric.componentId]),
       }))
       .filter((entry) => Number.isFinite(entry.value));
-    const filteredEntries = applyAnalysisPredicateToEntries(team, entries, currentEvent());
+    const filteredEntries = applyAnalysisFilterToEntries(team, entries, currentEvent());
     return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
   }
   if (metric.kind === "source" && Array.isArray(team.sources?.[metric.sourceId]?.trendEntries)) {
     const entries = team.sources[metric.sourceId].trendEntries
       .map((entry) => ({ key: Number(entry.key), value: Number(entry.value) }))
       .filter((entry) => Number.isFinite(entry.key) && Number.isFinite(entry.value));
-    const filteredEntries = applyAnalysisPredicateToEntries(team, entries, currentEvent());
+    const filteredEntries = applyAnalysisFilterToEntries(team, entries, currentEvent());
     return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
   }
   const aggregatedMatches = aggregateSubmissionMatches(
@@ -7545,7 +8170,7 @@ function analysisSeriesEntriesForMetric(team, metric, options = {}) {
     value: metric.componentId === "total" ? match.total : Number(match.components?.[metric.componentId]),
   }));
   const normalizedEntries = entries.filter((entry) => Number.isFinite(Number(entry.value)));
-  const filteredEntries = applyAnalysisPredicateToEntries(team, normalizedEntries, currentEvent());
+  const filteredEntries = applyAnalysisFilterToEntries(team, normalizedEntries, currentEvent());
   return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
 }
 
@@ -7631,16 +8256,28 @@ function truthy(value) {
 }
 
 function renderSparkline(team, metric) {
-  const values = metricTrendValues(team, metric);
+  const entries = analysisSeriesEntriesForMetric(team, metric, {
+    window: currentScoutingWindow(),
+    recentMatchCount: currentRecentMatchCount(),
+  });
+  const values = entries.length ? entries.map((entry) => Number(entry.value)) : metricTrendValues(team, metric);
   if (!values.length || values.every((value) => Number(value || 0) === 0)) {
     return `<p class="muted">No ${escapeHtml(metric.label)} trend is available for this team yet.</p>`;
   }
+  const plotEntries = entries.length
+    ? entries
+    : values.map((value, index) => ({ key: index + 1, value }));
+  const matchNumbers = plotEntries.map((entry) => Number(entry.key)).filter(Number.isFinite);
+  const firstMatchNumber = matchNumbers[0] ?? 1;
+  const lastMatchNumber = matchNumbers.at(-1) ?? firstMatchNumber;
+  const matchRange = lastMatchNumber - firstMatchNumber || 1;
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
   const points = values
     .map((value, index) => {
-      const x = 16 + (index / Math.max(1, values.length - 1)) * 196;
+      const matchNumber = Number(plotEntries[index]?.key);
+      const x = 16 + ((matchNumber - firstMatchNumber) / matchRange) * 196;
       const y = 82 - ((value - min) / range) * 64;
       return `${x},${y}`;
     })
@@ -7656,40 +8293,37 @@ function renderSparkline(team, metric) {
       <polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="3" vector-effect="non-scaling-stroke"></polyline>
       ${values
         .map((value, index) => {
-          const x = 16 + (index / Math.max(1, values.length - 1)) * 196;
+          const matchNumber = Number(plotEntries[index]?.key);
+          const x = 16 + ((matchNumber - firstMatchNumber) / matchRange) * 196;
           const y = 82 - ((value - min) / range) * 64;
-          return `<circle cx="${x}" cy="${y}" r="2.6" fill="var(--accent-strong)"><title>Match ${index + 1}: ${value.toFixed(metric.unit === "%" ? 0 : 1)} ${metric.unit}</title></circle>`;
+          return `<circle cx="${x}" cy="${y}" r="2.6" fill="var(--accent-strong)"><title>Match ${matchNumber}: ${value.toFixed(metric.unit === "%" ? 0 : 1)} ${metric.unit}</title></circle>`;
         })
         .join("")}
+      <text x="16" y="97" text-anchor="start">${firstMatchNumber}</text>
+      <text x="212" y="97" text-anchor="end">${lastMatchNumber}</text>
     </svg>
   `;
 }
 
-function renderAnalysis() {
-  const selection = analysisSelectionModel();
-  const predicateOptions = currentProfileFilterList();
-  const activePredicate = activeAnalysisFilter();
-  if (!selection) {
-    return `
-      <div class="toolbar">
-        <label>
-          Metric
-          <select id="metricSelect">
-            <option value="" selected>Select a metric</option>
-            ${analysisMetricOptions().map((item) => `<option value="${item.id}">${metricTokenLabel(item)}</option>`).join("")}
-          </select>
-        </label>
-        <label>
-          Predicate
-          <select id="analysisFilterSelect">
-            <option value="" ${state.activeAnalysisFilterId ? "" : "selected"}>All Matches</option>
-            ${predicateOptions.map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
-          </select>
-        </label>
-      </div>
-      <div class="empty-state" style="margin-top: 8px;">Choose a metric to plot event analysis.</div>
-    `;
-  }
+const analysisResultCache = new Map();
+let pendingAnalysisCalculation = null;
+let lastAnalysisResult = null;
+
+function analysisResultKey(selection) {
+  const context = currentOverlayCacheContext();
+  return [
+    context.eventKey,
+    context.sourceRevisionKey,
+    context.profileVersionKey,
+    context.schemaSignature,
+    selection?.metric?.id || "",
+    state.activeAnalysisFilterId || "",
+    currentScoutingWindow(),
+    currentRecentMatchCount(),
+  ].join("|");
+}
+
+function calculateAnalysisResult(selection) {
   const analysisWindowOptions = { window: "recent", recentMatchCount: currentRecentMatchCount() };
   const derivedAnalysisOptions = {
     eventModel: currentEvent(),
@@ -7717,7 +8351,93 @@ function renderAnalysis() {
   const globalMin = finiteDistributions.length ? Math.min(...finiteDistributions.map((item) => item.min)) : 0;
   const globalMax = finiteDistributions.length ? Math.max(...finiteDistributions.map((item) => item.max)) : globalMin;
   const eventAverage = finiteScores.length ? average(finiteScores) : 0;
-  const axisTicks = Array.from({ length: 5 }, (_, index) => globalMin + ((globalMax - globalMin) * index) / 4);
+  return {
+    ranked,
+    distributions,
+    globalMin,
+    globalMax,
+    eventAverage,
+    axisTicks: Array.from({ length: 5 }, (_, index) => globalMin + ((globalMax - globalMin) * index) / 4),
+  };
+}
+
+function scheduleAnalysisCalculation(selection, key) {
+  if (pendingAnalysisCalculation?.key === key) return;
+  pendingAnalysisCalculation = { key };
+  setTimeout(() => {
+    if (state.activeView !== "analysis" || analysisResultKey(selection) !== key) {
+      if (pendingAnalysisCalculation?.key === key) pendingAnalysisCalculation = null;
+      return;
+    }
+    try {
+      const calculationStartedAt = perfNow();
+      const eventModel = currentEvent();
+      const needsPridge = selection.metric?.sourceId === "pridge"
+        && (eventModel?.teams || []).some((team) => !Number.isFinite(Number(team?.sources?.pridge?.total)));
+      if (needsPridge && eventModel?.pridgeComputationDeferred === true) {
+        applyCurrentPridgeResponseDefinitions(eventModel);
+      }
+      const result = calculateAnalysisResult(selection);
+      analysisResultCache.set(key, result);
+      lastAnalysisResult = { key, result };
+      incrementScoutingPerfCounter("analysisCalculations");
+      recordScoutingPerf("analysis.calculation", calculationStartedAt, { metricId: selection.metric?.id || "", cached: false });
+    } catch (error) {
+      console.warn("Unable to calculate Analysis", error);
+    } finally {
+      if (pendingAnalysisCalculation?.key === key) pendingAnalysisCalculation = null;
+    }
+    if (state.activeView === "analysis" && analysisResultKey(selection) === key) {
+      render("background.analysis.calculation");
+    }
+  }, 0);
+}
+
+function renderAnalysis() {
+  const selection = analysisSelectionModel();
+  const filterOptions = currentProfileFilterList();
+  const activeFilter = activeAnalysisFilter();
+  if (!selection) {
+    return `
+      <div class="toolbar">
+        <label>
+          Metric
+          <select id="metricSelect">
+            <option value="" selected>Select a metric</option>
+            ${analysisMetricOptions().map((item) => `<option value="${item.id}">${metricTokenLabel(item)}</option>`).join("")}
+          </select>
+        </label>
+        <label>
+          Filter
+          <select id="analysisFilterSelect">
+            <option value="" ${state.activeAnalysisFilterId ? "" : "selected"}>All Matches</option>
+            ${filterOptions.map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <div class="empty-state" style="margin-top: 8px;">Choose a metric to plot event analysis.</div>
+    `;
+  }
+  const key = analysisResultKey(selection);
+  const cached = analysisResultCache.get(key);
+  const analysisPending = !cached;
+  if (cached) {
+    incrementScoutingPerfCounter("analysisCacheHits");
+  } else {
+    incrementScoutingPerfCounter("analysisCacheMisses");
+    scheduleAnalysisCalculation(selection, key);
+  }
+  const result = cached || (lastAnalysisResult?.result || null);
+  if (!result) {
+    return `
+      <div class="toolbar">
+        <label>Metric<select id="metricSelect">${analysisMetricOptions().map((item) => `<option value="${item.id}" ${item.id === state.metric ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}</select></label>
+        <label>Filter<select id="analysisFilterSelect"><option value="">All Matches</option>${filterOptions.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join("")}</select></label>
+      </div>
+      <div class="empty-state" style="margin-top: 8px;">Calculating Analysis…</div>
+    `;
+  }
+  const { ranked, distributions, globalMin, globalMax, eventAverage, axisTicks } = result;
   return `
     <div class="toolbar">
       <label>
@@ -7727,14 +8447,15 @@ function renderAnalysis() {
         </select>
       </label>
       <label>
-        Predicate
+        Filter
         <select id="analysisFilterSelect">
           <option value="" ${state.activeAnalysisFilterId ? "" : "selected"}>All Matches</option>
-          ${predicateOptions.map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
+          ${filterOptions.map((item) => `<option value="${item.id}" ${item.id === state.activeAnalysisFilterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
         </select>
-      </label>
+        </label>
+      ${analysisPending ? '<span class="muted" role="status">Updating Analysis…</span>' : ""}
       <div class="stat"><span>Event Average</span><strong>${eventAverage.toFixed(1)} ${selection.unit}</strong></div>
-      ${activePredicate ? `<div class="stat"><span>Predicate</span><strong>${escapeHtml(activePredicate.name)}</strong></div>` : ""}
+      ${activeFilter ? `<div class="stat"><span>Filter</span><strong>${escapeHtml(activeFilter.name)}</strong></div>` : ""}
       ${renderBoxPlotLegend()}
     </div>
     <div class="analysis-chart" style="margin-top: 8px;">
@@ -8081,56 +8802,404 @@ function renderChartRow(team, selection, dist, globalMin, globalMax, eventAverag
   `;
 }
 
+function scheduleMatchGroup(match) {
+  return match?.compLevel === "qm" ? "quals" : "playoffs";
+}
+
+function normalizeHighlightTeam(value) {
+  const teamNumber = Number(value);
+  return Number.isInteger(teamNumber) && teamNumber > 0 ? teamNumber : 0;
+}
+
+function matchHasScore(match) {
+  if (match?.hasScore !== undefined) return match.hasScore === true;
+  return Number(match?.redScore) >= 0 && Number(match?.blueScore) >= 0;
+}
+
+function scheduleRow(match, currentMatch, highlightTeam) {
+  const isCurrent = currentMatch && matchIdentity(match) === matchIdentity(currentMatch);
+  const hasHighlightTeam = highlightTeam > 0 && [...(match.red || []), ...(match.blue || [])].includes(highlightTeam);
+  const className = isCurrent
+    ? "schedule-current"
+    : hasHighlightTeam
+      ? "schedule-highlight-team"
+      : matchHasScore(match)
+        ? "schedule-complete"
+        : "";
+  return `
+    <article class="match-row ${className}" data-match-row="${escapeAttribute(matchIdentity(match))}"${isCurrent ? ' data-schedule-last-played="true"' : ""} title="Open ${escapeAttribute(matchupMatchLabel(match))} matchup">
+      <button class="match-link" data-match="${escapeAttribute(matchIdentity(match))}">${escapeHtml(matchupMatchLabel(match))}</button>
+      <span class="alliance red">${match.red.map((team) => `<button class="pill team-pill" data-team="${team}">${team}</button>`).join("")}</span>
+      <span class="alliance blue">${match.blue.map((team) => `<button class="pill team-pill" data-team="${team}">${team}</button>`).join("")}</span>
+    </article>
+  `;
+}
+
+function renderScheduleSection(label, matches, currentMatch, highlightTeam, open) {
+  return `
+    <details class="schedule-section"${open ? " open" : ""}>
+      <summary><span>${label}</span><span class="muted">${matches.length} matches</span></summary>
+      <div class="grid">${matches.map((match) => scheduleRow(match, currentMatch, highlightTeam)).join("")}</div>
+    </details>
+  `;
+}
+
 function renderSchedule() {
+  const matches = currentMatches();
+  const qualifications = matches.filter((match) => scheduleMatchGroup(match) === "quals");
+  const playoffs = matches.filter((match) => scheduleMatchGroup(match) === "playoffs");
+  const currentMatch = matches.find((match) => !matchHasScore(match)) || null;
   return `
     <div class="section-heading">
       <div>
         <h2>Match Schedule</h2>
       </div>
+      <label class="schedule-highlight-control">
+        Highlight Team
+        <input id="scheduleHighlightTeam" type="number" min="1" step="1" value="${state.highlightTeam || ""}" placeholder="686" />
+      </label>
     </div>
-    <div class="grid">
-      ${currentMatches()
-        .map(
-          (match) => `
-        <article class="match-row" data-match-row="${match.number}" title="Open Q${match.number} matchup">
-          <button class="match-link" data-match="${match.number}">Q${match.number}</button>
-          <span class="alliance red">${match.red.map((team) => `<button class="pill team-pill" data-team="${team}">${team}</button>`).join("")}</span>
-          <span class="alliance blue">${match.blue.map((team) => `<button class="pill team-pill" data-team="${team}">${team}</button>`).join("")}</span>
-        </article>
-      `,
-        )
-        .join("")}
+    <div class="schedule-sections">
+      ${renderScheduleSection("Qualifications", qualifications, currentMatch, state.highlightTeam, playoffs.length === 0)}
+      ${playoffs.length ? renderScheduleSection("Playoffs", playoffs, currentMatch, state.highlightTeam, true) : ""}
     </div>
   `;
 }
 
-function renderMatchup() {
-  const match = currentMatches().find((item) => item.number === state.selectedMatch) || currentMatches()[0];
-  return `
+function playoffAllianceIsEliminated(alliance, eventModel = currentEvent()) {
+  const status = normalizeText(alliance?.status?.playoff_status || alliance?.status?.playoffStatus).toLowerCase();
+  const losses = Number(alliance?.status?.record?.losses);
+  if (["eliminated", "lost", "out"].includes(status) || losses >= 2) return true;
+  const picks = new Set((alliance?.picks || []).map((team) => Number(team)).filter(Number.isFinite));
+  if (!picks.size) return false;
+  const recordedLosses = (eventModel?.matches || []).filter((match) => {
+    if (match?.compLevel === "qm" || !matchHasScore(match)) return false;
+    const sides = [match.red || [], match.blue || []];
+    const sideIndex = sides.findIndex((side) => side.filter((team) => picks.has(Number(team))).length >= Math.min(3, picks.size));
+    if (sideIndex < 0) return false;
+    const winningAlliance = normalizeText(match.winningAlliance).toLowerCase();
+    const winnerSide = winningAlliance === "red" || winningAlliance === "blue"
+      ? winningAlliance
+      : match.redScore > match.blueScore ? "red" : match.blueScore > match.redScore ? "blue" : "";
+    return winnerSide && winnerSide !== ["red", "blue"][sideIndex];
+  }).length;
+  return recordedLosses >= 2;
+}
+
+function playoffAllianceNumbers(eventModel = currentEvent()) {
+  const alliances = Array.isArray(eventModel?.playoffAlliances) ? eventModel.playoffAlliances : [];
+  return Array.from({ length: 8 }, (_, index) => alliances.find((alliance) => alliance.number === index + 1) || { number: index + 1, name: `Alliance ${index + 1}`, picks: [], status: null });
+}
+
+function renderPlayoffAllianceCard(alliance, eventModel = currentEvent()) {
+  const eliminated = playoffAllianceIsEliminated(alliance, eventModel);
+  const highlighted = state.highlightTeam > 0 && alliance.picks.includes(state.highlightTeam);
+  const teamNumbers = alliance.picks.filter((team, index, values) => Number.isFinite(team) && values.indexOf(team) === index);
+  return `<article class="playoff-alliance-card ${eliminated ? "playoff-eliminated" : ""} ${highlighted ? "schedule-highlight-team" : ""}">
+    <header><strong>Alliance ${escapeHtml(String(alliance.number))}</strong></header>
+    <div class="playoff-alliance-teams">${teamNumbers.length
+      ? teamNumbers.map((number) => {
+        const team = teamByNumber(number);
+        return `<button class="playoff-team ${highlighted && number === state.highlightTeam ? "playoff-highlight-team" : ""}" data-team="${number}" ${eliminated ? "aria-disabled=\"true\"" : ""}>${escapeHtml(team ? `${team.number} ${team.name}` : String(number))}</button>`;
+      }).join("")
+      : `<span class="muted">Teams pending</span>`}</div>
+  </article>`;
+}
+
+const playoffBracketSlots = [
+  { label: "M1", column: 1, row: 1, bracket: "upper", red: "Alliance 1", blue: "Alliance 8" },
+  { label: "M2", column: 1, row: 3, bracket: "upper", red: "Alliance 4", blue: "Alliance 5" },
+  { label: "M3", column: 1, row: 5, bracket: "upper", red: "Alliance 2", blue: "Alliance 7" },
+  { label: "M4", column: 1, row: 7, bracket: "upper", red: "Alliance 3", blue: "Alliance 6" },
+  { label: "M5", column: 2, row: 11, bracket: "lower", red: "Loser of M1", blue: "Loser of M2" },
+  { label: "M6", column: 2, row: 15, bracket: "lower", red: "Loser of M3", blue: "Loser of M4" },
+  { label: "M7", column: 2, row: 2, bracket: "upper", red: "Winner of M1", blue: "Winner of M2" },
+  { label: "M8", column: 2, row: 6, bracket: "upper", red: "Winner of M3", blue: "Winner of M4" },
+  { label: "M9", column: 3, row: 14, bracket: "lower", red: "Loser of M7", blue: "Winner of M6" },
+  { label: "M10", column: 3, row: 10, bracket: "lower", red: "Loser of M8", blue: "Winner of M5" },
+  { label: "M11", column: 4, row: 4, bracket: "upper", red: "Winner of M7", blue: "Winner of M8" },
+  { label: "M12", column: 4, row: 12, bracket: "lower", red: "Winner of M10", blue: "Winner of M9" },
+  { label: "M13", column: 5, row: 10, bracket: "lower", red: "Loser of M11", blue: "Winner of M12" },
+  { label: "Finals", column: 6, row: 7, bracket: "finals", red: "Winner of M11", blue: "Winner of M13" },
+];
+
+function playoffBracketMatchNumber(match) {
+  if (match?.compLevel === "sf") return Number(match.setNumber);
+  if (match?.compLevel === "qf") return Number(match.setNumber || match.number);
+  return null;
+}
+
+function playoffBracketResolvedSource(source, matchesByNumber, alliancesByNumber, seen = new Set()) {
+  const text = normalizeText(source);
+  const allianceMatch = text.match(/^Alliance (\d+)$/i);
+  if (allianceMatch) {
+    const alliance = alliancesByNumber.get(Number(allianceMatch[1]));
+    return alliance?.picks?.length ? alliance.picks : text;
+  }
+  const matchSource = text.match(/^(Winner|Loser) of M(\d+)$/i);
+  if (!matchSource) return text || "TBD";
+  const sourceNumber = Number(matchSource[2]);
+  if (seen.has(sourceNumber)) return text;
+  const sourceMatch = matchesByNumber.get(sourceNumber);
+  if (!sourceMatch?.hasScore) return text;
+  const winningAlliance = normalizeText(sourceMatch.winningAlliance).toLowerCase();
+  const winnerSide = winningAlliance === "red" || winningAlliance === "blue"
+    ? winningAlliance
+    : sourceMatch.redScore > sourceMatch.blueScore ? "red" : sourceMatch.blueScore > sourceMatch.redScore ? "blue" : "";
+  if (!winnerSide) return text;
+  const side = matchSource[1].toLowerCase() === "winner" ? winnerSide : winnerSide === "red" ? "blue" : "red";
+  const teams = sourceMatch[side];
+  return teams?.length ? teams : text;
+}
+
+function playoffBracketAllianceForTeams(teams, alliancesByNumber) {
+  if (!Array.isArray(teams) || !teams.length) return null;
+  const teamNumbers = teams.map((team) => Number(team)).filter(Number.isFinite);
+  return [...alliancesByNumber.values()].find((alliance) => {
+    const picks = (alliance.picks || []).map((team) => Number(team)).filter(Number.isFinite);
+    return teamNumbers.every((team) => picks.includes(team));
+  }) || null;
+}
+
+function playoffBracketOrderedTeams(teams, alliancesByNumber) {
+  if (!Array.isArray(teams)) return teams;
+  const alliance = playoffBracketAllianceForTeams(teams, alliancesByNumber);
+  if (!alliance) return teams;
+  const activeTeams = new Set(teams.map((team) => Number(team)));
+  return alliance.picks.filter((team) => activeTeams.has(Number(team)));
+}
+
+function renderPlayoffBracketMatch(match, label = "Match", sources = {}, context = {}) {
+  const isNext = Boolean(match && context.nextPlayoffMatch && matchIdentity(match) === matchIdentity(context.nextPlayoffMatch));
+  const score = match?.hasScore ? `${match.redScore} - ${match.blueScore}` : "Not played";
+  const red = match?.red?.length ? match.red : playoffBracketResolvedSource(sources.red, context.matchesByNumber, context.alliancesByNumber);
+  const blue = match?.blue?.length ? match.blue : playoffBracketResolvedSource(sources.blue, context.matchesByNumber, context.alliancesByNumber);
+  const highlighted = state.highlightTeam > 0 && [red, blue].some((teams) => Array.isArray(teams) && teams.map((team) => Number(team)).includes(state.highlightTeam));
+  const formatAlliance = (teams) => {
+    if (!Array.isArray(teams)) return escapeHtml(String(teams || "TBD"));
+    const orderedTeams = playoffBracketOrderedTeams(teams, context.alliancesByNumber);
+    const alliance = playoffBracketAllianceForTeams(orderedTeams, context.alliancesByNumber);
+    const prefix = alliance ? `A${alliance.number}: ` : "";
+    return escapeHtml(`${prefix}${orderedTeams.map((team) => String(team)).join(" - ")}`);
+  };
+  return `<article class="playoff-bracket-match ${highlighted || isNext ? "schedule-highlight-team" : ""}"${isNext ? ' data-playoff-next="true"' : ""}>
+    <header><strong>${escapeHtml(label)}</strong><span>${escapeHtml(score)}</span></header>
+    <div class="playoff-bracket-alliance red">${formatAlliance(red)}</div>
+    <div class="playoff-bracket-alliance blue">${formatAlliance(blue)}</div>
+  </article>`;
+}
+
+function renderPlayoffBracket() {
+  const event = currentEvent();
+  const playoffMatches = (event.matches || []).filter((match) => match.compLevel !== "qm");
+  const matchesByNumber = new Map(playoffMatches.map((match) => [playoffBracketMatchNumber(match), match]));
+  const finals = playoffMatches.filter((match) => match.compLevel === "f");
+  const alliances = playoffAllianceNumbers(event);
+  const alliancesByNumber = new Map(alliances.map((alliance) => [alliance.number, alliance]));
+  const nextPlayoffMatch = [...playoffMatches]
+    .sort((left, right) => {
+      const leftNumber = playoffBracketMatchNumber(left);
+      const rightNumber = playoffBracketMatchNumber(right);
+      const leftOrder = left.compLevel === "f" ? 14 + Number(left.number || 0) : leftNumber;
+      const rightOrder = right.compLevel === "f" ? 14 + Number(right.number || 0) : rightNumber;
+      return (Number.isFinite(leftOrder) ? leftOrder : Number.POSITIVE_INFINITY) - (Number.isFinite(rightOrder) ? rightOrder : Number.POSITIVE_INFINITY);
+    })
+    .find((match) => !matchHasScore(match)) || null;
+  const bracketContext = { matchesByNumber, alliancesByNumber, nextPlayoffMatch };
+  return `<div class="playoff-bracket-page">
     <div class="section-heading">
+      <div><h2>Playoff Bracket</h2><p class="muted">FIRST double-elimination playoff bracket</p></div>
+      <label class="schedule-highlight-control">Highlight Team
+        <input id="playoffBracketHighlightTeam" type="number" min="1" step="1" value="${state.highlightTeam || ""}" placeholder="686" />
+      </label>
+    </div>
+    <div class="playoff-alliance-grid">${alliances.map((alliance) => renderPlayoffAllianceCard(alliance, event)).join("")}</div>
+    <div class="playoff-bracket-board" aria-label="Six-round double-elimination playoff bracket">
+      <div class="playoff-bracket-column-labels">${["Round 1", "Round 2", "Round 3", "Round 4", "Round 5", "Finals"].map((label) => `<h3>${label}</h3>`).join("")}</div>
+      <div class="playoff-bracket-lane-labels"><span>Upper bracket</span><span>Lower bracket</span></div>
+      <svg class="playoff-bracket-connectors" viewBox="0 0 1100 832" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M175 5H184V57H192 M175 109H184V57H192 M175 5H184V525H192 M175 109H184V525H192 M175 213H184V265H192 M175 317H184V265H192 M175 213H184V733H192 M175 317H184V733H192 M359 57H367V161H558 M359 265H367V161H558 M359 57H367V681H375 M359 733H367V681H375 M359 265H367V473H375 M359 525H367V473H375 M543 473H551V577H558 M543 681H551V577H558 M725 161H734V473H742 M725 577H734V473H742 M908 473H916V317H924 M725 161H916V317H924" />
+      </svg>
+      <div class="playoff-bracket-slots">${playoffBracketSlots.map((slot) => {
+        const match = slot.label.startsWith("M") ? matchesByNumber.get(Number(slot.label.slice(1))) : null;
+        const cards = slot.bracket === "finals" && finals.length ? finals.map((final, index) => renderPlayoffBracketMatch(final, `Final ${index + 1}`, slot, bracketContext)).join("") : renderPlayoffBracketMatch(match, slot.label, slot, bracketContext);
+        return `<section class="playoff-bracket-slot playoff-bracket-${slot.bracket}" style="--bracket-column:${slot.column};--bracket-row:${slot.row}">${cards}</section>`;
+      }).join("")}</div>
+    </div>
+  </div>`;
+}
+
+function renderMatchup() {
+  const match = findMatchBySelection(state.selectedMatch) || currentMatches()[0];
+  const matchupMetrics = currentMatchupMetrics();
+  const selections = normalizeMatchupMetricSelections(matchupMetrics);
+  const selectedMetrics = selections.filter(Boolean).map((id) => matchupMetrics.find((metric) => metric.id === id)).filter(Boolean);
+  const comparisonModels = selectedMetrics.map((metric) => matchupMetricModel(match, metric));
+  const actualScoreModel = matchupActualScoreModel(match);
+  const sharedScale = Math.max(...comparisonModels.map((model) => model.maximumTotal), actualScoreModel?.maximumTotal || 0);
+  return `
+    <div class="section-heading matchup-heading">
       <div>
         <h2>Alliance Matchup</h2>
       </div>
-      ${renderMatchNavigator(match, true)}
+      <div class="matchup-toolbar">
+        <label class="matchup-normalization">Normalize bars
+          <select id="matchupNormalization">
+            <option value="shared" ${state.matchupNormalization === "shared" ? "selected" : ""}>Across all cards</option>
+            <option value="independent" ${state.matchupNormalization === "independent" ? "selected" : ""}>Each card independently</option>
+          </select>
+        </label>
+        ${renderMatchNavigator(match, true)}
+      </div>
     </div>
-    <div class="grid cols-2">
-      ${renderAllianceCard("Red Alliance", match.red)}
-      ${renderAllianceCard("Blue Alliance", match.blue)}
+    <div class="matchup-alliances">
+      ${renderMatchupAllianceCard("Red Alliance", match.red, "red")}
+      <div class="matchup-match-number" aria-label="${escapeAttribute(matchupMatchLabel(match))}">${escapeHtml(matchupMatchLabel(match))}</div>
+      ${renderMatchupAllianceCard("Blue Alliance", match.blue, "blue")}
+    </div>
+    ${actualScoreModel ? renderMatchupActualScoreCard(actualScoreModel, state.matchupNormalization === "shared" ? sharedScale : null) : ""}
+    <div class="matchup-metric-cards">
+      ${selections.map((metricId, index) => {
+        const metric = metricId ? matchupMetrics.find((entry) => entry.id === metricId) : null;
+        return renderMatchupMetricCard(match, metric, index, comparisonModels.find((model) => model.metric?.id === metric?.id), state.matchupNormalization === "shared" ? sharedScale : null, matchupMetrics);
+      }).join("")}
     </div>
   `;
+}
+
+function matchupMatchLabel(match) {
+  const competitionLevel = normalizeText(match?.compLevel || match?.comp_level).toLowerCase();
+  const matchNumber = Number(match?.number ?? match?.matchNumber ?? match?.match_number);
+  const setNumber = Number(match?.setNumber ?? match?.set_number);
+  if (competitionLevel === "ef") return `Eighths ${Number.isFinite(setNumber) && setNumber > 0 ? `${setNumber}-` : ""}${matchNumber}`;
+  if (competitionLevel === "qf") return `Quarters ${Number.isFinite(setNumber) && setNumber > 0 ? `${setNumber}-` : ""}${matchNumber}`;
+  if (competitionLevel === "sf") return `Semis ${Number.isFinite(setNumber) && setNumber > 0 ? `${setNumber}-` : ""}${matchNumber}`;
+  if (competitionLevel === "f") return `Finals ${Number.isFinite(setNumber) && setNumber > 0 ? `${setNumber}-` : ""}${matchNumber}`;
+  return `Qual ${matchNumber}`;
+}
+
+function currentMatchupMetrics() {
+  const metrics = orderedMetrics().filter((metric) => metric && metric.type !== "text");
+  const availableIds = new Set(metrics.map((metric) => metric.id));
+  return [...metrics, ...defaultMatchupMetricDefinitions.filter((metric) => !availableIds.has(metric.id))];
+}
+
+function normalizeMatchupMetricSelections(metrics = currentMatchupMetrics()) {
+  const available = new Set(metrics.map((metric) => metric.id));
+  const selections = (Array.isArray(state.matchupMetricSelections) ? state.matchupMetricSelections : defaultMatchupMetricIds)
+    .map((id) => available.has(id) ? id : "");
+  const selected = selections.filter(Boolean);
+  if (!selected.length && metrics[0]?.id) selected.push(metrics[0].id);
+  return [...selected, ""];
+}
+
+function matchupOrderedTeams(teamNumbers) {
+  const epa = statboticsEpaMetric();
+  return teamNumbers
+    .map((number, index) => ({ team: teamByNumber(number), index }))
+    .filter((entry) => entry.team)
+    .sort((left, right) => {
+      if (!epa) return left.index - right.index;
+      const leftValue = teamMetricValue(left.team, epa);
+      const rightValue = teamMetricValue(right.team, epa);
+      const bothAvailable = Number.isFinite(leftValue) && Number.isFinite(rightValue);
+      if (!bothAvailable) return left.index - right.index;
+      return rightValue - leftValue || left.index - right.index;
+    })
+    .map((entry) => entry.team);
+}
+
+function matchupTeamToneClass(index) {
+  return ["matchup-team-tone-dark", "matchup-team-tone-medium", "matchup-team-tone-light"][index] || "matchup-team-tone-light";
+}
+
+function renderMatchupAllianceCard(title, teamNumbers, color) {
+  const teams = matchupOrderedTeams(teamNumbers);
+  return `<article class="matchup-alliance-card ${color}" aria-label="${escapeAttribute(title)}">
+    <div class="matchup-team-row">
+      ${teams.map((team, index) => `<button class="matchup-team ${matchupTeamToneClass(index)}" data-team="${team.number}">
+        <strong>${escapeHtml(`${team.number} ${team.name || "Unnamed team"}`)}</strong>
+        ${renderDrivetrainBadge(team)}
+      </button>`).join("")}
+    </div>
+  </article>`;
+}
+
+function matchupMetricModel(match, metric) {
+  const redTeams = matchupOrderedTeams(match.red);
+  const blueTeams = matchupOrderedTeams(match.blue);
+  const valuesFor = (teams) => teams.map((team) => ({ team, value: teamMetricValue(team, metric) })).map((entry) => ({
+    ...entry,
+    numericValue: Number.isFinite(Number(entry.value)) ? Math.max(0, Number(entry.value)) : 0,
+  }));
+  const red = valuesFor(redTeams);
+  const blue = valuesFor(blueTeams);
+  const redTotal = red.reduce((sum, entry) => sum + entry.numericValue, 0);
+  const blueTotal = blue.reduce((sum, entry) => sum + entry.numericValue, 0);
+  return { metric, red, blue, redTotal, blueTotal, maximumTotal: Math.max(redTotal, blueTotal) };
+}
+
+function matchupActualScoreModel(match) {
+  if (match?.hasScore === false) return null;
+  const redScore = Number(match?.redScore);
+  const blueScore = Number(match?.blueScore);
+  if (!Number.isFinite(redScore) || !Number.isFinite(blueScore) || (match?.hasScore !== true && (redScore < 0 || blueScore < 0))) return null;
+  const redTotal = Math.max(0, redScore);
+  const blueTotal = Math.max(0, blueScore);
+  return { redTotal, blueTotal, maximumTotal: Math.max(redTotal, blueTotal) };
+}
+
+function renderMatchupActualScoreCard(model, sharedScale) {
+  const scale = sharedScale || model.maximumTotal;
+  const renderBar = (total, color) => `<div class="matchup-bar-row">
+    <div class="matchup-stacked-bar" aria-label="${color} alliance actual score">
+      <span class="matchup-actual-bar ${color}" style="width: ${scale ? (total / scale) * 100 : 0}%"></span>
+    </div>
+    <strong class="matchup-bar-total">${escapeHtml(String(total))}</strong>
+  </div>`;
+  return `<div class="matchup-actual-score">
+    <article class="matchup-metric-card">
+      <div class="matchup-score-label">Actual Score</div>
+      <div class="matchup-bars">
+        ${renderBar(model.redTotal, "red")}
+        ${renderBar(model.blueTotal, "blue")}
+      </div>
+    </article>
+  </div>`;
+}
+
+function renderMatchupMetricCard(match, metric, index, model, sharedScale, metrics) {
+  const options = metrics.map((entry) => `<option value="${escapeAttribute(entry.id)}" ${entry.id === metric?.id ? "selected" : ""}>${escapeHtml(metricTokenLabel(entry))}</option>`).join("");
+  if (!metric || !model) return `<article class="matchup-metric-card matchup-metric-placeholder">
+    <select data-matchup-metric="${index}" aria-label="Choose comparison metric"><option value="">Select a metric</option>${options}</select>
+  </article>`;
+  const scale = sharedScale || model.maximumTotal;
+  const renderBar = (entries, total, color) => `<div class="matchup-bar-row">
+    <div class="matchup-stacked-bar" aria-label="${escapeAttribute(`${color} alliance ${metricTokenLabel(metric)}`)}">
+      ${entries.map((entry, teamIndex) => `<span class="matchup-bar-segment ${color} ${matchupTeamToneClass(teamIndex)}" style="width: ${scale ? (entry.numericValue / scale) * 100 : 0}%" title="${escapeAttribute(`${entry.team.name}: ${formatMetricValueForDisplay(metric, entry.value)}`)}"></span>`).join("")}
+    </div>
+    <strong class="matchup-bar-total">${escapeHtml(formatMetricValueForDisplay(metric, total))}</strong>
+  </div>`;
+  return `<article class="matchup-metric-card">
+    <select data-matchup-metric="${index}" aria-label="Choose comparison metric"><option value="">Select a metric</option>${options}</select>
+    <div class="matchup-bars">
+      ${renderBar(model.red, model.redTotal, "red")}
+      ${renderBar(model.blue, model.blueTotal, "blue")}
+    </div>
+  </article>`;
 }
 
 function renderMatchNavigator(match, includeBack) {
   const matches = currentMatches();
-  const matchIndex = matches.findIndex((item) => item.number === match.number);
+  const matchIndex = matches.findIndex((item) => matchIdentity(item) === matchIdentity(match));
   const prevMatch = matches[matchIndex - 1];
   const nextMatch = matches[matchIndex + 1];
   return `
     <div class="match-nav">
       ${includeBack ? `<button data-history-back="schedule">Back</button>` : ""}
-      <button class="icon-button" data-match-nav="${prevMatch?.number || ""}" ${prevMatch ? "" : "disabled"} title="Previous match" aria-label="Previous match">&lt;</button>
-      <strong>Q${match.number}</strong>
-      <button class="icon-button" data-match-nav="${nextMatch?.number || ""}" ${nextMatch ? "" : "disabled"} title="Next match" aria-label="Next match">&gt;</button>
+      <button class="icon-button" data-match-nav="${prevMatch ? escapeAttribute(matchIdentity(prevMatch)) : ""}" ${prevMatch ? "" : "disabled"} title="Previous match" aria-label="Previous match">&lt;</button>
+      <strong>${escapeHtml(matchupMatchLabel(match))}</strong>
+      <button class="icon-button" data-match-nav="${nextMatch ? escapeAttribute(matchIdentity(nextMatch)) : ""}" ${nextMatch ? "" : "disabled"} title="Next match" aria-label="Next match">&gt;</button>
     </div>
   `;
 }
@@ -8156,42 +9225,6 @@ function renderAllianceCard(title, teamNumbers) {
           .join("")}
       </div>
     </article>
-  `;
-}
-
-function renderQuality() {
-  const flagged = currentTeams().filter((team) => team.flags.some((flag) => ["data_suspect", "broken", "declining", "inconsistent"].includes(flag.type)));
-  return `
-    <div class="grid">
-      <article class="card">
-        <div class="section-heading">
-          <div>
-            <h2>Confidence Review</h2>
-            <p class="muted">Confidence appears here only. Reasons are shown directly instead of on hover.</p>
-          </div>
-        </div>
-        <div class="confidence-review-list">
-          ${currentTeams()
-            .filter((team) => (team.scouting?.confidence?.tier || "medium") !== "high")
-            .sort((left, right) => confidenceRank(right.scouting?.confidence?.tier || "medium") - confidenceRank(left.scouting?.confidence?.tier || "medium") || left.number - right.number)
-            .map((team) => renderConfidenceReviewRow(team))
-            .join("") || `<div class="empty-state">All teams currently have high scouting confidence.</div>`}
-        </div>
-      </article>
-      ${flagged
-        .map(
-          (team) => `
-        <button class="data-row" data-team="${team.number}">
-          <div class="split-row">
-            <strong>${team.number} ${team.name}</strong>
-            ${renderQualityBadges(team)}
-          </div>
-          ${team.flags.map((flag) => `<span class="flag-evidence">${flag.evidence}</span>`).join("")}
-        </button>
-      `,
-        )
-        .join("")}
-    </div>
   `;
 }
 
@@ -8259,23 +9292,6 @@ function renderSortBuilder() {
         `
         }
       </article>
-    </div>
-  `;
-}
-
-function renderConfidenceReviewRow(team) {
-  const confidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
-  const reasons = uniqueValues((confidence.reasons || []).map(confidenceReasonLabel));
-  return `
-    <div class="review-submission-row confidence-review-row">
-      <div class="review-submission-meta">
-        <strong>${team.number} ${team.name}</strong>
-        <span class="muted">Confidence: ${confidenceLabel(confidence.tier)}</span>
-        <span class="muted">${reasons.length ? reasons.join(", ") : "No concerns recorded."}</span>
-      </div>
-      <div class="flag-list">
-        <span class="flag ${confidenceSeverity(confidence.tier)}">Confidence: ${confidenceLabel(confidence.tier)}</span>
-      </div>
     </div>
   `;
 }
@@ -8378,7 +9394,7 @@ function renderPicklistBuilder() {
             <span class="muted">Metric</span>
             <select id="picklistCompareMetricSelect" aria-label="Picklist comparison metric">
               <option value="" ${comparisonMetric ? "" : "selected"}>Select a metric</option>
-              ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
+              ${orderedMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
             </select>
           </label>
           <label class="team-trend-metric">
@@ -8483,7 +9499,7 @@ function renderCriteriaTerm(term, index, count) {
         Metric
         <select class="term-metric" data-term-index="${index}">
           <option value="" ${metric ? "" : "selected"}>Select a metric</option>
-          ${currentMetrics().map((item) => `<option value="${item.id}" ${item.id === metric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
+          ${orderedMetrics().map((item) => `<option value="${item.id}" ${item.id === metric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
         </select>
       </label>
       ${index === count - 1 && count < 5 ? `<button class="icon-button add-term-button" id="addCriteriaTerm" title="Add component" aria-label="Add component">+</button>` : `<span class="operator-spacer"></span>`}
@@ -8745,10 +9761,11 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         minScore: options.minScore,
         maxScore: options.maxScore,
         sortDirection: options.sortDirection,
+        compareIndex: options.compareIndex,
         extraClass: picked,
         draggable: !picked,
         dragData: picked ? "" : String(team.number),
-        dataAttribute: options.navigation ? `data-team="${team.number}"` : "",
+        dataAttribute: options.navigation ? `data-team="${team.number}"` : options.allianceTeam ? `data-alliance-team="${team.number}"` : "",
       })
     : renderTeamTile(team, index, {
         compact: true,
@@ -8758,10 +9775,11 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         colorScore: options.colorScore,
         minScore: options.minScore,
         maxScore: options.maxScore,
+        compareIndex: options.compareIndex,
         extraClass: picked,
         draggable: !picked,
         dragData: picked ? "" : String(team.number),
-        dataAttribute: options.navigation ? `data-team="${team.number}"` : "",
+        dataAttribute: options.navigation ? `data-team="${team.number}"` : options.allianceTeam ? `data-alliance-team="${team.number}"` : "",
       });
   return content;
 }
@@ -8816,18 +9834,20 @@ function renderAlliance() {
               )
               .join("")}
           </div>
-          <div class="picklist-loader-group">
+          <div class="picklist-loader-group picklist-metric-selector">
             <h3>Metrics</h3>
-            ${orderedRankableMetrics()
-              .map(
-                (metric) => `
+            <div class="picklist-metric-list">
+              ${orderedRankableMetrics()
+                .map(
+                  (metric) => `
             <label class="check-row">
               <input type="checkbox" class="picklist-check" value="metric:${metric.id}" ${state.loadedSources.includes(`metric:${metric.id}`) ? "checked" : ""} />
               <span>${metricTokenLabel(metric)}</span>
             </label>
-          `,
-              )
-              .join("")}
+            `,
+                )
+                .join("")}
+            </div>
           </div>
         </div>
       </article>
@@ -8858,6 +9878,8 @@ function renderAlliance() {
                       renderPicklistTile(team.number, teamIndex, null, {
                         static: true,
                         navigation: false,
+                        allianceTeam: true,
+                        compareIndex: compareSlotIndexForTeam(team.number),
                         showScore: column.type === "metric",
                         score: column.scores?.[teamIndex],
                         colorScore: column.scores?.[teamIndex],
@@ -8973,10 +9995,9 @@ function renderAdminEventControl() {
   const mismatchMessage = currentScoutingMismatchMessage(result);
   const sourceStatusIssues = issues.filter((issue) => issue !== mismatchMessage);
   const diagnosticsState = currentScoutingDiagnosticsState();
-  const diagnosticsSelection = activeScoutingDiagnosticsSource(diagnosticsState);
-  const diagnosticsNonEmpty = schemaDiffHasChanges(diagnosticsSelection.diagnostics?.schemaDiff)
-    || Boolean(diagnosticsState.pridgeDiagnostics?.hasIssues);
-  const reviewNonEmpty = reviewGroups.length > 0;
+  const qualityAlert = adminDataQualityAlertState(diagnosticsState);
+  const diagnosticsNonEmpty = qualityAlert.schemaMismatch || qualityAlert.schemaMissing || qualityAlert.pridgeMismatch;
+  const reviewNonEmpty = qualityAlert.reviewPending;
   return `
     <div class="grid">
       ${(diagnosticsNonEmpty || reviewNonEmpty) ? `<div class="admin-quality-banner" role="status">
@@ -8994,7 +10015,7 @@ function renderAdminEventControl() {
           <div class="admin-form-grid">
             <label>
               Event Code
-              <div class="admin-actions admin-field-row">
+              <div class="admin-actions admin-field-row event-code-row">
                 <input
                   id="adminEventCodeInput"
                   class="admin-input"
@@ -9006,6 +10027,7 @@ function renderAdminEventControl() {
                   spellcheck="false"
                   ${state.eventLookupPending ? "disabled" : ""}
                 />
+                <button type="button" id="loadAdminEventButton" ${state.eventLookupPending ? "disabled" : ""}>Load</button>
                 <button type="button" id="openRecentAdminEventsButton">Open Recent</button>
               </div>
             </label>
@@ -9182,7 +10204,9 @@ function renderAdminDataQuality() {
   return `<div class="grid cols-2">
     <article class="card">
       <h2>Schema Diagnostics</h2>
+      ${renderScoutingSchemaStatus(diagnosticsState.schemaStatus)}
       ${renderPridgeResponseDiagnostics(diagnosticsState.pridgeDiagnostics)}
+      ${activeDiagnostics?.schemaDiff?.typeChanged?.length ? renderSchemaDiffSummary({ typeChanged: activeDiagnostics.schemaDiff.typeChanged }) : ""}
       ${reconciliationModel ? renderSchemaReconciliationCards(reconciliationModel) : renderSchemaDiffSummary(activeDiagnostics?.schemaDiff)}
       ${reconciliationModel ? `<div class="button-row">
         <button type="button" id="updateCurrentSchemaFromDiagnosticsButton"${reconciliationModel.readyToPersist ? "" : " disabled"}>Update Current Schema</button>
@@ -9212,7 +10236,28 @@ function renderPridgeResponseDiagnostics(diagnostics) {
 
 function renderAdminUserControl() {
   if (!isAdmin()) return "";
-  return `<div class="grid">${renderAccessManagement()}</div>`;
+  return `<div class="grid">${renderAccessManagement()}${renderPerformanceDiagnostics()}</div>`;
+}
+
+function renderPerformanceDiagnostics() {
+  const snapshot = scoutingPerfSnapshot();
+  const counters = Object.entries(snapshot.counters).sort(([left], [right]) => left.localeCompare(right));
+  const recentEvents = snapshot.events.slice(-12).reverse();
+  return `
+    <article class="card performance-diagnostics-card">
+      <div class="section-heading">
+        <div><h2>Performance Diagnostics</h2><p class="muted">Bounded timing counters and recent event categories. Scouting submissions are never included.</p></div>
+        <div class="button-row"><button type="button" id="exportPerformanceDiagnosticsButton">Export timings</button><button type="button" id="resetPerformanceDiagnosticsButton">Reset</button></div>
+      </div>
+      <div class="data-source-list">
+        ${counters.length ? counters.map(([name, value]) => `<div class="data-source-row"><strong>${escapeHtml(name)}</strong><span>${Number(value) || 0}</span></div>`).join("") : `<p class="muted">No performance activity recorded yet.</p>`}
+      </div>
+      <h3>Recent events</h3>
+      <div class="data-source-list">
+        ${recentEvents.length ? recentEvents.map((event) => `<div class="data-source-row"><span>${escapeHtml(event.label)}</span><span>${Number(event.durationMs || 0).toFixed(2)} ms</span></div>`).join("") : `<p class="muted">No recent events.</p>`}
+      </div>
+    </article>
+  `;
 }
 
 function renderFlags(flags) {
@@ -9224,10 +10269,6 @@ function renderFlags(flags) {
 function renderDrivetrainBadge(team) {
   const drivetrainFlags = team.drivetrain && team.drivetrain !== "unknown" && team.drivetrain !== "swerve" ? [{ label: "Non-Swerve", severity: "danger" }] : [];
   return renderFlags(drivetrainFlags);
-}
-
-function renderQualityBadges(team) {
-  return renderFlags(team.flags || []);
 }
 
 function placeTeamOnBoard(teamNumber, cellIndex) {
@@ -9687,10 +10728,7 @@ function openFormulaHelpTab() {
 }
 
 function analysisMetricOptions() {
-  const metrics = currentMetrics();
-  const derived = metrics.filter((metric) => metric.kind === "derived");
-  const nonDerived = metrics.filter((metric) => metric.kind !== "derived");
-  return [...derived, ...nonDerived];
+  return orderedMetrics();
 }
 
 function longestSharedPrefix(values) {
@@ -9960,6 +10998,7 @@ function handleBuilderKeyboard(event) {
         captureBuilderListScroll();
         state.activeDerivedPreviewMetricId = next.id;
         saveState();
+        builderListScrollState().__allowActiveScroll = true;
         render();
         return;
       }
@@ -9974,6 +11013,7 @@ function handleBuilderKeyboard(event) {
       state.builderFocus.derivedBuilder = "equations";
       rememberActiveDerivedEquationEditSession();
       saveState();
+      builderListScrollState().__allowActiveScroll = true;
       render();
     }
     return;
@@ -10038,6 +11078,17 @@ function bindAllianceSourceScrollbars() {
 }
 
 function bindViewEvents() {
+  document.querySelector("#loadAdminEventButton")?.addEventListener("click", async () => {
+    const input = document.querySelector("#adminEventCodeInput");
+    await applyAdminEventCodeDraft(input?.value || "");
+  });
+  document.querySelector("#exportPerformanceDiagnosticsButton")?.addEventListener("click", () => {
+    downloadLocalTextFile(JSON.stringify(scoutingPerfSnapshot(), null, 2), "scouting-performance-diagnostics.json");
+  });
+  document.querySelector("#resetPerformanceDiagnosticsButton")?.addEventListener("click", () => {
+    resetScoutingPerf();
+    render();
+  });
   document.querySelector("#metricSelect")?.addEventListener("change", (event) => {
     state.metric = event.target.value;
     saveState();
@@ -10236,7 +11287,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-match]").forEach((element) => {
     element.addEventListener("click", () => {
       pushViewHistory();
-      state.selectedMatch = Number(element.dataset.match);
+      state.selectedMatch = element.dataset.match;
       state.activeView = "matchup";
       saveState();
       render();
@@ -10246,7 +11297,7 @@ function bindViewEvents() {
     element.addEventListener("click", () => {
       if (!element.dataset.matchNav) return;
       pushViewHistory();
-      state.selectedMatch = Number(element.dataset.matchNav);
+      state.selectedMatch = element.dataset.matchNav;
       state.activeView = "matchup";
       saveState();
       render();
@@ -10255,11 +11306,21 @@ function bindViewEvents() {
   document.querySelectorAll("[data-match-row]").forEach((element) => {
     element.addEventListener("click", () => {
       pushViewHistory();
-      state.selectedMatch = Number(element.dataset.matchRow);
+      state.selectedMatch = element.dataset.matchRow;
       state.activeView = "matchup";
       saveState();
       render();
     });
+  });
+  document.querySelector("#scheduleHighlightTeam")?.addEventListener("change", (event) => {
+    state.highlightTeam = normalizeHighlightTeam(event.target.value);
+    saveState();
+    render();
+  });
+  document.querySelector("#playoffBracketHighlightTeam")?.addEventListener("change", (event) => {
+    state.highlightTeam = normalizeHighlightTeam(event.target.value);
+    saveState();
+    render();
   });
   document.querySelectorAll("[data-drag-team]").forEach((element) => {
     element.addEventListener("dragstart", (event) => {
@@ -10700,6 +11761,28 @@ function bindViewEvents() {
       render();
     });
   });
+  document.querySelector("#matchupNormalization")?.addEventListener("change", (event) => {
+    state.matchupNormalization = event.target.value === "independent" ? "independent" : "shared";
+    render();
+  });
+  document.querySelectorAll("[data-matchup-metric]").forEach((element) => {
+    element.addEventListener("change", (event) => {
+      const index = Number(element.dataset.matchupMetric);
+      const selections = normalizeMatchupMetricSelections().slice(0, -1);
+      selections[index] = event.target.value;
+      state.matchupMetricSelections = selections.filter(Boolean);
+      render();
+    });
+  });
+  document.querySelectorAll("[data-alliance-team]").forEach((tile) => {
+    tile.addEventListener("click", () => {
+      const teamNumber = Number(tile.dataset.allianceTeam);
+      const changed = togglePicklistCompareTeam(teamNumber);
+      if (!changed) return;
+      saveState();
+      render();
+    });
+  });
   document.querySelector("[data-current-picklist]")?.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     state.contextMenu = { type: "picklist-pairwise", picklistId: activePicklist().id, x: event.clientX, y: event.clientY };
@@ -10737,10 +11820,10 @@ function bindViewEvents() {
     });
   });
   document.querySelector("#importSourceUrl")?.addEventListener("input", (event) => {
-    setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: false, persistAttachment: true });
+    setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: true, persistAttachment: true });
   });
   document.querySelector("#importSourceUrl")?.addEventListener("change", async (event) => {
-    setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: false });
+    setCurrentScoutingSourceUrl(event.target.value, { applyToAttachment: true });
     await applyScoutingSourceInputChange({
       forceReload: true,
       scoutingImportSource: "manual-source-change",

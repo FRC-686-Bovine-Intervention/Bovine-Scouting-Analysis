@@ -73,6 +73,62 @@ runTest("source refresh policy only polls when due", () => {
   );
 });
 
+runTest("refresh coordinator coalesces one source and rejects superseded responses", async () => {
+  const context = loadBrowserContext(["src/source-refresh.js"]);
+  const coordinator = context.SourceRefresh.createRefreshCoordinator();
+  const first = coordinator.begin("tba");
+  const second = coordinator.begin("tba");
+  assert.equal(coordinator.isCurrent(first), false);
+  assert.equal(coordinator.isCurrent(second), true);
+  const a = coordinator.run("statbotics", async () => "latest");
+  const b = coordinator.run("statbotics", async () => "duplicate");
+  assert.equal(a, b);
+});
+
+runTest("source refresh policy seeds the first external poll shortly after activation", () => {
+  const context = loadBrowserContext(["src/source-refresh.js"]);
+  const policy = context.SourceRefresh.defaultPolicyForSource({ kind: "external", sourceId: "tba" });
+  const now = Date.parse("2026-07-11T12:00:00Z");
+
+  assert.equal(
+    context.SourceRefresh.computeInitialNextPollAt({ kind: "external", sourceId: "tba" }, policy, now),
+    "2026-07-11T12:00:10.000Z",
+  );
+});
+
+runTest("simulator scouting refresh polls on every five-second loop tick", () => {
+  const context = loadBrowserContext(["src/source-refresh.js"], {
+    __EVENT_SIMULATOR_CONFIG: { mode: "simulator-first" },
+  });
+  const policy = context.SourceRefresh.defaultPolicyForSource({ kind: "scouting", sourceId: "simulator" });
+  assert.equal(policy.baseIntervalMs, 5 * 1000);
+  assert.equal(policy.pollEveryTick, true);
+  assert.equal(
+    context.SourceRefresh.shouldPollSource({ nextPollAt: "2099-01-01T00:00:00Z", pollingEnabled: true }, policy),
+    true,
+  );
+});
+
+runTest("simulator external refresh polls on every five-second loop tick", () => {
+  const context = loadBrowserContext(["src/source-refresh.js"], {
+    __EVENT_SIMULATOR_CONFIG: { mode: "simulator-first" },
+  });
+  const policy = context.SourceRefresh.defaultPolicyForSource({ kind: "external", sourceId: "tba" });
+  assert.equal(policy.baseIntervalMs, 5 * 1000);
+  assert.equal(policy.pollEveryTick, true);
+  assert.equal(
+    context.SourceRefresh.shouldPollSource({ nextPollAt: "2099-01-01T00:00:00Z", pollingEnabled: true }, policy),
+    true,
+  );
+});
+
+runTest("simulator scouting policy is recognized from the event attachment id", () => {
+  const context = loadBrowserContext(["src/source-refresh.js"]);
+  const policy = context.SourceRefresh.defaultPolicyForSource({ kind: "scouting", sourceId: "scouting-2026evsim-default" });
+  assert.equal(policy.baseIntervalMs, 5 * 1000);
+  assert.equal(policy.pollEveryTick, true);
+});
+
 runTest("source refresh policy normalizes visible source statuses to ready, stale, and error", () => {
   const context = loadBrowserContext(["src/source-refresh.js"]);
   const policy = context.SourceRefresh.defaultPolicyForSource({ kind: "scouting", sourceId: "attachment-1" });

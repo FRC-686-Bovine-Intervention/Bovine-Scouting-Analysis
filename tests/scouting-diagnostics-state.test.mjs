@@ -69,3 +69,19 @@ runTest("buildScoutingDiagnosticsState parses committed schema signatures and co
   assert.equal(state.pendingDiagnostics.schemaDiff.added.some((fieldDefinition) => fieldDefinition.id === "newField"), true);
   assert.equal(state.pendingDiagnostics.schemaDiff.removed.some((fieldDefinition) => fieldDefinition.id === "driverSignal"), true);
 });
+
+runTest("legacy schema signatures treat unmarked types as inferred", () => {
+  const context = loadBrowserContext([
+    "src/metric-engine.js",
+    "src/scouting-dependency-diagnostics.js",
+    "src/scouting-diagnostics-state.js",
+  ]);
+
+  const state = context.ScoutingDiagnosticsState.buildScoutingDiagnosticsState({
+    committedSchemaSignature: JSON.stringify({ fields: [{ id: "alliance", type: "number" }] }),
+    currentFieldDefinitions: [{ id: "alliance", type: "string", unit: "text" }],
+  });
+
+  assert.equal(state.currentDiagnostics.schemaDiff.typeChanged.length, 0);
+  assert.equal(state.committedFields[0].typeDeclared, false);
+});

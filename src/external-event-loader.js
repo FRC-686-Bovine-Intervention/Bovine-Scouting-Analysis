@@ -1,6 +1,7 @@
 (function () {
 const eventModelBuilder = globalThis.EventModelBuilder || {};
 const externalSourceSnapshots = globalThis.ExternalSourceSnapshots || {};
+const providerRouting = globalThis.ProviderRouting || {};
 
 const buildEventModelFromProviderBundle =
   eventModelBuilder.buildEventModelFromProviderBundle ||
@@ -66,6 +67,26 @@ function isNotFoundError(error) {
   return Number(error?.status || 0) === 404;
 }
 
+async function fetchJsonWithFallback(primaryUrl, fallbackUrl, options = {}) {
+  try {
+    return { ...(await fetchJson(primaryUrl, options)), fallbackUsed: false };
+  } catch (primaryError) {
+    if (!fallbackUrl || !isNotFoundError(primaryError)) throw primaryError;
+    return { ...(await fetchJson(fallbackUrl, options)), fallbackUsed: true, primaryError };
+  }
+}
+
+function normalizeStatboticsCollection(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+  for (const key of ["data", "results", "items", "team_events", "teamEvents"]) {
+    if (Array.isArray(payload[key])) return payload[key];
+  }
+  const error = new Error("Statbotics team-event response did not contain a supported collection.");
+  error.code = "UNSUPPORTED_STATBOTICS_COLLECTION";
+  throw error;
+}
+
 async function fetchJson(url, options = {}) {
   const fetchImpl = resolveFetchImpl(options);
   if (typeof fetchImpl !== "function") throw new Error("Fetch is not available in this runtime.");
@@ -128,7 +149,14 @@ async function fetchStatboticsBundle(statboticsBaseUrl, normalizedEventCode, opt
     fetchJson(`${statboticsBaseUrl}/event/${normalizedEventCode}`, options),
     fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode, options),
   ]);
-  return { event, teamEvents, baseUrl: statboticsBaseUrl };
+  return {
+    event,
+    teamEvents: {
+      ...teamEvents,
+      payload: normalizeStatboticsCollection(teamEvents.payload),
+    },
+    baseUrl: statboticsBaseUrl,
+  };
 }
 
 async function loadStatboticsBundle(primaryBaseUrl, fallbackBaseUrl, normalizedEventCode, options = {}) {
@@ -151,22 +179,34 @@ async function loadStatboticsBundle(primaryBaseUrl, fallbackBaseUrl, normalizedE
 
 async function fetchStatboticsTeamMatchRows(statboticsBaseUrl, eventCode, matches, options = {}) {
   if (options.loadStatboticsMatchData === false) return { rows: [], responses: [] };
-  const collectionUrl = `${statboticsBaseUrl}/matches?event=${encodeURIComponent(eventCode)}`;
+  const supportedLevels = new Set(["qm", "ef", "qf", "sf", "f"]);
+  const isSupportedMatch = (match) => supportedLevels.has(String(match?.comp_level || "").toLowerCase())
+    || /_(?:qm|ef|qf|sf|f)\d+(?:m\d+)?$/i.test(String(match?.match || match?.key || ""));
+  const teamMatchesUrl = `${statboticsBaseUrl}/team_matches?event=${encodeURIComponent(eventCode)}&limit=10000`;
   try {
-    const response = await fetchJson(collectionUrl, options);
+    const response = await fetchJson(teamMatchesUrl, options);
     const rows = (Array.isArray(response.payload) ? response.payload : [])
-      .filter((match) => match?.comp_level === "qm")
+      .filter(isSupportedMatch)
+      .filter((match) => Number.isFinite(Number(match?.team)));
+    return { rows, responses: [response] };
+  } catch {
+    // Older/fallback Statbotics hosts may not expose the team-matches route.
+  }
+  try {
+    const response = await fetchJson(`${statboticsBaseUrl}/matches?event=${encodeURIComponent(eventCode)}`, options);
+    const rows = (Array.isArray(response.payload) ? response.payload : [])
+      .filter(isSupportedMatch)
       .flatMap((match) => Object.entries(match?.epas || {}).map(([team, epa]) => ({
         team: Number(team),
         match: match.key,
-        epa: { total_points: epa?.epa, breakdown: epa },
+        epa: { total_points: epa?.epa, post: epa?.post_epa ?? epa?.post, breakdown: epa },
       })));
     return { rows, responses: [response] };
   } catch {
-    // Older/fallback Statbotics hosts may not expose the collection route.
+    // Older/fallback Statbotics hosts may not expose either collection route.
   }
   const requests = (Array.isArray(matches) ? matches : [])
-    .filter((match) => match?.comp_level === "qm" && (match?.key || Number.isFinite(Number(match?.match_number))))
+    .filter((match) => isSupportedMatch(match) && (match?.key || Number.isFinite(Number(match?.match_number))))
     .flatMap((match) => [
       ...(match.alliances?.red?.team_keys || []),
       ...(match.alliances?.blue?.team_keys || []),
@@ -291,25 +331,29 @@ async function loadEventByCode(eventCode, options = {}) {
   if (!normalizedEventCode) throw new Error("Enter a valid event code.");
 
   const tbaAuthKey = resolveTbaAuthKey(options);
-  if (!tbaAuthKey) {
-    throw new Error("Missing TBA auth key. Configure a key before loading arbitrary events.");
-  }
+  const runtimeConfig = globalThis.__EVENT_SIMULATOR_CONFIG;
+  const configuredSimulator = runtimeConfig?.mode === "simulator-first";
+  const resolvedRouting = providerRouting.resolveProviderRouting ? providerRouting.resolveProviderRouting(options) : { mode: "production", tbaBaseUrl: normalizeText(options.tbaBaseUrl) || "https://www.thebluealliance.com/api/v3", statboticsBaseUrl: resolveStatboticsBaseUrl(options), statboticsFallbackBaseUrl: resolveStatboticsFallbackBaseUrl(options), tbaFallbackBaseUrl: "" };
+  const routing = configuredSimulator && resolvedRouting.mode === "production"
+    ? { ...resolvedRouting, mode: "simulator-first", tbaBaseUrl: normalizeText(runtimeConfig.tbaUrl) || resolvedRouting.tbaBaseUrl, statboticsBaseUrl: normalizeText(runtimeConfig.statboticsUrl) || resolvedRouting.statboticsBaseUrl, scoutingUrl: normalizeText(runtimeConfig.scoutingUrl) }
+    : resolvedRouting;
+  const localTba = /^(https?:\/\/)?(127\.0\.0\.1|localhost)(?::\d+)?\//i.test(routing.tbaBaseUrl || "");
+  if (!tbaAuthKey && routing.mode !== "simulator-first" && !localTba) throw new Error("Missing TBA auth key. Configure a key before loading arbitrary events.");
 
   const timestamp = normalizeText(options.timestamp) || new Date().toISOString();
-  const tbaBaseUrl = normalizeText(options.tbaBaseUrl) || "https://www.thebluealliance.com/api/v3";
-  const statboticsBaseUrl = resolveStatboticsBaseUrl(options);
-  const statboticsFallbackBaseUrl = resolveStatboticsFallbackBaseUrl(options);
-  const tbaHeaders = {
-    Accept: "application/json",
-    "X-TBA-Auth-Key": tbaAuthKey,
-  };
+  const tbaBaseUrl = routing.tbaBaseUrl;
+  const statboticsBaseUrl = routing.statboticsBaseUrl;
+  const statboticsFallbackBaseUrl = routing.statboticsFallbackBaseUrl || resolveStatboticsFallbackBaseUrl(options);
+  const tbaHeaders = { Accept: "application/json" };
+  if (tbaAuthKey) tbaHeaders["X-TBA-Auth-Key"] = tbaAuthKey;
 
-  const [tbaEventResult, tbaTeamsResult, tbaMatchesResult, tbaRankingsResult, tbaTeamStatsResult, statboticsResult] = await Promise.all([
-    settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}`, { ...options, headers: tbaHeaders })),
-    settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/teams`, { ...options, headers: tbaHeaders })),
-    settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/matches`, { ...options, headers: tbaHeaders })),
-    settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/rankings`, { ...options, headers: tbaHeaders })),
-    settle(fetchJson(`${tbaBaseUrl}/event/${normalizedEventCode}/oprs`, { ...options, headers: tbaHeaders })),
+  const [tbaEventResult, tbaTeamsResult, tbaMatchesResult, tbaAlliancesResult, tbaRankingsResult, tbaTeamStatsResult, statboticsResult] = await Promise.all([
+    settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}`, { ...options, headers: tbaHeaders })),
+    settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/teams`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/teams`, { ...options, headers: tbaHeaders })),
+    settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/matches`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/matches`, { ...options, headers: tbaHeaders })),
+    settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/alliances`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/alliances`, { ...options, headers: tbaHeaders })),
+    settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/rankings`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/rankings`, { ...options, headers: tbaHeaders })),
+    settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/oprs`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/oprs`, { ...options, headers: tbaHeaders })),
     loadStatboticsBundle(statboticsBaseUrl, statboticsFallbackBaseUrl, normalizedEventCode, options),
   ]);
 
@@ -336,6 +380,7 @@ async function loadEventByCode(eventCode, options = {}) {
     tbaEvent: tbaEventResult.value?.payload || {},
     tbaTeams: Array.isArray(tbaTeamsResult.value?.payload) ? tbaTeamsResult.value.payload : [],
     tbaMatches: Array.isArray(tbaMatchesResult.value?.payload) ? tbaMatchesResult.value.payload : [],
+    tbaAlliances: tbaAlliancesResult.ok && Array.isArray(tbaAlliancesResult.value?.payload) ? tbaAlliancesResult.value.payload : [],
     tbaRankings: tbaRankingsResult.ok ? (tbaRankingsResult.value?.payload || {}) : {},
     tbaTeamStats: tbaTeamStatsResult.ok ? (tbaTeamStatsResult.value?.payload || {}) : {},
     statboticsEvent: statboticsEventResult.ok ? (statboticsEventResult.value?.payload || {}) : {},
@@ -348,6 +393,9 @@ async function loadEventByCode(eventCode, options = {}) {
   });
 
   const warnings = [];
+  if (!tbaAlliancesResult.ok && Number(tbaEventResult.value?.payload?.playoff_type) > 0) {
+    warnings.push(formatProviderError("The Blue Alliance playoff alliances", tbaAlliancesResult.error));
+  }
   if (!tbaRankingsResult.ok) {
     warnings.push(formatProviderError("The Blue Alliance rankings", tbaRankingsResult.error));
   }
@@ -425,10 +473,11 @@ async function loadEventByCode(eventCode, options = {}) {
   return {
     eventKey: normalizedEventCode,
     eventModel,
+    profiling: eventModel.profiling || {},
     sourceStates,
     warnings,
     rawSourceArtifacts: [
-      ["tba-event", tbaEventResult], ["tba-teams", tbaTeamsResult], ["tba-matches", tbaMatchesResult], ["tba-rankings", tbaRankingsResult], ["tba-oprs", tbaTeamStatsResult], ["statbotics-event", statboticsEventResult], ["statbotics-team-events", statboticsTeamEventsResult],
+      ["tba-event", tbaEventResult], ["tba-teams", tbaTeamsResult], ["tba-matches", tbaMatchesResult], ["tba-alliances", tbaAlliancesResult], ["tba-rankings", tbaRankingsResult], ["tba-oprs", tbaTeamStatsResult], ["statbotics-event", statboticsEventResult], ["statbotics-team-events", statboticsTeamEventsResult],
       ["statbotics-matches", statboticsTeamMatchesResult.responses[0] ? { ok: true, value: statboticsTeamMatchesResult.responses[0] } : { ok: false }],
     ].filter(([, result]) => result.ok).map(([sourceId, result]) => ({
       sourceId,

@@ -56,8 +56,10 @@ body {
 
 #app {
   min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 button,
@@ -228,6 +230,7 @@ select {
 
 .app-shell {
   min-height: 0;
+  height: 0;
   flex: 1;
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
@@ -241,6 +244,7 @@ select {
   position: sticky;
   top: 0;
   height: 100%;
+  min-height: 0;
   border-right: 1px solid var(--line);
   background: var(--panel);
   padding: 18px;
@@ -305,6 +309,12 @@ select {
   gap: 6px;
 }
 
+.nav-divider {
+  height: 1px;
+  margin: 8px 0 2px;
+  background: var(--border);
+}
+
 .nav-button {
   width: 100%;
   display: inline-flex;
@@ -340,6 +350,26 @@ select {
   color: var(--accent-strong);
 }
 
+.nav-button.has-quality-alert {
+  color: #9b2c2c;
+  border-color: #d9a441;
+  background: #fff7d6;
+}
+
+.nav-quality-alert {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: #b42318;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .admin-quality-banner {
   display: flex;
   flex-wrap: wrap;
@@ -360,6 +390,8 @@ select {
 
 .main {
   min-width: 0;
+  min-height: 0;
+  overflow: auto;
 }
 
 .topbar {
@@ -375,6 +407,43 @@ select {
 
 .content {
   padding: 22px;
+}
+
+.schedule-sections {
+  display: grid;
+  gap: 18px;
+}
+
+.schedule-section {
+  display: grid;
+  gap: 12px;
+}
+
+.schedule-section > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+  font-size: 1.05rem;
+  font-weight: 700;
+  list-style: none;
+}
+
+.schedule-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.schedule-section > summary::before {
+  content: ">";
+  display: inline-block;
+  width: 1em;
+  color: var(--accent-strong);
+  transition: transform 120ms ease;
+}
+
+.schedule-section[open] > summary::before {
+  transform: rotate(90deg);
 }
 
 .grid {
@@ -452,6 +521,10 @@ select {
 }
 
 .admin-field-row.schema-source-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.admin-field-row.event-code-row {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
 
@@ -1120,15 +1193,73 @@ select {
 }
 
 .match-row {
-  grid-template-columns: 90px 1fr 1fr;
+  grid-template-columns: 140px 1fr 1fr;
   align-items: center;
 }
 
+.match-row.schedule-current {
+  background: #FFFF66;
+}
+
+.match-row.schedule-highlight-team {
+  background: #FABF8F;
+}
+
+.playoff-alliance-card.schedule-highlight-team,
+.playoff-bracket-match.schedule-highlight-team {
+  background: #FABF8F;
+}
+
+.match-row.schedule-complete {
+  background: #D9D9D9;
+}
+
+[data-theme="dark"] .match-row.schedule-current {
+  background: #665f00;
+  color: #fff7b2;
+}
+
+[data-theme="dark"] .match-row.schedule-highlight-team {
+  background: #7a4524;
+  color: #ffe2cc;
+}
+
+[data-theme="dark"] .playoff-alliance-card.schedule-highlight-team,
+[data-theme="dark"] .playoff-bracket-match.schedule-highlight-team {
+  background: #7a4524;
+  color: #ffe2cc;
+}
+
+.playoff-bracket-match.schedule-highlight-team .playoff-bracket-alliance.red {
+  background: color-mix(in srgb, var(--danger) 22%, var(--panel));
+}
+
+.playoff-bracket-match.schedule-highlight-team .playoff-bracket-alliance.blue {
+  background: color-mix(in srgb, var(--info) 22%, var(--panel));
+}
+
+[data-theme="dark"] .match-row.schedule-complete {
+  background: #46505c;
+  color: #eef3f8;
+}
+
+.schedule-highlight-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.schedule-highlight-control input {
+  width: 96px;
+}
+
 .match-link {
-  width: 64px;
+  width: 140px;
   font-weight: 800;
   position: relative;
   z-index: 1;
+  white-space: nowrap;
 }
 
 .match-nav {
@@ -1136,6 +1267,337 @@ select {
   align-items: center;
   gap: 8px;
 }
+
+.matchup-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.matchup-normalization,
+.matchup-metric-header label,
+.matchup-metric-placeholder label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.matchup-alliances,
+.matchup-metric-cards {
+  display: grid;
+  gap: 14px;
+}
+
+.matchup-metric-cards {
+  margin-top: 24px;
+}
+
+.matchup-actual-score {
+  width: calc((100% - 14px) / 2);
+  margin: 24px auto 0;
+}
+
+.matchup-alliances,
+.matchup-metric-cards {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.matchup-alliances {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  margin-top: 24px;
+}
+
+.playoff-alliance-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(110px, 1fr));
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.playoff-alliance-card,
+.playoff-bracket-match {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 8px;
+}
+
+.playoff-alliance-card.playoff-eliminated {
+  opacity: 0.48;
+  filter: grayscale(1);
+}
+
+.playoff-alliance-teams {
+  display: grid;
+  gap: 0;
+}
+
+.playoff-bracket-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.playoff-team {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 4px 0;
+  text-align: left;
+}
+
+.playoff-bracket-board {
+  position: relative;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  min-height: 760px;
+  margin-top: 16px;
+  overflow: visible;
+  padding: 0 0 12px 64px;
+}
+
+.playoff-bracket-column-labels,
+.playoff-bracket-slots {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  column-gap: 0;
+}
+
+.playoff-bracket-column-labels {
+  position: relative;
+  z-index: 2;
+}
+
+.playoff-bracket-column-labels h3 {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.playoff-bracket-lane-labels {
+  position: absolute;
+  top: 72px;
+  left: 0;
+  z-index: 2;
+  display: block;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+}
+
+.playoff-bracket-lane-labels span {
+  position: absolute;
+  left: 0;
+  white-space: nowrap;
+  transform: rotate(180deg);
+}
+
+.playoff-bracket-lane-labels span:nth-child(1) { top: 150px; }
+.playoff-bracket-lane-labels span:nth-child(2) { top: 560px; }
+
+.playoff-bracket-slots {
+  position: relative;
+  grid-template-rows: repeat(16, 52px);
+  row-gap: 0;
+  z-index: 1;
+}
+
+.playoff-bracket-slots::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: repeating-linear-gradient(
+    to right,
+    var(--panel-soft) 0,
+    var(--panel-soft) calc(16.6667% - 4px),
+    transparent calc(16.6667% - 4px),
+    transparent 16.6667%
+  );
+  opacity: 0.8;
+}
+
+.playoff-bracket-slots::after {
+  content: "";
+  position: absolute;
+  top: 416px;
+  left: -24px;
+  right: 0;
+  z-index: -1;
+  border-top: 1px solid var(--line);
+}
+
+.playoff-bracket-slot {
+  position: relative;
+  z-index: 4;
+  grid-column: var(--bracket-column);
+  grid-row: var(--bracket-row) / span 2;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.playoff-bracket-finals {
+  flex-direction: column;
+  align-items: center;
+}
+
+.playoff-bracket-slot .playoff-bracket-match {
+  width: calc(100% - 24px);
+}
+
+.playoff-bracket-slot .playoff-bracket-match + .playoff-bracket-match {
+  margin-top: 8px;
+}
+
+.playoff-bracket-connectors {
+  position: absolute;
+  top: 72px;
+  left: 64px;
+  width: calc(100% - 64px);
+  height: 832px;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.playoff-bracket-connectors path {
+  fill: none;
+  stroke: var(--accent-strong);
+  stroke-width: 3;
+  stroke-linecap: square;
+  filter: drop-shadow(0 0 1px var(--panel));
+  vector-effect: non-scaling-stroke;
+}
+
+.playoff-bracket-match header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.playoff-bracket-match {
+  padding: 3px 5px;
+}
+
+.playoff-bracket-match header {
+  min-height: 18px;
+  align-items: center;
+}
+
+.playoff-bracket-alliance {
+  margin-top: 2px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.playoff-bracket-alliance.red { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.playoff-bracket-alliance.blue { background: color-mix(in srgb, var(--info) 14%, transparent); }
+
+@media (max-width: 1100px) {
+  .playoff-alliance-grid { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
+}
+
+.matchup-alliance-card,
+.matchup-metric-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+.matchup-alliance-card {
+  display: flex;
+}
+
+.matchup-match-number {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  min-width: 160px;
+  min-height: 82px;
+  padding: 0 16px;
+  border: 2px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 1.5rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.matchup-team-row {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.matchup-team {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 8px;
+  flex-direction: column;
+  gap: 5px;
+  border-color: transparent;
+}
+
+.matchup-alliance-card.red .matchup-team-tone-dark,
+.matchup-alliance-card.red .matchup-team-rank-1,
+.matchup-bar-segment.red.matchup-team-tone-dark { background: #991b1b; color: #fff; }
+.matchup-alliance-card.red .matchup-team-tone-medium,
+.matchup-alliance-card.red .matchup-team-rank-2,
+.matchup-bar-segment.red.matchup-team-tone-medium { background: #dc6b6b; color: #fff; }
+.matchup-alliance-card.red .matchup-team-tone-light,
+.matchup-alliance-card.red .matchup-team-rank-3,
+.matchup-bar-segment.red.matchup-team-tone-light { background: #fecaca; color: #7f1d1d; }
+.matchup-alliance-card.blue .matchup-team-tone-dark,
+.matchup-alliance-card.blue .matchup-team-rank-1,
+.matchup-bar-segment.blue.matchup-team-tone-dark { background: #1e3a8a; color: #fff; }
+.matchup-alliance-card.blue .matchup-team-tone-medium,
+.matchup-alliance-card.blue .matchup-team-rank-2,
+.matchup-bar-segment.blue.matchup-team-tone-medium { background: #5f86d8; color: #fff; }
+.matchup-alliance-card.blue .matchup-team-tone-light,
+.matchup-alliance-card.blue .matchup-team-rank-3,
+.matchup-bar-segment.blue.matchup-team-tone-light { background: #bfdbfe; color: #1e3a8a; }
+
+.matchup-actual-bar {
+  min-width: 0;
+  transition: width 160ms ease;
+}
+
+.matchup-actual-bar.red { background: #991b1b; }
+.matchup-actual-bar.blue { background: #1e3a8a; }
+
+.matchup-score-label {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  font-weight: 800;
+}
+
+.matchup-metric-card select,
+.matchup-normalization select { min-width: min(360px, 70vw); }
+.matchup-bars { display: grid; gap: 12px; margin-top: 16px; }
+.matchup-bar-row { display: grid; grid-template-columns: minmax(0, 1fr) 64px; gap: 10px; align-items: center; }
+.matchup-stacked-bar { display: flex; min-height: 28px; overflow: hidden; border-radius: 5px; background: var(--panel-soft); }
+.matchup-bar-segment { min-width: 0; transition: width 160ms ease; }
+.matchup-bar-total { text-align: right; }
+.matchup-metric-placeholder { border-style: dashed; }
 
 .alliance {
   display: flex;
@@ -1476,6 +1938,16 @@ button.pill {
 .picklist-loader-group {
   display: grid;
   gap: 8px;
+}
+
+.picklist-metric-selector {
+  min-height: 0;
+}
+
+.picklist-metric-list {
+  max-height: min(50vh, 420px);
+  overflow-y: auto;
+  padding-right: 6px;
 }
 
 .picklist-loader-group h3 {
@@ -2105,8 +2577,14 @@ button.pill {
 }
 
 @media (max-width: 860px) {
+  #app {
+    height: auto;
+    overflow: visible;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
+    height: auto;
   }
 
   .sidebar {
@@ -2151,6 +2629,39 @@ button.pill {
 
   .match-row {
     grid-template-columns: 1fr;
+  }
+
+  .matchup-heading .matchup-toolbar,
+  .matchup-toolbar .match-nav {
+    width: 100%;
+  }
+
+  .matchup-toolbar .match-nav {
+    justify-content: space-between;
+  }
+
+  .matchup-team-row {
+    grid-template-columns: 1fr;
+  }
+
+  .matchup-alliances,
+  .matchup-metric-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .matchup-actual-score {
+    width: 100%;
+  }
+
+  .matchup-metric-card select,
+  .matchup-normalization select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .matchup-bar-row {
+    grid-template-columns: minmax(0, 1fr) 54px;
+    gap: 7px;
   }
 
   .criteria-term {

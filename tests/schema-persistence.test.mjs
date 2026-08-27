@@ -70,6 +70,7 @@ function loadAppContext(options = {}) {
     URL,
     URLSearchParams,
     eventCatalog,
+    ExternalEventLoader: options.ExternalEventLoader || {},
     localStorage: {
       getItem: (key) => storedValues.has(String(key)) ? storedValues.get(String(key)) : null,
       setItem: (key, value) => storedValues.set(String(key), String(value)),
@@ -94,7 +95,7 @@ function loadAppContext(options = {}) {
     clearTimeout,
     confirm: () => true,
     alert: noop,
-    fetch: async () => ({ ok: false, json: async () => ({}), text: async () => "" }),
+    fetch: async () => ({ ok: false, status: 404, json: async () => ({}), text: async () => "" }),
     LocalFileAccess: {
       supportsPersistentLocalFiles: options.supportsPersistentLocalFiles || (() => true),
       pickAttachmentFile: options.pickAttachmentFile || (async () => ({ attachmentId: "", path: "", name: "" })),
@@ -116,7 +117,7 @@ function loadAppContext(options = {}) {
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
     .replace(/\nbootstrapApp\(\);\s*/, "\n")
-    + "\nglobalThis.__activeEventTestApi = { applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, loadAttachedSchemaForDiagnostics, persistScoutingSubmissions, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
+    + "\nglobalThis.__activeEventTestApi = { adminDataQualityAlertState, applyAdminEventCodeDraft, applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, currentDataSources, loadArbitraryEventCode, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, refreshDataSource, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/dynamic-scouting-fields.js",
@@ -128,6 +129,7 @@ function loadAppContext(options = {}) {
     "src/scouting-json-import.js",
     "src/scouting-profiles.js",
     "src/event-workspace.js",
+    "src/frc-season-metadata.js",
   ].forEach((relativePath) => {
     const source = fs.readFileSync(path.join(workspaceRoot, relativePath), "utf8");
     vm.runInNewContext(source, context, { filename: path.join(workspaceRoot, relativePath) });
@@ -173,6 +175,34 @@ await runTest("schema baseline downloads the cached profile, workspace, and comp
   assert.equal("activeSortEquation" in artifact.workspace, false);
   assert.equal(artifact.schema.pridgeResponseDefinitions.find((definition) => definition.id === "tbaTotalAutoPoints").formula, "tba.autoPoints");
   assert.equal(artifact.schema.pridgeResponseDefinitions.length, 3);
+});
+
+await runTest("the scouting source card removes event trademark and sponsorship decoration", () => {
+  const eventModel = {
+    key: "2026chcmp",
+    season: 2026,
+    seasonLabel: "2026 Rebuilt™ Presented By Haas",
+    name: "FIRST Chesapeake District Championship presented by C-CAM, VSU, Go Tec, and NASA",
+    teams: [],
+    teamNumbers: [],
+    matches: [],
+    dataSources: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    sheet: null,
+  };
+  const context = loadAppContext({ eventCatalog: [eventModel] });
+  context.__scoutingAppState.activeEventKey = eventModel.key;
+  context.hydrateEventState(eventModel.key);
+
+  const scoutingSource = context.__activeEventTestApi.currentDataSources().find((source) => source.sourceId === "scouting");
+  assert.equal(
+    scoutingSource.name,
+    "FIRST Chesapeake District Championship Scouting",
+    JSON.stringify({ event: context.currentEvent(), attachment: context.currentScoutingAttachment() }),
+  );
+  assert.doesNotMatch(scoutingSource.name, /presented by|sponsored by|[™®℠]/i);
 });
 
 await runTest("schema profile updates preserve every stored profile entry", () => {
@@ -323,6 +353,194 @@ await runTest("a persisted shared cached event restores without a packaged catal
   assert.equal(context.eventCatalog[0].catalogSource, "shared-cache");
 });
 
+await runTest("an older cached-event failure cannot overwrite a newer successful open", async () => {
+  const context = loadAppContext({ eventCatalog: [] });
+  const cachedEvent = { key: "2025race", season: 2025, name: "Cached Race", seasonLabel: "Reefscape" };
+  const eventModel = {
+    ...cachedEvent,
+    seasonLabel: "",
+    teams: [{ number: 1, name: "Cached Team", flags: [], matches: [], sources: {}, derived: {} }],
+    teamNumbers: [1],
+    matches: [{ number: 1, red: [1], blue: [], redScore: 0, blueScore: 0, winningAlliance: "", scoreBreakdown: null }],
+    matchesComplete: 1,
+    scoringComponents: [],
+    metrics: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    dataSources: [],
+  };
+  context.__scoutingAppState.sharedCachedEvents = [cachedEvent];
+  context.firebaseEventSourceCacheApi = { loadEventSourceCache: async () => { throw new Error("No cached source is available for this event."); } };
+  let rebuildCount = 0;
+  context.CachedEventLoader = {
+    rebuildCachedEvent: async () => {
+      rebuildCount += 1;
+      if (rebuildCount === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        throw new Error("older open failed");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      return { eventModel, sourceStates: {}, warnings: [], cacheFreshness: "fresh" };
+    },
+  };
+
+  const olderOpen = context.__activeEventTestApi.openSharedCachedEvent(cachedEvent.key);
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  const newerOpen = context.__activeEventTestApi.openSharedCachedEvent(cachedEvent.key);
+  assert.equal(await newerOpen, true);
+  assert.equal(await olderOpen, false);
+  assert.equal(context.__scoutingAppState.eventLookupResult.kind, "success");
+  assert.match(context.__scoutingAppState.eventLookupResult.message, /opened from the shared Firestore cache/i);
+});
+
+await runTest("a cached event with missing TBA artifacts falls back to a live load", async () => {
+  const cachedEvent = { key: "2024mdsev", season: 2024, name: "Cached Severn", seasonLabel: "2024" };
+  const eventModel = {
+    ...cachedEvent,
+    seasonLabel: "",
+    teams: [{ number: 1, name: "Live Team", flags: [], matches: [], sources: {}, derived: {} }],
+    teamNumbers: [1],
+    matches: [],
+    matchesComplete: 0,
+    scoringComponents: [],
+    metrics: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    dataSources: [],
+  };
+  const context = loadAppContext({
+    eventCatalog: [],
+    ExternalEventLoader: {
+      loadEventByCode: async () => ({ eventModel, sourceStates: {}, warnings: [], rawSourceArtifacts: [] }),
+      normalizeEventCode: (value) => String(value || "").trim().toLowerCase(),
+    },
+  });
+  context.__scoutingAppState.sharedCachedEvents = [cachedEvent];
+  context.__scoutingAppState.tbaAuthKey = "configured";
+  context.firebaseEventSourceCacheApi = {
+    loadEventSourceCache: async () => { throw new Error("Cached tba-event data is unavailable: No cached source is available for this event."); },
+  };
+  context.CachedEventLoader = {
+    rebuildCachedEvent: async () => { throw new Error("Cached tba-event data is unavailable: No cached source is available for this event."); },
+  };
+
+  assert.equal(await context.__activeEventTestApi.applyAdminEventCodeDraft(cachedEvent.key), true);
+  assert.equal(context.__scoutingAppState.activeEventKey, cachedEvent.key);
+  assert.equal(context.__scoutingAppState.eventLookupResult.kind, "success");
+  assert.match(context.__scoutingAppState.eventLookupResult.message, /loaded from external providers/i);
+});
+
+await runTest("duplicate event-code submissions do not start overlapping cached loads", async () => {
+  const cachedEvent = { key: "2024mdsev", season: 2024, name: "Cached Severn", seasonLabel: "2024" };
+  const eventModel = {
+    ...cachedEvent,
+    seasonLabel: "",
+    teams: [{ number: 1, name: "Cached Team", flags: [], matches: [], sources: {}, derived: {} }],
+    teamNumbers: [1],
+    matches: [],
+    matchesComplete: 0,
+    scoringComponents: [],
+    metrics: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    dataSources: [],
+  };
+  const context = loadAppContext({ eventCatalog: [], });
+  context.__scoutingAppState.sharedCachedEvents = [cachedEvent];
+  let rebuildCount = 0;
+  context.firebaseEventSourceCacheApi = { loadEventSourceCache: async () => { throw new Error("No cached source is available for this event."); } };
+  context.CachedEventLoader = {
+    rebuildCachedEvent: async () => {
+      rebuildCount += 1;
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      return { eventModel, sourceStates: {}, warnings: [], cacheFreshness: "fresh" };
+    },
+  };
+
+  const first = context.__activeEventTestApi.applyAdminEventCodeDraft(cachedEvent.key);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const second = context.__activeEventTestApi.applyAdminEventCodeDraft(cachedEvent.key);
+  assert.equal(await second, false);
+  assert.equal(await first, true);
+  assert.equal(rebuildCount, 1);
+});
+
+await runTest("an older live event load cannot switch back after a newer load wins", async () => {
+  const makeEvent = (key) => ({
+    key,
+    season: Number(key.slice(0, 4)),
+    name: key,
+    seasonLabel: "",
+    teams: [{ number: 1, name: "Live Team", flags: [], matches: [], sources: {}, derived: {} }],
+    teamNumbers: [1],
+    matches: [],
+    matchesComplete: 0,
+    scoringComponents: [],
+    metrics: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    dataSources: [],
+  });
+  const context = loadAppContext({
+    eventCatalog: [],
+    ExternalEventLoader: {
+      loadEventByCode: async (eventCode) => {
+        await new Promise((resolve) => setTimeout(resolve, eventCode === "2026chcmp" ? 25 : 1));
+        return { eventModel: makeEvent(eventCode), sourceStates: {}, warnings: [], rawSourceArtifacts: [] };
+      },
+      normalizeEventCode: (value) => String(value || "").trim().toLowerCase(),
+    },
+  });
+
+  const olderLoad = context.__activeEventTestApi.applyAdminEventCodeDraft("2026chcmp");
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  const newerLoad = context.__activeEventTestApi.applyAdminEventCodeDraft("2025chcmp");
+  assert.equal(await newerLoad, true);
+  assert.equal(await olderLoad, false);
+  assert.equal(context.__scoutingAppState.activeEventKey, "2025chcmp");
+});
+
+await runTest("a background refresh cannot switch away from a newer user selection", async () => {
+  const makeEvent = (key) => ({
+    key,
+    season: Number(key.slice(0, 4)),
+    name: key,
+    seasonLabel: "",
+    catalogSource: "dynamic-external",
+    teams: [{ number: 1, name: "Live Team", flags: [], matches: [], sources: {}, derived: {} }],
+    teamNumbers: [1],
+    matches: [],
+    matchesComplete: 0,
+    scoringComponents: [],
+    metrics: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+    formulaFieldDefinitions: [],
+    dataSources: [],
+  });
+  const context = loadAppContext({
+    eventCatalog: [makeEvent("2026chcmp")],
+    ExternalEventLoader: {
+      loadEventByCode: async (eventCode) => {
+        await new Promise((resolve) => setTimeout(resolve, eventCode === "2026chcmp" ? 25 : 1));
+        return { eventModel: makeEvent(eventCode), sourceStates: {}, warnings: [], rawSourceArtifacts: [] };
+      },
+      normalizeEventCode: (value) => String(value || "").trim().toLowerCase(),
+    },
+  });
+  context.__scoutingAppState.requestedEventKey = "2026chcmp";
+  const refresh = context.__activeEventTestApi.refreshDataSource("tba", { trigger: "poll" });
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  const selection = context.__activeEventTestApi.applyAdminEventCodeDraft("2025chcmp");
+  assert.equal(await selection, true);
+  assert.equal(await refresh, false);
+  assert.equal(context.__scoutingAppState.activeEventKey, "2025chcmp");
+});
+
 await runTest("admin event changes are shared and members adopt the shared event without writing it", async () => {
   let sharedEventListener = null;
   const savedEventKeys = [];
@@ -351,10 +569,38 @@ await runTest("admin event changes are shared and members adopt the shared event
   context.__activeEventTestApi.switchActiveEvent("2024mdsev");
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(savedEventKeys, ["2024mdsev"]);
+  sharedEventListener("2026chcmp");
+  assert.equal(state.activeEventKey, "2024mdsev");
+  await new Promise((resolve) => setTimeout(resolve, 5100));
+  sharedEventListener("2026chcmp");
+  assert.equal(state.activeEventKey, "2024mdsev");
 
   context.firebaseUserRole = "member";
   sharedEventListener("2026chcmp");
   assert.equal(state.activeEventKey, "2026chcmp");
+  assert.deepEqual(savedEventKeys, ["2024mdsev"]);
+});
+
+await runTest("shared active-event writes skip superseded selections", async () => {
+  const savedEventKeys = [];
+  const context = loadAppContext({
+    eventCatalog: [
+      { key: "2024mdsev", season: 2024, name: "MDS Event", seasonLabel: "2024", teams: [{ number: 1 }], teamNumbers: [1], matches: [{ number: 1 }], dataSources: [], seedPicklists: [], seedSortEquations: [], formulaFieldDefinitions: [], sheet: {} },
+      { key: "2026chcmp", season: 2026, name: "CHCMP", seasonLabel: "2026", teams: [{ number: 1 }], teamNumbers: [1], matches: [{ number: 1 }], dataSources: [], seedPicklists: [], seedSortEquations: [], formulaFieldDefinitions: [], sheet: {} },
+    ],
+  });
+  context.firebaseCurrentUser = { uid: "admin" };
+  context.firebaseUserRole = "admin";
+  context.firebaseEventStateApi = {
+    saveActiveEvent: async (eventKey) => {
+      await new Promise((resolve) => setTimeout(resolve, eventKey === "2026chcmp" ? 25 : 1));
+      savedEventKeys.push(eventKey);
+    },
+  };
+
+  context.__activeEventTestApi.switchActiveEvent("2026chcmp");
+  context.__activeEventTestApi.switchActiveEvent("2024mdsev");
+  await new Promise((resolve) => setTimeout(resolve, 40));
   assert.deepEqual(savedEventKeys, ["2024mdsev"]);
 });
 
@@ -928,6 +1174,7 @@ await runTest("current event diagnostics still expose schema reconciliation when
       rawMetrics: { newField: 1 },
     },
   ];
+  state.importSchemaJsonText = "{}";
   context.registerScoutingProfile(eventModel, {
     id: "canonical-json-v1",
     label: "Canonical JSON",
@@ -945,6 +1192,43 @@ await runTest("current event diagnostics still expose schema reconciliation when
 
   assert.equal(model.readyToPersist, true);
   assert.equal(model.draftProfileDefinition.derivedEquations[0].formula, "sum(scouting.newField)");
+  assert.equal(context.__activeEventTestApi.adminDataQualityAlertState().schemaMismatch, false);
+});
+
+await runTest("duplicate scouting submissions do not activate the data quality alert", () => {
+  const context = loadAppContext();
+  const state = context.__scoutingAppState;
+  const eventModel = context.eventCatalog[0];
+  state.activeEventKey = eventModel.key;
+  state.scoutingSubmissions = [
+    {
+      id: "submission-a",
+      eventKey: eventModel.key,
+      teamNumber: 686,
+      matchNumber: 1,
+      rawMetrics: {},
+      confidenceReasons: ["duplicate_submission"],
+      validity: "flagged",
+    },
+    {
+      id: "submission-b",
+      eventKey: eventModel.key,
+      teamNumber: 686,
+      matchNumber: 1,
+      rawMetrics: {},
+      confidenceReasons: ["duplicate_submission"],
+      validity: "flagged",
+    },
+  ];
+
+  const alert = context.__activeEventTestApi.adminDataQualityAlertState({
+    diagnostics: { schemaDiff: {} },
+    schemaStatus: { missing: false },
+    pridgeDiagnostics: { hasIssues: false },
+  });
+
+  assert.equal(alert.reviewPending, false);
+  assert.equal(alert.active, false);
 });
 
 await runTest("current event drift still offers remap actions when pending import diagnostics are clean", async () => {
@@ -1399,6 +1683,10 @@ await runTest("provider metric catalogs apply default and schema blacklists with
   assert.equal(identifiers.includes("tba.foulPoints"), true);
   assert.equal(identifiers.includes("statbotics.team_name"), false);
   assert.equal(identifiers.includes("statbotics.epa.total_points"), true);
+  assert.equal(
+    identifiers.filter((identifier) => identifier === "statbotics.epa.total_points").length,
+    1,
+  );
   assert.equal(context.metricTokenLabel({ kind: "source", sourceId: "pridge", componentId: "epa.breakdown.auto_points" }), "pridge.epa.breakdown.auto_points");
   assert.equal(context.metricTokenLabel({ kind: "source", sourceId: "pridge", componentId: "tbaTotalAutoPoints" }), "pridge.epa.breakdown.auto_points");
   assert.equal(identifiers.includes("pridge.epa.total_points"), true);

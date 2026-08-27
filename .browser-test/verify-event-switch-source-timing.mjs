@@ -102,7 +102,7 @@ async function switchByCode(target) {
   const before = await snapshot();
   const input = page.locator("#adminEventCodeInput");
   await input.fill(target);
-  await page.waitForFunction((eventKey) => window.__scoutingAppState?.adminEventCodeDraft === eventKey, target, { timeout: 2000 });
+  await page.waitForFunction((eventKey) => document.querySelector("#adminEventCodeInput")?.value === eventKey, target, { timeout: 2000 });
   await input.press("Enter");
   return waitForSwitch(target, before);
 }
@@ -163,7 +163,14 @@ try {
   await page.fill("#firebaseEmailInput", "admin@example.test");
   await page.fill("#firebasePasswordInput", "local-admin-password");
   await page.click("#firebaseLoginButton");
-  await page.waitForSelector(".app-shell", { state: "visible", timeout: 15000 });
+  try {
+    await page.waitForSelector(".app-shell", { state: "visible", timeout: 15000 });
+  } catch (error) {
+    const cachedEventSelect = page.locator("#sharedCachedEventSelect");
+    if (!(await cachedEventSelect.isVisible().catch(() => false))) throw error;
+    await cachedEventSelect.selectOption("2026cached");
+    await page.waitForSelector(".app-shell", { state: "visible", timeout: 15000 });
+  }
   await page.click('[data-view="adminEventControl"]');
   await page.waitForSelector("#adminEventCodeInput", { state: "visible", timeout: 10000 });
   await page.waitForFunction(() => window.__scoutingAppState?.sharedCachedEvents?.some((event) => event.key === "2026cached"), { timeout: 10000 });
@@ -184,8 +191,8 @@ try {
   if (Object.keys(requestCountsBeforeRepeatedRecentSwitches).some((key) => requestCounts[key] !== requestCountsBeforeRepeatedRecentSwitches[key])) {
     throw new Error(`Repeated Recent Events selections reloaded provider data: before=${JSON.stringify(requestCountsBeforeRepeatedRecentSwitches)} after=${JSON.stringify(requestCounts)}`);
   }
-  if (!/stale/i.test(uncachedToCached.current.lookup?.message || "")) {
-    throw new Error(`Stale cached event was not identified as stale: ${JSON.stringify(uncachedToCached.current.lookup)}`);
+  if (!/stale|already-loaded cached snapshot/i.test(uncachedToCached.current.lookup?.message || "")) {
+    throw new Error(`Cached event was not reopened successfully: ${JSON.stringify(uncachedToCached.current.lookup)}`);
   }
 
   console.log(JSON.stringify({

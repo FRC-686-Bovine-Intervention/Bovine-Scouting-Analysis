@@ -4,17 +4,21 @@ function normalizeText(value) {
 }
 
 function defaultPolicyForSource(source) {
+  const simulatorMode = globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first";
   if (source?.kind === "scouting") {
+    const scoutingSimulatorMode = simulatorMode || /evsim|simulator/i.test(normalizeText(source?.sourceId));
     return {
-      baseIntervalMs: 2 * 60 * 1000,
+      baseIntervalMs: scoutingSimulatorMode ? 5 * 1000 : 2 * 60 * 1000,
       staleAfterMs: 15 * 60 * 1000,
-      maxBackoffMs: 20 * 60 * 1000,
+      maxBackoffMs: scoutingSimulatorMode ? 60 * 1000 : 20 * 60 * 1000,
+      pollEveryTick: scoutingSimulatorMode,
     };
   }
   return {
-    baseIntervalMs: 5 * 60 * 1000,
+    baseIntervalMs: simulatorMode ? 5 * 1000 : 5 * 60 * 1000,
     staleAfterMs: 15 * 60 * 1000,
-    maxBackoffMs: 60 * 60 * 1000,
+    maxBackoffMs: simulatorMode ? 60 * 1000 : 60 * 60 * 1000,
+    pollEveryTick: simulatorMode,
   };
 }
 
@@ -28,6 +32,11 @@ function computeBackoffMs(policy, consecutiveFailures = 0) {
 function computeNextPollAt(source, policy, now = Date.now()) {
   const lastAttempt = Date.parse(normalizeText(source?.lastAttemptedAt) || "") || now;
   return new Date(lastAttempt + computeBackoffMs(policy, source?.consecutiveFailures)).toISOString();
+}
+
+function computeInitialNextPollAt(source, policy, now = Date.now()) {
+  const delayMs = source?.kind === "scouting" ? 5 * 1000 : 10 * 1000;
+  return new Date(now + delayMs).toISOString();
 }
 
 function freshnessForSource(source, policy, now = Date.now()) {
@@ -53,17 +62,41 @@ function sourceStatusBadgeClassName(status) {
 
 function shouldPollSource(source, policy, now = Date.now()) {
   if (source?.pollingEnabled === false) return false;
+  if (policy?.pollEveryTick) return true;
   const nextPollAt = Date.parse(normalizeText(source?.nextPollAt) || "");
   if (!nextPollAt) return true;
   return now >= nextPollAt;
 }
 
+function createRefreshCoordinator() {
+  const sequences = new Map();
+  const inFlight = new Map();
+  function begin(sourceId) {
+    const sequence = (sequences.get(sourceId) || 0) + 1;
+    sequences.set(sourceId, sequence);
+    return { sourceId, sequence };
+  }
+  function isCurrent(token) { return Boolean(token) && sequences.get(token.sourceId) === token.sequence; }
+  function run(sourceId, operation) {
+    if (inFlight.has(sourceId)) return inFlight.get(sourceId);
+    const token = begin(sourceId);
+    const promise = Promise.resolve().then(() => operation(token)).finally(() => {
+      if (inFlight.get(sourceId) === promise) inFlight.delete(sourceId);
+    });
+    inFlight.set(sourceId, promise);
+    return promise;
+  }
+  return { begin, isCurrent, run, isInFlight: (sourceId) => inFlight.has(sourceId) };
+}
+
 globalThis.SourceRefresh = {
   computeNextPollAt,
+  computeInitialNextPollAt,
   defaultPolicyForSource,
   freshnessForSource,
   sourceStatusBadgeClassName,
   visibleStatusForSource,
   shouldPollSource,
+  createRefreshCoordinator,
 };
 })();

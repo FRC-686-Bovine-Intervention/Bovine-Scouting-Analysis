@@ -41,12 +41,51 @@ firebase emulators:start --only auth,firestore --project bovine-scouting-analysi
 
 In a second terminal, run `node scripts/seed-firebase-emulators.mjs` and serve the repository root on port 4173. The seed script is safe to rerun; it signs in if the local admin already exists and refreshes the emulator documents.
 
+If an emulator session was already running before the test, rerun the seed command before diagnosing missing events or source-provider errors. This restores the seeded `2026local` TBA and Statbotics artifacts, the `2026cached` artifacts, the admin role, and the shared active-event document. A browser context that clears local storage can start on the no-event screen; selecting `2026cached` from the shared cached-event selector is the expected recovery path before opening Admin controls.
+
 If `.firebase-emulators.pid` is stale, remove that PID file and rerun `scripts/start-localhost.ps1`; the script validates the recorded process before reusing it. Do not use this flow against production Firebase projects: the credentials and documents are intentionally local-only.
 
 ## Useful overrides
 
 The harness accepts `SCOUTING_APP_URL`, `FIREBASE_LOCAL_ADMIN_EMAIL`, `FIREBASE_LOCAL_ADMIN_PASSWORD`, `FIREBASE_AUTH_EMULATOR_HOST`, `FIRESTORE_EMULATOR_HOST`, `FIREBASE_PROJECT_ID`, and `PLAYWRIGHT_EXECUTABLE_PATH` environment variables.
 
+If Playwright's managed browser is unavailable, point it at an installed Chrome executable:
+
+```powershell
+$env:PLAYWRIGHT_EXECUTABLE_PATH = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+node .browser-test/verify-event-switch-source-timing.mjs
+```
+
 Failures are prefixed with an actionable code: `EMULATOR_UNAVAILABLE`, `APP_UNAVAILABLE`, `AUTHENTICATION_FAILED`, `AUTHORIZATION_FAILED`, `ADMIN_PAGE_UNAVAILABLE`, `DERIVED_BUILDER_UNAVAILABLE`, `DERIVED_HELP_UNAVAILABLE`, `DERIVED_HELP_NOT_SCROLLABLE`, `DERIVED_HELP_REGRESSION`, or `DERIVED_HELP_CLICK_FAILED`. The message includes the failing service, rendered status/body text when available, and the local command or role document to check.
 
 To verify event-code switching and source timing, run `node .browser-test/verify-event-switch-source-timing.mjs` with the local stack and emulators running. It exercises cached-to-cached, cached-to-local, local-to-uncached, and uncached-to-cached transitions through the real Enter-key interaction. The uncached provider responses are mocked in the browser, and every transition must complete within 30 seconds.
+
+The source-timing check accepts either a fresh or stale cached reopen. A freshly rerun seed is expected to report the cached event as fresh; stale status is only expected when the cached artifact has aged past its refresh policy.
+
+To verify that a user-selected event survives background refreshes, run:
+
+```powershell
+$env:PLAYWRIGHT_EXECUTABLE_PATH = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+node .browser-test/verify-event-selection-stability.mjs
+```
+
+This test selects the real emulator-cached `2024mdsev` event through the real Enter-key interaction and asserts that the active event, requested event, workspace event, and event-code input remain `2024mdsev` for 120 seconds. It deliberately spans the 30-second source-refresh interval and uses the real emulator cache and shared Firebase state; it fails clearly if the `2024mdsev` fixture is not available.
+
+## User navigation latency validation
+
+The source-timing harness above does not measure the full user-visible render cost of a large event. For that, run:
+
+```powershell
+$env:PLAYWRIGHT_EXECUTABLE_PATH = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+node .browser-test/validate-user-navigation-latency.mjs
+```
+
+This drives the real Admin flow and records a pass/fail timing report for:
+
+- opening the Recent Events list;
+- switching from `2022chcmp` to `2026chcmp` through that list;
+- switching back to the source event, so the transition is measured in both directions;
+- opening Derived Equation Builder after the event switch; and
+- page errors emitted during the sequence.
+
+The default budgets are 1 second to open Recent Events, 5 seconds per event switch, and 1.5 seconds to open Derived Equation Builder. Override the event keys or budgets with `VALIDATION_FROM_EVENT`, `VALIDATION_TO_EVENT`, `VALIDATION_RECENT_OPEN_BUDGET_MS`, `VALIDATION_EVENT_SWITCH_BUDGET_MS`, and `VALIDATION_DERIVED_PAGE_BUDGET_MS` when validating a different seeded dataset.

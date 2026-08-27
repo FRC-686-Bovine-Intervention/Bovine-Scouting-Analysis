@@ -26,7 +26,7 @@
     if (typeof loadSource !== "function") throw new Error("A cached-source reader is required.");
     if (typeof buildEventModelFromProviderBundle !== "function") throw new Error("Event model construction is unavailable.");
     const sourceIds = ["tba-event", "tba-teams", "tba-matches", "tba-rankings", "tba-oprs", "statbotics-event", "statbotics-team-events"];
-    const optionalSourceIds = ["statbotics-matches"];
+    const optionalSourceIds = ["tba-alliances", "statbotics-matches"];
     const loaded = Object.fromEntries(await Promise.all([...sourceIds, ...optionalSourceIds].map(async (sourceId) => {
       try { return [sourceId, await loadSource(sourceId)]; }
       catch (error) { return [sourceId, { error }]; }
@@ -40,7 +40,7 @@
     const tbaMatches = payload("tba-matches", []);
     const eventModel = buildEventModelFromProviderBundle({
       key: normalizeText(event.key), year: Number(tbaEvent?.year || event.season || 0), importProfileId: "", sheet: null,
-      tbaEvent, tbaTeams: Array.isArray(tbaTeams) ? tbaTeams : [], tbaMatches: Array.isArray(tbaMatches) ? tbaMatches : [],
+      tbaEvent, tbaTeams: Array.isArray(tbaTeams) ? tbaTeams : [], tbaMatches: Array.isArray(tbaMatches) ? tbaMatches : [], tbaAlliances: payload("tba-alliances", []),
       tbaRankings: payload("tba-rankings", {}), tbaTeamStats: payload("tba-oprs", {}),
       statboticsEvent: payload("statbotics-event", {}), statboticsTeamEvents: payload("statbotics-team-events", []), catalogSource: "shared-cache",
       statboticsTeamMatches: payload("statbotics-matches", []), deferPridgeTrends: true, deferPridgeComputation: true,
