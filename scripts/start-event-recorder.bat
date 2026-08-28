@@ -2,8 +2,8 @@
 setlocal
 
 rem Edit these two values before running this script.
-set "TBA_AUTH_KEY=REPLACE_WITH_YOUR_TBA_AUTH_KEY"
-set "EVENT_CODE=REPLACE_WITH_EVENT_CODE"
+set "TBA_AUTH_KEY=eEFUlYooyVPeyGj1T07Z3AVTQoDHPM4MssTRD9XLDCapqhGepo1UQCj0OlL7AtqK"
+set "EVENT_CODE=2026cc"
 
 if "%TBA_AUTH_KEY%"=="REPLACE_WITH_YOUR_TBA_AUTH_KEY" (
   echo Please edit TBA_AUTH_KEY in this file before running it.
