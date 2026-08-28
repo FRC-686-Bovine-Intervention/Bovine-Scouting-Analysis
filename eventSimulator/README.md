@@ -6,6 +6,8 @@ The provider-shaped routes are available below `/api/tba/event/2026evsim`, `/api
 
 ## Recorded event playback
 
+For the complete live-recording setup, see [README_EventRecorder.md](../README_EventRecorder.md).
+
 Run `node eventSimulator/recorder.mjs 2026chcmp` with `TBA_AUTH_KEY` set to record a live event. Multiple event codes can be supplied, or provided through `EVENT_RECORDER_EVENTS`; `EVENT_RECORDER_OUTPUT` changes the output root. The recorder polls TBA every 60 seconds and Statbotics every 120 seconds, records the first pre-event observation as cursor 0, and writes only changed paired snapshots under `recordings/<event-code>/`.
 
 To replay a recording, set `EVENT_SIMULATOR_RECORDING=recordings/2026chcmp` before starting `node eventSimulator/server.mjs`. The existing control page then displays the recorded event tag and cursor position, and its controls advance through the saved cursors. Recordings are intentionally ignored by Git.
