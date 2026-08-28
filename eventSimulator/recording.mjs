@@ -19,6 +19,13 @@ const STATBOTICS_ENDPOINTS = {
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const normalizeEventCode = (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+function normalizeBaseUrl(value, fallback, name) {
+  const candidate = String(value ?? "").trim() || fallback;
+  let parsed;
+  try { parsed = new URL(candidate); } catch { throw new Error(`${name} must be an absolute URL; received "${candidate}".`); }
+  if (!/^https?:$/.test(parsed.protocol)) throw new Error(`${name} must use http or https; received "${candidate}".`);
+  return candidate.replace(/\/+$/, "");
+}
 
 export function stableStringify(value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
@@ -154,6 +161,9 @@ export function createRecordingStore({ root = path.resolve("recordings"), eventC
 }
 
 export function createRecorder({ eventCode, outputRoot = path.resolve("recordings"), tbaBaseUrl = "https://www.thebluealliance.com/api/v3", statboticsBaseUrl = "https://api.statbotics.io/v3", statboticsFallbackBaseUrl = "https://api-statbotics.iterativerefinement.com/v3", tbaAuthKey = "", pollIntervalsMs = { tba: 60000, statbotics: 120000 }, fetchNow = Date.now, fetchImpl = fetch } = {}) {
+  tbaBaseUrl = normalizeBaseUrl(tbaBaseUrl, "https://www.thebluealliance.com/api/v3", "tbaBaseUrl");
+  statboticsBaseUrl = normalizeBaseUrl(statboticsBaseUrl, "https://api.statbotics.io/v3", "statboticsBaseUrl");
+  statboticsFallbackBaseUrl = normalizeBaseUrl(statboticsFallbackBaseUrl, "https://api-statbotics.iterativerefinement.com/v3", "statboticsFallbackBaseUrl");
   const store = createRecordingStore({ root: outputRoot, eventCode });
   const previousState = store.loadState();
   let providers = previousState.providers || {};
@@ -181,6 +191,11 @@ export function createRecorder({ eventCode, outputRoot = path.resolve("recording
     const comparable = Object.fromEntries(Object.entries(providers).map(([source, value]) => [source, { status: value.status, sourceUrl: value.sourceUrl, usedFallback: value.usedFallback, error: value.error, endpoints: Object.fromEntries(Object.entries(value.endpoints || {}).map(([name, endpoint]) => [name, { status: endpoint.status, sourceUrl: endpoint.sourceUrl, usedFallback: endpoint.usedFallback, error: endpoint.error, payload: endpoint.payload }])) }]));
     const nextFingerprint = fingerprint(comparable);
     if (nextFingerprint === latestFingerprint) return null;
+    const hasPayload = Object.values(providers).some((provider) => Object.values(provider.endpoints || {}).some((endpoint) => Object.prototype.hasOwnProperty.call(endpoint, "payload")));
+    if (!hasPayload) {
+      store.saveState({ providers: clone(providers), lastPollAt });
+      return null;
+    }
     const record = store.saveCursor({ eventTag: eventTag(providerPayload(providers.tba), providerPayload(providers.statbotics)), providers: clone(providers) }, { latestFingerprint: nextFingerprint, lastPollAt });
     providers = record.providers;
     latestFingerprint = nextFingerprint;

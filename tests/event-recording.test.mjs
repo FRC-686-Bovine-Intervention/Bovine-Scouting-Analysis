@@ -49,6 +49,13 @@ assert.equal(partial.cursor, 2);
 assert.equal(partial.providers.statbotics.status, "partial");
 assert.ok(partial.providers.statbotics.endpoints.event.payload);
 
+const failedTemp = fs.mkdtempSync(path.join(os.tmpdir(), "event-recording-failed-"));
+const failedRecorder = createRecorder({ eventCode: "2026FAIL", outputRoot: failedTemp, tbaBaseUrl: "https://tba.example/v3", statboticsBaseUrl: "https://statbotics.example/v3", statboticsFallbackBaseUrl: "https://fallback.example/v3", fetchImpl: async () => { throw new Error("providers unavailable"); }, pollIntervalsMs: { tba: 0, statbotics: 0 } });
+assert.equal(await failedRecorder.poll({ force: true }), null);
+assert.equal(failedRecorder.status().nextCursor, 0);
+assert.equal(JSON.parse(fs.readFileSync(path.join(failedTemp, "2026fail", "recorder-state.json"), "utf8")).nextCursor, 0);
+assert.throws(() => createRecorder({ eventCode: "2026BAD", outputRoot: failedTemp, tbaBaseUrl: "/api/v3" }), /tbaBaseUrl must be an absolute URL/);
+
 const recording = loadRecording(path.join(temp, "2026test"));
 assert.equal(recording.cursors.length, 3);
 assert.equal(recording.cursors[0].providers.tba.status, "ready");
