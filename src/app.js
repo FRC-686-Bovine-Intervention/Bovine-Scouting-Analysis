@@ -1498,6 +1498,21 @@ async function refreshDataSource(sourceId, options = {}) {
     recordScoutingPerf("background.refresh.end", startedAt, { sourceId, trigger, changed: null, activeView: state.activeView });
     return;
   }
+  if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first") {
+    if (sourceId !== "tba") return;
+    const refreshEventKey = currentEvent().key;
+    const refreshed = await loadArbitraryEventCode(refreshEventKey, {
+      activeView: state.activeView,
+      selectionToken: {
+        eventKey: refreshEventKey,
+        generation: eventLoadSequence,
+        source: "background",
+      },
+      activate: false,
+    });
+    recordScoutingPerf("background.refresh.end", startedAt, { sourceId, trigger, changed: true, activeView: state.activeView });
+    return refreshed;
+  }
   if (currentEvent()?.catalogSource === "dynamic-external") {
     const refreshEventKey = currentEvent().key;
     const refreshed = await loadArbitraryEventCode(currentEvent().key, {
