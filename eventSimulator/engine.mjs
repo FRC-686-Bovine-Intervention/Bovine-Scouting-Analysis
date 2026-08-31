@@ -196,6 +196,7 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
 export function createRecordedEngine({ recordingPath, statePath = path.resolve("eventSimulator/.recorded-state.json") } = {}) {
   if (!recordingPath) throw new Error("A recording path is required.");
   const recording = loadRecording(recordingPath);
+  const requests = [];
   let state = { cursor: 0 };
   try { state = { ...state, ...JSON.parse(fs.readFileSync(statePath, "utf8")) }; } catch {}
   const persist = () => { fs.mkdirSync(path.dirname(statePath), { recursive: true }); fs.writeFileSync(statePath, JSON.stringify(state, null, 2)); };
@@ -221,13 +222,24 @@ export function createRecordedEngine({ recordingPath, statePath = path.resolve("
       eventTag: cursor?.eventTag || "event-complete",
       recordedAt: cursor?.recordedAt || "",
       offsets: { tba: 0, statbotics: 0, scouting: 0 },
-      requests: [],
+      requests: requests.map(({ signature, dataSignature, ...request }) => request),
     };
   };
   const setState = (updates = {}) => { if (updates.cursor != null) state.cursor = Math.max(0, Math.min(recording.cursors.length - 1, Number(updates.cursor))); persist(); return getState(); };
   const advance = (amount = 1) => setState({ cursor: state.cursor + Math.max(1, Number(amount)) });
   const resetTimeline = () => setState({ cursor: 0 });
   const resetConfig = () => getState();
-  const resetAll = () => setState({ cursor: 0 });
-  return { getState, setState, advance, resetTimeline, resetConfig, resetAll, get, effectiveCursor: () => state.cursor, requestGeneration: () => 0, recordRequest: () => {}, responseDelay: () => 0 };
+  const resetAll = () => { requests.length = 0; return setState({ cursor: 0 }); };
+  const recordRequest = (request) => {
+    const signature = `${request.source}/${request.kind}`;
+    const existingIndex = requests.findIndex((item) => item.signature === signature);
+    if (existingIndex >= 0) {
+      const existing = requests.splice(existingIndex, 1)[0];
+      requests.unshift({ ...existing, at: request.at, cursor: request.cursor, repeatCount: (existing.repeatCount || 1) + 1 });
+    } else {
+      requests.unshift({ ...request, signature, repeatCount: 1 });
+      requests.splice(50);
+    }
+  };
+  return { getState, setState, advance, resetTimeline, resetConfig, resetAll, get, effectiveCursor: () => state.cursor, requestGeneration: () => 0, recordRequest, responseDelay: () => 0 };
 }
