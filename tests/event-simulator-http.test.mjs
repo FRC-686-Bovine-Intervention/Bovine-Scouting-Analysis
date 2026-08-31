@@ -18,6 +18,11 @@ const controlHtml = await (await fetch(url("/"))).text();
 assert.match(controlHtml, /id="buildHash"/);
 assert.doesNotMatch(controlHtml, /__BUILD_HASH__/);
 assert.match(controlHtml, /Build: local checkout \/ [0-9a-f]{7,40}/);
+assert.match(controlHtml, /id="playbackSeconds"/);
+assert.match(controlHtml, /id="playbackPlay"/);
+assert.match(controlHtml, /id="playbackPause"/);
+assert.match(controlHtml, /id="playbackStop"/);
+assert.ok(controlHtml.indexOf('class="reset-controls"') < controlHtml.indexOf('id="state"'), "Reset controls should appear above the JSON display.");
 
 assert.equal((await get("/state")).cursor, -1);
 assert.equal((await get("/state")).currentMatch, "Pre-Event");
