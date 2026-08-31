@@ -360,7 +360,9 @@ function normalizeMatches(matches) {
           : null,
       };
     })
-    .filter((match) => match.red.length === 3 && match.blue.length === 3);
+    // Keep scheduled matches while TBA is still filling in their alliance
+    // assignments. Metric consumers can continue filtering for six-team rows;
+    // the schedule can display incomplete rows with TBD slots.
 }
 
 function normalizePlayoffAlliances(alliances) {

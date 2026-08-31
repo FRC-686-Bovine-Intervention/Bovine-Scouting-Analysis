@@ -453,7 +453,12 @@ async function loadEventByCode(eventCode, options = {}) {
         error: "pRidge could not be computed because Statbotics start EPA priors are unavailable.",
         notes: "pRidge depends on Statbotics start EPA priors for every event team.",
       });
-    } else if (!(eventModel.matches || []).length) {
+    } else if (!(eventModel.matches || []).some((match) => (
+      match?.compLevel === "qm"
+      && match?.red?.length === 3
+      && match?.blue?.length === 3
+      && match?.hasScore === true
+    ))) {
       sourceStates.pridge = buildPridgeUnavailableState(eventModel, timestamp, {
         eventKey: normalizedEventCode,
         inputFingerprints,

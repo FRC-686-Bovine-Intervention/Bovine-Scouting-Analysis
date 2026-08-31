@@ -68,6 +68,22 @@ const bundle = {
   ],
 };
 
+const partiallyAssignedEvent = context.EventModelBuilder.buildEventModelFromProviderBundle({
+  ...bundle,
+  tbaMatches: [{
+    comp_level: "qm",
+    match_number: 81,
+    alliances: {
+      red: { team_keys: ["frc1", "frc3"], score: -1 },
+      blue: { team_keys: ["frc2", "frc4", "frc6"], score: -1 },
+    },
+  }],
+  deferPridgeComputation: true,
+});
+assert.equal(partiallyAssignedEvent.matches.length, 1, "Scheduled matches remain visible while TBA fills alliance assignments.");
+assert.deepEqual(partiallyAssignedEvent.matches[0].red, [1, 3]);
+assert.deepEqual(partiallyAssignedEvent.matches[0].blue, [2, 4, 6]);
+
 const playoffBundle = {
   ...bundle,
   tbaAlliances: [
