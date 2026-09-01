@@ -77,7 +77,7 @@ function buildTbaProjections(matches) {
 function buildStatboticsRows(matches, eventKey) {
   const statMatches = matches.map((match) => ({ ...clone(match), key: rewriteEventKeys(match.key, "2026chcmp", eventKey), match_key: rewriteEventKeys(match.key, "2026chcmp", eventKey), event: eventKey }));
   const teamMatches = [];
-  for (const match of statMatches) for (const alliance of ["red", "blue"]) for (const teamKey of match.alliances?.[alliance]?.team_keys || []) teamMatches.push({ match_key: match.match_key, event: eventKey, team: Number(String(teamKey).replace("frc", "")), alliance, result: match.winning_alliance === alliance ? "W" : match.winning_alliance ? "L" : "T", score: match.alliances[alliance].score });
+  for (const match of statMatches) for (const alliance of ["red", "blue"]) for (const teamKey of match.alliances?.[alliance]?.team_keys || []) teamMatches.push({ match_key: match.match_key, event: eventKey, team: /^frc\d+[a-z]$/i.test(String(teamKey)) ? String(teamKey) : Number(String(teamKey).replace("frc", "")), alliance, result: match.winning_alliance === alliance ? "W" : match.winning_alliance ? "L" : "T", score: match.alliances[alliance].score });
   return { matches: statMatches, teamMatches };
 }
 
