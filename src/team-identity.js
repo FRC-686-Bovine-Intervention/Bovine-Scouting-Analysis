@@ -34,8 +34,22 @@
     return normalizeTeamIdentity(value);
   }
 
+  function identityFromSubmissionValues({ teamKey = "", teamNumber = "" } = {}) {
+    const explicit = normalizeText(teamKey);
+    const rawNumber = normalizeText(teamNumber);
+    const identity = explicit ? normalizeTeamIdentity(explicit) : normalizeTeamIdentity(rawNumber);
+    if (explicit && !identity) return { identity: null, error: "teamKey is not a valid provider team key." };
+    if (identity?.isSuffixed && !explicit) return { identity: null, error: "A suffixed team number requires an explicit teamKey." };
+    if (!identity) return { identity: null, error: "teamNumber is required and must be a positive number." };
+    if (explicit && rawNumber && /^\d+$/.test(rawNumber) && Number(rawNumber) !== identity.baseNumber) {
+      return { identity: null, error: "teamNumber does not match teamKey." };
+    }
+    return { identity };
+  }
+
   globalThis.TeamIdentity = {
     identityFromProviderValue,
+    identityFromSubmissionValues,
     normalizeNumericTeamIdentity,
     normalizeTeamIdentity,
   };

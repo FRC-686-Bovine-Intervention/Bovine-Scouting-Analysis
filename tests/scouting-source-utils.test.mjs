@@ -150,3 +150,11 @@ runTest("assessDuplicateSubmissions flags incoming duplicate groups by event, ma
   assert.deepEqual(incomingSubmissions[0].confidenceReasons, ["duplicate_submission"]);
   assert.equal(incomingSubmissions[1].validity, "valid");
 });
+
+runTest("duplicate submission keys keep parent and suffixed robots separate", () => {
+  const context = loadBrowserContext(["src/scouting-source-utils.js"]);
+  assert.notEqual(
+    context.ScoutingSourceUtils.duplicateSubmissionKey({ eventKey: "2026azscor", matchNumber: 1, teamNumber: 10988 }),
+    context.ScoutingSourceUtils.duplicateSubmissionKey({ eventKey: "2026azscor", matchNumber: 1, teamNumber: 10988, teamKey: "frc10988B" }),
+  );
+});

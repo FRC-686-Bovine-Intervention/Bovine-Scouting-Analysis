@@ -60,7 +60,10 @@ function duplicateSubmissionKey(submission) {
   const eventKey = String(submission?.eventKey || "").trim();
   const matchNumber = Number(submission?.matchNumber);
   const teamNumber = Number(submission?.teamNumber);
-  return `${eventKey}:${Number.isFinite(matchNumber) ? matchNumber : ""}:${Number.isFinite(teamNumber) ? teamNumber : ""}`;
+  const teamIdentity = submission?.teamKey
+    ? String(submission.teamKey).trim().toLowerCase()
+    : (Number.isFinite(teamNumber) ? String(teamNumber) : "");
+  return `${eventKey}:${Number.isFinite(matchNumber) ? matchNumber : ""}:${teamIdentity}`;
 }
 
 function assessDuplicateSubmissions(existingSubmissions, incomingSubmissions) {

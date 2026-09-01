@@ -17,6 +17,7 @@ const templateProfileSpecs = [
 
 const requiredMetadataKeys = ["season", "eventKey", "schemaVersion", "templateProfileId"];
 const requiredIdentityFields = ["matchNumber", "teamNumber", "scoutUser", "alliance", "station"];
+const teamIdentity = globalThis.TeamIdentity || {};
 
 function currentScoutingSourceUtils() {
   return globalThis.ScoutingSourceUtils || {};
@@ -24,6 +25,7 @@ function currentScoutingSourceUtils() {
 const headerSynonymGroups = {
   matchnumber: ["match", "matchnum", "qualificationmatch"],
   teamnumber: ["team", "team#", "teamnum", "team_no", "teamno"],
+  teamkey: ["teamkey", "teamid", "robotid", "robotkey"],
   scoutuser: ["scout", "scouter", "scoutname", "observer"],
   alliance: ["alliancecolor", "color"],
   station: ["driverstation", "stationcolor", "ds"],
@@ -374,7 +376,7 @@ function parseRows(rows, headers, profile, eventModel, metadata) {
       templateProfileId: metadata.templateProfileId || profile?.id || "",
       sourceType: "team-scouting",
       matchNumber: toNumber(row[index.get("matchnumber")]),
-      teamNumber: toNumber(row[index.get("teamnumber")]),
+      teamNumber: null,
       scoutUser: row[index.get("scoutuser")] || "",
       alliance: row[index.get("alliance")] || "",
       station: row[index.get("station")] || "",
@@ -388,6 +390,9 @@ function parseRows(rows, headers, profile, eventModel, metadata) {
       rowNumber,
       provenance: buildSubmissionProvenance(metadata, rowNumber, null),
     };
+    const identityResult = submissionIdentity(row[index.get("teamkey")], row[index.get("teamnumber")]);
+    baseRecord.teamNumber = identityResult.identity?.baseNumber ?? toNumber(row[index.get("teamnumber")]);
+    if (identityResult.identity && row[index.get("teamkey")]) baseRecord.teamKey = identityResult.identity.key;
     baseRecord.provenance.sourceSubmissionId = baseRecord.id;
 
     metricHeaders.forEach(({ fieldDefinition, normalizedHeader }) => {
@@ -414,6 +419,12 @@ function parseRows(rows, headers, profile, eventModel, metadata) {
     } else if (baseRecord.confidenceReasons.length) {
       baseRecord.validity = "flagged";
       baseRecord.confidenceTier = "medium";
+    }
+    if (identityResult.error) {
+      baseRecord.validity = "excluded";
+      baseRecord.confidenceTier = "low";
+      baseRecord.confidenceReasons.push("invalid_team_identity");
+      warnings.push(`Row ${rowNumber} has an invalid team identity: ${identityResult.error}`);
     }
 
     parsedRows.push(baseRecord);
@@ -580,6 +591,14 @@ function previewScoutingImport({ csvText, eventModel, activeEventKey, existingSu
       submissions: parsed.parsedRows,
     },
   };
+}
+
+function submissionIdentity(teamKey, teamNumber) {
+  if (typeof teamIdentity.identityFromSubmissionValues === "function") {
+    return teamIdentity.identityFromSubmissionValues({ teamKey, teamNumber });
+  }
+  const numeric = toNumber(teamNumber);
+  return numeric ? { identity: { baseNumber: numeric, key: `frc${numeric}` } } : { identity: null, error: "teamNumber is required and must be a positive number." };
 }
 
 function isHtmlDocumentText(value) {

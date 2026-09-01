@@ -119,6 +119,29 @@ runTest("previewScoutingImport uses event-owned field definitions without Season
   );
 });
 
+runTest("previewScoutingImport preserves an explicit suffixed robot key", () => {
+  const context = loadBrowserContext(["src/team-identity.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
+  const eventModel = {
+    season: 2027,
+    key: "2027demo",
+    formulaFieldDefinitions: [],
+    scouterMetricDefinitions: [{ id: "sampleMetric", label: "Sample Metric", unit: "count" }],
+  };
+  const csvText = [
+    "meta,season,eventKey,schemaVersion,templateProfileId",
+    "value,2027,2027demo,match-v2,match-current-v2",
+    "",
+    "matchNumber,teamNumber,teamKey,scoutUser,alliance,station",
+    "1,10988,frc10988B,Scout A,red,1",
+    "2,10988B,,Scout B,blue,2",
+  ].join("\n");
+  const preview = context.ImportFoundation.previewScoutingImport({ csvText, eventModel, activeEventKey: "2027demo", existingSubmissions: [] });
+  assert.equal(preview.ok, true);
+  assert.equal(preview.summary.submissions[0].teamKey, "frc10988B");
+  assert.equal(preview.summary.submissions[0].teamNumber, 10988);
+  assert.equal(preview.summary.submissions[1].validity, "excluded");
+});
+
 runTest("previewScoutingImport preserves raw strings and warns on type outliers", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/import-foundation.js"]);
   const season2026 = context.LegacyGameDefinitions["2026"];

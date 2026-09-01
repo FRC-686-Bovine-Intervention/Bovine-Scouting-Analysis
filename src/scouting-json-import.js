@@ -5,6 +5,7 @@ const requiredIdentityFields = scoutingJsonSchema.requiredEntryIdentityFields ||
 const contextualEntryMetricIds = new Set(scoutingJsonSchema.contextualEntryMetricIds || ["scoutUser", "station", "defensePlayed", "robotStatus", "notes"]);
 const canonicalFormatId = scoutingJsonSchema.canonicalFormatId || "frc-scouting-analysis/v1";
 const canonicalTemplateProfileId = scoutingJsonSchema.canonicalTemplateProfileId || "canonical-json-v1";
+const teamIdentity = globalThis.TeamIdentity || {};
 const buildCanonicalSchemaForEventModel = scoutingJsonSchema.buildCanonicalSchemaForEventModel || (() => ({ schemaId: canonicalTemplateProfileId, expectedScoutingFields: [] }));
 const normalizeCanonicalProfile = scoutingJsonSchema.normalizeCanonicalProfile || ((profile, schemaMeta = {}) => ({
   id: String(profile?.id || profile?.profileId || schemaMeta?.templateProfileId || canonicalTemplateProfileId).trim(),
@@ -40,6 +41,14 @@ function currentScoutingSourceUtils() {
 
 function normalizeText(value) {
   return String(value || "").trim();
+}
+
+function submissionIdentity(entry) {
+  if (typeof teamIdentity.identityFromSubmissionValues === "function") {
+    return teamIdentity.identityFromSubmissionValues({ teamKey: entry?.teamKey, teamNumber: entry?.teamNumber });
+  }
+  const teamNumber = toNumber(entry?.teamNumber);
+  return teamNumber ? { identity: { baseNumber: teamNumber, key: `frc${teamNumber}` } } : { identity: null, error: "teamNumber is required and must be a positive number." };
 }
 
 function schemaFieldName(fieldDefinition = {}) {
@@ -194,6 +203,8 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
   const parsedRows = [];
 
   entries.forEach((entry, index) => {
+    const identityResult = submissionIdentity(entry);
+    const identity = identityResult.identity;
     const rawMetricsSource = entry?.rawMetrics && typeof entry.rawMetrics === "object" ? entry.rawMetrics : {};
     const rawMetrics = Object.fromEntries(
       Object.entries(rawMetricsSource).map(([key, value]) => [key, normalizeMetricValue(value)]),
@@ -206,7 +217,8 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
       templateProfileId: profileIdOverride || normalizeText(schemaMeta.templateProfileId) || normalizeText(meta.templateProfileId) || canonicalTemplateProfileId,
       sourceType: "team-scouting",
       matchNumber: toNumber(entry?.matchNumber),
-      teamNumber: toNumber(entry?.teamNumber),
+      teamNumber: identity?.baseNumber ?? toNumber(entry?.teamNumber),
+      ...(identity && (entry?.teamKey || identity.isSuffixed) ? { teamKey: identity.key } : {}),
       scoutUser: normalizeText(rawMetricsSource?.scoutUser),
       alliance: normalizeText(entry?.alliance),
       station: normalizeText(rawMetricsSource?.station),
@@ -231,6 +243,12 @@ function previewScoutingJsonImport({ jsonText, schemaJsonText = "", eventModel, 
       if (field === "teamNumber") return !submission.teamNumber;
       return !submission[field];
     });
+    if (identityResult.error) {
+      submission.validity = "excluded";
+      submission.confidenceTier = "low";
+      submission.confidenceReasons.push("invalid_team_identity");
+      warnings.push(`Entry ${index + 1} has an invalid team identity: ${identityResult.error}`);
+    }
     if (missingIdentity.length) {
       submission.validity = "excluded";
       submission.confidenceTier = "low";
