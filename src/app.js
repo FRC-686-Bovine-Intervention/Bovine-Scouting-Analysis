@@ -1435,6 +1435,18 @@ function maybePollActiveScoutingAttachment() {
 }
 
 function maybePollExternalSources() {
+  if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first") {
+    if (!state.activeEventKey || pendingExternalRefreshSourceIds.has("simulator-first")) return;
+    pendingExternalRefreshSourceIds.add("simulator-first");
+    Promise.resolve(refreshDataSource("tba", { trigger: "poll" }))
+      .catch((error) => {
+        console.error("Polling event simulator sources failed", error);
+      })
+      .finally(() => {
+        pendingExternalRefreshSourceIds.delete("simulator-first");
+      });
+    return;
+  }
   const workspace = currentEventWorkspace();
   if (currentEvent()?.catalogSource === "dynamic-external") {
     const due = ["tba", "statbotics", "pridge"].some((sourceId) => {
@@ -5982,7 +5994,7 @@ function scoreTeamByTerms(team, terms) {
 }
 
 function rankTeamsByTerms(terms) {
-  return [...currentTeams()].sort((a, b) => scoreTeamByTerms(b, terms) - scoreTeamByTerms(a, terms)).map((team) => team.number);
+  return [...currentTeams()].sort((a, b) => scoreTeamByTerms(b, terms) - scoreTeamByTerms(a, terms)).map(teamSelectionId);
 }
 
 function scoreTeamByEquation(team, equation) {
@@ -6000,7 +6012,7 @@ function scoreTeamByEquation(team, equation) {
 function rankTeamsByEquation(equation) {
   return [...currentTeams()]
     .sort((a, b) => scoreTeamByEquation(b, equation) - scoreTeamByEquation(a, equation) || a.number - b.number)
-    .map((team) => team.number);
+    .map(teamSelectionId);
 }
 
 function colorForScore(score, min, max, direction = defaultColumnSortDirection) {
@@ -6509,7 +6521,8 @@ function applyEquationBackedScoutingRollups(baseTeam, overlaidTeam, eventModel =
 function overlayTeamWithScouting(baseTeam) {
   if (!buildTeamScoutingOverlay) return baseTeam;
   const cacheContext = currentOverlayCacheContext();
-  const cacheEntry = overlaidTeamCache.get(baseTeam.number);
+  const cacheKey = teamSelectionId(baseTeam);
+  const cacheEntry = overlaidTeamCache.get(cacheKey);
   if (
     cacheEntry
     && cacheEntry.eventModel === cacheContext.eventModel
@@ -6534,7 +6547,7 @@ function overlayTeamWithScouting(baseTeam) {
     recentMatchCount: state.recentMatchCount,
   });
   const value = applyEquationBackedScoutingRollups(baseTeam, overlaidTeam, currentEvent());
-  overlaidTeamCache.set(baseTeam.number, {
+  overlaidTeamCache.set(cacheKey, {
     ...cacheContext,
     value,
   });
@@ -9292,9 +9305,10 @@ function renderAllianceCard(title, teamNumbers) {
         ${teamNumbers
           .map((number) => {
             const team = teamByNumber(number);
+            if (!team) return "";
             return `
-              <button class="team-card" data-team="${team.number}">
-                <span class="avatar">${team.number}</span>
+              <button class="team-card" data-team="${teamSelectionId(team)}">
+                <span class="avatar">${teamDisplayLabel(team)}</span>
                 <span class="team-meta">
                   <strong>${team.name}</strong>
                   ${renderDrivetrainBadge(team)}
@@ -9956,7 +9970,7 @@ function renderAlliance() {
                 <div class="alliance-source-list">
                   ${column.teams
                     .map((team, teamIndex) =>
-                      renderPicklistTile(team.number, teamIndex, null, {
+                      renderPicklistTile(teamSelectionId(team), teamIndex, null, {
                         static: true,
                         navigation: false,
                         allianceTeam: true,
@@ -9988,16 +10002,17 @@ function renderAlliance() {
 function renderBoardCell(teamNumber, index) {
   if (teamNumber) {
     const team = teamByNumber(teamNumber);
+    const teamLabel = team ? teamDisplayLabel(team) : String(teamNumber);
     return `
-      <div class="board-cell occupied" data-board-cell="${index}" data-board-team="${teamNumber}" title="Right-click to remove ${teamNumber}">
-        <strong>${teamNumber}</strong>
+      <div class="board-cell occupied" data-board-cell="${index}" data-board-team="${teamNumber}" title="Right-click to remove ${teamLabel}">
+        <strong>${teamLabel}</strong>
         <span>${team?.name || ""}</span>
       </div>
     `;
   }
   return `
     <div class="board-cell empty" data-board-cell="${index}">
-      <input class="board-input" data-board-input="${index}" inputmode="numeric" placeholder="Team #" aria-label="Alliance slot ${index + 1}" />
+      <input class="board-input" data-board-input="${index}" placeholder="Team # or key" aria-label="Alliance slot ${index + 1}" />
     </div>
   `;
 }

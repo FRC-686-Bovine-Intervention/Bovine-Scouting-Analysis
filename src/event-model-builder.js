@@ -319,9 +319,10 @@ function tbaComponentValue(team, componentId) {
 }
 
 function buildSeedPicklists(teams) {
+  const teamSelectionValue = (team) => team?.isSuffixed ? team.id : team?.number;
   const byStatbotics = [...teams]
     .sort((a, b) => sourceValue(b, "statbotics") - sourceValue(a, "statbotics") || a.number - b.number)
-    .map((team) => team.number);
+    .map(teamSelectionValue);
   const byPridge = [...teams]
     .sort((a, b) => {
       const left = sourceValue(a, "pridge");
@@ -329,7 +330,7 @@ function buildSeedPicklists(teams) {
       if (Number.isFinite(right) && Number.isFinite(left) && right !== left) return right - left;
       return tbaComponentValue(b, "opr.total") - tbaComponentValue(a, "opr.total") || a.number - b.number;
     })
-    .map((team) => team.number);
+    .map(teamSelectionValue);
   return [
     { id: "pick-first-pick", name: "First Pick", teams: byStatbotics },
     { id: "pick-backup-live", name: "Backup / Live Sources", teams: byPridge },
