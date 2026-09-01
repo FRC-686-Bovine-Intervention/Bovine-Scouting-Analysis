@@ -8844,8 +8844,8 @@ function scheduleRow(match, currentMatch, highlightTeam) {
   return `
     <article class="match-row ${className}" data-match-row="${escapeAttribute(matchIdentity(match))}"${isCurrent ? ' data-schedule-last-played="true"' : ""} title="Open ${escapeAttribute(matchupMatchLabel(match))} matchup">
       <button class="match-link" data-match="${escapeAttribute(matchIdentity(match))}">${escapeHtml(matchupMatchLabel(match))}</button>
-      <span class="alliance red">${scheduleAllianceSlots(match.red).map(scheduleTeamSlot).join("")}</span>
-      <span class="alliance blue">${scheduleAllianceSlots(match.blue).map(scheduleTeamSlot).join("")}</span>
+      <span class="alliance red">${scheduleAllianceSlots(match.redLabels || match.red).map(scheduleTeamSlot).join("")}</span>
+      <span class="alliance blue">${scheduleAllianceSlots(match.blueLabels || match.blue).map(scheduleTeamSlot).join("")}</span>
     </article>
   `;
 }
@@ -8855,8 +8855,12 @@ function scheduleAllianceSlots(teams) {
 }
 
 function scheduleTeamSlot(team) {
+  const label = String(team || "");
+  const numericTeam = /^\d+$/.test(label);
   return team
-    ? `<button class="pill team-pill" data-team="${team}">${team}</button>`
+    ? numericTeam
+      ? `<button class="pill team-pill" data-team="${escapeAttribute(label)}">${escapeHtml(label)}</button>`
+      : `<span class="pill team-pill">${escapeHtml(label)}</span>`
     : `<span class="pill team-pill team-pill-tbd">TBD</span>`;
 }
 

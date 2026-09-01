@@ -339,6 +339,10 @@ function normalizeMatches(matches) {
     .filter((match) => supportedLevels.has(String(match?.comp_level || "").toLowerCase()))
     .sort((left, right) => matchSortValue(left) - matchSortValue(right))
     .map((match) => {
+      const redTeamKeys = match.alliances?.red?.team_keys || [];
+      const blueTeamKeys = match.alliances?.blue?.team_keys || [];
+      const redLabels = redTeamKeys.map((teamKey) => String(teamKey).replace(/^frc/i, ""));
+      const blueLabels = blueTeamKeys.map((teamKey) => String(teamKey).replace(/^frc/i, ""));
       const redScore = Number(match.alliances?.red?.score);
       const blueScore = Number(match.alliances?.blue?.score);
       return {
@@ -346,8 +350,10 @@ function normalizeMatches(matches) {
         compLevel: String(match.comp_level || "qm").toLowerCase(),
         setNumber: Number(match.set_number) || 0,
         number: Number(match.match_number),
-        red: (match.alliances?.red?.team_keys || []).map((teamKey) => Number(String(teamKey).replace("frc", ""))).filter(Number.isFinite),
-        blue: (match.alliances?.blue?.team_keys || []).map((teamKey) => Number(String(teamKey).replace("frc", ""))).filter(Number.isFinite),
+        red: redLabels.map(Number).filter(Number.isFinite),
+        blue: blueLabels.map(Number).filter(Number.isFinite),
+        ...(redLabels.some((label) => !/^\d+$/.test(label)) ? { redLabels } : {}),
+        ...(blueLabels.some((label) => !/^\d+$/.test(label)) ? { blueLabels } : {}),
         redScore: Number.isFinite(redScore) ? redScore : 0,
         blueScore: Number.isFinite(blueScore) ? blueScore : 0,
         hasScore: Number.isFinite(redScore) && Number.isFinite(blueScore) && redScore >= 0 && blueScore >= 0,
