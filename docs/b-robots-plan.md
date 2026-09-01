@@ -14,15 +14,26 @@ This keeps ordinary teams backward compatible while preventing a B, C, or D
 robot from being silently merged into the parent team. The implementation must
 also keep the provider key available for diagnostics and source traceability.
 
+## Shipped contract
+
+- Provider keys (`frc10988`, `frc10988B`, and other suffixed keys) are the
+  canonical identity wherever a source supplies them.
+- `team.number`/`teamNumber` remains a compatibility field for numeric-only
+  providers and old saved workspaces. It is never used to attach numeric
+  scouting, Statbotics, ranking, or pRidge data to a suffixed robot.
+- The completed `recordings/2026azscor` fixture is the duplicate-base-number
+  simulator coverage. Its completed schedule can contain both the parent and
+  B robot, and the simulator preserves those provider keys without inventing
+  B-robot metrics.
+
 ## Current boundary
 
 - The simulator already passes through suffixed TBA keys in schedules and
   rewrites event keys recursively. Its projections currently use those keys,
   so no synthetic B-team metrics should be added.
-- `src/event-model-builder.js` currently stores `team.number` as a number and
-  intentionally keeps non-numeric schedule labels separately. This protects
-  incomplete schedules but does not yet create a selectable model team for a
-  suffixed participant.
+- `src/event-model-builder.js` retains `team.number` for compatibility while
+  exposing stable string identity fields and selectable incomplete teams for
+  suffixed schedule participants.
 - The external loader and pRidge inputs are numeric-provider integrations.
   Statbotics rows and scouting submissions without a B-robot identity must
   remain unavailable for that robot; mapping them to the parent team would

@@ -220,12 +220,12 @@ function applyPridgeResponseDefinitions(eventModel = {}, definitions = [], optio
         ...team.sources,
         pridge: {
           ...(team.sources?.pridge || {}),
-          total: Number.isFinite(Number(totalResults[team.number]))
+          total: !team.isSuffixed && Number.isFinite(Number(totalResults[team.number]))
             ? totalResults[team.number]
             : team.sources?.pridge?.total ?? null,
           components: Object.fromEntries(normalizedDefinitions.map((definition) => [
             definition.id,
-            results[definition.id]?.ratings?.[team.number] ?? null,
+            !team.isSuffixed ? results[definition.id]?.ratings?.[team.number] ?? null : null,
           ])),
         },
       },
