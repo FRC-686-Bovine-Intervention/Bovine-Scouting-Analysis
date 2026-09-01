@@ -207,7 +207,10 @@ export function createRecordedEngine({ recordingPath, statePath = path.resolve("
     const payloads = providerPayload(provider);
     if (!provider || provider.status === "error" && !Object.keys(payloads).length) throw Object.assign(new Error(provider?.error || `${source} is unavailable`), { statusCode: 503 });
     const payloadKey = source === "statbotics" ? (kind === "team-events" ? "teamEvents" : kind === "team-matches" ? "teamMatches" : kind) : kind;
-    if (!Object.prototype.hasOwnProperty.call(payloads, payloadKey)) throw Object.assign(new Error(`${source}/${kind} is unavailable in this recorded cursor.`), { statusCode: 503 });
+    if (!Object.prototype.hasOwnProperty.call(payloads, payloadKey)) {
+      if (source === "statbotics" && kind === "team-events") return [];
+      throw Object.assign(new Error(`${source}/${kind} is unavailable in this recorded cursor.`), { statusCode: 503 });
+    }
     return payloads[payloadKey];
   };
   const getState = () => {
