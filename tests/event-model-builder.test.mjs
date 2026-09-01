@@ -43,6 +43,15 @@ const context = {
   String,
   JSON,
   Date,
+  TeamIdentity: {
+    identityFromProviderValue(value) {
+      const raw = String(value || "").replace(/^frc/i, "");
+      const match = raw.match(/^(\d+)([A-Za-z]+)?$/);
+      if (!match) return null;
+      const suffix = (match[2] || "").toUpperCase();
+      return { id: `frc${match[1]}${suffix}`, key: `frc${match[1]}${suffix}`, label: `${match[1]}${suffix}`, baseNumber: Number(match[1]), isSuffixed: Boolean(suffix) };
+    },
+  },
 };
 context.globalThis = context;
 vm.runInNewContext(source, context, { filename: "src/event-model-builder.js" });
@@ -84,6 +93,23 @@ assert.equal(partiallyAssignedEvent.matches.length, 1, "Scheduled matches remain
 assert.deepEqual(partiallyAssignedEvent.matches[0].red, [1, 3]);
 assert.deepEqual(partiallyAssignedEvent.matches[0].blue, [2, 4, 6]);
 assert.deepEqual(partiallyAssignedEvent.matches[0].redLabels, ["1", "3", "10988B"]);
+
+const duplicateBaseEvent = context.EventModelBuilder.buildEventModelFromProviderBundle({
+  ...bundle,
+  tbaTeams: [...bundle.tbaTeams, { team_number: 10988, key: "frc10988B", nickname: "Backup Bot" }],
+  tbaMatches: [{
+    comp_level: "qm",
+    match_number: 1,
+    alliances: {
+      red: { team_keys: ["frc10988", "frc10988B"], score: 100 },
+      blue: { team_keys: ["frc1", "frc2", "frc3"], score: 90 },
+    },
+  }],
+  deferPridgeComputation: true,
+});
+assert.deepEqual(JSON.parse(JSON.stringify(duplicateBaseEvent.teams.filter((team) => team.baseNumber === 10988).map((team) => team.id))), ["frc10988", "frc10988B"]);
+assert.equal(duplicateBaseEvent.teams.find((team) => team.id === "frc10988B").name, "Backup Bot");
+assert.deepEqual(JSON.parse(JSON.stringify(duplicateBaseEvent.matches[0].redKeys)), ["frc10988", "frc10988B"]);
 
 const playoffBundle = {
   ...bundle,
