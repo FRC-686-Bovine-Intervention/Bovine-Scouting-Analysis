@@ -97,6 +97,16 @@ assert.deepEqual(partiallyAssignedEvent.matches[0].redLabels, ["1", "3", "10988B
 const duplicateBaseEvent = context.EventModelBuilder.buildEventModelFromProviderBundle({
   ...bundle,
   tbaTeams: [...bundle.tbaTeams, { team_number: 10988, key: "frc10988B", nickname: "Backup Bot" }],
+  tbaRankings: { rankings: [
+    { team_key: "frc10988", rank: 1, record: { wins: 1, losses: 0, ties: 0 } },
+    { team_key: "frc10988B", rank: 2, record: { wins: 0, losses: 1, ties: 0 } },
+  ] },
+  tbaTeamStats: { oprs: { frc10988: 30, frc10988B: 12 } },
+  statboticsTeamEvents: [
+    { team: 10988, epa: { total_points: 40 } },
+    { team: "10988B", epa: { total_points: 7 } },
+  ],
+  statboticsTeamMatches: [{ team: "10988B", match: "2026test_qm1", epa: { total_points: 8 } }],
   tbaMatches: [{
     comp_level: "qm",
     match_number: 1,
@@ -110,6 +120,11 @@ const duplicateBaseEvent = context.EventModelBuilder.buildEventModelFromProvider
 assert.deepEqual(JSON.parse(JSON.stringify(duplicateBaseEvent.teams.filter((team) => team.baseNumber === 10988).map((team) => team.id))), ["frc10988", "frc10988B"]);
 assert.equal(duplicateBaseEvent.teams.find((team) => team.id === "frc10988B").name, "Backup Bot");
 assert.deepEqual(JSON.parse(JSON.stringify(duplicateBaseEvent.matches[0].redKeys)), ["frc10988", "frc10988B"]);
+assert.equal(duplicateBaseEvent.teams.find((team) => team.id === "frc10988").sources.tba.components["opr.total"], 30);
+assert.equal(duplicateBaseEvent.teams.find((team) => team.id === "frc10988B").sources.tba.components["opr.total"], 12);
+assert.equal(duplicateBaseEvent.teams.find((team) => team.id === "frc10988B").sources.statbotics.total, 7);
+assert.deepEqual(JSON.parse(JSON.stringify(duplicateBaseEvent.teams.find((team) => team.id === "frc10988B").sources.statbotics.trendEntries)), [{ key: 1, value: 8 }]);
+assert.equal(duplicateBaseEvent.teams.find((team) => team.id === "frc10988B").sources.pridge.total, null);
 
 const playoffBundle = {
   ...bundle,

@@ -407,15 +407,23 @@ function parseTeamNumberFromKey(value) {
 
 function buildRankingMap(rankingsPayload) {
   const rankings = Array.isArray(rankingsPayload?.rankings) ? rankingsPayload.rankings : [];
-  return new Map(rankings.map((entry) => [parseTeamNumberFromKey(entry?.team_key), entry]));
+  return new Map(rankings
+    .map((entry) => [normalizeRobotIdentity(entry?.team_key), entry])
+    .filter(([identity]) => identity)
+    .map(([identity, entry]) => [identity.id, entry]));
 }
 
 function buildTbaTeamValueMap(teamStatsPayload, key) {
   const values = teamStatsPayload?.[key] && typeof teamStatsPayload[key] === "object" ? teamStatsPayload[key] : {};
-  return new Map(Object.entries(values).map(([teamKey, value]) => [parseTeamNumberFromKey(teamKey), Number(value || 0)]));
+  return new Map(Object.entries(values)
+    .map(([teamKey, value]) => [normalizeRobotIdentity(teamKey), Number(value || 0)])
+    .filter(([identity]) => identity)
+    .map(([identity, value]) => [identity.id, value]));
 }
 
-function buildTbaTeamStatEntries(teamStatsPayload, teamNumber) {
+function buildTbaTeamStatEntries(teamStatsPayload, teamIdentity) {
+  const identity = typeof teamIdentity === "object" ? teamIdentity : normalizeRobotIdentity(teamIdentity);
+  if (!identity) return [];
   const teamValueMaps = [
     { fieldId: "opr.total", valuesByTeamNumber: buildTbaTeamValueMap(teamStatsPayload, "oprs") },
     { fieldId: "dpr.total", valuesByTeamNumber: buildTbaTeamValueMap(teamStatsPayload, "dprs") },
@@ -423,7 +431,7 @@ function buildTbaTeamStatEntries(teamStatsPayload, teamNumber) {
   ];
   return teamValueMaps
     .map(({ fieldId, valuesByTeamNumber }) => {
-      const value = valuesByTeamNumber.get(teamNumber);
+      const value = valuesByTeamNumber.get(identity.id);
       return Number.isFinite(Number(value)) ? { fieldId, value: Number(value) } : null;
     })
     .filter(Boolean);
@@ -503,13 +511,16 @@ function buildEventModelFromPayloads(payload) {
     pridgeResponseDefinitions,
     scoringMatrixPresets: Array.isArray(payload?.scoringMatrixPresets) ? payload.scoringMatrixPresets : [],
   };
-  const teamEventsByNumber = new Map((payload.statboticsTeamEvents || []).map((teamEvent) => [Number(teamEvent.team), teamEvent]));
-  const teamMatchesByNumber = new Map();
+  const teamEventsById = new Map((payload.statboticsTeamEvents || [])
+    .map((teamEvent) => [normalizeRobotIdentity(teamEvent.team), teamEvent])
+    .filter(([identity]) => identity)
+    .map(([identity, teamEvent]) => [identity.id, teamEvent]));
+  const teamMatchesById = new Map();
   (payload.statboticsTeamMatches || []).forEach((teamMatch) => {
-    const teamNumber = Number(teamMatch?.team);
-    if (!Number.isFinite(teamNumber)) return;
-    if (!teamMatchesByNumber.has(teamNumber)) teamMatchesByNumber.set(teamNumber, []);
-    teamMatchesByNumber.get(teamNumber).push(teamMatch);
+    const identity = normalizeRobotIdentity(teamMatch?.team);
+    if (!identity) return;
+    if (!teamMatchesById.has(identity.id)) teamMatchesById.set(identity.id, []);
+    teamMatchesById.get(identity.id).push(teamMatch);
   });
   const rankingsByTeamNumber = buildRankingMap(payload.tbaRankings);
   const tbaTeamStats = payload.tbaTeamStats || {};
@@ -530,12 +541,12 @@ function buildEventModelFromPayloads(payload) {
       const teamNumber = identity?.baseNumber ?? Number(teamInfo.team_number);
       return buildTeam(
         teamInfo,
-        identity?.isSuffixed ? {} : teamEventsByNumber.get(teamNumber) || {},
+        teamEventsById.get(identity?.id) || {},
         eventSchema,
-        identity?.isSuffixed ? {} : buildTbaEventComponents(rankingsByTeamNumber.get(teamNumber) || null, [
-          ...buildTbaTeamStatEntries(tbaTeamStats, teamNumber),
+        buildTbaEventComponents(rankingsByTeamNumber.get(identity?.id) || null, [
+          ...buildTbaTeamStatEntries(tbaTeamStats, identity),
         ]),
-        identity?.isSuffixed ? [] : teamMatchesByNumber.get(teamNumber) || [],
+        teamMatchesById.get(identity?.id) || [],
       );
     })
     .sort((left, right) => left.number - right.number || left.id.localeCompare(right.id));
@@ -580,10 +591,10 @@ function buildEventModelFromPayloads(payload) {
     }
   }
   const teamsWithPridge = teams.map((team) => {
-    const total = pridgeResult?.ratings?.[team.number] ?? null;
+    const total = team.isSuffixed ? null : pridgeResult?.ratings?.[team.number] ?? null;
     const responseComponents = Object.fromEntries(pridgeResponseDefinitions.map((definition) => [
       definition.id,
-      pridgeResponseResults[definition.id]?.ratings?.[team.number] ?? null,
+      team.isSuffixed ? null : pridgeResponseResults[definition.id]?.ratings?.[team.number] ?? null,
     ]));
     if (Number.isFinite(Number(total))) {
       responseComponents["epa.total_points"] = total;
