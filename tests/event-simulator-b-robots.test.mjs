@@ -15,4 +15,6 @@ const duplicateMatch = matches.find((match) => match.alliances?.red?.team_keys?.
 assert.ok(duplicateMatch, "the completed recording includes the parent and B robot together");
 
 assert.ok(matches.every((match) => match.alliances.red.score >= 0 && match.alliances.blue.score >= 0), "the completed recording exposes completed match results");
+assert.equal(engine.get("statbotics", "team-event", "498").team, 498, "the recording replays a real per-team Statbotics response");
+assert.throws(() => engine.get("statbotics", "team-event", "10988B"), /unavailable in this recorded cursor/);
 console.log("PASS recorded 2026azscor duplicate-base robot coverage");

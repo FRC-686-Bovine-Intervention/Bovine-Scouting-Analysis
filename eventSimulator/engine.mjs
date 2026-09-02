@@ -202,6 +202,11 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
 export function createRecordedEngine({ recordingPath, statePath = path.resolve("eventSimulator/.recorded-state.json") } = {}) {
   if (!recordingPath) throw new Error("A recording path is required.");
   const recording = loadRecording(recordingPath);
+  let supplementalTeamEvents = {};
+  try {
+    const artifact = JSON.parse(fs.readFileSync(path.join(recordingPath, "team-event-responses.json"), "utf8"));
+    supplementalTeamEvents = artifact?.responses || {};
+  } catch {}
   const requests = [];
   let state = { cursor: 0 };
   try { state = { ...state, ...JSON.parse(fs.readFileSync(statePath, "utf8")) }; } catch {}
@@ -216,6 +221,7 @@ export function createRecordedEngine({ recordingPath, statePath = path.resolve("
       const requested = String(teamKey).replace(/^frc/i, "");
       const row = (payloads.teamEvents || []).find((item) => String(item?.team ?? "").replace(/^frc/i, "") === requested);
       if (row) return row;
+      if (Object.prototype.hasOwnProperty.call(supplementalTeamEvents, requested)) return supplementalTeamEvents[requested].payload;
       throw Object.assign(new Error(`${source}/team-event/${teamKey} is unavailable in this recorded cursor.`), { statusCode: 404 });
     }
     const payloadKey = source === "statbotics" ? (kind === "team-events" ? "teamEvents" : kind === "team-matches" ? "teamMatches" : kind) : kind;
