@@ -10212,7 +10212,7 @@ function renderAdminEventControl() {
               <div class="field-label">Statbotics API Sources</div>
               <ul class="source-list">
                 <li><span class="muted">Primary</span> <a href="https://api.statbotics.io/v3" target="_blank" rel="noopener noreferrer"><code>https://api.statbotics.io/v3</code></a></li>
-                <li><span class="muted">Secondary</span> <a href="https://api-statbotics.iterativerefinement.com/v3" target="_blank" rel="noopener noreferrer"><code>https://api-statbotics.iterativerefinement.com/v3</code></a></li>
+                <li><span class="muted">Secondary</span> <a href="https://api-statbotics.popcornpenguins.com/v3" target="_blank" rel="noopener noreferrer"><code>https://api-statbotics.popcornpenguins.com/v3</code></a></li>
               </ul>
             </div>
             <div class="admin-actions">

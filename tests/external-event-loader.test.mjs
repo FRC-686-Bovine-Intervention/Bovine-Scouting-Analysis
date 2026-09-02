@@ -496,7 +496,7 @@ await runTest("loadEventByCode falls back to the secondary Statbotics site when 
   const baseUrls = {
     tba: "https://tba.test/api",
     statbotics: "https://www.statbotics.io/api/v3",
-    statboticsFallback: "https://api-statbotics.iterativerefinement.com/v3",
+    statboticsFallback: "https://api-statbotics.popcornpenguins.com/v3",
   };
   const context = loadBrowserContext([
     "src/legacy-scouting-schema-seeds.js",
@@ -559,7 +559,7 @@ await runTest("loadEventByCode falls back to the secondary Statbotics site when 
   assert.equal(result.eventModel.matches.length, 1);
   assert.equal(result.sourceStates.tba.status, "ready");
   assert.equal(result.sourceStates.statbotics.status, "ready");
-  assert.match(result.sourceStates.statbotics.provenance.notes, /primary Statbotics site failed.*secondary fallback https:\/\/api-statbotics\.iterativerefinement\.com\/v3/i);
+  assert.match(result.sourceStates.statbotics.provenance.notes, /primary Statbotics site failed.*secondary fallback https:\/\/api-statbotics\.popcornpenguins\.com\/v3/i);
   assert.equal(result.sourceStates.pridge.status, "error");
   assert.equal(result.sourceStates.pridge.freshness, "stale");
   assert.equal(result.sourceStates.pridge.provenance.mode, "native-compute");
