@@ -167,10 +167,16 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
     if (state.failures[source] === "malformed") return { malformed: true };
     return value;
   }
-  function get(source, kind) {
+  function get(source, kind, teamKey = "") {
     const data = payload(source);
     if (source === "tba") return kind === "event" ? data.event : kind === "teams" ? data.teams : kind === "matches" ? data.matches : kind === "alliances" ? data.alliances : kind === "rankings" ? { rankings: data.rankings } : data.stats;
-    if (source === "statbotics") return kind === "event" ? data.event : kind === "team-events" ? data.teamEvents : kind === "team-matches" ? data.teamMatches : data.matches;
+    if (source === "statbotics") {
+      if (kind === "team-event") {
+        const requested = String(teamKey).replace(/^frc/i, "");
+        return (data.teamEvents || []).find((row) => String(row?.team ?? "").replace(/^frc/i, "") === requested) || {};
+      }
+      return kind === "event" ? data.event : kind === "team-events" ? data.teamEvents : kind === "team-matches" ? data.teamMatches : data.matches;
+    }
     if (kind === "schema") {
       const schemaArtifact = rewriteEventKeys(fixtures.scoutingSchema, scenario.sourceEventKey, scenario.id);
       return { ...schemaArtifact, meta: { ...schemaArtifact.meta, season: scenario.year, eventKey: scenario.id } };
@@ -202,10 +208,16 @@ export function createRecordedEngine({ recordingPath, statePath = path.resolve("
   const persist = () => { fs.mkdirSync(path.dirname(statePath), { recursive: true }); fs.writeFileSync(statePath, JSON.stringify(state, null, 2)); };
   const active = () => recording.cursors[Math.max(0, Math.min(recording.cursors.length - 1, Number(state.cursor) || 0))];
   const sourceState = (source) => active()?.providers?.[source];
-  const get = (source, kind) => {
+  const get = (source, kind, teamKey = "") => {
     const provider = sourceState(source);
     const payloads = providerPayload(provider);
     if (!provider || provider.status === "error" && !Object.keys(payloads).length) throw Object.assign(new Error(provider?.error || `${source} is unavailable`), { statusCode: 503 });
+    if (source === "statbotics" && kind === "team-event") {
+      const requested = String(teamKey).replace(/^frc/i, "");
+      const row = (payloads.teamEvents || []).find((item) => String(item?.team ?? "").replace(/^frc/i, "") === requested);
+      if (row) return row;
+      throw Object.assign(new Error(`${source}/team-event/${teamKey} is unavailable in this recorded cursor.`), { statusCode: 404 });
+    }
     const payloadKey = source === "statbotics" ? (kind === "team-events" ? "teamEvents" : kind === "team-matches" ? "teamMatches" : kind) : kind;
     if (!Object.prototype.hasOwnProperty.call(payloads, payloadKey)) {
       if (source === "statbotics" && kind === "team-events") return [];

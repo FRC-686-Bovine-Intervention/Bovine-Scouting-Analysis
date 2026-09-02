@@ -84,6 +84,26 @@ function createFetchStub(routes) {
   };
 }
 
+await runTest("loads per-team Statbotics rows from the singular endpoint", async () => {
+  const baseUrls = { tba: "https://tba.test/api", statbotics: "https://statbotics.test/api" };
+  let bundle;
+  const context = loadBrowserContext(["src/external-source-snapshots.js", "src/external-event-loader.js"], {
+    EventModelBuilder: { buildEventModelFromProviderBundle: (value) => { bundle = value; return { key: value.key, teams: [], matches: [] }; } },
+  });
+  const fetchImpl = createFetchStub({
+    [`${baseUrls.tba}/event/2026singular`]: { key: "2026singular", year: 2026 },
+    [`${baseUrls.tba}/event/2026singular/teams`]: [{ team_number: 498 }],
+    [`${baseUrls.tba}/event/2026singular/matches`]: [],
+    [`${baseUrls.tba}/event/2026singular/rankings`]: {},
+    [`${baseUrls.tba}/event/2026singular/oprs`]: {},
+    [`${baseUrls.statbotics}/event/2026singular`]: { year: 2026 },
+    [`${baseUrls.statbotics}/team_event/498/2026singular`]: { team: 498, epa: { total_points: 12.5 } },
+    [`${baseUrls.statbotics}/matches?event=2026singular`]: [],
+  });
+  await context.ExternalEventLoader.loadEventByCode("2026singular", { fetchImpl, tbaAuthKey: "test", tbaBaseUrl: baseUrls.tba, statboticsBaseUrl: baseUrls.statbotics });
+  assert.deepEqual(JSON.parse(JSON.stringify(bundle.statboticsTeamEvents)), [{ team: 498, epa: { total_points: 12.5 } }]);
+});
+
 async function main() {
 await runTest("loadEventByCode builds an event model and ready provider states from live payloads", async () => {
   const baseUrls = {

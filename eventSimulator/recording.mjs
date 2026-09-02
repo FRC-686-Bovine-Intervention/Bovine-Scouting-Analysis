@@ -12,7 +12,9 @@ const TBA_ENDPOINTS = {
 
 const STATBOTICS_ENDPOINTS = {
   event: (base, event) => `${base}/event/${event}`,
-  teamEvents: (base, event) => `${base}/team_events/event/${event}`,
+  teamEvents: (base, event, context = {}) => context.teamKeys?.length
+    ? context.teamKeys.map((team) => `${base}/team_event/${encodeURIComponent(team)}/${event}`)
+    : `${base}/team_events/event/${event}`,
   matches: (base, event) => `${base}/matches?event=${encodeURIComponent(event)}`,
   teamMatches: (base, event) => `${base}/team_matches?event=${encodeURIComponent(event)}&limit=10000`,
 };
@@ -75,7 +77,7 @@ async function fetchJson(url, headers, etag, fetchImpl = fetch) {
   return { payload: await response.json(), etag: response.headers.get("etag") || "" };
 }
 
-async function pollProvider(previous, endpointFactories, baseUrl, headers, eventCode, fallbackBaseUrl = "", fetchImpl = fetch) {
+async function pollProvider(previous, endpointFactories, baseUrl, headers, eventCode, fallbackBaseUrl = "", fetchImpl = fetch, context = {}) {
   const endpointState = { ...(previous?.endpoints || {}) };
   for (const [name, factory] of Object.entries(endpointFactories)) {
     const old = endpointState[name] || {};
@@ -94,8 +96,31 @@ async function pollProvider(previous, endpointFactories, baseUrl, headers, event
         return { error };
       }
     };
-    let next = await attempt(factory(baseUrl, eventCode), false);
-    if (next.error && fallbackBaseUrl) next = await attempt(factory(fallbackBaseUrl, eventCode), true);
+    const fetchEndpoint = async (urlOrUrls, usedFallback) => {
+      if (!Array.isArray(urlOrUrls)) return attempt(urlOrUrls, usedFallback);
+      const results = await Promise.all(urlOrUrls.map((url) => attempt(url, usedFallback)));
+      const successful = results.filter((result) => !result.error && Object.prototype.hasOwnProperty.call(result, "payload"));
+      if (!successful.length) return { error: results.find((result) => result.error)?.error || new Error("No per-team response succeeded") };
+      return {
+        payload: successful.map((result) => result.payload),
+        etag: "",
+        status: "ready",
+        sourceUrl: successful[0].sourceUrl,
+        usedFallback,
+        fetchedAt: new Date().toISOString(),
+        error: "",
+      };
+    };
+    let next = await fetchEndpoint(factory(baseUrl, eventCode, context), false);
+    if (next.error && name === "teamEvents" && context.teamKeys?.length) {
+      next = await attempt(`${baseUrl}/team_events/event/${eventCode}`, false);
+    }
+    if (next.error && fallbackBaseUrl) {
+      next = await fetchEndpoint(factory(fallbackBaseUrl, eventCode, context), true);
+      if (next.error && name === "teamEvents" && context.teamKeys?.length) {
+        next = await attempt(`${fallbackBaseUrl}/team_events/event/${eventCode}`, true);
+      }
+    }
     endpointState[name] = next.error
       ? { ...old, status: "error", sourceUrl: old.sourceUrl || baseUrl, usedFallback: old.usedFallback || false, fetchedAt: new Date().toISOString(), error: next.error.message }
       : next;
@@ -160,10 +185,10 @@ export function createRecordingStore({ root = path.resolve("recordings"), eventC
   return { directory, normalizedEventCode, loadState: () => clone(state), saveCursor, saveState };
 }
 
-export function createRecorder({ eventCode, outputRoot = path.resolve("recordings"), tbaBaseUrl = "https://www.thebluealliance.com/api/v3", statboticsBaseUrl = "https://api.statbotics.io/v3", statboticsFallbackBaseUrl = "https://api-statbotics.iterativerefinement.com/v3", tbaAuthKey = "", pollIntervalsMs = { tba: 60000, statbotics: 120000 }, fetchNow = Date.now, fetchImpl = fetch } = {}) {
+export function createRecorder({ eventCode, outputRoot = path.resolve("recordings"), tbaBaseUrl = "https://www.thebluealliance.com/api/v3", statboticsBaseUrl = "https://api.statbotics.io/v3", statboticsFallbackBaseUrl = "https://api-statbotics.popcornpenguins.com/v3", tbaAuthKey = "", pollIntervalsMs = { tba: 60000, statbotics: 120000 }, fetchNow = Date.now, fetchImpl = fetch } = {}) {
   tbaBaseUrl = normalizeBaseUrl(tbaBaseUrl, "https://www.thebluealliance.com/api/v3", "tbaBaseUrl");
   statboticsBaseUrl = normalizeBaseUrl(statboticsBaseUrl, "https://api.statbotics.io/v3", "statboticsBaseUrl");
-  statboticsFallbackBaseUrl = normalizeBaseUrl(statboticsFallbackBaseUrl, "https://api-statbotics.iterativerefinement.com/v3", "statboticsFallbackBaseUrl");
+  statboticsFallbackBaseUrl = normalizeBaseUrl(statboticsFallbackBaseUrl, "https://api-statbotics.popcornpenguins.com/v3", "statboticsFallbackBaseUrl");
   const store = createRecordingStore({ root: outputRoot, eventCode });
   const previousState = store.loadState();
   let providers = previousState.providers || {};
@@ -173,7 +198,12 @@ export function createRecorder({ eventCode, outputRoot = path.resolve("recording
     const isTba = source === "tba";
     const previous = providers[source];
     try {
-      const next = await pollProvider(previous, isTba ? TBA_ENDPOINTS : STATBOTICS_ENDPOINTS, isTba ? tbaBaseUrl : statboticsBaseUrl, isTba ? { "X-TBA-Auth-Key": tbaAuthKey } : {}, store.normalizedEventCode, isTba ? "" : statboticsFallbackBaseUrl, fetchImpl);
+      const tbaPayload = providerPayload(providers.tba);
+      const teamKeys = [
+        ...(tbaPayload.teams || []).map((team) => team?.key || team?.team_key || team?.team_number),
+        ...(tbaPayload.matches || []).flatMap((match) => ["red", "blue"].flatMap((alliance) => match?.alliances?.[alliance]?.team_keys || [])),
+      ].filter((team) => team != null).map((team) => String(team).replace(/^frc/i, ""));
+      const next = await pollProvider(previous, isTba ? TBA_ENDPOINTS : STATBOTICS_ENDPOINTS, isTba ? tbaBaseUrl : statboticsBaseUrl, isTba ? { "X-TBA-Auth-Key": tbaAuthKey } : {}, store.normalizedEventCode, isTba ? "" : statboticsFallbackBaseUrl, fetchImpl, { teamKeys: [...new Set(teamKeys)] });
       providers[source] = { ...next, fetchedAt: new Date().toISOString() };
       return providers[source];
     } catch (error) {

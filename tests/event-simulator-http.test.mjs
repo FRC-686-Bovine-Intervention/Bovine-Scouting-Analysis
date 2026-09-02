@@ -41,6 +41,7 @@ assert.equal((await get("/api/tba/event/2026evsim/oprs")).oprs && Object.keys((a
 await post("/control/advance", { amount: 1 });
 assert.equal((await get("/state")).currentMatch, "Qual 1");
 assert.equal((await get("/api/statbotics/v3/event/2026evsim")).key, "2026evsim");
+assert.equal((await get("/api/statbotics/v3/team_event/122/2026evsim")).team, 122);
 assert.equal((await get("/api/statbotics/v3/matches/2026evsim")).length, 1);
 assert.equal((await get("/api/statbotics/v3/team_matches/2026evsim")).length, 6);
 assert.equal((await get("/api/scouting/2026evsim")).meta.eventKey, "2026evsim");

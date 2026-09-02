@@ -148,7 +148,46 @@ async function settle(promise) {
   }
 }
 
-async function fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode, options = {}) {
+function teamKeysFromTbaPayload(teams = [], matches = []) {
+  const keys = new Set();
+  for (const team of Array.isArray(teams) ? teams : []) {
+    const key = team?.key || team?.team_key || team?.team_number;
+    if (key != null && String(key).trim()) keys.add(String(key).replace(/^frc/i, ""));
+  }
+  for (const match of Array.isArray(matches) ? matches : []) {
+    for (const alliance of ["red", "blue"]) {
+      for (const key of match?.alliances?.[alliance]?.team_keys || []) {
+        if (key != null && String(key).trim()) keys.add(String(key).replace(/^frc/i, ""));
+      }
+    }
+  }
+  return [...keys];
+}
+
+async function fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode, teamKeys = [], options = {}) {
+  const requestedTeams = Array.isArray(teamKeys) ? [...new Set(teamKeys.map((key) => String(key).trim()).filter(Boolean))] : [];
+  if (requestedTeams.length) {
+    const singularResults = await Promise.all(requestedTeams.map(async (teamKey) => {
+      const requestUrl = `${statboticsBaseUrl}/team_event/${encodeURIComponent(teamKey)}/${normalizedEventCode}`;
+      try {
+        const response = await fetchJson(requestUrl, options);
+        return { ok: true, response };
+      } catch (error) {
+        return { ok: false, error };
+      }
+    }));
+    const successful = singularResults.filter((result) => result.ok);
+    if (successful.length) {
+      return {
+        ...successful[0].response,
+        payload: successful.map((result) => result.response.payload),
+        requestUrl: `${statboticsBaseUrl}/team_event/{team}/${normalizedEventCode}`,
+        fallbackUsed: false,
+        perTeam: true,
+        missingTeams: singularResults.flatMap((result, index) => result.ok ? [] : [requestedTeams[index]]),
+      };
+    }
+  }
   const legacyUrl = `${statboticsBaseUrl}/team_events/event/${normalizedEventCode}`;
   try {
     return {
@@ -167,10 +206,10 @@ async function fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode,
   }
 }
 
-async function fetchStatboticsBundle(statboticsBaseUrl, normalizedEventCode, options = {}) {
+async function fetchStatboticsBundle(statboticsBaseUrl, normalizedEventCode, teamKeys = [], options = {}) {
   const [event, teamEvents] = await Promise.all([
     fetchJson(`${statboticsBaseUrl}/event/${normalizedEventCode}`, options),
-    fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode, options),
+    fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode, teamKeys, options),
   ]);
   return {
     event,
@@ -182,15 +221,15 @@ async function fetchStatboticsBundle(statboticsBaseUrl, normalizedEventCode, opt
   };
 }
 
-async function loadStatboticsBundle(primaryBaseUrl, fallbackBaseUrl, normalizedEventCode, options = {}) {
+async function loadStatboticsBundle(primaryBaseUrl, fallbackBaseUrl, normalizedEventCode, teamKeys = [], options = {}) {
   try {
-    return { ok: true, value: await fetchStatboticsBundle(primaryBaseUrl, normalizedEventCode, options), fallbackUsed: false };
+    return { ok: true, value: await fetchStatboticsBundle(primaryBaseUrl, normalizedEventCode, teamKeys, options), fallbackUsed: false };
   } catch (primaryError) {
     if (fallbackBaseUrl === primaryBaseUrl) return { ok: false, error: primaryError, baseUrl: primaryBaseUrl };
     try {
       return {
         ok: true,
-        value: await fetchStatboticsBundle(fallbackBaseUrl, normalizedEventCode, options),
+        value: await fetchStatboticsBundle(fallbackBaseUrl, normalizedEventCode, teamKeys, options),
         fallbackUsed: true,
         primaryError,
       };
@@ -370,15 +409,24 @@ async function loadEventByCode(eventCode, options = {}) {
   const tbaHeaders = { Accept: "application/json" };
   if (tbaAuthKey) tbaHeaders["X-TBA-Auth-Key"] = tbaAuthKey;
 
-  const [tbaEventResult, tbaTeamsResult, tbaMatchesResult, tbaAlliancesResult, tbaRankingsResult, tbaTeamStatsResult, statboticsResult] = await Promise.all([
+  const [tbaEventResult, tbaTeamsResult, tbaMatchesResult, tbaAlliancesResult, tbaRankingsResult, tbaTeamStatsResult] = await Promise.all([
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}`, { ...options, headers: tbaHeaders })),
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/teams`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/teams`, { ...options, headers: tbaHeaders })),
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/matches`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/matches`, { ...options, headers: tbaHeaders })),
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/alliances`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/alliances`, { ...options, headers: tbaHeaders })),
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/rankings`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/rankings`, { ...options, headers: tbaHeaders })),
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/oprs`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/oprs`, { ...options, headers: tbaHeaders })),
-    loadStatboticsBundle(statboticsBaseUrl, statboticsFallbackBaseUrl, normalizedEventCode, options),
   ]);
+
+  const tbaTeams = tbaTeamsResult.ok && Array.isArray(tbaTeamsResult.value?.payload) ? tbaTeamsResult.value.payload : [];
+  const tbaMatches = tbaMatchesResult.ok && Array.isArray(tbaMatchesResult.value?.payload) ? tbaMatchesResult.value.payload : [];
+  const statboticsResult = await loadStatboticsBundle(
+    statboticsBaseUrl,
+    statboticsFallbackBaseUrl,
+    normalizedEventCode,
+    teamKeysFromTbaPayload(tbaTeams, tbaMatches),
+    options,
+  );
 
   const statboticsEventResult = statboticsResult.ok
     ? { ok: true, value: statboticsResult.value.event }
@@ -401,8 +449,8 @@ async function loadEventByCode(eventCode, options = {}) {
     importProfileId: "",
     sheet: null,
     tbaEvent: tbaEventResult.value?.payload || {},
-    tbaTeams: Array.isArray(tbaTeamsResult.value?.payload) ? tbaTeamsResult.value.payload : [],
-    tbaMatches: Array.isArray(tbaMatchesResult.value?.payload) ? tbaMatchesResult.value.payload : [],
+    tbaTeams,
+    tbaMatches,
     tbaAlliances: tbaAlliancesResult.ok && Array.isArray(tbaAlliancesResult.value?.payload) ? tbaAlliancesResult.value.payload : [],
     tbaRankings: tbaRankingsResult.ok ? (tbaRankingsResult.value?.payload || {}) : {},
     tbaTeamStats: tbaTeamStatsResult.ok ? (tbaTeamStatsResult.value?.payload || {}) : {},

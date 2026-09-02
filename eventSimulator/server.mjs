@@ -37,6 +37,8 @@ function route(pathname) {
   if (parts[0] === "control") return ["control", ...parts.slice(1)];
   if (parts[0] === "api" && parts[1] === "tba" && parts[2] === "event") return ["tba", parts[4] || "event"];
   if ((parts[0] === "api" && parts[1] === "statbotics") || parts[0] === "statbotics") {
+    const teamEventIndex = parts.indexOf("team_event");
+    if (teamEventIndex >= 0) return ["statbotics", "team-event", parts[teamEventIndex + 1] || ""];
     const kind = parts.includes("team_events") || parts.includes("team-events") ? "team-events" : parts.includes("team_matches") || parts.includes("team-matches") ? "team-matches" : parts.includes("matches") ? "matches" : "event";
     return ["statbotics", kind];
   }
@@ -82,7 +84,7 @@ export function createServer({ simulator = engine, recordingRoot = process.env.E
       if (action === "reset") return json(res, 200, activeSimulator.resetAll());
     }
     if (r[0] && ["tba", "statbotics", "scouting"].includes(r[0])) {
-      const source = r[0]; const kind = r[1]; const generation = activeSimulator.requestGeneration?.(); const snapshot = activeSimulator.get(source, kind);
+      const source = r[0]; const kind = r[1]; const generation = activeSimulator.requestGeneration?.(); const snapshot = kind === "team-event" ? activeSimulator.get(source, kind, r[2]) : activeSimulator.get(source, kind);
       activeSimulator.recordRequest({ source, kind, cursor: activeSimulator.effectiveCursor(source), at: new Date().toISOString(), dataSignature: JSON.stringify(snapshot) }, generation);
       const delay = activeSimulator.responseDelay(source); return setTimeout(() => json(res, 200, snapshot), delay);
     }
