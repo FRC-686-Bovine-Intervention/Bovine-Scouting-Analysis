@@ -2,6 +2,7 @@
 const eventModelBuilder = globalThis.EventModelBuilder || {};
 const externalSourceSnapshots = globalThis.ExternalSourceSnapshots || {};
 const providerRouting = globalThis.ProviderRouting || {};
+const DEFAULT_FETCH_TIMEOUT_MS = 15 * 1000;
 
 const buildEventModelFromProviderBundle =
   eventModelBuilder.buildEventModelFromProviderBundle ||
@@ -90,30 +91,52 @@ function normalizeStatboticsCollection(payload) {
 async function fetchJson(url, options = {}) {
   const fetchImpl = resolveFetchImpl(options);
   if (typeof fetchImpl !== "function") throw new Error("Fetch is not available in this runtime.");
-  const response = await fetchImpl(url, {
-    headers: options.headers || {},
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
+    ? Number(options.timeoutMs)
+    : DEFAULT_FETCH_TIMEOUT_MS;
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  let timeoutId = null;
+  const request = (async () => {
+    const response = await fetchImpl(url, {
+      headers: options.headers || {},
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    if (!response?.ok) {
+      const error = new Error(`HTTP ${response?.status || "unknown"}`);
+      error.status = response?.status || 0;
+      error.url = url;
+      throw error;
+    }
+    const rawBytes = typeof response.arrayBuffer === "function" ? new Uint8Array(await response.arrayBuffer()) : null;
+    const rawText = rawBytes ? new TextDecoder().decode(rawBytes) : JSON.stringify(await response.json());
+    try {
+      return {
+        payload: JSON.parse(rawText),
+        rawText,
+        rawBytes,
+        requestUrl: url,
+        contentType: response.headers?.get?.("content-type") || "application/json",
+        status: Number(response.status) || 200,
+      };
+    } catch {
+      const error = new Error("Response was not valid JSON.");
+      error.url = url;
+      throw error;
+    }
+  })();
+  const timeout = new Promise((_, reject) => {
+    timeoutId = globalThis.setTimeout(() => {
+      controller?.abort();
+      const error = new Error(`Request timed out after ${timeoutMs}ms.`);
+      error.code = "FETCH_TIMEOUT";
+      error.url = url;
+      reject(error);
+    }, timeoutMs);
   });
-  if (!response?.ok) {
-    const error = new Error(`HTTP ${response?.status || "unknown"}`);
-    error.status = response?.status || 0;
-    error.url = url;
-    throw error;
-  }
-  const rawBytes = typeof response.arrayBuffer === "function" ? new Uint8Array(await response.arrayBuffer()) : null;
-  const rawText = rawBytes ? new TextDecoder().decode(rawBytes) : JSON.stringify(await response.json());
   try {
-    return {
-      payload: JSON.parse(rawText),
-      rawText,
-      rawBytes,
-      requestUrl: url,
-      contentType: response.headers?.get?.("content-type") || "application/json",
-      status: Number(response.status) || 200,
-    };
-  } catch {
-    const error = new Error("Response was not valid JSON.");
-    error.url = url;
-    throw error;
+    return await Promise.race([request, timeout]);
+  } finally {
+    if (timeoutId !== null) globalThis.clearTimeout(timeoutId);
   }
 }
 

@@ -26,6 +26,9 @@ function loadBrowserContext(relativePaths, extras = {}) {
     String,
     JSON,
     Date,
+    AbortController,
+    setTimeout,
+    clearTimeout,
     ...extras,
   };
   context.globalThis = context;
@@ -36,6 +39,30 @@ function loadBrowserContext(relativePaths, extras = {}) {
   });
   return context;
 }
+
+await runTest("provider requests time out so a stalled refresh can release its polling lock", async () => {
+  const context = loadBrowserContext([
+    "src/provider-routing.js",
+    "src/legacy-scouting-schema-seeds.js",
+    "src/season-framework.js",
+    "src/prior-ridge.js",
+    "src/event-model-builder.js",
+    "src/external-source-snapshots.js",
+    "src/external-event-loader.js",
+  ], {
+    __EVENT_SIMULATOR_CONFIG: {
+      mode: "simulator-first",
+      tbaUrl: "http://simulator.test/api/tba",
+      statboticsUrl: "http://simulator.test/api/statbotics",
+    },
+  });
+  const stalledFetch = () => new Promise(() => {});
+
+  await assert.rejects(
+    () => context.ExternalEventLoader.loadEventByCode("2026evsim", { fetchImpl: stalledFetch, timeoutMs: 10 }),
+    (error) => error.message.includes("timed out after 10ms"),
+  );
+});
 
 function createFetchStub(routes) {
   return async function fetchStub(url) {
