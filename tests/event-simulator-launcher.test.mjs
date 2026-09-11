@@ -13,9 +13,9 @@ assert.match(fs.readFileSync("scripts/stop-localhost.ps1", "utf8"), /ProcessName
 assert.match(fs.readFileSync("scripts/start-localhost.ps1", "utf8"), /local-web-server\.mjs/);
 assert.match(fs.readFileSync("scripts/start-event-simulator.ps1", "utf8"), /local-web-server\.mjs/);
 const recorderLauncher = fs.readFileSync("scripts/start-event-recorder.bat", "utf8");
-assert.match(recorderLauncher, /set "EVENT_CODES=/);
-assert.match(recorderLauncher, /recorder\.mjs %EVENT_CODES%/);
-assert.doesNotMatch(recorderLauncher, /recorder\.mjs "%EVENT_CODE%"/);
+assert.match(recorderLauncher, /Usage: %~nx0 event-code \[event-code \.\.\.\]/);
+assert.match(recorderLauncher, /recorder\.mjs %\*/);
+assert.doesNotMatch(recorderLauncher, /set "EVENT_CODES=/);
 assert.doesNotMatch(fs.readFileSync("scripts/start-event-simulator.ps1", "utf8"), /offsets\s*=/);
 assert.match(fs.readFileSync("eventSimulator/scenario.json", "utf8"), /"offsets": \{\s*"tba": 0,\s*"statbotics": -2,\s*"scouting": -1\s*\}/s);
 assert.match(fs.readFileSync("scripts/local-web-server.mjs", "utf8"), /__DEPLOYMENT_REVISION__/);

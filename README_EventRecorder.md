@@ -6,17 +6,22 @@ The event recorder polls The Blue Alliance and Statbotics during a live event an
 
 1. Obtain a TBA read API key.
 2. Open [scripts/start-event-recorder.bat](scripts/start-event-recorder.bat) in a text editor.
-3. Replace the credential and event list:
+3. Replace the credential:
 
    ```bat
    set "TBA_AUTH_KEY=your-tba-key"
-   set "EVENT_CODES=2026azscor 2026chcmp"
    ```
 
-   `EVENT_CODES` is a space-separated list. Each event gets its own recording folder and cursor sequence.
+4. Pass one or more event codes when launching the batch file:
 
-4. Save the file. Keep the key private and do not commit the edited file if it contains a real credential.
-5. Run the batch file from Windows Explorer or a Command Prompt.
+   ```bat
+   scripts\\start-event-recorder.bat 2026azscor 2026chcmp
+   ```
+
+   Each event gets its own recording folder and cursor sequence. Recorder options such as `--once` may also be passed after the event codes.
+
+5. Save the file. Keep the key private and do not commit the edited file if it contains a real credential.
+6. Run the batch file from a Command Prompt.
 
 Start the recorder before competition begins. Its first successful observation is saved as cursor 0, normally tagged `pre-event`. It continues polling until the recorder process is stopped.
 
