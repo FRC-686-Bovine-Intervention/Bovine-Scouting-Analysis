@@ -6,12 +6,14 @@ The event recorder polls The Blue Alliance and Statbotics during a live event an
 
 1. Obtain a TBA read API key.
 2. Open [scripts/start-event-recorder.bat](scripts/start-event-recorder.bat) in a text editor.
-3. Replace both placeholder values:
+3. Replace the credential and event list:
 
    ```bat
    set "TBA_AUTH_KEY=your-tba-key"
-   set "EVENT_CODE=your-event-code"
+   set "EVENT_CODES=2026azscor 2026chcmp"
    ```
+
+   `EVENT_CODES` is a space-separated list. Each event gets its own recording folder and cursor sequence.
 
 4. Save the file. Keep the key private and do not commit the edited file if it contains a real credential.
 5. Run the batch file from Windows Explorer or a Command Prompt.
