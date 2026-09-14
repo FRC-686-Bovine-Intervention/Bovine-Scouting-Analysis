@@ -8482,8 +8482,8 @@ function scheduleAnalysisCalculation(selection, key) {
       const calculationStartedAt = perfNow();
       const eventModel = currentEvent();
       const needsPridge = selection.metric?.sourceId === "pridge"
-        && (eventModel?.teams || []).some((team) => !Number.isFinite(Number(team?.sources?.pridge?.total)));
-      if (needsPridge && eventModel?.pridgeComputationDeferred === true) {
+        && eventModel?.pridgeComputationDeferred === true;
+      if (needsPridge) {
         applyCurrentPridgeResponseDefinitions(eventModel);
       }
       const result = calculateAnalysisResult(selection);
