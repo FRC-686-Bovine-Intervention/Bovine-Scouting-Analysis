@@ -16,7 +16,6 @@ const STATBOTICS_ENDPOINTS = {
     ? context.teamKeys.map((team) => `${base}/team_event/${encodeURIComponent(team)}/${event}`)
     : `${base}/team_events/event/${event}`,
   matches: (base, event) => `${base}/matches?event=${encodeURIComponent(event)}`,
-  teamMatches: (base, event) => `${base}/team_matches?event=${encodeURIComponent(event)}&limit=10000`,
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -140,6 +139,47 @@ function providerPayload(state) {
   return Object.fromEntries(Object.entries(state?.endpoints || {}).filter(([, value]) => Object.prototype.hasOwnProperty.call(value, "payload")).map(([name, value]) => [name, clone(value.payload)]));
 }
 
+function normalizeStatboticsTeam(teamKey) {
+  const value = String(teamKey ?? "").replace(/^frc/i, "");
+  return /^[0-9]+[a-z]$/i.test(value) ? value : Number(value);
+}
+
+function statboticsEpaForTeam(match, teamKey) {
+  const epa = match?.epas || {};
+  const candidates = [teamKey, String(teamKey), String(teamKey).replace(/^frc/i, ""), Number(String(teamKey).replace(/^frc/i, ""))];
+  return candidates.map((candidate) => epa[candidate]).find((value) => value && typeof value === "object") || null;
+}
+
+export function deriveStatboticsTeamMatches(matches = [], eventCode = "") {
+  return (Array.isArray(matches) ? matches : []).flatMap((match) => ["red", "blue"].flatMap((alliance) => (match?.alliances?.[alliance]?.team_keys || []).map((teamKey) => {
+    const epa = statboticsEpaForTeam(match, teamKey);
+    const row = {
+      match_key: match.match_key || match.key,
+      event: match.event || eventCode,
+      team: normalizeStatboticsTeam(teamKey),
+      alliance,
+      result: match.winning_alliance === alliance ? "W" : match.winning_alliance ? "L" : "T",
+      score: match.alliances[alliance].score,
+    };
+    if (epa) row.epa = { total_points: epa.epa, post: epa.post_epa ?? epa.post, breakdown: epa };
+    return row;
+  })));
+}
+
+function deriveTeamMatchesEndpoint(matchesEndpoint, eventCode) {
+  if (!matchesEndpoint || !Object.prototype.hasOwnProperty.call(matchesEndpoint, "payload")) return null;
+  return {
+    payload: deriveStatboticsTeamMatches(matchesEndpoint.payload, eventCode),
+    etag: "",
+    status: matchesEndpoint.status,
+    sourceUrl: matchesEndpoint.sourceUrl,
+    usedFallback: matchesEndpoint.usedFallback,
+    fetchedAt: matchesEndpoint.fetchedAt,
+    error: matchesEndpoint.error || "",
+    derivedFrom: "matches",
+  };
+}
+
 export function loadRecorderConfig(configPath = process.env.EVENT_RECORDER_CONFIG || "") {
   if (!configPath) return {};
   const config = JSON.parse(fs.readFileSync(path.resolve(configPath), "utf8"));
@@ -204,6 +244,10 @@ export function createRecorder({ eventCode, outputRoot = path.resolve("recording
         ...(tbaPayload.matches || []).flatMap((match) => ["red", "blue"].flatMap((alliance) => match?.alliances?.[alliance]?.team_keys || [])),
       ].filter((team) => team != null).map((team) => String(team).replace(/^frc/i, ""));
       const next = await pollProvider(previous, isTba ? TBA_ENDPOINTS : STATBOTICS_ENDPOINTS, isTba ? tbaBaseUrl : statboticsBaseUrl, isTba ? { "X-TBA-Auth-Key": tbaAuthKey } : {}, store.normalizedEventCode, isTba ? "" : statboticsFallbackBaseUrl, fetchImpl, { teamKeys: [...new Set(teamKeys)] });
+      if (!isTba) {
+        const derivedTeamMatches = deriveTeamMatchesEndpoint(next.endpoints?.matches, store.normalizedEventCode);
+        if (derivedTeamMatches) next.endpoints.teamMatches = derivedTeamMatches;
+      }
       providers[source] = { ...next, fetchedAt: new Date().toISOString() };
       return providers[source];
     } catch (error) {

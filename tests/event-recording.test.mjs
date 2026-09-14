@@ -2,20 +2,20 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createRecorder, createRecorderService, loadRecorderConfig, loadRecording } from "../eventSimulator/recording.mjs";
+import { createRecorder, createRecorderService, deriveStatboticsTeamMatches, loadRecorderConfig, loadRecording } from "../eventSimulator/recording.mjs";
 import { createRecordedEngine } from "../eventSimulator/engine.mjs";
 import { createServer } from "../eventSimulator/server.mjs";
 import { exportRecording, inspectRecording, validateRecording } from "../eventSimulator/recording-tools.mjs";
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "event-recording-"));
 const responses = new Map();
-let failFallbackTeamMatches = false;
+let failFallbackMatches = false;
 const jsonResponse = (payload, etag = "") => ({ ok: true, status: 200, headers: new Headers(etag ? { etag } : {}), json: async () => payload });
 const fetchImpl = async (url, options) => {
   const isTba = url.includes("tba.example");
   const isFallback = url.includes("fallback.example");
   if (!isTba && !isFallback) throw new Error("primary Statbotics unavailable");
-  if (isFallback && failFallbackTeamMatches && url.includes("team_matches")) throw new Error("team matches unavailable");
+  if (isFallback && failFallbackMatches && url.includes("/matches?event=")) throw new Error("matches unavailable");
   const key = url.replace(isFallback ? "https://fallback.example/v3" : isTba ? "https://tba.example/v3" : "", "");
   const prior = responses.get(`${isFallback ? "fallback" : isTba ? "tba" : "statbotics"}:${key}`) || { value: key.includes("matches") ? [] : key.includes("teams") ? [] : {} , etag: "a" };
   if (options.headers["If-None-Match"] === prior.etag) return { ok: false, status: 304, headers: new Headers({ etag: prior.etag }) };
@@ -25,7 +25,7 @@ const setTba = (matches) => {
   for (const suffix of ["/event/2026test", "/event/2026test/teams", "/event/2026test/matches", "/event/2026test/alliances", "/event/2026test/rankings", "/event/2026test/oprs"]) responses.set(`tba:${suffix}`, { value: suffix.endsWith("matches") ? matches : suffix.endsWith("teams") ? [{ team_number: 1 }] : {}, etag: String(matches.length) });
 };
 const setStatbotics = (eventName, base = "statbotics") => {
-  for (const suffix of ["/event/2026test", "/team_events/event/2026test", "/matches?event=2026test", "/team_matches?event=2026test&limit=10000"]) responses.set(`${base}:${suffix}`, { value: suffix === "/event/2026test" ? { status: eventName } : [], etag: eventName });
+  for (const suffix of ["/event/2026test", "/team_events/event/2026test", "/matches?event=2026test"]) responses.set(`${base}:${suffix}`, { value: suffix === "/event/2026test" ? { status: eventName } : [], etag: eventName });
 };
 setTba([]); setStatbotics("Scheduled");
 const recorder = createRecorder({ eventCode: "2026TEST", outputRoot: temp, tbaBaseUrl: "https://tba.example/v3", statboticsBaseUrl: "https://statbotics.example/v3", statboticsFallbackBaseUrl: "https://fallback.example/v3", fetchImpl, pollIntervalsMs: { tba: 0, statbotics: 0 } });
@@ -34,15 +34,28 @@ assert.equal(first.cursor, 0);
 assert.equal(first.eventTag, "pre-event");
 assert.equal(first.providers.statbotics.endpoints.event.sourceUrl, "https://fallback.example/v3/event/2026test");
 assert.equal(first.providers.statbotics.usedFallback, true);
+assert.equal(first.providers.statbotics.endpoints.teamMatches.status, "ready");
+assert.equal(first.providers.statbotics.endpoints.teamMatches.derivedFrom, "matches");
+assert.equal(first.providers.statbotics.endpoints.teamMatches.sourceUrl, "https://fallback.example/v3/matches?event=2026test");
 assert.equal((await recorder.poll({ force: true })), null);
+
+const derivedRows = deriveStatboticsTeamMatches([{
+  key: "2026test_qm1",
+  event: "2026test",
+  winning_alliance: "red",
+  alliances: { red: { team_keys: ["frc111"], score: 20 }, blue: { team_keys: [222], score: 10 } },
+  epas: { "111": { epa: 40.25, post_epa: 41.75 }, "222": { epa: 30.5 } },
+}]);
+assert.deepEqual(derivedRows[0].epa, { total_points: 40.25, post: 41.75, breakdown: { epa: 40.25, post_epa: 41.75 } });
+assert.equal(derivedRows[1].team, 222);
 
 setTba([{ comp_level: "qm", match_number: 1, alliances: { red: { score: 10 }, blue: { score: 8 } } }]);
 const second = await recorder.poll({ force: true });
 assert.equal(second.cursor, 1);
 assert.equal(second.eventTag, "qual-1");
 
-responses.delete("fallback:/team_matches?event=2026test&limit=10000");
-failFallbackTeamMatches = true;
+responses.delete("fallback:/matches?event=2026test");
+failFallbackMatches = true;
 setTba([{ comp_level: "qm", match_number: 1, alliances: { red: { score: 10 }, blue: { score: 8 } } }, { comp_level: "qm", match_number: 2, alliances: { red: { score: 9 }, blue: { score: 7 } } }]);
 const partial = await recorder.poll({ force: true });
 assert.equal(partial.cursor, 2);
@@ -78,7 +91,7 @@ delete partialCursor.providers.statbotics.endpoints.teamMatches;
 fs.writeFileSync(partialCursorPath, JSON.stringify(partialCursor, null, 2));
 const partialEngine = createRecordedEngine({ recordingPath: partialRecordingPath, statePath: path.join(temp, "partial-simulator-state.json") });
 partialEngine.setState({ cursor: 2 });
-assert.throws(() => partialEngine.get("statbotics", "team-matches"), /unavailable in this recorded cursor/);
+assert.equal(partialEngine.get("statbotics", "team-matches").length, 0);
 
 const configPath = path.join(temp, "recorder-config.json");
 fs.writeFileSync(configPath, JSON.stringify({ events: ["2026test"], outputRoot: temp, tbaAuthKey: "must-not-be-read", statusPort: 8899 }));

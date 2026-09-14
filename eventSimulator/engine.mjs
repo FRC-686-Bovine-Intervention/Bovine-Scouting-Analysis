@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { loadRecording, providerPayload } from "./recording.mjs";
+import { deriveStatboticsTeamMatches, loadRecording, providerPayload } from "./recording.mjs";
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const sourceNames = ["tba", "statbotics", "scouting"];
@@ -76,9 +76,7 @@ function buildTbaProjections(matches) {
 
 function buildStatboticsRows(matches, eventKey) {
   const statMatches = matches.map((match) => ({ ...clone(match), key: rewriteEventKeys(match.key, "2026chcmp", eventKey), match_key: rewriteEventKeys(match.key, "2026chcmp", eventKey), event: eventKey }));
-  const teamMatches = [];
-  for (const match of statMatches) for (const alliance of ["red", "blue"]) for (const teamKey of match.alliances?.[alliance]?.team_keys || []) teamMatches.push({ match_key: match.match_key, event: eventKey, team: /^frc\d+[a-z]$/i.test(String(teamKey)) ? String(teamKey) : Number(String(teamKey).replace("frc", "")), alliance, result: match.winning_alliance === alliance ? "W" : match.winning_alliance ? "L" : "T", score: match.alliances[alliance].score });
-  return { matches: statMatches, teamMatches };
+  return { matches: statMatches, teamMatches: deriveStatboticsTeamMatches(statMatches, eventKey) };
 }
 
 export function createEngine({ root = path.resolve("."), scenarioPath = path.resolve("eventSimulator/scenario.json"), statePath = path.resolve("eventSimulator/.state.json") } = {}) {
@@ -223,6 +221,9 @@ export function createRecordedEngine({ recordingPath, statePath = path.resolve("
       if (row) return row;
       if (Object.prototype.hasOwnProperty.call(supplementalTeamEvents, requested)) return supplementalTeamEvents[requested].payload;
       throw Object.assign(new Error(`${source}/team-event/${teamKey} is unavailable in this recorded cursor.`), { statusCode: 404 });
+    }
+    if (source === "statbotics" && kind === "team-matches" && !Object.prototype.hasOwnProperty.call(payloads, "teamMatches")) {
+      return deriveStatboticsTeamMatches(payloads.matches, recording.manifest.eventCode);
     }
     const payloadKey = source === "statbotics" ? (kind === "team-events" ? "teamEvents" : kind === "team-matches" ? "teamMatches" : kind) : kind;
     if (!Object.prototype.hasOwnProperty.call(payloads, payloadKey)) {

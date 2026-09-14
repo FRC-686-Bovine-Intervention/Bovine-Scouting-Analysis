@@ -244,16 +244,6 @@ async function fetchStatboticsTeamMatchRows(statboticsBaseUrl, eventCode, matche
   const supportedLevels = new Set(["qm", "ef", "qf", "sf", "f"]);
   const isSupportedMatch = (match) => supportedLevels.has(String(match?.comp_level || "").toLowerCase())
     || /_(?:qm|ef|qf|sf|f)\d+(?:m\d+)?$/i.test(String(match?.match || match?.key || ""));
-  const teamMatchesUrl = `${statboticsBaseUrl}/team_matches?event=${encodeURIComponent(eventCode)}&limit=10000`;
-  try {
-    const response = await fetchJson(teamMatchesUrl, options);
-    const rows = (Array.isArray(response.payload) ? response.payload : [])
-      .filter(isSupportedMatch)
-      .filter((match) => Number.isFinite(Number(match?.team)));
-    return { rows, responses: [response] };
-  } catch {
-    // Older/fallback Statbotics hosts may not expose the team-matches route.
-  }
   try {
     const response = await fetchJson(`${statboticsBaseUrl}/matches?event=${encodeURIComponent(eventCode)}`, options);
     const rows = (Array.isArray(response.payload) ? response.payload : [])
@@ -265,7 +255,7 @@ async function fetchStatboticsTeamMatchRows(statboticsBaseUrl, eventCode, matche
       })));
     return { rows, responses: [response] };
   } catch {
-    // Older/fallback Statbotics hosts may not expose either collection route.
+    // Fall through to individual team-match requests when the event match collection is unavailable.
   }
   const requests = (Array.isArray(matches) ? matches : [])
     .filter((match) => isSupportedMatch(match) && (match?.key || Number.isFinite(Number(match?.match_number))))

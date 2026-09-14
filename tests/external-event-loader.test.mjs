@@ -172,9 +172,20 @@ await runTest("loadEventByCode builds an event model and ready provider states f
       ccwms: { frc111: 41.4, frc222: 36.6, frc333: 33.7, frc444: 25.7, frc555: 23.4, frc666: 19.3 },
     },
     [`${baseUrls.statbotics}/event/2026test`]: { year: 2026, status: "In Progress" },
-    [`${baseUrls.statbotics}/team_matches?event=2026test&limit=10000`]: [
-      { team: 111, match: "2026test_qm1", epa: { total_points: 40.25, post: 41.75 } },
-      { team: 111, match: "2026test_qf1m1", epa: { total_points: 44.25, post: 45.75 } },
+    [`${baseUrls.statbotics}/matches?event=2026test`]: [
+      {
+        key: "2026test_qm1",
+        comp_level: "qm",
+        winning_alliance: "red",
+        alliances: { red: { team_keys: ["frc111", "frc222", "frc333"] }, blue: { team_keys: ["frc444", "frc555", "frc666"] } },
+        epas: { "111": { epa: 40.25, post_epa: 41.75 } },
+      },
+      {
+        key: "2026test_qf1m1",
+        comp_level: "qf",
+        alliances: { red: { team_keys: ["frc111", "frc222", "frc333"] }, blue: { team_keys: ["frc444", "frc555", "frc666"] } },
+        epas: { "111": { epa: 44.25, post_epa: 45.75 } },
+      },
     ],
     [`${baseUrls.statbotics}/team_events/event/2026test`]: { data: [
       {
@@ -232,11 +243,6 @@ await runTest("loadEventByCode builds an event model and ready provider states f
         record: { qual: { count: 12, rank: 24, rps_per_match: 1.5 } },
       },
     ] },
-    [`${baseUrls.statbotics}/team_match/111/2026test_qm1`]: {
-      team: 111,
-      match: "2026test_qm1",
-      epa: { total_points: 40.25 },
-    },
   });
 
   const result = await context.ExternalEventLoader.loadEventByCode("2026test", {
