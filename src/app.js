@@ -648,12 +648,7 @@ function bootstrapApp() {
       document.documentElement.dataset.theme = state.theme;
       renderSafely();
       ensureSourceRefreshLoop();
-      void loadArbitraryEventCode(state.activeEventKey, {
-        activeView: state.activeView,
-        source: "simulator-startup-refresh",
-        deferPridgeTrends: true,
-        deferPridgeComputation: true,
-      });
+      void refreshSimulatorSources({ trigger: "startup" });
       recordScoutingPerf("bootstrap.simulatorRefresh", startedAt, { eventKey: state.activeEventKey });
       return;
     }
@@ -1438,7 +1433,7 @@ function maybePollExternalSources() {
   if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first") {
     if (!state.activeEventKey || pendingExternalRefreshSourceIds.has("simulator-first")) return;
     pendingExternalRefreshSourceIds.add("simulator-first");
-    Promise.resolve(refreshDataSource("tba", { trigger: "poll" }))
+    Promise.resolve(refreshSimulatorSources({ trigger: "poll" }))
       .catch((error) => {
         console.error("Polling event simulator sources failed", error);
       })
@@ -1487,6 +1482,54 @@ function maybePollExternalSources() {
   });
 }
 
+function simulatorStateUrl() {
+  const configuredTbaUrl = normalizeText(globalThis.__EVENT_SIMULATOR_CONFIG?.tbaUrl);
+  if (!configuredTbaUrl) return "";
+  try {
+    return new URL("/state", configuredTbaUrl).toString();
+  } catch {
+    return "";
+  }
+}
+
+async function simulatorScenarioKey() {
+  const stateUrl = simulatorStateUrl();
+  if (!stateUrl) return "";
+  const response = await fetch(stateUrl, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Simulator state request failed (${response.status}).`);
+  const simulatorState = await response.json();
+  return normalizeExternalEventCode(simulatorState?.scenario);
+}
+
+async function refreshSimulatorSources(options = {}) {
+  const trigger = options.trigger || "poll";
+  let simulatorEventKey = "";
+  try {
+    simulatorEventKey = await simulatorScenarioKey();
+  } catch (error) {
+    console.warn("Unable to read the active event from the simulator; keeping the current event.", error);
+  }
+
+  const refreshEventKey = simulatorEventKey || state.activeEventKey;
+  if (!refreshEventKey) return false;
+  const eventChanged = refreshEventKey !== state.activeEventKey;
+  return loadArbitraryEventCode(refreshEventKey, {
+    activeView: state.activeView,
+    source: eventChanged ? "simulator-event-sync" : "simulator-refresh",
+    deferPridgeTrends: true,
+    deferPridgeComputation: true,
+    ...(eventChanged ? {} : {
+      selectionToken: {
+        eventKey: refreshEventKey,
+        generation: eventLoadSequence,
+        source: "background",
+      },
+      activate: false,
+    }),
+    trigger,
+  });
+}
+
 function ensureSourceRefreshLoop() {
   if (sourceRefreshIntervalId !== null) return;
   sourceRefreshIntervalId = globalThis.setInterval(() => {
@@ -1512,16 +1555,7 @@ async function refreshDataSource(sourceId, options = {}) {
   }
   if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first") {
     if (sourceId !== "tba") return;
-    const refreshEventKey = currentEvent().key;
-    const refreshed = await loadArbitraryEventCode(refreshEventKey, {
-      activeView: state.activeView,
-      selectionToken: {
-        eventKey: refreshEventKey,
-        generation: eventLoadSequence,
-        source: "background",
-      },
-      activate: false,
-    });
+    const refreshed = await refreshSimulatorSources({ trigger });
     recordScoutingPerf("background.refresh.end", startedAt, { sourceId, trigger, changed: true, activeView: state.activeView });
     return refreshed;
   }
@@ -5403,7 +5437,10 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     }
     let sourceCacheWarning = "";
     const sourceCacheApi = globalThis.firebaseEventSourceCacheApi;
-    if (globalThis.firebaseUserRole === "admin" && sourceCacheApi && Array.isArray(loadResult.rawSourceArtifacts)) {
+    if (globalThis.firebaseUserRole === "admin"
+      && globalThis.__EVENT_SIMULATOR_CONFIG?.mode !== "simulator-first"
+      && sourceCacheApi
+      && Array.isArray(loadResult.rawSourceArtifacts)) {
       try {
         await sourceCacheApi.saveEventSourceCache({
           event: currentEvent(),
