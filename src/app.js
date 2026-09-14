@@ -9016,13 +9016,21 @@ function renderSchedule() {
 }
 
 function playoffAllianceIsEliminated(alliance, eventModel = currentEvent()) {
-  const status = normalizeText(alliance?.status?.playoff_status || alliance?.status?.playoffStatus).toLowerCase();
-  const losses = Number(alliance?.status?.record?.losses);
+  const allianceStatus = alliance?.status || {};
+  const status = normalizeText(allianceStatus.playoff_status || allianceStatus.playoffStatus || allianceStatus.status).toLowerCase();
+  const level = normalizeText(allianceStatus.level).toLowerCase();
+  const levelRecord = level === "f" ? allianceStatus.current_level_record : allianceStatus.record;
+  const losses = Number(levelRecord?.losses);
   if (["eliminated", "lost", "out"].includes(status) || losses >= 2) return true;
   const picks = new Set((alliance?.picks || []).map((team) => Number(team)).filter(Number.isFinite));
   if (!picks.size) return false;
-  const recordedLosses = (eventModel?.matches || []).filter((match) => {
-    if (match?.compLevel === "qm" || !matchHasScore(match)) return false;
+  const playoffMatches = (eventModel?.matches || []).filter((match) => match?.compLevel !== "qm" && matchHasScore(match));
+  const hasFinalsMatch = playoffMatches.some((match) => match?.compLevel === "f" && [match.red || [], match.blue || []]
+    .some((side) => side.filter((team) => picks.has(Number(team))).length >= Math.min(3, picks.size)));
+  const matchesToCount = hasFinalsMatch
+    ? playoffMatches.filter((match) => match?.compLevel === "f")
+    : playoffMatches;
+  const recordedLosses = matchesToCount.filter((match) => {
     const sides = [match.red || [], match.blue || []];
     const sideIndex = sides.findIndex((side) => side.filter((team) => picks.has(Number(team))).length >= Math.min(3, picks.size));
     if (sideIndex < 0) return false;
