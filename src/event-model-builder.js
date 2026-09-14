@@ -179,6 +179,7 @@ function applyPridgeResponseDefinitions(eventModel = {}, definitions = [], optio
   let pridgeDiagnostics = [];
   const shouldCompute = !eventModel.pridgeComputationDeferred || options.force === true;
   let totalResults = {};
+  let trendEntriesByTeam = new Map();
   if (shouldCompute && typeof computeEventPridgeBatch === "function") {
     const responseSets = [
       ...(options.force === true ? [{ id: "__total", matches: rawMatches }] : []),
@@ -209,6 +210,13 @@ function applyPridgeResponseDefinitions(eventModel = {}, definitions = [], optio
       }
     });
   }
+  if (options.force === true && typeof computeEventPridgeTrend === "function" && rawMatches.length && teamEvents.length) {
+    try {
+      trendEntriesByTeam = computeEventPridgeTrend(rawMatches, teamEvents, { responseName: "score", digits: 1 }).entriesByTeam || new Map();
+    } catch {
+      trendEntriesByTeam = new Map();
+    }
+  }
   return {
     ...eventModel,
     pridgeDiagnostics,
@@ -227,6 +235,10 @@ function applyPridgeResponseDefinitions(eventModel = {}, definitions = [], optio
             definition.id,
             !team.isSuffixed ? results[definition.id]?.ratings?.[team.number] ?? null : null,
           ])),
+          trendEntries: !team.isSuffixed ? trendEntriesByTeam.get(team.number) || team.sources?.pridge?.trendEntries || [] : [],
+          trend: (!team.isSuffixed ? trendEntriesByTeam.get(team.number) || team.sources?.pridge?.trendEntries || [] : [])
+            .map((entry) => Number(entry.value))
+            .filter((value) => Number.isFinite(value)),
         },
       },
     })),

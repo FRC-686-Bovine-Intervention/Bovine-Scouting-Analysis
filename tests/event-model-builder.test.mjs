@@ -205,6 +205,8 @@ const hydratedWithDefinitions = context.EventModelBuilder.applyPridgeResponseDef
 assert.equal(pridgeCalls, 2, "Applying schema definitions should hydrate deferred pRidge values.");
 assert.equal(hydratedWithDefinitions.pridgeComputationDeferred, false);
 assert.equal(hydratedWithDefinitions.teams[0].sources.pridge.total, 1);
+assert.equal(hydratedWithDefinitions.teams[0].sources.pridge.trendEntries.length, 80);
+assert.equal(hydratedWithDefinitions.teams[0].sources.pridge.trend.length, 80);
 assert.equal(hydratedWithDefinitions.teams[0].sources.pridge.components["epa.total_points"], 1);
 
 pridgeCalls = 0;

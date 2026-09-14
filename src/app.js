@@ -8120,6 +8120,10 @@ function renderTeams() {
 }
 
 function renderTeamDetail(team) {
+  if (currentEvent()?.pridgeComputationDeferred === true) {
+    applyCurrentPridgeResponseDefinitions();
+    team = teamByNumber(state.selectedTeam) || team;
+  }
   const detailTrendMetrics = orderedMetrics().filter((metric) => metricUsesMatchDistribution(team, metric));
   const detailSelectedMetric = detailTrendMetrics.find((metric) => metric.id === state.teamDetailMetric) || null;
   const detailScoutingConfidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
