@@ -6,7 +6,8 @@ const stylesSource = fs.readFileSync("src/styles.css", "utf8");
 
 assert.match(appSource, /highlightTeam: 686/);
 assert.match(appSource, /id="scheduleHighlightTeam" type="number"/);
-assert.match(appSource, /const currentMatch = matches\.find\(\(match\) => !matchHasScore\(match\)\)/);
+assert.match(appSource, /function nextScheduleMatch\(matches\)/);
+assert.match(appSource, /const currentMatch = nextScheduleMatch\(matches\)/);
 assert.match(appSource, /const className = isCurrent[\s\S]*?schedule-highlight-team[\s\S]*?schedule-complete/);
 assert.match(appSource, /state\.highlightTeam = normalizeHighlightTeam\(event\.target\.value\)/);
 assert.match(stylesSource, /\.match-row\.schedule-current\s*\{[\s\S]*?background:\s*#FFFF66/);

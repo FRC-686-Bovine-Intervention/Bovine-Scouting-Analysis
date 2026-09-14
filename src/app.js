@@ -8921,6 +8921,36 @@ function matchHasScore(match) {
   return Number(match?.redScore) >= 0 && Number(match?.blueScore) >= 0;
 }
 
+function scheduleMatchOrder(match, sourceIndex) {
+  const competitionLevelOrder = { qm: 0, ef: 1, qf: 2, sf: 3, f: 4 };
+  const level = String(match?.compLevel || "qm").toLowerCase();
+  return [
+    competitionLevelOrder[level] ?? 99,
+    Number(match?.setNumber) || 0,
+    Number(match?.number) || 0,
+    sourceIndex,
+  ];
+}
+
+function compareScheduleMatchOrder(left, right) {
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return 0;
+}
+
+function nextScheduleMatch(matches) {
+  const orderedMatches = matches
+    .map((match, sourceIndex) => ({ match, sourceIndex, order: scheduleMatchOrder(match, sourceIndex) }))
+    .sort((left, right) => compareScheduleMatchOrder(left.order, right.order));
+  if (!orderedMatches.length) return null;
+  const lastScoredIndex = orderedMatches.reduce(
+    (lastIndex, entry, index) => (matchHasScore(entry.match) ? index : lastIndex),
+    -1,
+  );
+  return orderedMatches[lastScoredIndex + 1]?.match || null;
+}
+
 function scheduleRow(match, currentMatch, highlightTeam) {
   const isCurrent = currentMatch && matchIdentity(match) === matchIdentity(currentMatch);
   const hasHighlightTeam = highlightTeam > 0 && [...(match.red || []), ...(match.blue || [])].includes(highlightTeam);
@@ -8967,7 +8997,7 @@ function renderSchedule() {
   const matches = currentMatches();
   const qualifications = matches.filter((match) => scheduleMatchGroup(match) === "quals");
   const playoffs = matches.filter((match) => scheduleMatchGroup(match) === "playoffs");
-  const currentMatch = matches.find((match) => !matchHasScore(match)) || null;
+  const currentMatch = nextScheduleMatch(matches);
   return `
     <div class="section-heading">
       <div>
