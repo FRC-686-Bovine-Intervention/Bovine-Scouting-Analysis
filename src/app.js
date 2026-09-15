@@ -7516,10 +7516,9 @@ function toggleTheme() {
 function setView(view, options = {}) {
   const { recordHistory = true } = options;
   if (!canView(view)) view = "teams";
-  const enteringSchedule = view === "schedule" && state.activeView !== "schedule";
   if (recordHistory && state.activeView !== view) pushViewHistory();
   state.activeView = view;
-  if (enteringSchedule) scheduleFocusPending = true;
+  if (view === "schedule") scheduleFocusPending = true;
   state.contextMenu = null;
   state.inlineRename = null;
   saveState();

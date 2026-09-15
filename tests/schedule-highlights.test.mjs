@@ -8,6 +8,7 @@ assert.match(appSource, /highlightTeam: 686/);
 assert.match(appSource, /id="scheduleHighlightTeam" type="number"/);
 assert.match(appSource, /function nextScheduleMatch\(matches\)/);
 assert.match(appSource, /const currentMatch = nextScheduleMatch\(matches\)/);
+assert.match(appSource, /if \(view === "schedule"\) scheduleFocusPending = true;/);
 assert.match(appSource, /current_level_record/);
 assert.match(appSource, /matchesToCount = hasFinalsMatch/);
 assert.match(appSource, /const className = isCurrent[\s\S]*?schedule-highlight-team[\s\S]*?schedule-complete/);
