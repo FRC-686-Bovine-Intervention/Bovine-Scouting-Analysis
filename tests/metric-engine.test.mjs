@@ -927,6 +927,23 @@ runTest("buildTeamScoutingOverlay computes scouting totals, trends, and confiden
   assert.ok(overlay.flags.some((flag) => flag.label === "Flagged"));
 });
 
+runTest("buildTeamScoutingOverlay keeps suffixed robot submissions isolated", () => {
+  const overlay = metricEngine.buildTeamScoutingOverlay(
+    { id: "frc10988B", key: "frc10988B", number: 10988, isSuffixed: true, flags: [], matches: [], sources: {}, derived: {} },
+    {
+      submissions: [
+        { teamNumber: 10988, teamKey: "frc10988", matchNumber: 1, validity: "valid", rawMetrics: { auto: 99 } },
+        { teamNumber: 10988, teamKey: "frc10988B", matchNumber: 2, validity: "valid", rawMetrics: { auto: 12 } },
+      ],
+      scoringComponents: [{ id: "auto" }],
+      scouterMetricDefinitions: [{ id: "auto" }],
+      derivedMetricDefinitions: [],
+    },
+  );
+  assert.equal(overlay.sources.scouter.total, 12);
+  assert.equal(overlay.scouting.importedMatches, 1);
+});
+
 runTest("buildTeamScoutingOverlay exposes recent-window scouting aggregates", () => {
   const overlay = metricEngine.buildTeamScoutingOverlay(
     {

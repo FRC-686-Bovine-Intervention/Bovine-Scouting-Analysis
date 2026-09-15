@@ -43,6 +43,15 @@ const context = {
   String,
   JSON,
   Date,
+  TeamIdentity: {
+    identityFromProviderValue(value) {
+      const raw = String(value || "").replace(/^frc/i, "");
+      const match = raw.match(/^(\d+)([A-Za-z]+)?$/);
+      if (!match) return null;
+      const suffix = (match[2] || "").toUpperCase();
+      return { id: `frc${match[1]}${suffix}`, key: `frc${match[1]}${suffix}`, label: `${match[1]}${suffix}`, baseNumber: Number(match[1]), isSuffixed: Boolean(suffix) };
+    },
+  },
 };
 context.globalThis = context;
 vm.runInNewContext(source, context, { filename: "src/event-model-builder.js" });
@@ -67,6 +76,55 @@ const bundle = {
     { team: 1, match: "2019chcmp_qm3", epa: { total_points: 10.25 } },
   ],
 };
+
+const partiallyAssignedEvent = context.EventModelBuilder.buildEventModelFromProviderBundle({
+  ...bundle,
+  tbaMatches: [{
+    comp_level: "qm",
+    match_number: 81,
+    alliances: {
+      red: { team_keys: ["frc1", "frc3", "frc10988B"], score: -1 },
+      blue: { team_keys: ["frc2", "frc4", "frc6"], score: -1 },
+    },
+  }],
+  deferPridgeComputation: true,
+});
+assert.equal(partiallyAssignedEvent.matches.length, 1, "Scheduled matches remain visible while TBA fills alliance assignments.");
+assert.deepEqual(partiallyAssignedEvent.matches[0].red, [1, 3]);
+assert.deepEqual(partiallyAssignedEvent.matches[0].blue, [2, 4, 6]);
+assert.deepEqual(partiallyAssignedEvent.matches[0].redLabels, ["1", "3", "10988B"]);
+
+const duplicateBaseEvent = context.EventModelBuilder.buildEventModelFromProviderBundle({
+  ...bundle,
+  tbaTeams: [...bundle.tbaTeams, { team_number: 10988, key: "frc10988B", nickname: "Backup Bot" }],
+  tbaRankings: { rankings: [
+    { team_key: "frc10988", rank: 1, record: { wins: 1, losses: 0, ties: 0 } },
+    { team_key: "frc10988B", rank: 2, record: { wins: 0, losses: 1, ties: 0 } },
+  ] },
+  tbaTeamStats: { oprs: { frc10988: 30, frc10988B: 12 } },
+  statboticsTeamEvents: [
+    { team: 10988, epa: { total_points: 40 } },
+    { team: "10988B", epa: { total_points: 7 } },
+  ],
+  statboticsTeamMatches: [{ team: "10988B", match: "2026test_qm1", epa: { total_points: 8 } }],
+  tbaMatches: [{
+    comp_level: "qm",
+    match_number: 1,
+    alliances: {
+      red: { team_keys: ["frc10988", "frc10988B"], score: 100 },
+      blue: { team_keys: ["frc1", "frc2", "frc3"], score: 90 },
+    },
+  }],
+  deferPridgeComputation: true,
+});
+assert.deepEqual(JSON.parse(JSON.stringify(duplicateBaseEvent.teams.filter((team) => team.baseNumber === 10988).map((team) => team.id))), ["frc10988", "frc10988B"]);
+assert.equal(duplicateBaseEvent.teams.find((team) => team.id === "frc10988B").name, "Backup Bot");
+assert.deepEqual(JSON.parse(JSON.stringify(duplicateBaseEvent.matches[0].redKeys)), ["frc10988", "frc10988B"]);
+assert.equal(duplicateBaseEvent.teams.find((team) => team.id === "frc10988").sources.tba.components["opr.total"], 30);
+assert.equal(duplicateBaseEvent.teams.find((team) => team.id === "frc10988B").sources.tba.components["opr.total"], 12);
+assert.equal(duplicateBaseEvent.teams.find((team) => team.id === "frc10988B").sources.statbotics.total, 7);
+assert.deepEqual(JSON.parse(JSON.stringify(duplicateBaseEvent.teams.find((team) => team.id === "frc10988B").sources.statbotics.trendEntries)), [{ key: 1, value: 8 }]);
+assert.equal(duplicateBaseEvent.teams.find((team) => team.id === "frc10988B").sources.pridge.total, null);
 
 const playoffBundle = {
   ...bundle,
@@ -147,6 +205,8 @@ const hydratedWithDefinitions = context.EventModelBuilder.applyPridgeResponseDef
 assert.equal(pridgeCalls, 2, "Applying schema definitions should hydrate deferred pRidge values.");
 assert.equal(hydratedWithDefinitions.pridgeComputationDeferred, false);
 assert.equal(hydratedWithDefinitions.teams[0].sources.pridge.total, 1);
+assert.equal(hydratedWithDefinitions.teams[0].sources.pridge.trendEntries.length, 80);
+assert.equal(hydratedWithDefinitions.teams[0].sources.pridge.trend.length, 80);
 assert.equal(hydratedWithDefinitions.teams[0].sources.pridge.components["epa.total_points"], 1);
 
 pridgeCalls = 0;

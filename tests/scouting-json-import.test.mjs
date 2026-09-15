@@ -67,6 +67,35 @@ runTest("previewScoutingJsonImport accepts canonical scouting JSON and preserves
   assert.equal(preview.summary.submissions[0].provenance.sourceEntryId, "entry-1");
 });
 
+runTest("previewScoutingJsonImport keeps suffixed robot identity and quarantines ambiguous suffixes", () => {
+  const context = loadBrowserContext(["src/team-identity.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
+  const eventModel = { season: 2026, key: "2026azscor", formulaFieldDefinitions: [], scouterMetricDefinitions: [] };
+  const schema = {
+    meta: { format: "frc-scouting-analysis/v1", season: 2026, eventKey: "2026azscor", entryType: "match" },
+    schema: { schemaId: "2026-match-v1", expectedScoutingFields: [] },
+    entries: [],
+  };
+  const payload = {
+    meta: schema.meta,
+    entries: [
+      { entryId: "b-1", matchNumber: 1, teamNumber: 10988, teamKey: "frc10988B", alliance: "red", rawMetrics: {} },
+      { entryId: "ambiguous-1", matchNumber: 1, teamNumber: "10988B", alliance: "blue", rawMetrics: {} },
+    ],
+  };
+  const preview = context.ScoutingJsonImport.previewScoutingJsonImport({
+    jsonText: JSON.stringify(payload),
+    schemaJsonText: JSON.stringify(schema),
+    eventModel,
+    activeEventKey: "2026azscor",
+    existingSubmissions: [],
+  });
+  assert.equal(preview.ok, true);
+  assert.equal(preview.summary.submissions[0].teamNumber, 10988);
+  assert.equal(preview.summary.submissions[0].teamKey, "frc10988B");
+  assert.equal(preview.summary.submissions[1].validity, "excluded");
+  assert.ok(preview.summary.submissions[1].confidenceReasons.includes("invalid_team_identity"));
+});
+
 runTest("previewScoutingJsonImport accepts schema-carrying canonical JSON without season-seeded field definitions", () => {
   const context = loadBrowserContext(["src/legacy-scouting-schema-seeds.js", "src/season-framework.js", "src/scouting-source-utils.js", "src/scouting-json-schema.js", "src/scouting-json-import.js"]);
   const eventModel = {

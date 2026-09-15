@@ -23,6 +23,13 @@
   .offset-controls input { box-sizing: border-box; min-width: 92px; padding: 8px; }
   #state { height: 640px; margin: 0; overflow: auto; padding: 16px; border-radius: 8px; background: color-mix(in srgb, CanvasText 8%, Canvas); }
   .reset-controls { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
+  .recording-controls { align-items: end; display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  .recording-controls label { display: flex; flex-direction: column; gap: 4px; }
+  .recording-controls select { min-width: 260px; padding: 8px; }
+  .playback-controls { align-items: end; display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  .playback-controls label { display: flex; flex-direction: column; gap: 4px; }
+  .playback-controls input { box-sizing: border-box; min-width: 92px; padding: 8px; }
+  .playback-status { color: GrayText; min-width: 80px; }
 </style>
 <button id="setupToggle" type="button" aria-expanded="false" aria-controls="setupInstructions">Show setup instructions</button>
 <section id="setupInstructions" hidden>
@@ -37,31 +44,54 @@
   </ol>
   <p><strong>Machine check:</strong> open <code>http://127.0.0.1:8787/state</code>. It should return JSON with <code>scenario: 2026evsim</code>. Close the launcher PowerShell window when finished.</p>
 </section>
-<div class="event-header">
-  <h1>2026evsim <span id="buildHash" class="build-hash">Build: __BUILD_HASH__</span></h1>
+  <div class="event-header">
+  <h1><span id="scenarioName">2026evsim</span> <span id="buildHash" class="build-hash">Build: __BUILD_HASH__</span></h1>
   <div class="advance-controls" aria-label="Match controls">
-    <span class="current-match">Current match: <strong id="currentMatch">Loading…</strong></span>
+    <span class="current-match">Event position: <strong id="currentMatch">Loading…</strong></span>
     <button id="advance-1" onclick="post('advance', { amount: 1 })">+1</button>
     <button id="advance-5" onclick="post('advance', { amount: 5 })">+5</button>
     <button id="advance-10" onclick="post('advance', { amount: 10 })">+10</button>
   </div>
 </div>
 <div id="connectionStatus" class="waiting" role="status">Checking analysis connection…</div>
+<div class="recording-controls" aria-label="Recorded event playback">
+  <label for="recordingSelect">Recorded event<select id="recordingSelect"><option value="">Synthetic scenario (current)</option></select></label>
+  <button id="loadRecording" type="button">Load recording</button>
+  <span id="recordingStatus" role="status"></span>
+</div>
 <div class="offset-controls" aria-label="Source cursor offsets">
   <label for="tbaOffset">TBA offset<input id="tbaOffset" type="number" step="1" inputmode="numeric"></label>
   <label for="statboticsOffset">Statbotics offset<input id="statboticsOffset" type="number" step="1" inputmode="numeric"></label>
   <label for="scoutingOffset">Scouting offset<input id="scoutingOffset" type="number" step="1" inputmode="numeric"></label>
 </div>
-<pre id="state" aria-label="Simulator event log">Loading…</pre>
+<div class="playback-controls" aria-label="Timed playback controls">
+  <label for="playbackSeconds">Seconds between updates<input id="playbackSeconds" type="number" min="0.1" step="0.1" value="5" inputmode="decimal"></label>
+  <button id="playbackPlay" type="button">Play</button>
+  <button id="playbackPause" type="button" disabled>Pause</button>
+  <button id="playbackStop" type="button">Stop</button>
+  <span id="playbackStatus" class="playback-status" role="status">Stopped</span>
+</div>
 <div class="reset-controls" aria-label="Simulator reset controls">
   <button onclick="post('reset-timeline')">Reset timeline</button>
   <button onclick="post('reset-config')">Reset configuration</button>
   <button onclick="post('reset')">Full reset</button>
 </div>
+<pre id="state" aria-label="Simulator event log">Loading…</pre>
 <script>
 const setupToggle = document.querySelector('#setupToggle');
 const setupInstructions = document.querySelector('#setupInstructions');
 const currentMatch = document.querySelector('#currentMatch');
+const scenarioName = document.querySelector('#scenarioName');
+const recordingSelect = document.querySelector('#recordingSelect');
+const loadRecordingButton = document.querySelector('#loadRecording');
+const recordingStatus = document.querySelector('#recordingStatus');
+const playbackSeconds = document.querySelector('#playbackSeconds');
+const playbackPlay = document.querySelector('#playbackPlay');
+const playbackPause = document.querySelector('#playbackPause');
+const playbackStop = document.querySelector('#playbackStop');
+const playbackStatus = document.querySelector('#playbackStatus');
+let playbackTimer = null;
+let playbackBusy = false;
 const offsetInputs = {
   tba: document.querySelector('#tbaOffset'),
   statbotics: document.querySelector('#statboticsOffset'),
@@ -89,6 +119,8 @@ function renderConnectionStatus(value){
 function renderState(value){
   renderConnectionStatus(value);
   currentMatch.textContent = value?.currentMatch || 'Event complete';
+  scenarioName.textContent = value?.scenario || 'Event Simulator';
+  recordingStatus.textContent = value?.mode === 'recording' ? `Recording: ${value.cursorCount || 0} cursors` : 'Synthetic scenario';
   for (const [source, input] of Object.entries(offsetInputs)) {
     if (document.activeElement !== input && value?.offsets?.[source] != null) input.value = value.offsets[source];
   }
@@ -98,11 +130,71 @@ function renderState(value){
 }
 async function refresh(){renderState(await fetch('/state').then(r=>r.json()))}
 async function post(action, value = {}){
+  if (action.startsWith('reset') && playbackTimer != null) pausePlayback();
   const response = await fetch('/control/'+action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(value)});
-  renderState(await response.json());
+  const result = await response.json();
+  renderState(result);
+  return result;
 }
 for (const [source, input] of Object.entries(offsetInputs)) {
   input.addEventListener('change', () => post('set', { offsets: { [source]: Number(input.value) || 0 } }));
 }
+async function loadRecordings(){
+  const result = await fetch('/recordings').then(r=>r.json());
+  for (const recording of result.recordings || []) {
+    const option = document.createElement('option');
+    option.value = recording.eventCode;
+    option.textContent = `${recording.eventCode} (${recording.valid ? `${recording.cursorCount} cursors` : 'invalid'})`;
+    option.disabled = !recording.valid;
+    recordingSelect.append(option);
+  }
+}
+loadRecordingButton.addEventListener('click', async () => {
+  if (!recordingSelect.value) return;
+  pausePlayback();
+  const response = await fetch('/control/load-recording', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ eventCode: recordingSelect.value }) });
+  renderState(await response.json());
+});
+function setPlaybackButtons(){
+  const playing = playbackTimer != null;
+  playbackPlay.disabled = playing;
+  playbackPause.disabled = !playing;
+}
+function pausePlayback(message = 'Paused'){
+  if (playbackTimer != null) window.clearInterval(playbackTimer);
+  playbackTimer = null;
+  playbackStatus.textContent = message;
+  setPlaybackButtons();
+}
+function playbackDelay(){
+  const seconds = Number(playbackSeconds.value);
+  return Number.isFinite(seconds) && seconds >= 0.1 ? seconds * 1000 : 5000;
+}
+async function playbackTick(){
+  if (playbackBusy || playbackTimer == null) return;
+  playbackBusy = true;
+  try {
+    const result = await post('advance', { amount: 1 });
+    if (result?.cursorCount > 0 && result.cursor >= result.cursorCount - 1) pausePlayback('At final cursor');
+  } catch (error) {
+    pausePlayback('Playback error');
+    playbackStatus.title = error.message;
+  } finally { playbackBusy = false; }
+}
+function playPlayback(){
+  if (playbackTimer != null) return;
+  playbackStatus.title = '';
+  playbackStatus.textContent = 'Playing';
+  playbackTimer = window.setInterval(playbackTick, playbackDelay());
+  setPlaybackButtons();
+}
+async function stopPlayback(){
+  pausePlayback('Stopped');
+  await post('reset-timeline');
+}
+playbackPlay.addEventListener('click', playPlayback);
+playbackPause.addEventListener('click', () => pausePlayback());
+playbackStop.addEventListener('click', stopPlayback);
+loadRecordings().catch((error) => { recordingStatus.textContent = error.message; });
 refresh(); setInterval(refresh, 5000);
 </script>

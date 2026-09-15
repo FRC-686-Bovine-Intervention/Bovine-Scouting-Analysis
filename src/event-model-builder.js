@@ -9,6 +9,7 @@ const buildMetricCatalog =
 const computeEventPridge = priorRidge.computeEventPridge;
 const computeEventPridgeTrend = priorRidge.computeEventPridgeTrend;
 const computeEventPridgeBatch = priorRidge.computeEventPridgeBatch;
+const teamIdentity = globalThis.TeamIdentity || {};
 const PRIDGE_RESPONSE_IDS = new Set([
   "tbaTotalAutoPoints",
   "tbaTotalTeleopPoints",
@@ -42,6 +43,18 @@ function parseJson(text, fallback) {
 
 function normalizeText(value) {
   return String(value || "").trim();
+}
+
+function normalizeRobotIdentity(value) {
+  if (typeof teamIdentity.identityFromProviderValue === "function") {
+    return teamIdentity.identityFromProviderValue(value);
+  }
+  const raw = normalizeText(value).replace(/^frc/i, "");
+  const match = raw.match(/^(\d+)([A-Za-z]+)?$/);
+  if (!match || Number(match[1]) <= 0) return null;
+  const suffix = (match[2] || "").toUpperCase();
+  const label = `${match[1]}${suffix}`;
+  return { id: `frc${label}`, key: `frc${label}`, label, baseNumber: Number(match[1]), isSuffixed: Boolean(suffix) };
 }
 
 function normalizePridgeResponseDefinitions(payload) {
@@ -166,6 +179,7 @@ function applyPridgeResponseDefinitions(eventModel = {}, definitions = [], optio
   let pridgeDiagnostics = [];
   const shouldCompute = !eventModel.pridgeComputationDeferred || options.force === true;
   let totalResults = {};
+  let trendEntriesByTeam = new Map();
   if (shouldCompute && typeof computeEventPridgeBatch === "function") {
     const responseSets = [
       ...(options.force === true ? [{ id: "__total", matches: rawMatches }] : []),
@@ -196,6 +210,13 @@ function applyPridgeResponseDefinitions(eventModel = {}, definitions = [], optio
       }
     });
   }
+  if (options.force === true && typeof computeEventPridgeTrend === "function" && rawMatches.length && teamEvents.length) {
+    try {
+      trendEntriesByTeam = computeEventPridgeTrend(rawMatches, teamEvents, { responseName: "score", digits: 1 }).entriesByTeam || new Map();
+    } catch {
+      trendEntriesByTeam = new Map();
+    }
+  }
   return {
     ...eventModel,
     pridgeDiagnostics,
@@ -207,13 +228,17 @@ function applyPridgeResponseDefinitions(eventModel = {}, definitions = [], optio
         ...team.sources,
         pridge: {
           ...(team.sources?.pridge || {}),
-          total: Number.isFinite(Number(totalResults[team.number]))
+          total: !team.isSuffixed && Number.isFinite(Number(totalResults[team.number]))
             ? totalResults[team.number]
             : team.sources?.pridge?.total ?? null,
           components: Object.fromEntries(normalizedDefinitions.map((definition) => [
             definition.id,
-            results[definition.id]?.ratings?.[team.number] ?? null,
+            !team.isSuffixed ? results[definition.id]?.ratings?.[team.number] ?? null : null,
           ])),
+          trendEntries: !team.isSuffixed ? trendEntriesByTeam.get(team.number) || team.sources?.pridge?.trendEntries || [] : [],
+          trend: (!team.isSuffixed ? trendEntriesByTeam.get(team.number) || team.sources?.pridge?.trendEntries || [] : [])
+            .map((entry) => Number(entry.value))
+            .filter((value) => Number.isFinite(value)),
         },
       },
     })),
@@ -306,9 +331,10 @@ function tbaComponentValue(team, componentId) {
 }
 
 function buildSeedPicklists(teams) {
+  const teamSelectionValue = (team) => team?.isSuffixed ? team.id : team?.number;
   const byStatbotics = [...teams]
     .sort((a, b) => sourceValue(b, "statbotics") - sourceValue(a, "statbotics") || a.number - b.number)
-    .map((team) => team.number);
+    .map(teamSelectionValue);
   const byPridge = [...teams]
     .sort((a, b) => {
       const left = sourceValue(a, "pridge");
@@ -316,7 +342,7 @@ function buildSeedPicklists(teams) {
       if (Number.isFinite(right) && Number.isFinite(left) && right !== left) return right - left;
       return tbaComponentValue(b, "opr.total") - tbaComponentValue(a, "opr.total") || a.number - b.number;
     })
-    .map((team) => team.number);
+    .map(teamSelectionValue);
   return [
     { id: "pick-first-pick", name: "First Pick", teams: byStatbotics },
     { id: "pick-backup-live", name: "Backup / Live Sources", teams: byPridge },
@@ -339,6 +365,10 @@ function normalizeMatches(matches) {
     .filter((match) => supportedLevels.has(String(match?.comp_level || "").toLowerCase()))
     .sort((left, right) => matchSortValue(left) - matchSortValue(right))
     .map((match) => {
+      const redTeamKeys = match.alliances?.red?.team_keys || [];
+      const blueTeamKeys = match.alliances?.blue?.team_keys || [];
+      const redLabels = redTeamKeys.map((teamKey) => String(teamKey).replace(/^frc/i, ""));
+      const blueLabels = blueTeamKeys.map((teamKey) => String(teamKey).replace(/^frc/i, ""));
       const redScore = Number(match.alliances?.red?.score);
       const blueScore = Number(match.alliances?.blue?.score);
       return {
@@ -346,8 +376,16 @@ function normalizeMatches(matches) {
         compLevel: String(match.comp_level || "qm").toLowerCase(),
         setNumber: Number(match.set_number) || 0,
         number: Number(match.match_number),
-        red: (match.alliances?.red?.team_keys || []).map((teamKey) => Number(String(teamKey).replace("frc", ""))).filter(Number.isFinite),
-        blue: (match.alliances?.blue?.team_keys || []).map((teamKey) => Number(String(teamKey).replace("frc", ""))).filter(Number.isFinite),
+        red: redLabels.map(Number).filter(Number.isFinite),
+        blue: blueLabels.map(Number).filter(Number.isFinite),
+        ...(redLabels.some((label) => !/^\d+$/.test(label)) ? {
+          redLabels,
+          redKeys: redTeamKeys.map(normalizeRobotIdentity).filter(Boolean).map((identity) => identity.key),
+        } : {}),
+        ...(blueLabels.some((label) => !/^\d+$/.test(label)) ? {
+          blueLabels,
+          blueKeys: blueTeamKeys.map(normalizeRobotIdentity).filter(Boolean).map((identity) => identity.key),
+        } : {}),
         redScore: Number.isFinite(redScore) ? redScore : 0,
         blueScore: Number.isFinite(blueScore) ? blueScore : 0,
         hasScore: Number.isFinite(redScore) && Number.isFinite(blueScore) && redScore >= 0 && blueScore >= 0,
@@ -360,7 +398,9 @@ function normalizeMatches(matches) {
           : null,
       };
     })
-    .filter((match) => match.red.length === 3 && match.blue.length === 3);
+    // Keep scheduled matches while TBA is still filling in their alliance
+    // assignments. Metric consumers can continue filtering for six-team rows;
+    // the schedule can display incomplete rows with TBD slots.
 }
 
 function normalizePlayoffAlliances(alliances) {
@@ -375,20 +415,28 @@ function normalizePlayoffAlliances(alliances) {
 }
 
 function parseTeamNumberFromKey(value) {
-  return Number(String(value || "").replace("frc", ""));
+  return normalizeRobotIdentity(value)?.baseNumber ?? Number.NaN;
 }
 
 function buildRankingMap(rankingsPayload) {
   const rankings = Array.isArray(rankingsPayload?.rankings) ? rankingsPayload.rankings : [];
-  return new Map(rankings.map((entry) => [parseTeamNumberFromKey(entry?.team_key), entry]));
+  return new Map(rankings
+    .map((entry) => [normalizeRobotIdentity(entry?.team_key), entry])
+    .filter(([identity]) => identity)
+    .map(([identity, entry]) => [identity.id, entry]));
 }
 
 function buildTbaTeamValueMap(teamStatsPayload, key) {
   const values = teamStatsPayload?.[key] && typeof teamStatsPayload[key] === "object" ? teamStatsPayload[key] : {};
-  return new Map(Object.entries(values).map(([teamKey, value]) => [parseTeamNumberFromKey(teamKey), Number(value || 0)]));
+  return new Map(Object.entries(values)
+    .map(([teamKey, value]) => [normalizeRobotIdentity(teamKey), Number(value || 0)])
+    .filter(([identity]) => identity)
+    .map(([identity, value]) => [identity.id, value]));
 }
 
-function buildTbaTeamStatEntries(teamStatsPayload, teamNumber) {
+function buildTbaTeamStatEntries(teamStatsPayload, teamIdentity) {
+  const identity = typeof teamIdentity === "object" ? teamIdentity : normalizeRobotIdentity(teamIdentity);
+  if (!identity) return [];
   const teamValueMaps = [
     { fieldId: "opr.total", valuesByTeamNumber: buildTbaTeamValueMap(teamStatsPayload, "oprs") },
     { fieldId: "dpr.total", valuesByTeamNumber: buildTbaTeamValueMap(teamStatsPayload, "dprs") },
@@ -396,7 +444,7 @@ function buildTbaTeamStatEntries(teamStatsPayload, teamNumber) {
   ];
   return teamValueMaps
     .map(({ fieldId, valuesByTeamNumber }) => {
-      const value = valuesByTeamNumber.get(teamNumber);
+      const value = valuesByTeamNumber.get(identity.id);
       return Number.isFinite(Number(value)) ? { fieldId, value: Number(value) } : null;
     })
     .filter(Boolean);
@@ -427,9 +475,16 @@ function buildTeam(teamInfo, teamEvent, scoutingSchema, tbaComponents, teamMatch
   if (statboticsTrendEntries.length) {
     statboticsComponents["epa.post"] = statboticsTrendEntries.at(-1).value;
   }
+  const identity = normalizeRobotIdentity(teamInfo.key || teamInfo.team_key || teamInfo.team_number);
+  const baseNumber = identity?.baseNumber ?? Number(teamInfo.team_number);
   return {
-    number: Number(teamInfo.team_number),
-    name: teamInfo.nickname || teamEvent?.team_name || `Team ${teamInfo.team_number}`,
+    id: identity?.id || `frc${baseNumber}`,
+    key: identity?.key || `frc${baseNumber}`,
+    label: identity?.label || String(baseNumber),
+    baseNumber,
+    isSuffixed: identity?.isSuffixed === true,
+    number: baseNumber,
+    name: teamInfo.nickname || teamEvent?.team_name || `Team ${identity?.label || teamInfo.team_number}`,
     drivetrain: "unknown",
     flags: [],
     matches: [],
@@ -469,30 +524,45 @@ function buildEventModelFromPayloads(payload) {
     pridgeResponseDefinitions,
     scoringMatrixPresets: Array.isArray(payload?.scoringMatrixPresets) ? payload.scoringMatrixPresets : [],
   };
-  const teamEventsByNumber = new Map((payload.statboticsTeamEvents || []).map((teamEvent) => [Number(teamEvent.team), teamEvent]));
-  const teamMatchesByNumber = new Map();
+  const teamEventsById = new Map((payload.statboticsTeamEvents || [])
+    .map((teamEvent) => [normalizeRobotIdentity(teamEvent.team), teamEvent])
+    .filter(([identity]) => identity)
+    .map(([identity, teamEvent]) => [identity.id, teamEvent]));
+  const teamMatchesById = new Map();
   (payload.statboticsTeamMatches || []).forEach((teamMatch) => {
-    const teamNumber = Number(teamMatch?.team);
-    if (!Number.isFinite(teamNumber)) return;
-    if (!teamMatchesByNumber.has(teamNumber)) teamMatchesByNumber.set(teamNumber, []);
-    teamMatchesByNumber.get(teamNumber).push(teamMatch);
+    const identity = normalizeRobotIdentity(teamMatch?.team);
+    if (!identity) return;
+    if (!teamMatchesById.has(identity.id)) teamMatchesById.set(identity.id, []);
+    teamMatchesById.get(identity.id).push(teamMatch);
   });
   const rankingsByTeamNumber = buildRankingMap(payload.tbaRankings);
   const tbaTeamStats = payload.tbaTeamStats || {};
-  const teams = (payload.tbaTeams || [])
+  const teamInfosById = new Map();
+  (payload.tbaTeams || []).forEach((teamInfo) => {
+      const identity = normalizeRobotIdentity(teamInfo.key || teamInfo.team_key || teamInfo.team_number);
+      if (identity) teamInfosById.set(identity.id, { ...teamInfo, key: identity.key });
+  });
+  (payload.tbaMatches || []).forEach((match) => {
+    for (const teamKey of [...(match.alliances?.red?.team_keys || []), ...(match.alliances?.blue?.team_keys || [])]) {
+      const identity = normalizeRobotIdentity(teamKey);
+      if (identity && !teamInfosById.has(identity.id)) teamInfosById.set(identity.id, { team_number: identity.baseNumber, key: identity.key });
+    }
+  });
+  const teams = [...teamInfosById.values()]
     .map((teamInfo) => {
-      const teamNumber = Number(teamInfo.team_number);
+      const identity = normalizeRobotIdentity(teamInfo.key || teamInfo.team_key || teamInfo.team_number);
+      const teamNumber = identity?.baseNumber ?? Number(teamInfo.team_number);
       return buildTeam(
         teamInfo,
-        teamEventsByNumber.get(teamNumber) || {},
+        teamEventsById.get(identity?.id) || {},
         eventSchema,
-        buildTbaEventComponents(rankingsByTeamNumber.get(teamNumber) || null, [
-          ...buildTbaTeamStatEntries(tbaTeamStats, teamNumber),
+        buildTbaEventComponents(rankingsByTeamNumber.get(identity?.id) || null, [
+          ...buildTbaTeamStatEntries(tbaTeamStats, identity),
         ]),
-        teamMatchesByNumber.get(teamNumber) || [],
+        teamMatchesById.get(identity?.id) || [],
       );
     })
-    .sort((left, right) => left.number - right.number);
+    .sort((left, right) => left.number - right.number || left.id.localeCompare(right.id));
   const matches = normalizeMatches(payload.tbaMatches || []);
   const playoffAlliances = normalizePlayoffAlliances(payload.tbaAlliances);
   const qualificationMatches = (payload.tbaMatches || []).filter((match) => match?.comp_level === "qm");
@@ -534,10 +604,10 @@ function buildEventModelFromPayloads(payload) {
     }
   }
   const teamsWithPridge = teams.map((team) => {
-    const total = pridgeResult?.ratings?.[team.number] ?? null;
+    const total = team.isSuffixed ? null : pridgeResult?.ratings?.[team.number] ?? null;
     const responseComponents = Object.fromEntries(pridgeResponseDefinitions.map((definition) => [
       definition.id,
-      pridgeResponseResults[definition.id]?.ratings?.[team.number] ?? null,
+      team.isSuffixed ? null : pridgeResponseResults[definition.id]?.ratings?.[team.number] ?? null,
     ]));
     if (Number.isFinite(Number(total))) {
       responseComponents["epa.total_points"] = total;

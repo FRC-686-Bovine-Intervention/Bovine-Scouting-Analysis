@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { deriveStatboticsTeamMatches, loadRecording, providerPayload } from "./recording.mjs";
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const sourceNames = ["tba", "statbotics", "scouting"];
@@ -75,9 +76,7 @@ function buildTbaProjections(matches) {
 
 function buildStatboticsRows(matches, eventKey) {
   const statMatches = matches.map((match) => ({ ...clone(match), key: rewriteEventKeys(match.key, "2026chcmp", eventKey), match_key: rewriteEventKeys(match.key, "2026chcmp", eventKey), event: eventKey }));
-  const teamMatches = [];
-  for (const match of statMatches) for (const alliance of ["red", "blue"]) for (const teamKey of match.alliances?.[alliance]?.team_keys || []) teamMatches.push({ match_key: match.match_key, event: eventKey, team: Number(String(teamKey).replace("frc", "")), alliance, result: match.winning_alliance === alliance ? "W" : match.winning_alliance ? "L" : "T", score: match.alliances[alliance].score });
-  return { matches: statMatches, teamMatches };
+  return { matches: statMatches, teamMatches: deriveStatboticsTeamMatches(statMatches, eventKey) };
 }
 
 export function createEngine({ root = path.resolve("."), scenarioPath = path.resolve("eventSimulator/scenario.json"), statePath = path.resolve("eventSimulator/.state.json") } = {}) {
@@ -166,10 +165,16 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
     if (state.failures[source] === "malformed") return { malformed: true };
     return value;
   }
-  function get(source, kind) {
+  function get(source, kind, teamKey = "") {
     const data = payload(source);
     if (source === "tba") return kind === "event" ? data.event : kind === "teams" ? data.teams : kind === "matches" ? data.matches : kind === "alliances" ? data.alliances : kind === "rankings" ? { rankings: data.rankings } : data.stats;
-    if (source === "statbotics") return kind === "event" ? data.event : kind === "team-events" ? data.teamEvents : kind === "team-matches" ? data.teamMatches : data.matches;
+    if (source === "statbotics") {
+      if (kind === "team-event") {
+        const requested = String(teamKey).replace(/^frc/i, "");
+        return (data.teamEvents || []).find((row) => String(row?.team ?? "").replace(/^frc/i, "") === requested) || {};
+      }
+      return kind === "event" ? data.event : kind === "team-events" ? data.teamEvents : kind === "team-matches" ? data.teamMatches : data.matches;
+    }
     if (kind === "schema") {
       const schemaArtifact = rewriteEventKeys(fixtures.scoutingSchema, scenario.sourceEventKey, scenario.id);
       return { ...schemaArtifact, meta: { ...schemaArtifact.meta, season: scenario.year, eventKey: scenario.id } };
@@ -190,4 +195,73 @@ export function createEngine({ root = path.resolve("."), scenarioPath = path.res
   };
   const getState = () => ({ scenario: scenario.id, cursor: state.cursor, currentMatch: state.cursor < 0 ? "Pre-Event" : state.cursor === 0 ? "Schedule Released" : matchLabel(ordered[state.cursor - 1]), phase: state.cursor < 0 ? "team-only" : state.cursor === 0 ? "scheduled" : "results", offsets: clone(state.offsets), latencyMs: clone(state.latencyMs), delayScale: state.delayScale, failures: clone(state.failures), corrections: clone(state.corrections), totalSequence: ordered.length, requests: requests.map(({ signature, dataSignature, ...request }) => request) });
   return { scenario, fixtures, defaults, getState, setState, advance, resetTimeline, resetConfig, resetAll, get, effectiveCursor: (source) => effectiveCursor(state, source), requestGeneration: () => requestGeneration, recordRequest, responseDelay: (source) => (state.latencyMs[source] || 0) * state.delayScale };
+}
+
+export function createRecordedEngine({ recordingPath, statePath = path.resolve("eventSimulator/.recorded-state.json") } = {}) {
+  if (!recordingPath) throw new Error("A recording path is required.");
+  const recording = loadRecording(recordingPath);
+  let supplementalTeamEvents = {};
+  try {
+    const artifact = JSON.parse(fs.readFileSync(path.join(recordingPath, "team-event-responses.json"), "utf8"));
+    supplementalTeamEvents = artifact?.responses || {};
+  } catch {}
+  const requests = [];
+  let state = { cursor: 0 };
+  try { state = { ...state, ...JSON.parse(fs.readFileSync(statePath, "utf8")) }; } catch {}
+  const persist = () => { fs.mkdirSync(path.dirname(statePath), { recursive: true }); fs.writeFileSync(statePath, JSON.stringify(state, null, 2)); };
+  const active = () => recording.cursors[Math.max(0, Math.min(recording.cursors.length - 1, Number(state.cursor) || 0))];
+  const sourceState = (source) => active()?.providers?.[source];
+  const get = (source, kind, teamKey = "") => {
+    const provider = sourceState(source);
+    const payloads = providerPayload(provider);
+    if (!provider || provider.status === "error" && !Object.keys(payloads).length) throw Object.assign(new Error(provider?.error || `${source} is unavailable`), { statusCode: 503 });
+    if (source === "statbotics" && kind === "team-event") {
+      const requested = String(teamKey).replace(/^frc/i, "");
+      const row = (payloads.teamEvents || []).find((item) => String(item?.team ?? "").replace(/^frc/i, "") === requested);
+      if (row) return row;
+      if (Object.prototype.hasOwnProperty.call(supplementalTeamEvents, requested)) return supplementalTeamEvents[requested].payload;
+      throw Object.assign(new Error(`${source}/team-event/${teamKey} is unavailable in this recorded cursor.`), { statusCode: 404 });
+    }
+    if (source === "statbotics" && kind === "team-matches" && !Object.prototype.hasOwnProperty.call(payloads, "teamMatches")) {
+      return deriveStatboticsTeamMatches(payloads.matches, recording.manifest.eventCode);
+    }
+    const payloadKey = source === "statbotics" ? (kind === "team-events" ? "teamEvents" : kind === "team-matches" ? "teamMatches" : kind) : kind;
+    if (!Object.prototype.hasOwnProperty.call(payloads, payloadKey)) {
+      if (source === "statbotics" && kind === "team-events") return [];
+      throw Object.assign(new Error(`${source}/${kind} is unavailable in this recorded cursor.`), { statusCode: 503 });
+    }
+    return payloads[payloadKey];
+  };
+  const getState = () => {
+    const cursor = active();
+    return {
+      mode: "recording",
+      scenario: recording.manifest.eventCode,
+      recordingPath,
+      cursor: state.cursor,
+      cursorCount: recording.cursors.length,
+      currentMatch: cursor?.eventTag || "Event complete",
+      eventTag: cursor?.eventTag || "event-complete",
+      recordedAt: cursor?.recordedAt || "",
+      offsets: { tba: 0, statbotics: 0, scouting: 0 },
+      requests: requests.map(({ signature, dataSignature, ...request }) => request),
+    };
+  };
+  const setState = (updates = {}) => { if (updates.cursor != null) state.cursor = Math.max(0, Math.min(recording.cursors.length - 1, Number(updates.cursor))); persist(); return getState(); };
+  const advance = (amount = 1) => setState({ cursor: state.cursor + Math.max(1, Number(amount)) });
+  const resetTimeline = () => setState({ cursor: 0 });
+  const resetConfig = () => getState();
+  const resetAll = () => { requests.length = 0; return setState({ cursor: 0 }); };
+  const recordRequest = (request) => {
+    const signature = `${request.source}/${request.kind}`;
+    const existingIndex = requests.findIndex((item) => item.signature === signature);
+    if (existingIndex >= 0) {
+      const existing = requests.splice(existingIndex, 1)[0];
+      requests.unshift({ ...existing, at: request.at, cursor: request.cursor, repeatCount: (existing.repeatCount || 1) + 1 });
+    } else {
+      requests.unshift({ ...request, signature, repeatCount: 1 });
+      requests.splice(50);
+    }
+  };
+  return { getState, setState, advance, resetTimeline, resetConfig, resetAll, get, effectiveCursor: () => state.cursor, requestGeneration: () => 0, recordRequest, responseDelay: () => 0 };
 }

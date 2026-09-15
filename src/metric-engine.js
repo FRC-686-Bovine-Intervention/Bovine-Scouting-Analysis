@@ -1153,7 +1153,9 @@ function scoutingFlagsForTeam(baseTeam, submissions, importedMatchCount, consist
 }
 
 function buildTeamScoutingOverlay(baseTeam, options = {}) {
-  const submissions = (options.submissions || []).filter((submission) => Number(submission.teamNumber) === baseTeam.number);
+  const submissions = (options.submissions || []).filter((submission) => baseTeam?.isSuffixed
+    ? String(submission.teamKey || "").trim().toLowerCase() === String(baseTeam.id || baseTeam.key || "").trim().toLowerCase()
+    : Number(submission.teamNumber) === baseTeam.number && !submission.teamKey);
   const scouterMetricDefinitions = Array.isArray(options.scouterMetricDefinitions) ? options.scouterMetricDefinitions : [];
   const derivedMetricDefinitions = Array.isArray(options.derivedMetricDefinitions) ? options.derivedMetricDefinitions : [];
   const aggregatedMatches = aggregateSubmissionMatches(submissions, {

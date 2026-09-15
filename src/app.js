@@ -387,7 +387,7 @@ const state = {
   activeAnalysisFilterId: "",
   teamDetailMetric: "",
   picklistCompareMetric: "",
-  selectedTeam: initialEvent.teams[0]?.number || 0,
+  selectedTeam: initialEvent.teams[0]?.id || initialEvent.teams[0]?.number || 0,
   selectedMatch: initialEvent.matches[0]?.id || initialEvent.matches[0]?.number || 0,
   highlightTeam: 686,
   matchupMetricSelections: [...defaultMatchupMetricIds],
@@ -648,12 +648,7 @@ function bootstrapApp() {
       document.documentElement.dataset.theme = state.theme;
       renderSafely();
       ensureSourceRefreshLoop();
-      void loadArbitraryEventCode(state.activeEventKey, {
-        activeView: state.activeView,
-        source: "simulator-startup-refresh",
-        deferPridgeTrends: true,
-        deferPridgeComputation: true,
-      });
+      void refreshSimulatorSources({ trigger: "startup" });
       recordScoutingPerf("bootstrap.simulatorRefresh", startedAt, { eventKey: state.activeEventKey });
       return;
     }
@@ -1435,6 +1430,18 @@ function maybePollActiveScoutingAttachment() {
 }
 
 function maybePollExternalSources() {
+  if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first") {
+    if (!state.activeEventKey || pendingExternalRefreshSourceIds.has("simulator-first")) return;
+    pendingExternalRefreshSourceIds.add("simulator-first");
+    Promise.resolve(refreshSimulatorSources({ trigger: "poll" }))
+      .catch((error) => {
+        console.error("Polling event simulator sources failed", error);
+      })
+      .finally(() => {
+        pendingExternalRefreshSourceIds.delete("simulator-first");
+      });
+    return;
+  }
   const workspace = currentEventWorkspace();
   if (currentEvent()?.catalogSource === "dynamic-external") {
     const due = ["tba", "statbotics", "pridge"].some((sourceId) => {
@@ -1475,6 +1482,54 @@ function maybePollExternalSources() {
   });
 }
 
+function simulatorStateUrl() {
+  const configuredTbaUrl = normalizeText(globalThis.__EVENT_SIMULATOR_CONFIG?.tbaUrl);
+  if (!configuredTbaUrl) return "";
+  try {
+    return new URL("/state", configuredTbaUrl).toString();
+  } catch {
+    return "";
+  }
+}
+
+async function simulatorScenarioKey() {
+  const stateUrl = simulatorStateUrl();
+  if (!stateUrl) return "";
+  const response = await fetch(stateUrl, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Simulator state request failed (${response.status}).`);
+  const simulatorState = await response.json();
+  return normalizeExternalEventCode(simulatorState?.scenario);
+}
+
+async function refreshSimulatorSources(options = {}) {
+  const trigger = options.trigger || "poll";
+  let simulatorEventKey = "";
+  try {
+    simulatorEventKey = await simulatorScenarioKey();
+  } catch (error) {
+    console.warn("Unable to read the active event from the simulator; keeping the current event.", error);
+  }
+
+  const refreshEventKey = simulatorEventKey || state.activeEventKey;
+  if (!refreshEventKey) return false;
+  const eventChanged = refreshEventKey !== state.activeEventKey;
+  return loadArbitraryEventCode(refreshEventKey, {
+    activeView: state.activeView,
+    source: eventChanged ? "simulator-event-sync" : "simulator-refresh",
+    deferPridgeTrends: true,
+    deferPridgeComputation: true,
+    ...(eventChanged ? {} : {
+      selectionToken: {
+        eventKey: refreshEventKey,
+        generation: eventLoadSequence,
+        source: "background",
+      },
+      activate: false,
+    }),
+    trigger,
+  });
+}
+
 function ensureSourceRefreshLoop() {
   if (sourceRefreshIntervalId !== null) return;
   sourceRefreshIntervalId = globalThis.setInterval(() => {
@@ -1497,6 +1552,12 @@ async function refreshDataSource(sourceId, options = {}) {
     await loadScoutingData({ autoCommit: true, scoutingImportSource: "manual-refresh", skipUnchanged: true, importDraftSource: "attached" });
     recordScoutingPerf("background.refresh.end", startedAt, { sourceId, trigger, changed: null, activeView: state.activeView });
     return;
+  }
+  if (globalThis.__EVENT_SIMULATOR_CONFIG?.mode === "simulator-first") {
+    if (sourceId !== "tba") return;
+    const refreshed = await refreshSimulatorSources({ trigger });
+    recordScoutingPerf("background.refresh.end", startedAt, { sourceId, trigger, changed: true, activeView: state.activeView });
+    return refreshed;
   }
   if (currentEvent()?.catalogSource === "dynamic-external") {
     const refreshEventKey = currentEvent().key;
@@ -3405,14 +3466,18 @@ function tbaMatchMetricsByTeam(teamNumber, eventModel = currentEvent()) {
     tbaMatchMetricsCache.set(eventModel, new Map());
   }
   const cache = tbaMatchMetricsCache.get(eventModel);
+  const identity = String(teamNumber ?? "").trim();
   const normalizedTeamNumber = Number(teamNumber);
-  if (!cache.has(normalizedTeamNumber)) {
+  const exactIdentity = identity.startsWith("frc") && /[a-z]$/i.test(identity);
+  const cacheKey = exactIdentity ? identity.toLowerCase() : normalizedTeamNumber;
+  if (!cache.has(cacheKey)) {
     cache.set(
-      normalizedTeamNumber,
+      cacheKey,
       (eventModel.matches || [])
-        .filter((match) => (match.red || []).includes(normalizedTeamNumber) || (match.blue || []).includes(normalizedTeamNumber))
+        .filter((match) => (exactIdentity ? (match.redKeys || []) : (match.red || [])).some((key) => String(key).toLowerCase() === String(cacheKey).toLowerCase())
+          || (exactIdentity ? (match.blueKeys || []) : (match.blue || [])).some((key) => String(key).toLowerCase() === String(cacheKey).toLowerCase()))
         .map((match) => {
-          const allianceKey = (match.red || []).includes(normalizedTeamNumber) ? "red" : "blue";
+          const allianceKey = (exactIdentity ? (match.redKeys || []) : (match.red || [])).some((key) => String(key).toLowerCase() === String(cacheKey).toLowerCase()) ? "red" : "blue";
           const breakdown = match.scoreBreakdown?.[allianceKey] || null;
           const flattenedBreakdown = Object.fromEntries(flattenTbaScalarEntries(breakdown || {}));
           return {
@@ -3426,7 +3491,7 @@ function tbaMatchMetricsByTeam(teamNumber, eventModel = currentEvent()) {
         .sort((left, right) => left.matchNumber - right.matchNumber),
     );
   }
-  return cache.get(normalizedTeamNumber);
+  return cache.get(cacheKey);
 }
 
 function collectTbaMetricDefinitions(eventModel = currentEvent()) {
@@ -3643,24 +3708,34 @@ function buildFormulaScoutingMatches(submissions, scoringComponents, scouterMetr
 const formulaSubmissionTeamCache = new WeakMap();
 const teamFormulaContextCache = new WeakMap();
 
-function formulaSubmissionsForTeam(teamNumber, submissions) {
+function formulaSubmissionsForTeam(teamOrNumber, submissions) {
   const source = Array.isArray(submissions) ? submissions : [];
   if (!formulaSubmissionTeamCache.has(source)) {
     formulaSubmissionTeamCache.set(source, new Map());
   }
   const cache = formulaSubmissionTeamCache.get(source);
-  const normalizedTeamNumber = Number(teamNumber);
-  if (!cache.has(normalizedTeamNumber)) {
+  const teamIdentity = typeof teamOrNumber === "object" && teamOrNumber?.isSuffixed
+    ? String(teamOrNumber.id || teamOrNumber.key || "").toLowerCase()
+    : "";
+  const cacheKey = teamIdentity || Number(teamOrNumber);
+  if (!cache.has(cacheKey)) {
     cache.set(
-      normalizedTeamNumber,
-      source.filter((submission) => Number(submission.teamNumber) === normalizedTeamNumber),
+      cacheKey,
+      source.filter((submission) => teamIdentity
+        ? String(submission.teamKey || "").toLowerCase() === teamIdentity
+        : Number(submission.teamNumber) === cacheKey && !submission.teamKey),
     );
   }
-  return cache.get(normalizedTeamNumber);
+  return cache.get(cacheKey);
 }
 
 function buildTeamFormulaContext(team, eventModel = currentEvent()) {
-  const baseTeam = team?.number ? team : eventModel.teams.find((entry) => entry.number === Number(team)) || null;
+  const rawTeamId = typeof team === "string" ? team.trim() : "";
+  const baseTeam = team?.number
+    ? team
+    : eventModel.teams.find((entry) => entry.id === rawTeamId || entry.key === rawTeamId || entry.label === rawTeamId)
+      || eventModel.teams.find((entry) => entry.number === Number(team) && !entry.isSuffixed)
+      || null;
   if (!baseTeam) return null;
   const eventSubmissions = currentScoutingSubmissions();
   if (!teamFormulaContextCache.has(eventSubmissions)) {
@@ -3673,7 +3748,7 @@ function buildTeamFormulaContext(team, eventModel = currentEvent()) {
   const scoringComponents = (eventModel.scoringComponents || []).map((component) => component.id);
   const scouterMetricIds = currentScouterMetricDefinitions(eventModel).map((metricDefinition) => metricDefinition.id);
   const scoutingMatches = buildFormulaScoutingMatches(
-    formulaSubmissionsForTeam(baseTeam.number, eventSubmissions),
+    formulaSubmissionsForTeam(baseTeam, eventSubmissions),
     scoringComponents,
     scouterMetricIds,
   );
@@ -5163,7 +5238,7 @@ function hydrateEventState(eventKey) {
   state.activeAnalysisFilterId = normalizeAnalysisFilterSelection(readStoredItem(storageKeys.analysisFilter, resolvedEventKey), eventModel);
   state.teamDetailMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.teamDetailMetric, resolvedEventKey), eventModel);
   state.picklistCompareMetric = normalizeTeamDetailMetric(readStoredItem(storageKeys.picklistCompareMetric, resolvedEventKey), eventModel);
-  state.selectedTeam = Number(readStoredItem(storageKeys.selectedTeam, resolvedEventKey)) || eventModel.teams[0]?.number || 0;
+  state.selectedTeam = readStoredItem(storageKeys.selectedTeam, resolvedEventKey) || eventModel.teams[0]?.id || eventModel.teams[0]?.number || 0;
   state.selectedMatch = readStoredItem(storageKeys.selectedMatch, resolvedEventKey) || eventModel.matches[0]?.id || eventModel.matches[0]?.number || 0;
   const storedHighlightTeam = readStoredItem(storageKeys.highlightTeam, resolvedEventKey);
   state.highlightTeam = normalizeHighlightTeam(storedHighlightTeam === null ? 686 : storedHighlightTeam);
@@ -5217,7 +5292,7 @@ function hydrateEventState(eventKey) {
   if (persistedLoadedSources === null && !state.loadedSources.length && state.picklists.length) {
     state.loadedSources = [`picklist:${state.picklists[0].id}`];
   }
-  state.selectedTeam = teamByNumber(state.selectedTeam)?.number || eventModel.teams[0]?.number || 0;
+  state.selectedTeam = teamSelectionId(teamByNumber(state.selectedTeam)) || eventModel.teams[0]?.id || eventModel.teams[0]?.number || 0;
   state.selectedMatch = matchIdentity(findMatchBySelection(state.selectedMatch) || eventModel.matches[0]);
   state.contextMenu = null;
   state.inlineRename = null;
@@ -5362,7 +5437,10 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
     }
     let sourceCacheWarning = "";
     const sourceCacheApi = globalThis.firebaseEventSourceCacheApi;
-    if (globalThis.firebaseUserRole === "admin" && sourceCacheApi && Array.isArray(loadResult.rawSourceArtifacts)) {
+    if (globalThis.firebaseUserRole === "admin"
+      && globalThis.__EVENT_SIMULATOR_CONFIG?.mode !== "simulator-first"
+      && sourceCacheApi
+      && Array.isArray(loadResult.rawSourceArtifacts)) {
       try {
         await sourceCacheApi.saveEventSourceCache({
           event: currentEvent(),
@@ -5611,13 +5689,15 @@ async function syncSharedWorkspaceForEvent(eventKey = state.activeEventKey) {
 function normalizeBoard(board, eventModel = currentEvent()) {
   const next = Array.isArray(board) ? board.slice(0, 24) : [];
   while (next.length < 24) next.push(null);
-  const allowedTeams = new Set((eventModel?.teams || []).map((team) => team.number));
+  const allowedTeams = new Set((eventModel?.teams || []).map((team) => teamSelectionId(team)));
   const seen = new Set();
   return next.map((value) => {
-    const teamNumber = Number(value);
-    if (!Number.isFinite(teamNumber) || value === "" || !allowedTeams.has(teamNumber) || seen.has(teamNumber)) return null;
-    seen.add(teamNumber);
-    return teamNumber;
+    const team = eventModel?.teams?.find((candidate) => teamSelectionId(candidate) === value)
+      || eventModel?.teams?.find((candidate) => !candidate.isSuffixed && candidate.number === Number(value));
+    const teamId = teamSelectionId(team);
+    if (!teamId || !allowedTeams.has(teamId) || seen.has(teamId)) return null;
+    seen.add(teamId);
+    return teamId;
   });
 }
 
@@ -5696,10 +5776,18 @@ function normalizePicklists(lists, eventModel = currentEvent()) {
 }
 
 function normalizePicklistTeams(values, eventModel = currentEvent()) {
+  const resolve = (value) => {
+    const raw = String(value ?? "").trim();
+    const exact = eventModel.teams.find((team) => team.id === raw || team.key === raw || team.label === raw);
+    if (exact) return teamSelectionId(exact);
+    const numeric = Number(value);
+    const numericTeam = eventModel.teams.find((team) => team.number === numeric && !team.isSuffixed);
+    return numericTeam ? teamSelectionId(numericTeam) : null;
+  };
   const ranked = Array.isArray(values)
-    ? values.map(Number).filter((value, index, array) => eventModel.teams.some((team) => team.number === value) && array.indexOf(value) === index)
+    ? values.map(resolve).filter((value, index, array) => value && array.indexOf(value) === index)
     : [];
-  const missing = eventModel.teamNumbers.filter((number) => !ranked.includes(number));
+  const missing = eventModel.teams.map(teamSelectionId).filter((id) => !ranked.includes(id));
   return [...ranked, ...missing];
 }
 
@@ -5715,11 +5803,13 @@ function normalizePicklistCompareTeams(values, eventModel = currentEvent()) {
   while (next.length < picklistCompareLimit) next.push(null);
   const seen = new Set();
   return next.map((value) => {
-    const teamNumber = Number(value);
-    if (!eventModel.teams.some((team) => team.number === teamNumber)) return null;
-    if (seen.has(teamNumber)) return null;
-    seen.add(teamNumber);
-    return teamNumber;
+    const raw = String(value ?? "").trim();
+    const team = eventModel.teams.find((candidate) => candidate.id === raw || candidate.key === raw || candidate.label === raw)
+      || eventModel.teams.find((candidate) => candidate.number === Number(value) && !candidate.isSuffixed);
+    const teamId = teamSelectionId(team);
+    if (!teamId || seen.has(teamId)) return null;
+    seen.add(teamId);
+    return teamId;
   });
 }
 
@@ -5941,7 +6031,7 @@ function scoreTeamByTerms(team, terms) {
 }
 
 function rankTeamsByTerms(terms) {
-  return [...currentTeams()].sort((a, b) => scoreTeamByTerms(b, terms) - scoreTeamByTerms(a, terms)).map((team) => team.number);
+  return [...currentTeams()].sort((a, b) => scoreTeamByTerms(b, terms) - scoreTeamByTerms(a, terms)).map(teamSelectionId);
 }
 
 function scoreTeamByEquation(team, equation) {
@@ -5959,7 +6049,7 @@ function scoreTeamByEquation(team, equation) {
 function rankTeamsByEquation(equation) {
   return [...currentTeams()]
     .sort((a, b) => scoreTeamByEquation(b, equation) - scoreTeamByEquation(a, equation) || a.number - b.number)
-    .map((team) => team.number);
+    .map(teamSelectionId);
 }
 
 function colorForScore(score, min, max, direction = defaultColumnSortDirection) {
@@ -6468,7 +6558,8 @@ function applyEquationBackedScoutingRollups(baseTeam, overlaidTeam, eventModel =
 function overlayTeamWithScouting(baseTeam) {
   if (!buildTeamScoutingOverlay) return baseTeam;
   const cacheContext = currentOverlayCacheContext();
-  const cacheEntry = overlaidTeamCache.get(baseTeam.number);
+  const cacheKey = teamSelectionId(baseTeam);
+  const cacheEntry = overlaidTeamCache.get(cacheKey);
   if (
     cacheEntry
     && cacheEntry.eventModel === cacheContext.eventModel
@@ -6493,7 +6584,7 @@ function overlayTeamWithScouting(baseTeam) {
     recentMatchCount: state.recentMatchCount,
   });
   const value = applyEquationBackedScoutingRollups(baseTeam, overlaidTeam, currentEvent());
-  overlaidTeamCache.set(baseTeam.number, {
+  overlaidTeamCache.set(cacheKey, {
     ...cacheContext,
     value,
   });
@@ -6544,7 +6635,7 @@ function derivedMetricScopeSummary() {
 function derivedMetricPreviewValue(definition, team, window = "all") {
   if (!definition || !team || !aggregateSubmissionMatches || !evaluateDerivedMetricDefinition) return 0;
   const aggregatedMatches = aggregateSubmissionMatches(
-    currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === team.number),
+    formulaSubmissionsForTeam(team, currentScoutingSubmissions()),
     {
       scoringComponentIds: currentEvent().scoringComponents.map((component) => component.id),
       scouterMetricIds: currentScouterMetricDefinitions().map((metricDefinition) => metricDefinition.id),
@@ -7300,8 +7391,22 @@ function togglePicklistCompareTeam(teamNumber) {
   return true;
 }
 
+function teamSelectionId(team) {
+  if (team?.isSuffixed && team.id) return team.id;
+  return Number.isFinite(Number(team?.number)) ? team.number : "";
+}
+
+function teamDisplayLabel(team) {
+  return team?.label || String(team?.number ?? "");
+}
+
 function teamByNumber(number) {
-  return currentTeams().find((team) => team.number === Number(number));
+  const raw = String(number ?? "").trim();
+  const exact = currentTeams().find((team) => team.id === raw || team.key === raw || team.label === raw);
+  if (exact) return exact;
+  const numeric = Number(number);
+  return currentTeams().find((team) => team.number === numeric && !team.isSuffixed)
+    || currentTeams().find((team) => team.number === numeric);
 }
 
 function metricFromTerm(term) {
@@ -7348,7 +7453,7 @@ function picklistMetricValue(team, metric, options = {}) {
   if (metric?.kind === "source" && metric.sourceId === "scouter") {
     const componentId = metric.componentId;
     const matches = buildFormulaScoutingMatches(
-      formulaSubmissionsForTeam(team.number, currentScoutingSubmissions()),
+      formulaSubmissionsForTeam(team, currentScoutingSubmissions()),
       componentId === "total" ? (currentEvent().scoringComponents || []).map((component) => component.id) : [],
       componentId === "total" ? currentScouterMetricDefinitions().map((definition) => definition.id) : [componentId],
     );
@@ -7411,10 +7516,9 @@ function toggleTheme() {
 function setView(view, options = {}) {
   const { recordHistory = true } = options;
   if (!canView(view)) view = "teams";
-  const enteringSchedule = view === "schedule" && state.activeView !== "schedule";
   if (recordHistory && state.activeView !== view) pushViewHistory();
   state.activeView = view;
-  if (enteringSchedule) scheduleFocusPending = true;
+  if (view === "schedule") scheduleFocusPending = true;
   state.contextMenu = null;
   state.inlineRename = null;
   saveState();
@@ -7943,9 +8047,9 @@ function renderRankings() {
         ${displayedRankedTeams
           .map(
             (team) => `
-          <button class="ranking-row" data-team="${team.number}" role="row">
+          <button class="ranking-row" data-team="${teamSelectionId(team)}" role="row">
             <strong>${team.rank === null ? "&mdash;" : team.rank}</strong>
-            <span>${team.number} ${team.name}</span>
+            <span>${teamDisplayLabel(team)} ${team.name}</span>
             <span>${team.primaryRankingSort === null ? "&mdash;" : team.primaryRankingSort.toFixed(2)}</span>
             <span>${team.rankingRecord || "&mdash;"}</span>
             ${showSecondarySort ? `<span>${team.secondaryRankingSort === null ? "&mdash;" : team.secondaryRankingSort.toFixed(2)}</span>` : ""}
@@ -8000,8 +8104,8 @@ function renderTeams() {
         .sort((a, b) => a.number - b.number)
         .map(
           (team) => `
-        <button class="team-card" data-team="${team.number}">
-          <span class="avatar">${team.number}</span>
+        <button class="team-card" data-team="${teamSelectionId(team)}">
+          <span class="avatar">${teamDisplayLabel(team)}</span>
           <span class="team-meta">
             <strong>${team.name}</strong>
             ${renderDrivetrainBadge(team)}
@@ -8015,6 +8119,10 @@ function renderTeams() {
 }
 
 function renderTeamDetail(team) {
+  if (currentEvent()?.pridgeComputationDeferred === true) {
+    applyCurrentPridgeResponseDefinitions();
+    team = teamByNumber(state.selectedTeam) || team;
+  }
   const detailTrendMetrics = orderedMetrics().filter((metric) => metricUsesMatchDistribution(team, metric));
   const detailSelectedMetric = detailTrendMetrics.find((metric) => metric.id === state.teamDetailMetric) || null;
   const detailScoutingConfidence = team.scouting?.confidence || { tier: "medium", reasons: ["no_scouting_data"] };
@@ -8029,7 +8137,7 @@ function renderTeamDetail(team) {
           <div class="detail-actions">
           <button data-history-back="teams">Back</button>
           <select id="teamSelect" aria-label="Team">
-            ${currentTeams().map((item) => `<option value="${item.number}" ${item.number === team.number ? "selected" : ""}>${item.number} ${item.name}</option>`).join("")}
+          ${currentTeams().map((item) => `<option value="${teamSelectionId(item)}" ${teamSelectionId(item) === teamSelectionId(team) ? "selected" : ""}>${teamDisplayLabel(item)} ${item.name}</option>`).join("")}
           </select>
         </div>
       </div>
@@ -8158,7 +8266,7 @@ function analysisSeriesEntriesForMetric(team, metric, options = {}) {
     return useRecentWindow ? applyRecentMatchCountToEntries(filteredEntries, options.recentMatchCount) : filteredEntries;
   }
   const aggregatedMatches = aggregateSubmissionMatches(
-    currentScoutingSubmissions().filter((submission) => Number(submission.teamNumber) === Number(team.number)),
+    formulaSubmissionsForTeam(team, currentScoutingSubmissions()),
     {
       scoringComponentIds: (currentEvent().scoringComponents || []).map((component) => component.id),
       scouterMetricIds: currentScouterMetricDefinitions().map((metricDefinition) => metricDefinition.id),
@@ -8373,8 +8481,8 @@ function scheduleAnalysisCalculation(selection, key) {
       const calculationStartedAt = perfNow();
       const eventModel = currentEvent();
       const needsPridge = selection.metric?.sourceId === "pridge"
-        && (eventModel?.teams || []).some((team) => !Number.isFinite(Number(team?.sources?.pridge?.total)));
-      if (needsPridge && eventModel?.pridgeComputationDeferred === true) {
+        && eventModel?.pridgeComputationDeferred === true;
+      if (needsPridge) {
         applyCurrentPridgeResponseDefinitions(eventModel);
       }
       const result = calculateAnalysisResult(selection);
@@ -8775,7 +8883,7 @@ function renderChartRow(team, selection, dist, globalMin, globalMax, eventAverag
   const mean = scale(dist.mean);
   const avg = scale(eventAverage);
   const plotTitle = [
-    `${team.number} ${team.name}`,
+    `${teamDisplayLabel(team)} ${team.name}`,
     `Min: ${dist.min.toFixed(1)} ${selection.unit}`,
     `Q1: ${dist.q1.toFixed(1)} ${selection.unit}`,
     `Median: ${dist.median.toFixed(1)} ${selection.unit}`,
@@ -8788,7 +8896,7 @@ function renderChartRow(team, selection, dist, globalMin, globalMax, eventAverag
     <div class="chart-row">
       <div class="chart-team">
         <span class="chart-badges">${renderDrivetrainBadge(team)}</span>
-        <button class="chart-name" data-team-link="${team.number}">${team.number}</button>
+        <button class="chart-name" data-team-link="${teamSelectionId(team)}">${teamDisplayLabel(team)}</button>
       </div>
       <div class="plot" title="${escapeAttribute(plotTitle)}">
         <span class="event-average" style="left: ${avg}%"></span>
@@ -8816,6 +8924,36 @@ function matchHasScore(match) {
   return Number(match?.redScore) >= 0 && Number(match?.blueScore) >= 0;
 }
 
+function scheduleMatchOrder(match, sourceIndex) {
+  const competitionLevelOrder = { qm: 0, ef: 1, qf: 2, sf: 3, f: 4 };
+  const level = String(match?.compLevel || "qm").toLowerCase();
+  return [
+    competitionLevelOrder[level] ?? 99,
+    Number(match?.setNumber) || 0,
+    Number(match?.number) || 0,
+    sourceIndex,
+  ];
+}
+
+function compareScheduleMatchOrder(left, right) {
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return 0;
+}
+
+function nextScheduleMatch(matches) {
+  const orderedMatches = matches
+    .map((match, sourceIndex) => ({ match, sourceIndex, order: scheduleMatchOrder(match, sourceIndex) }))
+    .sort((left, right) => compareScheduleMatchOrder(left.order, right.order));
+  if (!orderedMatches.length) return null;
+  const lastScoredIndex = orderedMatches.reduce(
+    (lastIndex, entry, index) => (matchHasScore(entry.match) ? index : lastIndex),
+    -1,
+  );
+  return orderedMatches[lastScoredIndex + 1]?.match || null;
+}
+
 function scheduleRow(match, currentMatch, highlightTeam) {
   const isCurrent = currentMatch && matchIdentity(match) === matchIdentity(currentMatch);
   const hasHighlightTeam = highlightTeam > 0 && [...(match.red || []), ...(match.blue || [])].includes(highlightTeam);
@@ -8829,10 +8967,24 @@ function scheduleRow(match, currentMatch, highlightTeam) {
   return `
     <article class="match-row ${className}" data-match-row="${escapeAttribute(matchIdentity(match))}"${isCurrent ? ' data-schedule-last-played="true"' : ""} title="Open ${escapeAttribute(matchupMatchLabel(match))} matchup">
       <button class="match-link" data-match="${escapeAttribute(matchIdentity(match))}">${escapeHtml(matchupMatchLabel(match))}</button>
-      <span class="alliance red">${match.red.map((team) => `<button class="pill team-pill" data-team="${team}">${team}</button>`).join("")}</span>
-      <span class="alliance blue">${match.blue.map((team) => `<button class="pill team-pill" data-team="${team}">${team}</button>`).join("")}</span>
+      <span class="alliance red">${scheduleAllianceSlots(match.redLabels || match.red).map(scheduleTeamSlot).join("")}</span>
+      <span class="alliance blue">${scheduleAllianceSlots(match.blueLabels || match.blue).map(scheduleTeamSlot).join("")}</span>
     </article>
   `;
+}
+
+function scheduleAllianceSlots(teams) {
+  return Array.from({ length: 3 }, (_, index) => teams?.[index] || null);
+}
+
+function scheduleTeamSlot(team) {
+  const label = String(team || "");
+  const numericTeam = /^\d+$/.test(label);
+  return team
+    ? numericTeam
+      ? `<button class="pill team-pill" data-team="${escapeAttribute(label)}">${escapeHtml(label)}</button>`
+      : `<span class="pill team-pill">${escapeHtml(label)}</span>`
+    : `<span class="pill team-pill team-pill-tbd">TBD</span>`;
 }
 
 function renderScheduleSection(label, matches, currentMatch, highlightTeam, open) {
@@ -8848,7 +9000,7 @@ function renderSchedule() {
   const matches = currentMatches();
   const qualifications = matches.filter((match) => scheduleMatchGroup(match) === "quals");
   const playoffs = matches.filter((match) => scheduleMatchGroup(match) === "playoffs");
-  const currentMatch = matches.find((match) => !matchHasScore(match)) || null;
+  const currentMatch = nextScheduleMatch(matches);
   return `
     <div class="section-heading">
       <div>
@@ -8867,13 +9019,21 @@ function renderSchedule() {
 }
 
 function playoffAllianceIsEliminated(alliance, eventModel = currentEvent()) {
-  const status = normalizeText(alliance?.status?.playoff_status || alliance?.status?.playoffStatus).toLowerCase();
-  const losses = Number(alliance?.status?.record?.losses);
+  const allianceStatus = alliance?.status || {};
+  const status = normalizeText(allianceStatus.playoff_status || allianceStatus.playoffStatus || allianceStatus.status).toLowerCase();
+  const level = normalizeText(allianceStatus.level).toLowerCase();
+  const levelRecord = level === "f" ? allianceStatus.current_level_record : allianceStatus.record;
+  const losses = Number(levelRecord?.losses);
   if (["eliminated", "lost", "out"].includes(status) || losses >= 2) return true;
   const picks = new Set((alliance?.picks || []).map((team) => Number(team)).filter(Number.isFinite));
   if (!picks.size) return false;
-  const recordedLosses = (eventModel?.matches || []).filter((match) => {
-    if (match?.compLevel === "qm" || !matchHasScore(match)) return false;
+  const playoffMatches = (eventModel?.matches || []).filter((match) => match?.compLevel !== "qm" && matchHasScore(match));
+  const hasFinalsMatch = playoffMatches.some((match) => match?.compLevel === "f" && [match.red || [], match.blue || []]
+    .some((side) => side.filter((team) => picks.has(Number(team))).length >= Math.min(3, picks.size)));
+  const matchesToCount = hasFinalsMatch
+    ? playoffMatches.filter((match) => match?.compLevel === "f")
+    : playoffMatches;
+  const recordedLosses = matchesToCount.filter((match) => {
     const sides = [match.red || [], match.blue || []];
     const sideIndex = sides.findIndex((side) => side.filter((team) => picks.has(Number(team))).length >= Math.min(3, picks.size));
     if (sideIndex < 0) return false;
@@ -8990,7 +9150,10 @@ function renderPlayoffBracketMatch(match, label = "Match", sources = {}, context
     const prefix = alliance ? `A${alliance.number}: ` : "";
     return escapeHtml(`${prefix}${orderedTeams.map((team) => String(team)).join(" - ")}`);
   };
-  return `<article class="playoff-bracket-match ${highlighted ? "schedule-highlight-team" : ""} ${isNext ? "schedule-current" : ""}"${isNext ? ' data-playoff-next="true"' : ""}>
+  const matchAttributes = match
+    ? ` data-match="${escapeAttribute(matchIdentity(match))}" title="Open ${escapeAttribute(matchupMatchLabel(match))} matchup"`
+    : "";
+  return `<article class="playoff-bracket-match ${highlighted ? "schedule-highlight-team" : ""} ${isNext ? "schedule-current" : ""}"${matchAttributes}${isNext ? ' data-playoff-next="true"' : ""}>
     <header><strong>${escapeHtml(label)}</strong><span>${escapeHtml(score)}</span></header>
     <div class="playoff-bracket-alliance red">${formatAlliance(red)}</div>
     <div class="playoff-bracket-alliance blue">${formatAlliance(blue)}</div>
@@ -9064,9 +9227,9 @@ function renderMatchup() {
       </div>
     </div>
     <div class="matchup-alliances">
-      ${renderMatchupAllianceCard("Red Alliance", match.red, "red")}
+        ${renderMatchupAllianceCard("Red Alliance", match.redLabels || match.red, "red")}
       <div class="matchup-match-number" aria-label="${escapeAttribute(matchupMatchLabel(match))}">${escapeHtml(matchupMatchLabel(match))}</div>
-      ${renderMatchupAllianceCard("Blue Alliance", match.blue, "blue")}
+        ${renderMatchupAllianceCard("Blue Alliance", match.blueLabels || match.blue, "blue")}
     </div>
     ${actualScoreModel ? renderMatchupActualScoreCard(actualScoreModel, state.matchupNormalization === "shared" ? sharedScale : null) : ""}
     <div class="matchup-metric-cards">
@@ -9128,8 +9291,8 @@ function renderMatchupAllianceCard(title, teamNumbers, color) {
   const teams = matchupOrderedTeams(teamNumbers);
   return `<article class="matchup-alliance-card ${color}" aria-label="${escapeAttribute(title)}">
     <div class="matchup-team-row">
-      ${teams.map((team, index) => `<button class="matchup-team ${matchupTeamToneClass(index)}" data-team="${team.number}">
-        <strong>${escapeHtml(`${team.number} ${team.name || "Unnamed team"}`)}</strong>
+      ${teams.map((team, index) => `<button class="matchup-team ${matchupTeamToneClass(index)}" data-team="${teamSelectionId(team)}">
+        <strong>${escapeHtml(`${teamDisplayLabel(team)} ${team.name || "Unnamed team"}`)}</strong>
         ${renderDrivetrainBadge(team)}
       </button>`).join("")}
     </div>
@@ -9137,8 +9300,8 @@ function renderMatchupAllianceCard(title, teamNumbers, color) {
 }
 
 function matchupMetricModel(match, metric) {
-  const redTeams = matchupOrderedTeams(match.red);
-  const blueTeams = matchupOrderedTeams(match.blue);
+  const redTeams = matchupOrderedTeams(match.redLabels || match.red);
+  const blueTeams = matchupOrderedTeams(match.blueLabels || match.blue);
   const valuesFor = (teams) => teams.map((team) => ({ team, value: teamMetricValue(team, metric) })).map((entry) => ({
     ...entry,
     numericValue: Number.isFinite(Number(entry.value)) ? Math.max(0, Number(entry.value)) : 0,
@@ -9223,9 +9386,10 @@ function renderAllianceCard(title, teamNumbers) {
         ${teamNumbers
           .map((number) => {
             const team = teamByNumber(number);
+            if (!team) return "";
             return `
-              <button class="team-card" data-team="${team.number}">
-                <span class="avatar">${team.number}</span>
+              <button class="team-card" data-team="${teamSelectionId(team)}">
+                <span class="avatar">${teamDisplayLabel(team)}</span>
                 <span class="team-meta">
                   <strong>${team.name}</strong>
                   ${renderDrivetrainBadge(team)}
@@ -9566,13 +9730,13 @@ function renderTeamTile(team, index, options = {}) {
       class="${classes.join(" ")}"
       ${options.dataAttribute || ""}
       ${options.dragData ? `data-drag-team="${options.dragData}"` : ""}
-      ${options.builderTeam ? `data-builder-team="${team.number}"` : ""}
-      ${options.reorderTeam ? `data-reorder-team="${team.number}"` : ""}
+      ${options.builderTeam ? `data-builder-team="${teamSelectionId(team)}"` : ""}
+      ${options.reorderTeam ? `data-reorder-team="${teamSelectionId(team)}"` : ""}
       draggable="${options.draggable ? "true" : "false"}"
       style="${style.join("; ")}"
     >
       <strong class="tile-rank">${index + 1}</strong>
-      <span class="tile-label">${options.showName === false ? team.number : `${team.number} ${team.name}`}</span>
+      <span class="tile-label">${options.showName === false ? teamDisplayLabel(team) : `${teamDisplayLabel(team)} ${team.name}`}</span>
       ${scoreMarkup}
     </button>
   `;
@@ -9590,7 +9754,7 @@ function renderBuilderTeamTile(team, index, options = {}) {
     builderTeam: true,
     reorderTeam: options.draggable,
     draggable: Boolean(options.draggable),
-    dragData: options.draggable ? String(team.number) : "",
+        dragData: options.draggable ? String(teamSelectionId(team)) : "",
   });
 }
 
@@ -9762,7 +9926,8 @@ function renderContextMenu() {
 function renderPicklistTile(number, index, picklist, options = {}) {
   const team = teamByNumber(number);
   if (!team) return "";
-  const picked = pickedTeams().includes(number) ? "picked" : "";
+  const teamId = teamSelectionId(team);
+  const picked = pickedTeams().includes(teamId) ? "picked" : "";
   const content = options.static && !options.showScore
     ? renderTeamTile(team, index, {
         compact: true,
@@ -9775,8 +9940,8 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         compareIndex: options.compareIndex,
         extraClass: picked,
         draggable: !picked,
-        dragData: picked ? "" : String(team.number),
-        dataAttribute: options.navigation ? `data-team="${team.number}"` : options.allianceTeam ? `data-alliance-team="${team.number}"` : "",
+        dragData: picked ? "" : String(teamSelectionId(team)),
+        dataAttribute: options.navigation ? `data-team="${teamSelectionId(team)}"` : options.allianceTeam ? `data-alliance-team="${teamSelectionId(team)}"` : "",
       })
     : renderTeamTile(team, index, {
         compact: true,
@@ -9789,8 +9954,8 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         compareIndex: options.compareIndex,
         extraClass: picked,
         draggable: !picked,
-        dragData: picked ? "" : String(team.number),
-        dataAttribute: options.navigation ? `data-team="${team.number}"` : options.allianceTeam ? `data-alliance-team="${team.number}"` : "",
+        dragData: picked ? "" : String(teamSelectionId(team)),
+        dataAttribute: options.navigation ? `data-team="${teamSelectionId(team)}"` : options.allianceTeam ? `data-alliance-team="${teamSelectionId(team)}"` : "",
       });
   return content;
 }
@@ -9886,7 +10051,7 @@ function renderAlliance() {
                 <div class="alliance-source-list">
                   ${column.teams
                     .map((team, teamIndex) =>
-                      renderPicklistTile(team.number, teamIndex, null, {
+                      renderPicklistTile(teamSelectionId(team), teamIndex, null, {
                         static: true,
                         navigation: false,
                         allianceTeam: true,
@@ -9918,16 +10083,17 @@ function renderAlliance() {
 function renderBoardCell(teamNumber, index) {
   if (teamNumber) {
     const team = teamByNumber(teamNumber);
+    const teamLabel = team ? teamDisplayLabel(team) : String(teamNumber);
     return `
-      <div class="board-cell occupied" data-board-cell="${index}" data-board-team="${teamNumber}" title="Right-click to remove ${teamNumber}">
-        <strong>${teamNumber}</strong>
+      <div class="board-cell occupied" data-board-cell="${index}" data-board-team="${teamNumber}" title="Right-click to remove ${teamLabel}">
+        <strong>${teamLabel}</strong>
         <span>${team?.name || ""}</span>
       </div>
     `;
   }
   return `
     <div class="board-cell empty" data-board-cell="${index}">
-      <input class="board-input" data-board-input="${index}" inputmode="numeric" placeholder="Team #" aria-label="Alliance slot ${index + 1}" />
+      <input class="board-input" data-board-input="${index}" placeholder="Team # or key" aria-label="Alliance slot ${index + 1}" />
     </div>
   `;
 }
@@ -10127,7 +10293,7 @@ function renderAdminEventControl() {
               <div class="field-label">Statbotics API Sources</div>
               <ul class="source-list">
                 <li><span class="muted">Primary</span> <a href="https://api.statbotics.io/v3" target="_blank" rel="noopener noreferrer"><code>https://api.statbotics.io/v3</code></a></li>
-                <li><span class="muted">Secondary</span> <a href="https://api-statbotics.iterativerefinement.com/v3" target="_blank" rel="noopener noreferrer"><code>https://api-statbotics.iterativerefinement.com/v3</code></a></li>
+                <li><span class="muted">Secondary</span> <a href="https://api-statbotics.popcornpenguins.com/v3" target="_blank" rel="noopener noreferrer"><code>https://api-statbotics.popcornpenguins.com/v3</code></a></li>
               </ul>
             </div>
             <div class="admin-actions">
@@ -10283,9 +10449,10 @@ function renderDrivetrainBadge(team) {
 }
 
 function placeTeamOnBoard(teamNumber, cellIndex) {
-  const number = Number(teamNumber);
-  if (!teamByNumber(number) || state.allianceBoard[cellIndex] || pickedTeams().includes(number)) return false;
-  state.allianceBoard[cellIndex] = number;
+  const team = teamByNumber(teamNumber);
+  const teamId = teamSelectionId(team);
+  if (!teamId || state.allianceBoard[cellIndex] || pickedTeams().includes(teamId)) return false;
+  state.allianceBoard[cellIndex] = teamId;
   state.contextMenu = null;
   saveState();
   render();
@@ -10340,9 +10507,9 @@ function firstVisibleGridColumn() {
 function defaultTeamsForNewPicklist() {
   const firstColumn = firstVisibleGridColumn();
   if (!firstColumn) {
-    return [...currentTeams()].sort((a, b) => a.number - b.number).map((team) => team.number);
+    return [...currentTeams()].sort((a, b) => a.number - b.number).map(teamSelectionId);
   }
-  return gridColumnModel(firstColumn.entry).teams.map((team) => team.number);
+  return gridColumnModel(firstColumn.entry).teams.map(teamSelectionId);
 }
 
 function updateProfileEquationList(nextDefinitions, eventModel = currentEvent()) {
@@ -11289,7 +11456,7 @@ function bindViewEvents() {
     element.addEventListener("click", (event) => {
       event.stopPropagation();
       pushViewHistory();
-      state.selectedTeam = Number(element.dataset.team || element.dataset.teamLink);
+      state.selectedTeam = element.dataset.team || element.dataset.teamLink;
       state.activeView = "teamDetail";
       saveState();
       render();
@@ -11336,7 +11503,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-drag-team]").forEach((element) => {
     element.addEventListener("dragstart", (event) => {
       const teamNumber = element.dataset.dragTeam;
-      if (pickedTeams().includes(Number(teamNumber))) {
+      if (pickedTeams().includes(teamNumber)) {
         event.preventDefault();
         return;
       }
@@ -11737,7 +11904,7 @@ function bindViewEvents() {
       const picklist = activePicklist();
       if (!column.teams.length) return;
       if (!confirm(`Replace "${picklist.name}" with "${column.label}"?`)) return;
-      updatePicklist(picklist.id, (current) => ({ ...current, teams: column.teams.map((team) => team.number) }));
+      updatePicklist(picklist.id, (current) => ({ ...current, teams: column.teams.map(teamSelectionId) }));
     });
   });
   document.querySelectorAll("[data-grid-column-sort]").forEach((button) => {
@@ -11756,7 +11923,7 @@ function bindViewEvents() {
   });
   document.querySelectorAll("[data-builder-team]").forEach((tile) => {
     tile.addEventListener("click", () => {
-      const teamNumber = Number(tile.dataset.builderTeam);
+      const teamNumber = tile.dataset.builderTeam;
       if (state.pairwisePicklist?.picklistId === activePicklist().id) {
         const session = state.pairwisePicklist.session;
         if (session.mode === "select") state.pairwisePicklist.session = PairwisePicklist.choose(session, teamNumber);
@@ -11787,7 +11954,7 @@ function bindViewEvents() {
   });
   document.querySelectorAll("[data-alliance-team]").forEach((tile) => {
     tile.addEventListener("click", () => {
-      const teamNumber = Number(tile.dataset.allianceTeam);
+      const teamNumber = tile.dataset.allianceTeam;
       const changed = togglePicklistCompareTeam(teamNumber);
       if (!changed) return;
       saveState();
@@ -11804,7 +11971,7 @@ function bindViewEvents() {
   document.querySelectorAll("[data-pairwise-cancel]").forEach((button) => button.addEventListener("click", () => finishPairwisePicklist({ save: false })));
   document.querySelectorAll("[data-remove-compare-team]").forEach((button) => {
     button.addEventListener("click", () => {
-      const teamNumber = Number(button.dataset.removeCompareTeam);
+      const teamNumber = button.dataset.removeCompareTeam;
       const changed = togglePicklistCompareTeam(teamNumber);
       if (!changed) return;
       if (state.picklistSelectedTeam === teamNumber) state.picklistSelectedTeam = null;
@@ -11823,8 +11990,8 @@ function bindViewEvents() {
     });
     tile.addEventListener("drop", (event) => {
       event.preventDefault();
-      const draggedTeam = Number(event.dataTransfer.getData("application/x-picklist-team"));
-      const targetTeam = Number(tile.dataset.reorderTeam);
+      const draggedTeam = event.dataTransfer.getData("application/x-picklist-team");
+      const targetTeam = tile.dataset.reorderTeam;
       if (!draggedTeam || draggedTeam === targetTeam) return;
       const picklist = activePicklist();
       updatePicklist(picklist.id, (current) => ({ ...current, teams: moveItemBefore(current.teams, draggedTeam, targetTeam) }));

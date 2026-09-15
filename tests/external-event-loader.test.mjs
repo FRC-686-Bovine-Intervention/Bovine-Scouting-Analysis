@@ -26,6 +26,9 @@ function loadBrowserContext(relativePaths, extras = {}) {
     String,
     JSON,
     Date,
+    AbortController,
+    setTimeout,
+    clearTimeout,
     ...extras,
   };
   context.globalThis = context;
@@ -36,6 +39,30 @@ function loadBrowserContext(relativePaths, extras = {}) {
   });
   return context;
 }
+
+await runTest("provider requests time out so a stalled refresh can release its polling lock", async () => {
+  const context = loadBrowserContext([
+    "src/provider-routing.js",
+    "src/legacy-scouting-schema-seeds.js",
+    "src/season-framework.js",
+    "src/prior-ridge.js",
+    "src/event-model-builder.js",
+    "src/external-source-snapshots.js",
+    "src/external-event-loader.js",
+  ], {
+    __EVENT_SIMULATOR_CONFIG: {
+      mode: "simulator-first",
+      tbaUrl: "http://simulator.test/api/tba",
+      statboticsUrl: "http://simulator.test/api/statbotics",
+    },
+  });
+  const stalledFetch = () => new Promise(() => {});
+
+  await assert.rejects(
+    () => context.ExternalEventLoader.loadEventByCode("2026evsim", { fetchImpl: stalledFetch, timeoutMs: 10 }),
+    (error) => error.message.includes("timed out after 10ms"),
+  );
+});
 
 function createFetchStub(routes) {
   return async function fetchStub(url) {
@@ -56,6 +83,26 @@ function createFetchStub(routes) {
     };
   };
 }
+
+await runTest("loads per-team Statbotics rows from the singular endpoint", async () => {
+  const baseUrls = { tba: "https://tba.test/api", statbotics: "https://statbotics.test/api" };
+  let bundle;
+  const context = loadBrowserContext(["src/external-source-snapshots.js", "src/external-event-loader.js"], {
+    EventModelBuilder: { buildEventModelFromProviderBundle: (value) => { bundle = value; return { key: value.key, teams: [], matches: [] }; } },
+  });
+  const fetchImpl = createFetchStub({
+    [`${baseUrls.tba}/event/2026singular`]: { key: "2026singular", year: 2026 },
+    [`${baseUrls.tba}/event/2026singular/teams`]: [{ team_number: 498 }],
+    [`${baseUrls.tba}/event/2026singular/matches`]: [],
+    [`${baseUrls.tba}/event/2026singular/rankings`]: {},
+    [`${baseUrls.tba}/event/2026singular/oprs`]: {},
+    [`${baseUrls.statbotics}/event/2026singular`]: { year: 2026 },
+    [`${baseUrls.statbotics}/team_event/498/2026singular`]: { team: 498, epa: { total_points: 12.5 } },
+    [`${baseUrls.statbotics}/matches?event=2026singular`]: [],
+  });
+  await context.ExternalEventLoader.loadEventByCode("2026singular", { fetchImpl, tbaAuthKey: "test", tbaBaseUrl: baseUrls.tba, statboticsBaseUrl: baseUrls.statbotics });
+  assert.deepEqual(JSON.parse(JSON.stringify(bundle.statboticsTeamEvents)), [{ team: 498, epa: { total_points: 12.5 } }]);
+});
 
 async function main() {
 await runTest("loadEventByCode builds an event model and ready provider states from live payloads", async () => {
@@ -125,9 +172,20 @@ await runTest("loadEventByCode builds an event model and ready provider states f
       ccwms: { frc111: 41.4, frc222: 36.6, frc333: 33.7, frc444: 25.7, frc555: 23.4, frc666: 19.3 },
     },
     [`${baseUrls.statbotics}/event/2026test`]: { year: 2026, status: "In Progress" },
-    [`${baseUrls.statbotics}/team_matches?event=2026test&limit=10000`]: [
-      { team: 111, match: "2026test_qm1", epa: { total_points: 40.25, post: 41.75 } },
-      { team: 111, match: "2026test_qf1m1", epa: { total_points: 44.25, post: 45.75 } },
+    [`${baseUrls.statbotics}/matches?event=2026test`]: [
+      {
+        key: "2026test_qm1",
+        comp_level: "qm",
+        winning_alliance: "red",
+        alliances: { red: { team_keys: ["frc111", "frc222", "frc333"] }, blue: { team_keys: ["frc444", "frc555", "frc666"] } },
+        epas: { "111": { epa: 40.25, post_epa: 41.75 } },
+      },
+      {
+        key: "2026test_qf1m1",
+        comp_level: "qf",
+        alliances: { red: { team_keys: ["frc111", "frc222", "frc333"] }, blue: { team_keys: ["frc444", "frc555", "frc666"] } },
+        epas: { "111": { epa: 44.25, post_epa: 45.75 } },
+      },
     ],
     [`${baseUrls.statbotics}/team_events/event/2026test`]: { data: [
       {
@@ -185,11 +243,6 @@ await runTest("loadEventByCode builds an event model and ready provider states f
         record: { qual: { count: 12, rank: 24, rps_per_match: 1.5 } },
       },
     ] },
-    [`${baseUrls.statbotics}/team_match/111/2026test_qm1`]: {
-      team: 111,
-      match: "2026test_qm1",
-      epa: { total_points: 40.25 },
-    },
   });
 
   const result = await context.ExternalEventLoader.loadEventByCode("2026test", {
@@ -469,7 +522,7 @@ await runTest("loadEventByCode falls back to the secondary Statbotics site when 
   const baseUrls = {
     tba: "https://tba.test/api",
     statbotics: "https://www.statbotics.io/api/v3",
-    statboticsFallback: "https://api-statbotics.iterativerefinement.com/v3",
+    statboticsFallback: "https://api-statbotics.popcornpenguins.com/v3",
   };
   const context = loadBrowserContext([
     "src/legacy-scouting-schema-seeds.js",
@@ -532,7 +585,7 @@ await runTest("loadEventByCode falls back to the secondary Statbotics site when 
   assert.equal(result.eventModel.matches.length, 1);
   assert.equal(result.sourceStates.tba.status, "ready");
   assert.equal(result.sourceStates.statbotics.status, "ready");
-  assert.match(result.sourceStates.statbotics.provenance.notes, /primary Statbotics site failed.*secondary fallback https:\/\/api-statbotics\.iterativerefinement\.com\/v3/i);
+  assert.match(result.sourceStates.statbotics.provenance.notes, /primary Statbotics site failed.*secondary fallback https:\/\/api-statbotics\.popcornpenguins\.com\/v3/i);
   assert.equal(result.sourceStates.pridge.status, "error");
   assert.equal(result.sourceStates.pridge.freshness, "stale");
   assert.equal(result.sourceStates.pridge.provenance.mode, "native-compute");

@@ -1644,6 +1644,11 @@ button.pill {
   color: var(--accent-strong);
 }
 
+.team-pill-tbd {
+  opacity: 0.7;
+  font-weight: 600;
+}
+
 .picklist-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(240px, 1fr));

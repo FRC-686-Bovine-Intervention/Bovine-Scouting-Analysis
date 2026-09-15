@@ -18,6 +18,11 @@ const controlHtml = await (await fetch(url("/"))).text();
 assert.match(controlHtml, /id="buildHash"/);
 assert.doesNotMatch(controlHtml, /__BUILD_HASH__/);
 assert.match(controlHtml, /Build: local checkout \/ [0-9a-f]{7,40}/);
+assert.match(controlHtml, /id="playbackSeconds"/);
+assert.match(controlHtml, /id="playbackPlay"/);
+assert.match(controlHtml, /id="playbackPause"/);
+assert.match(controlHtml, /id="playbackStop"/);
+assert.ok(controlHtml.indexOf('class="reset-controls"') < controlHtml.indexOf('id="state"'), "Reset controls should appear above the JSON display.");
 
 assert.equal((await get("/state")).cursor, -1);
 assert.equal((await get("/state")).currentMatch, "Pre-Event");
@@ -36,6 +41,7 @@ assert.equal((await get("/api/tba/event/2026evsim/oprs")).oprs && Object.keys((a
 await post("/control/advance", { amount: 1 });
 assert.equal((await get("/state")).currentMatch, "Qual 1");
 assert.equal((await get("/api/statbotics/v3/event/2026evsim")).key, "2026evsim");
+assert.equal((await get("/api/statbotics/v3/team_event/122/2026evsim")).team, 122);
 assert.equal((await get("/api/statbotics/v3/matches/2026evsim")).length, 1);
 assert.equal((await get("/api/statbotics/v3/team_matches/2026evsim")).length, 6);
 assert.equal((await get("/api/scouting/2026evsim")).meta.eventKey, "2026evsim");
@@ -63,7 +69,7 @@ assert.equal(scheduledPlayoffs.filter((match) => match.comp_level === "sf" && ma
 assert.equal(scheduledPlayoffs.filter((match) => match.comp_level === "f").every((match) => match.alliances.red.team_keys.length === 0 && match.alliances.blue.team_keys.length === 0), true);
 const alliances = await get("/api/tba/event/2026evsim/alliances");
 assert.equal(alliances.length, 8);
-assert.equal(alliances.every((alliance) => alliance.picks.length === 4), true);
+assert.deepEqual(alliances.map((alliance) => alliance.picks.length), [3, 3, 3, 4, 3, 3, 3, 3]);
 await post("/control/set", { cursor: qualificationCount + 1 });
 assert.equal((await get("/api/tba/event/2026evsim/matches")).some((match) => match.comp_level !== "qm"), true);
 await post("/control/set", { cursor: qualificationCount + 13 });

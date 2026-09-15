@@ -2,6 +2,7 @@
 const eventModelBuilder = globalThis.EventModelBuilder || {};
 const externalSourceSnapshots = globalThis.ExternalSourceSnapshots || {};
 const providerRouting = globalThis.ProviderRouting || {};
+const DEFAULT_FETCH_TIMEOUT_MS = 15 * 1000;
 
 const buildEventModelFromProviderBundle =
   eventModelBuilder.buildEventModelFromProviderBundle ||
@@ -55,7 +56,7 @@ function resolveStatboticsBaseUrl(options = {}) {
 function resolveStatboticsFallbackBaseUrl(options = {}) {
   return normalizeText(options.statboticsFallbackBaseUrl)
     || normalizeText(globalThis.__STATBOTICS_FALLBACK_BASE_URL)
-    || "https://api-statbotics.iterativerefinement.com/v3";
+    || "https://api-statbotics.popcornpenguins.com/v3";
 }
 
 function formatProviderError(provider, error) {
@@ -90,30 +91,52 @@ function normalizeStatboticsCollection(payload) {
 async function fetchJson(url, options = {}) {
   const fetchImpl = resolveFetchImpl(options);
   if (typeof fetchImpl !== "function") throw new Error("Fetch is not available in this runtime.");
-  const response = await fetchImpl(url, {
-    headers: options.headers || {},
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
+    ? Number(options.timeoutMs)
+    : DEFAULT_FETCH_TIMEOUT_MS;
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  let timeoutId = null;
+  const request = (async () => {
+    const response = await fetchImpl(url, {
+      headers: options.headers || {},
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    if (!response?.ok) {
+      const error = new Error(`HTTP ${response?.status || "unknown"}`);
+      error.status = response?.status || 0;
+      error.url = url;
+      throw error;
+    }
+    const rawBytes = typeof response.arrayBuffer === "function" ? new Uint8Array(await response.arrayBuffer()) : null;
+    const rawText = rawBytes ? new TextDecoder().decode(rawBytes) : JSON.stringify(await response.json());
+    try {
+      return {
+        payload: JSON.parse(rawText),
+        rawText,
+        rawBytes,
+        requestUrl: url,
+        contentType: response.headers?.get?.("content-type") || "application/json",
+        status: Number(response.status) || 200,
+      };
+    } catch {
+      const error = new Error("Response was not valid JSON.");
+      error.url = url;
+      throw error;
+    }
+  })();
+  const timeout = new Promise((_, reject) => {
+    timeoutId = globalThis.setTimeout(() => {
+      controller?.abort();
+      const error = new Error(`Request timed out after ${timeoutMs}ms.`);
+      error.code = "FETCH_TIMEOUT";
+      error.url = url;
+      reject(error);
+    }, timeoutMs);
   });
-  if (!response?.ok) {
-    const error = new Error(`HTTP ${response?.status || "unknown"}`);
-    error.status = response?.status || 0;
-    error.url = url;
-    throw error;
-  }
-  const rawBytes = typeof response.arrayBuffer === "function" ? new Uint8Array(await response.arrayBuffer()) : null;
-  const rawText = rawBytes ? new TextDecoder().decode(rawBytes) : JSON.stringify(await response.json());
   try {
-    return {
-      payload: JSON.parse(rawText),
-      rawText,
-      rawBytes,
-      requestUrl: url,
-      contentType: response.headers?.get?.("content-type") || "application/json",
-      status: Number(response.status) || 200,
-    };
-  } catch {
-    const error = new Error("Response was not valid JSON.");
-    error.url = url;
-    throw error;
+    return await Promise.race([request, timeout]);
+  } finally {
+    if (timeoutId !== null) globalThis.clearTimeout(timeoutId);
   }
 }
 
@@ -125,7 +148,46 @@ async function settle(promise) {
   }
 }
 
-async function fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode, options = {}) {
+function teamKeysFromTbaPayload(teams = [], matches = []) {
+  const keys = new Set();
+  for (const team of Array.isArray(teams) ? teams : []) {
+    const key = team?.key || team?.team_key || team?.team_number;
+    if (key != null && String(key).trim()) keys.add(String(key).replace(/^frc/i, ""));
+  }
+  for (const match of Array.isArray(matches) ? matches : []) {
+    for (const alliance of ["red", "blue"]) {
+      for (const key of match?.alliances?.[alliance]?.team_keys || []) {
+        if (key != null && String(key).trim()) keys.add(String(key).replace(/^frc/i, ""));
+      }
+    }
+  }
+  return [...keys];
+}
+
+async function fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode, teamKeys = [], options = {}) {
+  const requestedTeams = Array.isArray(teamKeys) ? [...new Set(teamKeys.map((key) => String(key).trim()).filter(Boolean))] : [];
+  if (requestedTeams.length) {
+    const singularResults = await Promise.all(requestedTeams.map(async (teamKey) => {
+      const requestUrl = `${statboticsBaseUrl}/team_event/${encodeURIComponent(teamKey)}/${normalizedEventCode}`;
+      try {
+        const response = await fetchJson(requestUrl, options);
+        return { ok: true, response };
+      } catch (error) {
+        return { ok: false, error };
+      }
+    }));
+    const successful = singularResults.filter((result) => result.ok);
+    if (successful.length) {
+      return {
+        ...successful[0].response,
+        payload: successful.map((result) => result.response.payload),
+        requestUrl: `${statboticsBaseUrl}/team_event/{team}/${normalizedEventCode}`,
+        fallbackUsed: false,
+        perTeam: true,
+        missingTeams: singularResults.flatMap((result, index) => result.ok ? [] : [requestedTeams[index]]),
+      };
+    }
+  }
   const legacyUrl = `${statboticsBaseUrl}/team_events/event/${normalizedEventCode}`;
   try {
     return {
@@ -144,10 +206,10 @@ async function fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode,
   }
 }
 
-async function fetchStatboticsBundle(statboticsBaseUrl, normalizedEventCode, options = {}) {
+async function fetchStatboticsBundle(statboticsBaseUrl, normalizedEventCode, teamKeys = [], options = {}) {
   const [event, teamEvents] = await Promise.all([
     fetchJson(`${statboticsBaseUrl}/event/${normalizedEventCode}`, options),
-    fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode, options),
+    fetchStatboticsTeamEvents(statboticsBaseUrl, normalizedEventCode, teamKeys, options),
   ]);
   return {
     event,
@@ -159,15 +221,15 @@ async function fetchStatboticsBundle(statboticsBaseUrl, normalizedEventCode, opt
   };
 }
 
-async function loadStatboticsBundle(primaryBaseUrl, fallbackBaseUrl, normalizedEventCode, options = {}) {
+async function loadStatboticsBundle(primaryBaseUrl, fallbackBaseUrl, normalizedEventCode, teamKeys = [], options = {}) {
   try {
-    return { ok: true, value: await fetchStatboticsBundle(primaryBaseUrl, normalizedEventCode, options), fallbackUsed: false };
+    return { ok: true, value: await fetchStatboticsBundle(primaryBaseUrl, normalizedEventCode, teamKeys, options), fallbackUsed: false };
   } catch (primaryError) {
     if (fallbackBaseUrl === primaryBaseUrl) return { ok: false, error: primaryError, baseUrl: primaryBaseUrl };
     try {
       return {
         ok: true,
-        value: await fetchStatboticsBundle(fallbackBaseUrl, normalizedEventCode, options),
+        value: await fetchStatboticsBundle(fallbackBaseUrl, normalizedEventCode, teamKeys, options),
         fallbackUsed: true,
         primaryError,
       };
@@ -182,16 +244,6 @@ async function fetchStatboticsTeamMatchRows(statboticsBaseUrl, eventCode, matche
   const supportedLevels = new Set(["qm", "ef", "qf", "sf", "f"]);
   const isSupportedMatch = (match) => supportedLevels.has(String(match?.comp_level || "").toLowerCase())
     || /_(?:qm|ef|qf|sf|f)\d+(?:m\d+)?$/i.test(String(match?.match || match?.key || ""));
-  const teamMatchesUrl = `${statboticsBaseUrl}/team_matches?event=${encodeURIComponent(eventCode)}&limit=10000`;
-  try {
-    const response = await fetchJson(teamMatchesUrl, options);
-    const rows = (Array.isArray(response.payload) ? response.payload : [])
-      .filter(isSupportedMatch)
-      .filter((match) => Number.isFinite(Number(match?.team)));
-    return { rows, responses: [response] };
-  } catch {
-    // Older/fallback Statbotics hosts may not expose the team-matches route.
-  }
   try {
     const response = await fetchJson(`${statboticsBaseUrl}/matches?event=${encodeURIComponent(eventCode)}`, options);
     const rows = (Array.isArray(response.payload) ? response.payload : [])
@@ -203,7 +255,7 @@ async function fetchStatboticsTeamMatchRows(statboticsBaseUrl, eventCode, matche
       })));
     return { rows, responses: [response] };
   } catch {
-    // Older/fallback Statbotics hosts may not expose either collection route.
+    // Fall through to individual team-match requests when the event match collection is unavailable.
   }
   const requests = (Array.isArray(matches) ? matches : [])
     .filter((match) => isSupportedMatch(match) && (match?.key || Number.isFinite(Number(match?.match_number))))
@@ -347,15 +399,24 @@ async function loadEventByCode(eventCode, options = {}) {
   const tbaHeaders = { Accept: "application/json" };
   if (tbaAuthKey) tbaHeaders["X-TBA-Auth-Key"] = tbaAuthKey;
 
-  const [tbaEventResult, tbaTeamsResult, tbaMatchesResult, tbaAlliancesResult, tbaRankingsResult, tbaTeamStatsResult, statboticsResult] = await Promise.all([
+  const [tbaEventResult, tbaTeamsResult, tbaMatchesResult, tbaAlliancesResult, tbaRankingsResult, tbaTeamStatsResult] = await Promise.all([
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}`, { ...options, headers: tbaHeaders })),
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/teams`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/teams`, { ...options, headers: tbaHeaders })),
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/matches`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/matches`, { ...options, headers: tbaHeaders })),
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/alliances`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/alliances`, { ...options, headers: tbaHeaders })),
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/rankings`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/rankings`, { ...options, headers: tbaHeaders })),
     settle(fetchJsonWithFallback(`${tbaBaseUrl}/event/${normalizedEventCode}/oprs`, routing.tbaFallbackBaseUrl && `${routing.tbaFallbackBaseUrl}/event/${normalizedEventCode}/oprs`, { ...options, headers: tbaHeaders })),
-    loadStatboticsBundle(statboticsBaseUrl, statboticsFallbackBaseUrl, normalizedEventCode, options),
   ]);
+
+  const tbaTeams = tbaTeamsResult.ok && Array.isArray(tbaTeamsResult.value?.payload) ? tbaTeamsResult.value.payload : [];
+  const tbaMatches = tbaMatchesResult.ok && Array.isArray(tbaMatchesResult.value?.payload) ? tbaMatchesResult.value.payload : [];
+  const statboticsResult = await loadStatboticsBundle(
+    statboticsBaseUrl,
+    statboticsFallbackBaseUrl,
+    normalizedEventCode,
+    teamKeysFromTbaPayload(tbaTeams, tbaMatches),
+    options,
+  );
 
   const statboticsEventResult = statboticsResult.ok
     ? { ok: true, value: statboticsResult.value.event }
@@ -378,8 +439,8 @@ async function loadEventByCode(eventCode, options = {}) {
     importProfileId: "",
     sheet: null,
     tbaEvent: tbaEventResult.value?.payload || {},
-    tbaTeams: Array.isArray(tbaTeamsResult.value?.payload) ? tbaTeamsResult.value.payload : [],
-    tbaMatches: Array.isArray(tbaMatchesResult.value?.payload) ? tbaMatchesResult.value.payload : [],
+    tbaTeams,
+    tbaMatches,
     tbaAlliances: tbaAlliancesResult.ok && Array.isArray(tbaAlliancesResult.value?.payload) ? tbaAlliancesResult.value.payload : [],
     tbaRankings: tbaRankingsResult.ok ? (tbaRankingsResult.value?.payload || {}) : {},
     tbaTeamStats: tbaTeamStatsResult.ok ? (tbaTeamStatsResult.value?.payload || {}) : {},
@@ -453,7 +514,12 @@ async function loadEventByCode(eventCode, options = {}) {
         error: "pRidge could not be computed because Statbotics start EPA priors are unavailable.",
         notes: "pRidge depends on Statbotics start EPA priors for every event team.",
       });
-    } else if (!(eventModel.matches || []).length) {
+    } else if (!(eventModel.matches || []).some((match) => (
+      match?.compLevel === "qm"
+      && match?.red?.length === 3
+      && match?.blue?.length === 3
+      && match?.hasScore === true
+    ))) {
       sourceStates.pridge = buildPridgeUnavailableState(eventModel, timestamp, {
         eventKey: normalizedEventCode,
         inputFingerprints,

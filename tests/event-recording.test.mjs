@@ -1,0 +1,118 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { createRecorder, createRecorderService, deriveStatboticsTeamMatches, loadRecorderConfig, loadRecording } from "../eventSimulator/recording.mjs";
+import { createRecordedEngine } from "../eventSimulator/engine.mjs";
+import { createServer } from "../eventSimulator/server.mjs";
+import { exportRecording, inspectRecording, validateRecording } from "../eventSimulator/recording-tools.mjs";
+
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "event-recording-"));
+const responses = new Map();
+let failFallbackMatches = false;
+const jsonResponse = (payload, etag = "") => ({ ok: true, status: 200, headers: new Headers(etag ? { etag } : {}), json: async () => payload });
+const fetchImpl = async (url, options) => {
+  const isTba = url.includes("tba.example");
+  const isFallback = url.includes("fallback.example");
+  if (!isTba && !isFallback) throw new Error("primary Statbotics unavailable");
+  if (isFallback && failFallbackMatches && url.includes("/matches?event=")) throw new Error("matches unavailable");
+  const key = url.replace(isFallback ? "https://fallback.example/v3" : isTba ? "https://tba.example/v3" : "", "");
+  const prior = responses.get(`${isFallback ? "fallback" : isTba ? "tba" : "statbotics"}:${key}`) || { value: key.includes("matches") ? [] : key.includes("teams") ? [] : {} , etag: "a" };
+  if (options.headers["If-None-Match"] === prior.etag) return { ok: false, status: 304, headers: new Headers({ etag: prior.etag }) };
+  return jsonResponse(prior.value, prior.etag);
+};
+const setTba = (matches) => {
+  for (const suffix of ["/event/2026test", "/event/2026test/teams", "/event/2026test/matches", "/event/2026test/alliances", "/event/2026test/rankings", "/event/2026test/oprs"]) responses.set(`tba:${suffix}`, { value: suffix.endsWith("matches") ? matches : suffix.endsWith("teams") ? [{ team_number: 1 }] : {}, etag: String(matches.length) });
+};
+const setStatbotics = (eventName, base = "statbotics") => {
+  for (const suffix of ["/event/2026test", "/team_events/event/2026test", "/matches?event=2026test"]) responses.set(`${base}:${suffix}`, { value: suffix === "/event/2026test" ? { status: eventName } : [], etag: eventName });
+};
+setTba([]); setStatbotics("Scheduled");
+const recorder = createRecorder({ eventCode: "2026TEST", outputRoot: temp, tbaBaseUrl: "https://tba.example/v3", statboticsBaseUrl: "https://statbotics.example/v3", statboticsFallbackBaseUrl: "https://fallback.example/v3", fetchImpl, pollIntervalsMs: { tba: 0, statbotics: 0 } });
+const first = await recorder.poll({ force: true });
+assert.equal(first.cursor, 0);
+assert.equal(first.eventTag, "pre-event");
+assert.equal(first.providers.statbotics.endpoints.event.sourceUrl, "https://fallback.example/v3/event/2026test");
+assert.equal(first.providers.statbotics.usedFallback, true);
+assert.equal(first.providers.statbotics.endpoints.teamMatches.status, "ready");
+assert.equal(first.providers.statbotics.endpoints.teamMatches.derivedFrom, "matches");
+assert.equal(first.providers.statbotics.endpoints.teamMatches.sourceUrl, "https://fallback.example/v3/matches?event=2026test");
+assert.equal((await recorder.poll({ force: true })), null);
+
+const derivedRows = deriveStatboticsTeamMatches([{
+  key: "2026test_qm1",
+  event: "2026test",
+  winning_alliance: "red",
+  alliances: { red: { team_keys: ["frc111"], score: 20 }, blue: { team_keys: [222], score: 10 } },
+  epas: { "111": { epa: 40.25, post_epa: 41.75 }, "222": { epa: 30.5 } },
+}]);
+assert.deepEqual(derivedRows[0].epa, { total_points: 40.25, post: 41.75, breakdown: { epa: 40.25, post_epa: 41.75 } });
+assert.equal(derivedRows[1].team, 222);
+
+setTba([{ comp_level: "qm", match_number: 1, alliances: { red: { score: 10 }, blue: { score: 8 } } }]);
+const second = await recorder.poll({ force: true });
+assert.equal(second.cursor, 1);
+assert.equal(second.eventTag, "qual-1");
+
+responses.delete("fallback:/matches?event=2026test");
+failFallbackMatches = true;
+setTba([{ comp_level: "qm", match_number: 1, alliances: { red: { score: 10 }, blue: { score: 8 } } }, { comp_level: "qm", match_number: 2, alliances: { red: { score: 9 }, blue: { score: 7 } } }]);
+const partial = await recorder.poll({ force: true });
+assert.equal(partial.cursor, 2);
+assert.equal(partial.providers.statbotics.status, "partial");
+assert.ok(partial.providers.statbotics.endpoints.event.payload);
+
+const failedTemp = fs.mkdtempSync(path.join(os.tmpdir(), "event-recording-failed-"));
+const failedRecorder = createRecorder({ eventCode: "2026FAIL", outputRoot: failedTemp, tbaBaseUrl: "https://tba.example/v3", statboticsBaseUrl: "https://statbotics.example/v3", statboticsFallbackBaseUrl: "https://fallback.example/v3", fetchImpl: async () => { throw new Error("providers unavailable"); }, pollIntervalsMs: { tba: 0, statbotics: 0 } });
+assert.equal(await failedRecorder.poll({ force: true }), null);
+assert.equal(failedRecorder.status().nextCursor, 0);
+assert.equal(JSON.parse(fs.readFileSync(path.join(failedTemp, "2026fail", "recorder-state.json"), "utf8")).nextCursor, 0);
+assert.throws(() => createRecorder({ eventCode: "2026BAD", outputRoot: failedTemp, tbaBaseUrl: "/api/v3" }), /tbaBaseUrl must be an absolute URL/);
+
+const recording = loadRecording(path.join(temp, "2026test"));
+assert.equal(recording.cursors.length, 3);
+assert.equal(recording.cursors[0].providers.tba.status, "ready");
+
+const engine = createRecordedEngine({ recordingPath: path.join(temp, "2026test"), statePath: path.join(temp, "simulator-state.json") });
+assert.equal(engine.getState().eventTag, "pre-event");
+assert.equal(engine.get("tba", "matches").length, 0);
+engine.recordRequest({ source: "tba", kind: "teams", cursor: 0, at: "2026-08-28T00:00:00.000Z" });
+assert.equal(engine.getState().requests.length, 1);
+assert.equal(engine.getState().requests[0].source, "tba");
+assert.equal(engine.getState().requests[0].kind, "teams");
+engine.advance();
+assert.equal(engine.getState().eventTag, "qual-1");
+assert.equal(engine.get("tba", "matches").length, 1);
+const partialRecordingPath = path.join(temp, "partial-recording");
+fs.cpSync(path.join(temp, "2026test"), partialRecordingPath, { recursive: true });
+const partialCursorPath = path.join(partialRecordingPath, "cursors", "000002.json");
+const partialCursor = JSON.parse(fs.readFileSync(partialCursorPath, "utf8"));
+delete partialCursor.providers.statbotics.endpoints.teamMatches;
+fs.writeFileSync(partialCursorPath, JSON.stringify(partialCursor, null, 2));
+const partialEngine = createRecordedEngine({ recordingPath: partialRecordingPath, statePath: path.join(temp, "partial-simulator-state.json") });
+partialEngine.setState({ cursor: 2 });
+assert.equal(partialEngine.get("statbotics", "team-matches").length, 0);
+
+const configPath = path.join(temp, "recorder-config.json");
+fs.writeFileSync(configPath, JSON.stringify({ events: ["2026test"], outputRoot: temp, tbaAuthKey: "must-not-be-read", statusPort: 8899 }));
+assert.deepEqual(loadRecorderConfig(configPath), { events: ["2026test"], outputRoot: temp, tbaBaseUrl: undefined, statboticsBaseUrl: undefined, statboticsFallbackBaseUrl: undefined, pollIntervalsMs: undefined, statusPort: 8899 });
+const service = createRecorderService({ events: [] });
+assert.equal(service.status().running, false);
+service.start();
+assert.equal(service.status().running, true);
+service.stop();
+
+const server = createServer({ recordingRoot: temp });
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const serverUrl = `http://127.0.0.1:${server.address().port}`;
+const recordings = await (await fetch(`${serverUrl}/recordings`)).json();
+assert.deepEqual(recordings.recordings[0].eventCode, "2026test");
+const loadedState = await (await fetch(`${serverUrl}/control/load-recording`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ eventCode: "2026test" }) })).json();
+assert.equal(loadedState.mode, "recording");
+assert.equal(loadedState.eventTag, "pre-event");
+await new Promise((resolve) => server.close(resolve));
+assert.deepEqual(validateRecording(path.join(temp, "2026test")), { valid: true, eventCode: "2026test", cursorCount: 3, firstTag: "pre-event", lastTag: "qual-2" });
+assert.equal(inspectRecording(path.join(temp, "2026test")).cursors.length, 3);
+const exportPath = path.join(temp, "exported-2026test");
+assert.equal(exportRecording(path.join(temp, "2026test"), exportPath).cursorCount, 3);
+console.log("PASS live event recording and recorded simulator playback");
