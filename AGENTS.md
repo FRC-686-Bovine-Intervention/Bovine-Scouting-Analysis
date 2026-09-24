@@ -4,6 +4,12 @@
 
 Issues are tracked in this repo's GitHub Issues. External PRs are not part of the triage surface. See `docs/agents/issue-tracker.md`.
 
+### GitHub account routing
+
+- This repository uses the `RichSims686` GitHub account. Use `pwsh -NoProfile -File scripts/gh.ps1 ...` for all GitHub CLI operations so the wrapper selects the account from this repository's local `codex.githubAccount` setting without changing the machine-wide active account.
+- Do not call `gh auth switch`. Never store, print, or pass a token as a command-line argument; the wrapper reads it from GitHub CLI's secure credential store and sets `GH_TOKEN` only for that process.
+- Verify the selected account without exposing credentials with `pwsh -NoProfile -File scripts/gh.ps1 api user --jq .login`; expected output is `RichSims686`.
+
 ### Triage labels
 
 This repo uses the default triage label vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
