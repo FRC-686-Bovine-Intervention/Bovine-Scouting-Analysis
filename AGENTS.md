@@ -9,8 +9,8 @@ Issues are tracked in this repo's GitHub Issues. External PRs are not part of th
 - This repository uses the `RichSims686` GitHub account. Use `pwsh -NoProfile -File scripts/gh.ps1 ...` for all GitHub CLI operations so the wrapper selects the account from this repository's local `codex.githubAccount` setting without changing the machine-wide active account.
 - Do not call `gh auth switch`. Never store, print, or pass a token as a command-line argument; the wrapper reads it from GitHub CLI's secure credential store and sets `GH_TOKEN` only for that process.
 - Verify the selected account without exposing credentials with `pwsh -NoProfile -File scripts/gh.ps1 api user --jq .login`; expected output is `RichSims686`.
-- Local Git commits do not need GitHub authentication. For Git operations over HTTPS, `origin` includes `RichSims686` as the username selector so Git Credential Manager can use that account's credential without changing GitHub CLI's active account.
-- If a Git push cannot open the credential prompt in a noninteractive shell, use `pwsh -NoProfile -File scripts/git-push.ps1 origin dev` (replace the remote and branch as needed). The helper obtains the mapped account's credential from GitHub CLI's secure store and supplies it through a temporary askpass process; it removes the temporary helper and environment variables afterward. Never put a token in a remote URL, command-line argument, repository file, or saved Git configuration.
+- Local Git commits do not need GitHub authentication. For Git operations over HTTPS, `origin` uses `RichSims686` as the username selector so Git Credential Manager (GCM) can use that account's credential without changing GitHub CLI's active account. Prefer ordinary `git push` when GCM can authenticate interactively or from its cache.
+- If a Git push needs a password prompt that the agent shell cannot display, use `pwsh -NoProfile -File scripts/gh.ps1 --git-push origin branch-name`. The wrapper gets the mapped credential from GitHub CLI's secure store, validates that `origin` is username-qualified HTTPS for `github.com` and matches `codex.githubAccount`, disables credential helpers only for that push, and supplies the credential through process-scoped environment variables to a temporary askpass helper. It removes the helper and restores the prior environment afterward. Never put a token in a remote URL, command-line argument, persistent environment setting, Git config, or file.
 
 ### Triage labels
 
@@ -48,4 +48,6 @@ This repo is configured as a single-context repo. See `docs/agents/domain.md`.
 - Do not invent or preserve prototype-era synthetic data paths when a live-backed field is unavailable. Prefer showing the live scalar value, or showing that a trend/component is unavailable, over fabricating derived match-by-match series or season-specific placeholders.
 - Do not introduce or preserve pseudo-events that stand in for real events, seasons, or live-backed source states. Prefer wiring the app to real event identities and real source-backed data, and treat pseudo-events as cleanup targets.
 - When touching event, metric, or plotting code, actively look for older demo/prototype logic that can leak bogus values into the UI and remove or replace it with live-backed data.
+
+
 
