@@ -9576,7 +9576,6 @@ function renderPicklistBuilder() {
   const rankableMetrics = orderedRankableMetrics();
   const pairwise = state.pairwisePicklist?.picklistId === picklist.id ? state.pairwisePicklist.session : null;
   const currentTeams = (pairwise?.teams || picklist.teams).map((number) => teamByNumber(number)).filter(Boolean);
-  const nextPairwiseTeams = new Set(pairwise ? PairwisePicklist.suggestions(pairwise) : []);
   const compareTeams = state.picklistCompareTeams.map((number) => teamByNumber(number)).filter(Boolean);
   const comparisonMetric = picklistCompareMetric();
   return `
@@ -9597,13 +9596,13 @@ function renderPicklistBuilder() {
         <div class="section-heading">
           <div>
             <h2>${picklist.name}</h2>
-            <p class="muted">${pairwise ? "Pairwise mode<br>&#8593&#8595: change team selection<br>Shift + &#8593&#8595: Compare to team above, move team<br>Ctrl + &#8593&#8595: Compare to team below, move team<br>Gray highlights: suggested teams to revisit" : "Drag: reorder teams<br>&#8593&#8595: change team selection<br>Shift + &#8593&#8595: Move team<br>Right-click: Access Pairwise Mode"}</p>
+            <p class="muted">${pairwise ? "Pairwise mode<br>&#8593&#8595: change team selection<br>Shift + &#8593&#8595: Compare to team above, move team<br>Ctrl + &#8593&#8595: Compare to team below, move team" : "Drag: reorder teams<br>&#8593&#8595: change team selection<br>Shift + &#8593&#8595: Move team<br>Right-click: Access Pairwise Mode"}</p>
           </div>
           ${pairwise ? `<div class="button-row"><button type="button" data-pairwise-save>Save</button><button type="button" data-pairwise-cancel>Cancel</button></div>` : ""}
         </div>
         <div class="picklist-list-offset" aria-hidden="true"></div>
         <div class="builder-team-list current-picklist-list" data-current-picklist tabindex="0">
-          ${currentTeams.map((team, index) => renderBuilderTeamTile(team, index, { draggable: !pairwise, pairwise, pairwiseNext: nextPairwiseTeams.has(team.number) })).join("")}
+          ${currentTeams.map((team, index) => renderBuilderTeamTile(team, index, { draggable: !pairwise, pairwise })).join("")}
         </div>
         <p id="picklistReorderStatus" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">${escapeHtml(picklistReorderAnnouncement)}</p>
       </article>
@@ -9809,7 +9808,7 @@ function renderBuilderTeamTile(team, index, options = {}) {
     showName: false,
     showScore: false,
     focused: focused || (options.pairwise?.mode === "select" && options.pairwise.teams[options.pairwise.cursorIndex] === teamSelectionId(team)),
-    extraClass: options.pairwise?.activeTeam === teamSelectionId(team) ? "pairwise-active" : options.pairwise?.comparedTeam === teamSelectionId(team) ? "pairwise-compared" : options.pairwiseNext ? "pairwise-next" : "",
+    extraClass: options.pairwise?.activeTeam === teamSelectionId(team) ? "pairwise-active" : options.pairwise?.comparedTeam === teamSelectionId(team) ? "pairwise-compared" : "",
     compareIndex: compareSlotIndexForTeam(teamSelectionId(team)),
     builderTeam: true,
     reorderTeam: options.draggable,

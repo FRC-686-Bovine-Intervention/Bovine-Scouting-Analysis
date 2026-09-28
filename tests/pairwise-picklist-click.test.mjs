@@ -7,12 +7,15 @@ vm.createContext(context);
 vm.runInContext(fs.readFileSync("src/pairwise-picklist.js", "utf8"), context, { filename: "src/pairwise-picklist.js" });
 const PairwisePicklist = context.PairwisePicklist;
 
+assert.equal(PairwisePicklist.suggestions, undefined, "Pairwise mode should not compute or expose teams to revisit.");
+
 function comparing(teams, activeTeam, direction = -1) {
   const selected = PairwisePicklist.choose(PairwisePicklist.create(teams), activeTeam);
   return PairwisePicklist.move(PairwisePicklist.begin(selected), direction);
 }
 
 const compareAbove = comparing([1, 2, 3, 4], 3);
+assert.equal("unresolved" in compareAbove, false, "Pairwise sessions should not retain obsolete suggestion state.");
 assert.equal(compareAbove.comparedTeam, 1);
 const chooseCompared = PairwisePicklist.chooseComparisonWinner(compareAbove, 1);
 assert.equal(chooseCompared.mode, "select", "Choosing either compared tile resolves pairwise mode.");

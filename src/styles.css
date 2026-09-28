@@ -2062,11 +2062,6 @@ button.pill {
   outline-offset: 1px;
 }
 
-.picklist-tile.pairwise-next {
-  background: color-mix(in srgb, var(--muted) 22%, var(--panel)) !important;
-  color: var(--muted);
-}
-
 .picklist-tile.pairwise-active {
   outline: 2px solid var(--accent);
   outline-offset: 1px;

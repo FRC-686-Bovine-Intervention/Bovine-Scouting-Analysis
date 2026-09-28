@@ -45,6 +45,14 @@ try {
   await page.locator("[data-current-picklist]").click({ button: "right" });
   await page.locator("[data-pairwise-start]").click();
 
+  assert.equal(await page.locator(".current-picklist-card .muted").innerText(), [
+    "Pairwise mode",
+    "↑↓: change team selection",
+    "Shift + ↑↓: Compare to team above, move team",
+    "Ctrl + ↑↓: Compare to team below, move team",
+  ].join("\n"), "Pairwise help must not advertise suggestion highlights.");
+  assert.equal(await page.locator(".pairwise-next").count(), 0, "Pairwise mode must not render gray suggestion tiles.");
+
   const active = order[4];
   await page.locator(`[data-builder-team="${active}"]`).click();
   await page.keyboard.down("Shift");
@@ -55,6 +63,8 @@ try {
   }));
   assert.equal(comparison.session.mode, "sort");
   assert.ok(comparison.session.compared, "Expected a team to compare against.");
+  assert.ok(await page.locator(`[data-builder-team="${comparison.session.active}"].pairwise-active`).count(), "The actual active choice must remain visible.");
+  assert.ok(await page.locator(`[data-builder-team="${comparison.session.compared}"].pairwise-compared`).count(), "The actual comparison choice must remain visible.");
   await page.locator(`[data-builder-team="${comparison.session.compared}"]`).click();
   await page.keyboard.up("Shift");
   const after = await page.evaluate(() => ({
