@@ -482,6 +482,7 @@ state.recentEventKeys = normalizeRecentEventKeys(readStoredJson(storageKeys.rece
 globalThis.__scoutingAppState = state;
 globalThis.__scoutingActiveEventKey = state.activeEventKey;
 globalThis.__STATBOTICS_BASE_URL = state.statboticsBaseUrl;
+let picklistReorderAnnouncement = "";
 let pendingScoutingAutoloadToken = "";
 let attemptedScoutingAutoloadToken = "";
 const pendingExternalRefreshSourceIds = new Set();
@@ -554,7 +555,7 @@ function interactiveElement(element = document.activeElement) {
 
 function noteUserInteraction(eventName = "") {
   recentUserInteractionAt = perfNow();
-  if (["click", "change", "input", "keydown", "pointerup"].includes(eventName)) {
+  if (["click", "change", "input", "keydown", "pointerup", "drop"].includes(eventName)) {
     userRenderPriorityUntil = recentUserInteractionAt + 1000;
   }
 }
@@ -9592,6 +9593,7 @@ function renderPicklistBuilder() {
         <div class="builder-team-list current-picklist-list" data-current-picklist tabindex="0">
           ${currentTeams.map((team, index) => renderBuilderTeamTile(team, index, { draggable: !pairwise, pairwise, pairwiseNext: nextPairwiseTeams.has(team.number) })).join("")}
         </div>
+        <p id="picklistReorderStatus" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">${escapeHtml(picklistReorderAnnouncement)}</p>
       </article>
       <article class="card">
         <div class="section-heading">
@@ -10559,14 +10561,35 @@ function moveItemBefore(values, draggedValue, targetValue) {
   return next;
 }
 
-function moveItemByStep(values, value, step) {
-  const index = values.indexOf(value);
+function picklistTeamIndex(values, teamValue) {
+  const value = String(teamValue);
+  return values.findIndex((candidate) => String(candidate) === value);
+}
+
+function picklistTeamValue(values, teamValue) {
+  const index = picklistTeamIndex(values, teamValue);
+  return index < 0 ? teamValue : values[index];
+}
+
+function movePicklistTeamBefore(values, draggedValue, targetValue) {
+  const draggedIndex = picklistTeamIndex(values, draggedValue);
+  if (draggedIndex < 0) return values;
+  const targetIndex = picklistTeamIndex(values, targetValue);
+  const next = [...values];
+  const [draggedTeam] = next.splice(draggedIndex, 1);
+  const insertIndex = targetIndex < 0 ? next.length : targetIndex > draggedIndex ? targetIndex - 1 : targetIndex;
+  next.splice(insertIndex, 0, draggedTeam);
+  return next;
+}
+
+function movePicklistTeamByStep(values, teamValue, step) {
+  const index = picklistTeamIndex(values, teamValue);
   if (index < 0) return values;
   const targetIndex = Math.max(0, Math.min(values.length - 1, index + step));
   if (targetIndex === index) return values;
   const next = [...values];
   next.splice(index, 1);
-  next.splice(targetIndex, 0, value);
+  next.splice(targetIndex, 0, values[index]);
   return next;
 }
 
@@ -11272,7 +11295,15 @@ function handleBuilderKeyboard(event) {
   const currentPicklist = activePicklist();
   if (event.shiftKey && (event.key === "ArrowUp" || event.key === "ArrowDown") && state.picklistSelectedTeam) {
     event.preventDefault();
-    const nextTeams = moveItemByStep(currentPicklist.teams, state.picklistSelectedTeam, event.key === "ArrowUp" ? -1 : 1);
+    const selectedTeam = picklistTeamValue(currentPicklist.teams, state.picklistSelectedTeam);
+    const previousIndex = picklistTeamIndex(currentPicklist.teams, selectedTeam);
+    if (previousIndex < 0) return;
+    const step = event.key === "ArrowUp" ? -1 : 1;
+    const targetIndex = Math.max(0, Math.min(currentPicklist.teams.length - 1, previousIndex + step));
+    if (targetIndex === previousIndex) return;
+    const nextTeams = movePicklistTeamByStep(currentPicklist.teams, selectedTeam, step);
+    state.picklistSelectedTeam = selectedTeam;
+    picklistReorderAnnouncement = `Moved team ${teamDisplayLabel(teamByNumber(selectedTeam))} to position ${targetIndex + 1} of ${currentPicklist.teams.length}.`;
     updatePicklist(currentPicklist.id, (picklist) => ({ ...picklist, teams: nextTeams }));
     return;
   }
@@ -11280,7 +11311,7 @@ function handleBuilderKeyboard(event) {
   if (event.key === "ArrowUp" || event.key === "ArrowDown") {
     event.preventDefault();
     if (state.builderFocus.picklistBuilder === "teams" && state.picklistSelectedTeam) {
-      const index = currentPicklist.teams.indexOf(state.picklistSelectedTeam);
+      const index = picklistTeamIndex(currentPicklist.teams, state.picklistSelectedTeam);
       const nextIndex = Math.max(0, Math.min(currentPicklist.teams.length - 1, index + (event.key === "ArrowUp" ? -1 : 1)));
       state.picklistSelectedTeam = currentPicklist.teams[nextIndex] || null;
       render();
@@ -11996,7 +12027,7 @@ function bindViewEvents() {
       const teamNumber = tile.dataset.builderTeam;
       if (state.pairwisePicklist?.picklistId === activePicklist().id) {
         const session = state.pairwisePicklist.session;
-        if (session.mode === "select") state.pairwisePicklist.session = PairwisePicklist.choose(session, teamNumber);
+        if (session.mode === "select") state.pairwisePicklist.session = PairwisePicklist.choose(session, picklistTeamValue(session.teams, teamNumber));
         render();
         return;
       }
@@ -12004,7 +12035,9 @@ function bindViewEvents() {
       const changed = togglePicklistCompareTeam(teamNumber);
       if (!changed) return;
       state.builderFocus.picklistBuilder = "teams";
-      state.picklistSelectedTeam = wasCompared && state.picklistSelectedTeam === teamNumber ? null : teamNumber;
+      state.picklistSelectedTeam = wasCompared && String(state.picklistSelectedTeam) === teamNumber
+        ? null
+        : picklistTeamValue(activePicklist().teams, teamNumber);
       saveState();
       render();
     });
@@ -12063,8 +12096,9 @@ function bindViewEvents() {
       const draggedTeam = event.dataTransfer.getData("application/x-picklist-team");
       const targetTeam = tile.dataset.reorderTeam;
       if (!draggedTeam || draggedTeam === targetTeam) return;
+      noteUserInteraction("drop");
       const picklist = activePicklist();
-      updatePicklist(picklist.id, (current) => ({ ...current, teams: moveItemBefore(current.teams, draggedTeam, targetTeam) }));
+      updatePicklist(picklist.id, (current) => ({ ...current, teams: movePicklistTeamBefore(current.teams, draggedTeam, targetTeam) }));
     });
   });
   document.querySelector("#importSourceUrl")?.addEventListener("input", (event) => {
