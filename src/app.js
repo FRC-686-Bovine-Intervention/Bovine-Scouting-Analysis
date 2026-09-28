@@ -523,6 +523,7 @@ let scheduleFocusPending = false;
 let renderInProgress = false;
 let pendingRenderRequest = null;
 let renderFlushScheduled = false;
+let renderInteractionRestoreGeneration = 0;
 let recentUserInteractionAt = 0;
 let userRenderPriorityUntil = 0;
 installGlobalRecoveryGuards();
@@ -4482,14 +4483,16 @@ function captureRenderInteractionState() {
       selectedIndex: typeof element.selectedIndex === "number" ? element.selectedIndex : null,
     });
   });
-  app.querySelectorAll("[data-builder-list-scroll], [data-builder-grid-column-scroll], [data-builder-grid-shell]").forEach((element) => {
+  app.querySelectorAll("[data-builder-list-scroll], [data-builder-grid-column-scroll], [data-builder-grid-shell], [data-current-picklist]").forEach((element) => {
     const key = element.dataset.builderListScroll || element.dataset.builderGridColumnScroll || "shell";
     interactionState.scroll.push({
       selector: element.dataset.builderListScroll
         ? `[data-builder-list-scroll="${key}"]`
         : element.dataset.builderGridColumnScroll
           ? `[data-builder-grid-column-scroll="${key}"]`
-          : "[data-builder-grid-shell]",
+          : element.hasAttribute("data-current-picklist")
+            ? "[data-current-picklist]"
+            : "[data-builder-grid-shell]",
       scrollTop: element.scrollTop,
       scrollLeft: element.scrollLeft,
     });
@@ -4499,7 +4502,15 @@ function captureRenderInteractionState() {
 
 function restoreRenderInteractionState(interactionState, options = {}) {
   if (!interactionState) return;
+  const restoreGeneration = ++renderInteractionRestoreGeneration;
+  interactionState.scroll.filter((saved) => saved.selector === "[data-current-picklist]").forEach((saved) => {
+    const element = document.querySelector(saved.selector);
+    if (!element) return;
+    element.scrollTop = saved.scrollTop;
+    element.scrollLeft = saved.scrollLeft;
+  });
   requestAnimationFrame(() => {
+    if (restoreGeneration !== renderInteractionRestoreGeneration) return;
     if (options.preserveControls === true) {
       interactionState.controls.forEach((saved) => {
         const element = document.getElementById(saved.id);
@@ -4513,6 +4524,7 @@ function restoreRenderInteractionState(interactionState, options = {}) {
       globalThis.scrollTo(interactionState.windowScroll.x, interactionState.windowScroll.y);
     }
     interactionState.scroll.forEach((saved) => {
+      if (saved.selector === "[data-current-picklist]") return;
       const element = document.querySelector(saved.selector);
       if (!element) return;
       element.scrollTop = saved.scrollTop;
