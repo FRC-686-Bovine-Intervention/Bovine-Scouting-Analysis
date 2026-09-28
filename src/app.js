@@ -5393,9 +5393,54 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
   render();
   const externalLoadStartedAt = perfNow();
   try {
+    const statboticsSourceCacheApi = globalThis.firebaseEventSourceCacheApi;
+    const loadStatboticsFallback = async (requestedEventKey) => {
+      if (requestedEventKey !== normalizedEventCode) return null;
+      const previousEventModel = eventModelByKey(requestedEventKey);
+      const previousWorkspace = readStoredJson(storageKeys.eventWorkspace, null, requestedEventKey);
+      const previousSource = previousWorkspace?.sources?.statbotics || {};
+      const hasPreviousStatboticsData = (previousEventModel?.teams || []).some((team) =>
+        Object.values(team?.sources?.statbotics?.components || {}).some((value) => value !== null && value !== undefined && value !== ""),
+      );
+      if (
+        previousEventModel?.key === requestedEventKey
+        && ["dynamic-external", "shared-cache"].includes(previousEventModel.catalogSource)
+        && previousSource.lastSuccessfulAt
+        && previousSource.sourceFingerprint
+        && hasPreviousStatboticsData
+      ) {
+        return {
+          eventKey: requestedEventKey,
+          eventModel: previousEventModel,
+          fetchedAt: previousSource.lastSuccessfulAt,
+        };
+      }
+      if (typeof statboticsSourceCacheApi?.loadEventSourceCache !== "function") return null;
+      const [eventSource, teamEventsSource] = await Promise.all([
+        statboticsSourceCacheApi.loadEventSourceCache({ eventKey: requestedEventKey, sourceId: "statbotics-event" }),
+        statboticsSourceCacheApi.loadEventSourceCache({ eventKey: requestedEventKey, sourceId: "statbotics-team-events" }),
+      ]);
+      const sourceManifestMatchesEvent = globalThis.EventSourceCache?.sourceManifestMatchesEvent;
+      if (
+        typeof sourceManifestMatchesEvent !== "function"
+        || !sourceManifestMatchesEvent(eventSource?.manifest, "statbotics-event", requestedEventKey)
+        || !sourceManifestMatchesEvent(teamEventsSource?.manifest, "statbotics-team-events", requestedEventKey)
+      ) return null;
+      const parseSource = (source) => JSON.parse(source.rawText || new TextDecoder().decode(source.rawBytes));
+      const event = parseSource(eventSource);
+      const teamEvents = parseSource(teamEventsSource);
+      if (!event || typeof event !== "object" || !Array.isArray(teamEvents)) return null;
+      return {
+        eventKey: requestedEventKey,
+        event,
+        teamEvents,
+        fetchedAt: [eventSource.manifest.fetchedAt, teamEventsSource.manifest.fetchedAt].filter(Boolean).sort()[0] || "",
+      };
+    };
     const loadResult = await loadExternalEventByCode(normalizedEventCode, {
       tbaAuthKey: state.tbaAuthKey,
       statboticsBaseUrl: state.statboticsBaseUrl,
+      loadStatboticsFallback,
       deferPridgeTrends: options.deferPridgeTrends === true,
       deferPridgeComputation: options.deferPridgeComputation === true,
     });
@@ -9725,6 +9770,7 @@ function renderTeamTile(team, index, options = {}) {
   const compareColor = options.compareIndex >= 0 ? compareTeamPalette[options.compareIndex] : "";
   const style = [`background: ${background}`];
   if (compareColor) style.push(`--compare-accent: ${compareColor}`);
+  const rankMarkup = options.showRank === false ? "" : `<strong class="tile-rank">${index + 1}</strong>`;
   return `
     <button
       class="${classes.join(" ")}"
@@ -9735,7 +9781,7 @@ function renderTeamTile(team, index, options = {}) {
       draggable="${options.draggable ? "true" : "false"}"
       style="${style.join("; ")}"
     >
-      <strong class="tile-rank">${index + 1}</strong>
+      ${rankMarkup}
       <span class="tile-label">${options.showName === false ? teamDisplayLabel(team) : `${teamDisplayLabel(team)} ${team.name}`}</span>
       ${scoreMarkup}
     </button>
@@ -9764,7 +9810,24 @@ function gridColumnModel(entry, options = {}) {
   if (entry.startsWith("metric:")) {
     const metricId = entry.slice(7);
     const metric = metricById(metricId);
-    if (!metric) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
+    if (!metric) {
+      const normalizedMetricId = normalizeLegacyMetricId(metricId);
+      const statboticsPrefix = "source:statbotics:";
+      if (!normalizedMetricId.startsWith(statboticsPrefix)) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
+      const componentId = normalizedMetricId.slice(statboticsPrefix.length);
+      const teams = currentTeams();
+      return {
+        type: "metric",
+        id: normalizedMetricId,
+        label: `Statbotics ${componentId}`,
+        direction,
+        teams,
+        scores: teams.map(() => undefined),
+        minScore: 0,
+        maxScore: 0,
+        unavailable: true,
+      };
+    }
     const metricValueCache = options.metricValueCache;
     const scoreForTeam = (team) => {
       const cacheKey = `${metric.id}:${team.number}`;
@@ -9821,15 +9884,21 @@ function gridColumnModel(entry, options = {}) {
 function renderPicklistGridColumn(entry, index, options = {}) {
   const sortDirection = picklistColumnSortDirection(index);
   const column = gridColumnModel(entry, { direction: sortDirection, metricValueCache: options.metricValueCache });
+  const statboticsSourceState = currentEventWorkspace().sources?.statbotics || {};
+  const statboticsStale = !column.unavailable
+    && column.type === "metric"
+    && metricById(column.id)?.sourceId === "statbotics"
+    && (statboticsSourceState.status === "error" || statboticsSourceState.freshness === "stale");
   const minHeight = `calc(${currentTeams().length} * var(--picklist-tile-row-size))`;
   return `
     <section class="grid-column ${column.type ? "" : "empty"}" ${column.type ? `data-grid-column="${index}"` : ""}>
       <label class="grid-column-select">
-        <span>Column ${index + 1} ${sortDirectionGlyph(sortDirection)}</span>
+        <span>Column ${index + 1} ${sortDirectionGlyph(sortDirection)}${column.unavailable ? " · Statbotics unavailable" : statboticsStale ? " · Statbotics stale" : ""}</span>
         <select data-picklist-column="${index}">
           <option value="" ${entry ? "" : "selected"}>---</option>
           <optgroup label="Metrics">
             ${(options.rankableMetrics || orderedRankableMetrics()).map((item) => `<option value="metric:${item.id}" ${entry === `metric:${item.id}` ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
+            ${column.unavailable ? `<option value="${escapeAttribute(`metric:${column.id}`)}" selected>statbotics.${escapeHtml(column.id.slice("source:statbotics:".length))} (unavailable)</option>` : ""}
           </optgroup>
           <optgroup label="Picklists">
             ${state.picklists.map((item) => `<option value="picklist:${item.id}" ${entry === `picklist:${item.id}` ? "selected" : ""}>${item.name}</option>`).join("")}
@@ -9847,6 +9916,7 @@ function renderPicklistGridColumn(entry, index, options = {}) {
                         compact: true,
                         showName: false,
                         showScore: true,
+                        showRank: !column.unavailable,
                         score: column.scores[teamIndex],
                         minScore: column.minScore,
                         maxScore: column.maxScore,

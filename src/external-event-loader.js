@@ -410,7 +410,7 @@ async function loadEventByCode(eventCode, options = {}) {
 
   const tbaTeams = tbaTeamsResult.ok && Array.isArray(tbaTeamsResult.value?.payload) ? tbaTeamsResult.value.payload : [];
   const tbaMatches = tbaMatchesResult.ok && Array.isArray(tbaMatchesResult.value?.payload) ? tbaMatchesResult.value.payload : [];
-  const statboticsResult = await loadStatboticsBundle(
+  let statboticsResult = await loadStatboticsBundle(
     statboticsBaseUrl,
     statboticsFallbackBaseUrl,
     normalizedEventCode,
@@ -418,13 +418,41 @@ async function loadEventByCode(eventCode, options = {}) {
     options,
   );
 
+  let lastKnownGoodStatbotics = null;
+  if (!statboticsResult.ok && typeof options.loadStatboticsFallback === "function") {
+    try {
+      const cached = await options.loadStatboticsFallback(normalizedEventCode);
+      if (
+        cached?.eventKey === normalizedEventCode
+        && (
+          (cached.event && typeof cached.event === "object" && Array.isArray(cached.teamEvents))
+          || cached.eventModel?.key === normalizedEventCode
+        )
+      ) {
+        lastKnownGoodStatbotics = cached;
+        statboticsResult = {
+          ...statboticsResult,
+          ok: true,
+          usedLastKnownGood: true,
+          value: {
+            event: { payload: cached.event || { year: cached.eventModel?.season }, rawText: cached.eventRawText || JSON.stringify(cached.event || {}), requestUrl: "shared-cache/statbotics-event" },
+            teamEvents: { payload: cached.teamEvents || [], rawText: cached.teamEventsRawText || JSON.stringify(cached.teamEvents || []), requestUrl: "shared-cache/statbotics-team-events" },
+            baseUrl: "shared cache",
+          },
+        };
+      }
+    } catch {
+      // A cache miss or read failure leaves Statbotics unavailable; no replacement values are inferred.
+    }
+  }
+
   const statboticsEventResult = statboticsResult.ok
     ? { ok: true, value: statboticsResult.value.event }
     : { ok: false, error: statboticsResult.error };
   const statboticsTeamEventsResult = statboticsResult.ok
     ? { ok: true, value: statboticsResult.value.teamEvents }
     : { ok: false, error: statboticsResult.error };
-  const statboticsTeamMatchesResult = statboticsResult.ok && tbaMatchesResult.ok
+  const statboticsTeamMatchesResult = statboticsResult.ok && !statboticsResult.usedLastKnownGood && tbaMatchesResult.ok
     ? await fetchStatboticsTeamMatchRows(statboticsResult.value.baseUrl, normalizedEventCode, tbaMatchesResult.value.payload, options)
     : { rows: [], responses: [] };
 
@@ -453,6 +481,18 @@ async function loadEventByCode(eventCode, options = {}) {
     catalogSource: "dynamic-external",
   });
 
+  if (lastKnownGoodStatbotics?.eventModel?.key === normalizedEventCode) {
+    const previousTeams = new Map((lastKnownGoodStatbotics.eventModel.teams || [])
+      .filter((team) => team?.sources?.statbotics && Number.isFinite(Number(team.number)))
+      .map((team) => [String(team.id || `${team.number}${team.isSuffixed ? `-${team.suffix || ""}` : ""}`), team]));
+    eventModel.teams = eventModel.teams.map((team) => {
+      const identity = String(team.id || `${team.number}${team.isSuffixed ? `-${team.suffix || ""}` : ""}`);
+      const previousTeam = previousTeams.get(identity);
+      if (!previousTeam || Number(previousTeam.number) !== Number(team.number)) return team;
+      return { ...team, sources: { ...team.sources, statbotics: previousTeam.sources.statbotics } };
+    });
+  }
+
   const warnings = [];
   if (!tbaAlliancesResult.ok && Number(tbaEventResult.value?.payload?.playoff_type) > 0) {
     warnings.push(formatProviderError("The Blue Alliance playoff alliances", tbaAlliancesResult.error));
@@ -473,7 +513,20 @@ async function loadEventByCode(eventCode, options = {}) {
     }),
   };
 
-  if (statboticsEventResult.ok && statboticsTeamEventsResult.ok) {
+  if (statboticsResult.usedLastKnownGood) {
+    const fetchedAt = normalizeText(lastKnownGoodStatbotics.fetchedAt);
+    const message = `Statbotics timed out or failed; using last-known-good data for ${normalizedEventCode}${fetchedAt ? ` fetched ${fetchedAt}` : ""}.`;
+    warnings.push(message);
+    sourceStates.statbotics = buildFailedSourceState("statbotics", timestamp, {
+      error: message,
+      lastSuccessfulAt: fetchedAt,
+      sourceFingerprint: buildSnapshotFingerprint(buildExternalSourceSnapshot("statbotics", eventModel)),
+      notes: `Showing previously cached real Statbotics values for this event. The provider refresh failed${fetchedAt ? `; cached data was fetched ${fetchedAt}` : ""}.`,
+      mode: "shared-cache-fallback",
+      eventKey: normalizedEventCode,
+      generatedAt: fetchedAt || timestamp,
+    });
+  } else if (statboticsEventResult.ok && statboticsTeamEventsResult.ok) {
     const statboticsTeamEventsNote = statboticsTeamEventsResult.value?.fallbackUsed
       ? " Loaded team-event rows through the query-form team_events endpoint because the legacy event route returned 404."
       : "";
@@ -542,10 +595,11 @@ async function loadEventByCode(eventCode, options = {}) {
     profiling: eventModel.profiling || {},
     sourceStates,
     warnings,
+    ...(lastKnownGoodStatbotics ? { statboticsFallbackUsed: true } : {}),
     rawSourceArtifacts: [
       ["tba-event", tbaEventResult], ["tba-teams", tbaTeamsResult], ["tba-matches", tbaMatchesResult], ["tba-alliances", tbaAlliancesResult], ["tba-rankings", tbaRankingsResult], ["tba-oprs", tbaTeamStatsResult], ["statbotics-event", statboticsEventResult], ["statbotics-team-events", statboticsTeamEventsResult],
       ["statbotics-matches", statboticsTeamMatchesResult.responses[0] ? { ok: true, value: statboticsTeamMatchesResult.responses[0] } : { ok: false }],
-    ].filter(([, result]) => result.ok).map(([sourceId, result]) => ({
+    ].filter(([sourceId, result]) => result.ok && !(statboticsResult.usedLastKnownGood && sourceId.startsWith("statbotics-"))).map(([sourceId, result]) => ({
       sourceId,
       rawText: result.value.rawText,
       rawBytes: result.value.rawBytes,
