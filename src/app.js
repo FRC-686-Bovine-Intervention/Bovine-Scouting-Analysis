@@ -267,6 +267,7 @@ const navItems = [
   { view: "analysis", label: "Analysis", icon: "analysis" },
   { view: "derivedBuilder", label: "Derived Equation Builder", icon: "derivedBuilder" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
+  { view: "comparisonPlots", label: "Comparison Plots", icon: "analysis" },
   { view: "alliance", label: "Alliance Selection", icon: "alliance" },
   { view: "adminEventControl", label: "Admin Event Control", icon: "admin" },
   { view: "adminDataQuality", label: "Admin Data Quality", icon: "quality" },
@@ -7947,6 +7948,7 @@ function viewTitle(view) {
     matchup: "Matchup",
     bracket: "Playoff Bracket",
     picklistBuilder: "Picklist Builder",
+    comparisonPlots: "Comparison Plots",
     alliance: "Alliance Selection",
     adminEventControl: "Admin Event Control",
     adminDataQuality: "Admin Data Quality",
@@ -8012,6 +8014,7 @@ function renderView() {
     matchup: renderMatchup,
     bracket: renderPlayoffBracket,
     picklistBuilder: renderPicklistBuilder,
+    comparisonPlots: renderComparisonPlots,
     alliance: renderAlliance,
     adminEventControl: renderAdminEventControl,
     adminDataQuality: renderAdminDataQuality,
@@ -9576,8 +9579,6 @@ function renderPicklistBuilder() {
   const rankableMetrics = orderedRankableMetrics();
   const pairwise = state.pairwisePicklist?.picklistId === picklist.id ? state.pairwisePicklist.session : null;
   const currentTeams = (pairwise?.teams || picklist.teams).map((number) => teamByNumber(number)).filter(Boolean);
-  const compareTeams = state.picklistCompareTeams.map((number) => teamByNumber(number)).filter(Boolean);
-  const comparisonMetric = picklistCompareMetric();
   return `
     <div class="grid picklist-builder-layout">
       <article class="card builder-list-card">
@@ -9617,50 +9618,65 @@ function renderPicklistBuilder() {
           ${state.picklistColumns.map((entry, index) => renderPicklistGridColumn(entry, index, { metricValueCache, rankableMetrics })).join("")}
         </div>
       </article>
-      <article class="card picklist-compare-chart-card">
-        <div class="section-heading">
-          <div>
-            <h2>Team Trend Comparison</h2>
-            <p class="muted">Overlay up to 4 selected teams using the same comparison colors as the picklist.</p>
-          </div>
-          <label class="team-trend-metric">
-            <span class="muted">Metric</span>
-            <select id="picklistCompareMetricSelect" aria-label="Picklist comparison metric">
-              <option value="" ${comparisonMetric ? "" : "selected"}>Select a metric</option>
-              ${orderedMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
-            </select>
-          </label>
-          <label class="team-trend-metric">
-            <span class="muted">Window</span>
-            <select id="picklistScoutingWindowSelect" aria-label="Picklist scouting window">
-              <option value="all" ${currentScoutingWindow() === "all" ? "selected" : ""}>All Matches</option>
-              <option value="recent" ${currentScoutingWindow() === "recent" ? "selected" : ""}>Recent ${currentRecentMatchCount()}</option>
-            </select>
-          </label>
-        </div>
-        ${renderPicklistCompareChart(compareTeams, comparisonMetric)}
-      </article>
     </div>
+  `;
+}
+
+function renderComparisonPlots() {
+  const compareTeams = state.picklistCompareTeams.map((number) => teamByNumber(number)).filter(Boolean);
+  const comparisonMetric = picklistCompareMetric();
+  return `
+    <article class="card picklist-compare-chart-card" data-comparison-plots>
+      <div class="section-heading">
+        <div>
+          <h2>Team Trend Comparison</h2>
+          <p class="muted">Overlay up to four teams selected in Picklist Builder. Team selections are kept when you change pages.</p>
+        </div>
+        <label class="team-trend-metric">
+          <span class="muted">Metric</span>
+          <select id="picklistCompareMetricSelect" aria-label="Comparison metric">
+            <option value="" ${comparisonMetric ? "" : "selected"}>Select a metric</option>
+            ${orderedMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
+          </select>
+        </label>
+        <label class="team-trend-metric">
+          <span class="muted">Window</span>
+          <select id="picklistScoutingWindowSelect" aria-label="Comparison scouting window">
+            <option value="all" ${currentScoutingWindow() === "all" ? "selected" : ""}>All Matches</option>
+            <option value="recent" ${currentScoutingWindow() === "recent" ? "selected" : ""}>Recent ${currentRecentMatchCount()}</option>
+          </select>
+        </label>
+      </div>
+      ${renderPicklistCompareChart(compareTeams, comparisonMetric)}
+    </article>
   `;
 }
 
 function renderPicklistCompareChart(selectedTeams, metric) {
   if (!selectedTeams.length) {
-    return `<div class="empty-state picklist-compare-empty">Select up to 4 teams in the current picklist to compare their trends here.</div>`;
+    return `<div class="empty-state picklist-compare-empty">Select up to four teams in Picklist Builder to compare their trends here.</div>`;
   }
   if (!metric) {
     return `<div class="empty-state picklist-compare-empty">Choose a metric to compare selected teams.</div>`;
   }
   const series = selectedTeams.map((team) => ({
     team,
-    values: metricTrendValues(team, metric),
+    entries: analysisSeriesEntriesForMetric(team, metric, { window: currentScoutingWindow() }),
     color: compareAccent(team.number) || "var(--accent)",
   }));
-  const allValues = series.flatMap((entry) => entry.values);
+  const allEntries = series.flatMap((entry) => entry.entries);
+  if (!allEntries.length) {
+    return `<div class="empty-state picklist-compare-empty">A match-by-match trend is unavailable for this metric and event. Choose a metric with source-backed match data.</div>`;
+  }
+  const allValues = allEntries.map((entry) => Number(entry.value));
+  const matchNumbers = allEntries.map((entry) => Number(entry.key)).filter(Number.isFinite);
   const min = Math.min(...allValues);
   const max = Math.max(...allValues);
   const range = max - min || 1;
-  const scaleX = (index, count) => 16 + (index / Math.max(1, count - 1)) * 196;
+  const minMatch = Math.min(...matchNumbers);
+  const maxMatch = Math.max(...matchNumbers);
+  const matchRange = maxMatch - minMatch || 1;
+  const scaleX = (matchNumber) => 16 + ((matchNumber - minMatch) / matchRange) * 196;
   const scaleY = (value) => 82 - ((value - min) / range) * 64;
   return `
     <div class="picklist-compare-chart-shell">
@@ -9673,23 +9689,25 @@ function renderPicklistCompareChart(selectedTeams, metric) {
             return `<line x1="${x}" y1="18" x2="${x}" y2="82"></line>`;
           }).join("")}
         </g>
-        <text x="114" y="97" text-anchor="middle">Match Number</text>
+        <text x="114" y="97" text-anchor="middle">Match Number (${minMatch}–${maxMatch})</text>
         <text x="4" y="50" text-anchor="middle" transform="rotate(-90 4 50)">${metric.label} (${metric.unit})</text>
         <text x="14" y="20" text-anchor="end">${max.toFixed(metric.unit === "%" ? 0 : 1)}</text>
         <text x="14" y="84" text-anchor="end">${min.toFixed(metric.unit === "%" ? 0 : 1)}</text>
         ${series
           .map((entry) => {
-            const points = entry.values.map((value, index) => `${scaleX(index, entry.values.length)},${scaleY(value)}`).join(" ");
+            const points = entry.entries.map((point) => `${scaleX(Number(point.key))},${scaleY(Number(point.value))}`).join(" ");
             return `<polyline points="${points}" fill="none" stroke="${entry.color}" stroke-width="2.6" vector-effect="non-scaling-stroke"></polyline>`;
           })
           .join("")}
         ${series
           .map((entry) =>
-            entry.values
-              .map((value, index) => {
-                const x = scaleX(index, entry.values.length);
+            entry.entries
+              .map((point) => {
+                const value = Number(point.value);
+                const matchNumber = Number(point.key);
+                const x = scaleX(matchNumber);
                 const y = scaleY(value);
-                return `<circle cx="${x}" cy="${y}" r="2.5" fill="${entry.color}"><title>Team ${entry.team.number}, Match ${index + 1}: ${value.toFixed(metric.unit === "%" ? 0 : 1)} ${metric.unit}</title></circle>`;
+                return `<circle cx="${x}" cy="${y}" r="2.5" fill="${entry.color}"><title>Team ${entry.team.number}, Match ${matchNumber}: ${value.toFixed(metric.unit === "%" ? 0 : 1)} ${metric.unit}</title></circle>`;
               })
               .join(""),
           )
