@@ -9808,9 +9808,9 @@ function renderBuilderTeamTile(team, index, options = {}) {
     compact: true,
     showName: false,
     showScore: false,
-    focused: focused || (options.pairwise?.mode === "select" && options.pairwise.teams[options.pairwise.cursorIndex] === team.number),
-    extraClass: options.pairwise?.activeTeam === team.number ? "pairwise-active" : options.pairwise?.comparedTeam === team.number ? "pairwise-compared" : options.pairwiseNext ? "pairwise-next" : "",
-    compareIndex: compareSlotIndexForTeam(team.number),
+    focused: focused || (options.pairwise?.mode === "select" && options.pairwise.teams[options.pairwise.cursorIndex] === teamSelectionId(team)),
+    extraClass: options.pairwise?.activeTeam === teamSelectionId(team) ? "pairwise-active" : options.pairwise?.comparedTeam === teamSelectionId(team) ? "pairwise-compared" : options.pairwiseNext ? "pairwise-next" : "",
+    compareIndex: compareSlotIndexForTeam(teamSelectionId(team)),
     builderTeam: true,
     reorderTeam: options.draggable,
     draggable: Boolean(options.draggable),
@@ -12039,7 +12039,10 @@ function bindViewEvents() {
       const teamNumber = tile.dataset.builderTeam;
       if (state.pairwisePicklist?.picklistId === activePicklist().id) {
         const session = state.pairwisePicklist.session;
-        if (session.mode === "select") state.pairwisePicklist.session = PairwisePicklist.choose(session, picklistTeamValue(session.teams, teamNumber));
+        const team = picklistTeamValue(session.teams, teamNumber);
+        state.pairwisePicklist.session = session.mode === "sort"
+          ? PairwisePicklist.chooseComparisonWinner(session, team)
+          : PairwisePicklist.choose(session, team);
         render();
         return;
       }

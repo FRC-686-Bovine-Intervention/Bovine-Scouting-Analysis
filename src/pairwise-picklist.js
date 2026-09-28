@@ -17,6 +17,16 @@
     const cursorIndex = state.teams.indexOf(team);
     return cursorIndex < 0 ? state : { ...state, cursorIndex };
   }
+  function chooseComparisonWinner(state, team) {
+    if (state.mode !== "sort" || ![state.activeTeam, state.comparedTeam].includes(team) || state.comparedTeam == null) return state;
+    const teams = [...state.teams];
+    const activeIndex = teams.indexOf(state.activeTeam);
+    const comparedIndex = teams.indexOf(state.comparedTeam);
+    const winnerIndex = teams.indexOf(team);
+    const loserIndex = team === state.activeTeam ? comparedIndex : activeIndex;
+    if (winnerIndex > loserIndex) [teams[winnerIndex], teams[loserIndex]] = [teams[loserIndex], teams[winnerIndex]];
+    return finish({ ...state, teams, cursorIndex: teams.indexOf(team) });
+  }
   function moveCursor(state, direction) {
     return state.mode !== "select" ? state : { ...state, cursorIndex: Math.max(0, Math.min(state.teams.length - 1, state.cursorIndex + direction)) };
   }
@@ -53,5 +63,5 @@
   function cancel(state) {
     return state.mode !== "sort" ? state : { ...state, ...state.placementStart, mode: "select", activeTeam: null, comparedTeam: null, compareAbove: false, compareBelow: false, placementStart: null };
   }
-  global.PairwisePicklist = { create, choose, moveCursor, begin, setComparisonModifiers, move, finish, cancel, suggestions };
+  global.PairwisePicklist = { create, choose, chooseComparisonWinner, moveCursor, begin, setComparisonModifiers, move, finish, cancel, suggestions };
 }(globalThis));
