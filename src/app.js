@@ -10096,9 +10096,10 @@ function buildCurrentMobileAllianceSnapshot() {
   ) || { confirmed: [], possible: [] };
   const confirmed = new Set(captainState.confirmed);
   const possible = new Set(captainState.possible);
-  const resolveTeamNumber = (team) => String(teamSelectionId(teamByNumber(team)) || team || "");
+  const resolveTeamNumber = (team) => String(globalThis.mobileAllianceDisplay?.normalizeTeamNumber(team) || "");
+  const selectionIdForTeam = (team) => teamSelectionId(team) || teamSelectionId(teamByNumber(resolveTeamNumber(team)));
   const displayStateForTeam = (team, includeCaptain = true) => {
-    const id = teamSelectionId(teamByNumber(team));
+    const id = selectionIdForTeam(team);
     if (pickedNumbers.has(resolveTeamNumber(team))) return "picked";
     if (includeCaptain && confirmed.has(id)) return "confirmed";
     if (includeCaptain && possible.has(id)) return "possible";

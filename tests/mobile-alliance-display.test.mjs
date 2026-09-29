@@ -15,11 +15,17 @@ const snapshot = display.buildMobileAllianceSnapshot({
   columns: [{ id: "picklist:main", label: "Final Rankings", teams: [{ teamNumber: 686, state: "confirmed" }, { teamNumber: 1719, score: 87.12345 }] }],
 });
 assert.equal(display.validateMobileAllianceSnapshot(snapshot), true);
+assert.equal(display.normalizeTeamNumber({ number: 2106, label: "2106 · The Junkyard Dogs" }), "2106");
 assert.equal(snapshot.board.length, 24);
 assert.deepEqual(JSON.parse(JSON.stringify(snapshot.board[0])), { slot: 0, teamNumber: "686", teamName: "Bovine", alliance: 1 });
 assert.equal(snapshot.eventName.includes("\u0000"), false);
 assert.equal(snapshot.rankings[0].state, "confirmed");
 assert.equal(snapshot.columns[0].teams[1].score, 87.123);
+const teamObjectColumn = display.buildMobileAllianceSnapshot({
+  eventKey: "2026vaale1",
+  columns: [{ id: "picklist:first", label: "First Pick", teams: [{ number: 2106, label: "2106 · The Junkyard Dogs" }] }],
+});
+assert.equal(teamObjectColumn.columns[0].teams[0].teamNumber, "2106");
 assert.equal("eventWorkspace" in snapshot, false);
 assert.equal("submissions" in snapshot, false);
 assert.equal(display.validateMobileAllianceSnapshot({ ...snapshot, privatePayload: { credentials: "x" } }), false);
@@ -96,6 +102,8 @@ assert.equal(selectors.get("#event-name").textContent, "Championship <script> ·
 assert.equal(selectors.get("#selection-board").children.length, 8);
 assert.equal(selectors.get("#final-rankings").children[0].className, "ranking-row state-confirmed");
 assert.equal(selectors.get("#mobile-picklists").children.length, 1);
+receiveSnapshot(teamObjectColumn);
+assert.equal(selectors.get("#mobile-picklists").children[0].children[1].children[0].children[1].textContent, "Team 2106");
 receiveSnapshot(display.buildMobileAllianceSnapshot({ eventKey: "2026chcmp", eventName: "Updated", board: [{ teamNumber: 9999 }] }));
 assert.equal(selectors.get("#event-name").textContent, "Updated · 2026chcmp");
 assert.match(selectors.get("#selection-board").children[0].children[1].children[0].textContent, /9999/);

@@ -7,6 +7,13 @@
     return String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, limit);
   }
 
+  function normalizeTeamNumber(value) {
+    const candidate = value && typeof value === "object"
+      ? value.teamNumber ?? value.number ?? value.team ?? value.team_key ?? value.key ?? value.id ?? ""
+      : value;
+    return cleanText(candidate, 12).replace(/^frc(?=\d+$)/i, "");
+  }
+
   function cleanScore(value) {
     const number = Number(value);
     return Number.isFinite(number) ? Math.round(number * 1000) / 1000 : null;
@@ -17,7 +24,7 @@
     if (!/^[a-z0-9]{1,64}$/.test(eventKey)) throw new Error("A valid event key is required for the mobile alliance snapshot.");
     const board = (Array.isArray(input.board) ? input.board : []).slice(0, 24).map((slot, index) => ({
       slot: index,
-      teamNumber: cleanText(slot?.teamNumber ?? slot, 12),
+      teamNumber: normalizeTeamNumber(slot?.teamNumber ?? slot),
       teamName: cleanText(slot?.teamName, 80),
       alliance: Math.floor(index / 3) + 1,
     }));
@@ -25,7 +32,7 @@
 
     const rankings = (Array.isArray(input.rankings) ? input.rankings : []).slice(0, MAX_TEAMS).map((team, index) => ({
       rank: index + 1,
-      teamNumber: cleanText(team?.teamNumber ?? team, 12),
+      teamNumber: normalizeTeamNumber(team?.teamNumber ?? team),
       state: ["picked", "confirmed", "possible"].includes(team?.state) ? team.state : "normal",
     })).filter((team) => team.teamNumber);
     const columns = (Array.isArray(input.columns) ? input.columns : []).slice(0, MAX_COLUMNS).map((column, columnIndex) => ({
@@ -34,7 +41,7 @@
       teams: (Array.isArray(column?.teams) ? column.teams : []).slice(0, MAX_TEAMS).map((team, index) => {
         const row = {
           rank: index + 1,
-          teamNumber: cleanText(team?.teamNumber ?? team, 12),
+          teamNumber: normalizeTeamNumber(team?.teamNumber ?? team),
           state: ["picked", "confirmed", "possible"].includes(team?.state) ? team.state : "normal",
         };
         const score = cleanScore(team?.score);
@@ -83,5 +90,5 @@
           && (!Object.hasOwn(team, "score") || (typeof team.score === "number" && Number.isFinite(team.score))))));
   }
 
-  global.mobileAllianceDisplay = Object.freeze({ buildMobileAllianceSnapshot, validateMobileAllianceSnapshot });
+  global.mobileAllianceDisplay = Object.freeze({ buildMobileAllianceSnapshot, normalizeTeamNumber, validateMobileAllianceSnapshot });
 })(globalThis);
