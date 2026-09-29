@@ -12,7 +12,7 @@ const snapshot = display.buildMobileAllianceSnapshot({
   eventName: "Championship <script>",
   board: [{ teamNumber: 686, teamName: "Bovine" }],
   rankings: [{ teamNumber: 686, state: "confirmed" }, { teamNumber: 1719, state: "picked" }],
-  columns: [{ id: "picklist:main", label: "Final Rankings", teams: [{ teamNumber: 686, state: "confirmed" }, { teamNumber: 1719, score: 87.12345 }] }],
+  columns: [{ id: "picklist:main", label: "Supplementary Picklist", teams: [{ teamNumber: 686, state: "normal" }, { teamNumber: 1719, score: 87.12345 }] }],
 });
 assert.equal(display.validateMobileAllianceSnapshot(snapshot), true);
 assert.equal(display.normalizeTeamNumber({ number: 2106, label: "2106 · The Junkyard Dogs" }), "2106");
@@ -20,6 +20,8 @@ assert.equal(snapshot.board.length, 24);
 assert.deepEqual(JSON.parse(JSON.stringify(snapshot.board[0])), { slot: 0, teamNumber: "686", teamName: "Bovine", alliance: 1 });
 assert.equal(snapshot.eventName.includes("\u0000"), false);
 assert.equal(snapshot.rankings[0].state, "confirmed");
+assert.equal(snapshot.columns[0].label, "Supplementary Picklist");
+assert.equal(snapshot.columns[0].teams[0].state, "normal", "supplementary mobile picklists do not carry captain styling");
 assert.equal(snapshot.columns[0].teams[1].score, 87.123);
 const teamObjectColumn = display.buildMobileAllianceSnapshot({
   eventKey: "2026vaale1",

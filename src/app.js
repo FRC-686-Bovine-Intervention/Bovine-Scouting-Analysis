@@ -279,6 +279,7 @@ const appViews = [...navItems, { view: "teamDetail", label: "Team Detail", icon:
 const picklistColumnCount = 4;
 const picklistCompareLimit = 4;
 const protectedEpaSortId = "sort-epa";
+const finalRankingsPicklistId = "pick-first-pick";
 const defaultColumnSortDirection = "desc";
 const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
 const maskedTbaAuthKeyValue = "............";
@@ -5829,9 +5830,13 @@ function normalizeSortEquations(equations, eventModel = currentEvent()) {
 
 function normalizePicklists(lists, eventModel = currentEvent()) {
   const source = Array.isArray(lists) && lists.length ? lists : eventModel.seedPicklists;
+  const finalRankingsPicklist = source.find((list) => list.id === finalRankingsPicklistId)
+    || source.find((list) => list.isFinalRankings)
+    || source[0];
   return source.map((list) => ({
     id: list.id || createId("pick"),
     name: list.name || "Picklist",
+    isFinalRankings: list.id === finalRankingsPicklistId || list === finalRankingsPicklist,
     teams: normalizePicklistTeams(list.teams, eventModel),
   }));
 }
@@ -10085,9 +10090,16 @@ function renderPicklistTile(number, index, picklist, options = {}) {
   return content;
 }
 
+function currentFinalRankingsSource() {
+  const picklist = state.picklists.find((item) => item.id === finalRankingsPicklistId)
+    || state.picklists.find((item) => item.isFinalRankings)
+    || state.picklists[0]
+    || null;
+  return { picklist, entry: picklist ? `picklist:${picklist.id}` : "" };
+}
+
 function buildCurrentMobileAllianceSnapshot() {
-  const firstRankedPicklist = state.loadedSources.filter((entry) => entry.startsWith("picklist:"))[0];
-  const rankedPicklist = state.picklists.find((picklist) => `picklist:${picklist.id}` === firstRankedPicklist);
+  const { picklist: rankedPicklist, entry: finalRankingsEntry } = currentFinalRankingsSource();
   const pickedIds = new Set(pickedTeams().map((team) => teamSelectionId(teamByNumber(team)) || team));
   const pickedNumbers = new Set(Array.from(pickedIds, String));
   const captainState = globalThis.allianceCaptainState?.deriveAllianceCaptainStateForBoard(
@@ -10106,7 +10118,7 @@ function buildCurrentMobileAllianceSnapshot() {
     if (includeCaptain && possible.has(id)) return "possible";
     return "normal";
   };
-  const columns = state.loadedSources.map((entry) => {
+  const columns = state.loadedSources.filter((entry) => entry !== finalRankingsEntry).map((entry) => {
     const column = gridColumnModel(entry, {
       direction: loadedSourceSortDirection(entry),
       label: entry.startsWith("metric:") ? metricTokenLabel(metricById(entry.slice(7))) : undefined,
@@ -10123,7 +10135,7 @@ function buildCurrentMobileAllianceSnapshot() {
       label: column.label,
       teams: column.teams.map((team, index) => ({
         teamNumber: resolveTeamNumber(team),
-        state: displayStateForTeam(team, entry === firstRankedPicklist),
+        state: displayStateForTeam(team, false),
         score: column.type === "metric" ? column.scores?.[index] : null,
       })),
     })),
@@ -10131,8 +10143,7 @@ function buildCurrentMobileAllianceSnapshot() {
 }
 
 function renderAlliance() {
-  const firstRankedPicklist = state.loadedSources.filter((entry) => entry.startsWith("picklist:"))[0];
-  const rankedPicklist = state.picklists.find((picklist) => `picklist:${picklist.id}` === firstRankedPicklist);
+  const { picklist: rankedPicklist, entry: finalRankingsEntry } = currentFinalRankingsSource();
   const captainState = globalThis.allianceCaptainState?.deriveAllianceCaptainStateForBoard(
     rankedPicklist?.teams?.map((number) => teamSelectionId(teamByNumber(number))).filter((teamId) => teamId !== "") || [],
     state.allianceBoard,
@@ -10141,6 +10152,7 @@ function renderAlliance() {
   const confirmedCaptains = new Set(captainState.confirmed);
   const possibleCaptains = new Set(captainState.possible);
   const loaded = state.loadedSources
+    .filter((entry) => entry !== finalRankingsEntry)
     .map((entry) => {
       const direction = loadedSourceSortDirection(entry);
       const column = gridColumnModel(entry, {
@@ -10150,7 +10162,14 @@ function renderAlliance() {
       return { entry, direction, column };
     })
     .filter((item) => item.column.teams.length);
-  const headerLines = Math.max(1, ...loaded.map((item) => Math.ceil(item.column.label.length / 14)));
+  const finalRankingsColumn = finalRankingsEntry
+    ? gridColumnModel(finalRankingsEntry, { direction: loadedSourceSortDirection(finalRankingsEntry) })
+    : { teams: [] };
+  const displayColumns = [
+    { entry: finalRankingsEntry, direction: loadedSourceSortDirection(finalRankingsEntry), column: finalRankingsColumn, finalRankings: true },
+    ...loaded.map((item) => ({ ...item, finalRankings: false })),
+  ];
+  const headerLines = Math.max(1, ...displayColumns.map((item) => Math.ceil((item.finalRankings ? "Final Rankings" : item.column.label).length / 14)));
   return `
     <div class="grid alliance-layout">
       <article class="card">
@@ -10162,7 +10181,7 @@ function renderAlliance() {
             <button type="button" id="clearAllianceBoardButton">Clear Board</button>
           </div>
         </div>
-        ${rankedPicklist ? `<div class="captain-highlight-legend" aria-label="Final rankings captain status"><span class="captain-legend-confirmed">Confirmed captain</span><span class="captain-legend-possible">Possible captain</span><span class="captain-legend-picked">Placed on selection board</span></div>` : ""}
+        <div class="captain-highlight-legend" aria-label="Final rankings captain status"><span class="captain-legend-confirmed">Confirmed captain</span><span class="captain-legend-possible">Possible captain</span><span class="captain-legend-picked">Placed on selection board</span></div>
         <div class="board">
           ${state.allianceBoard.map((teamNumber, index) => renderBoardCell(teamNumber, index)).join("")}
         </div>
@@ -10219,15 +10238,15 @@ function renderAlliance() {
         <div class="alliance-source-scroll" data-alliance-source-scroll>
           <div class="picklist-columns alliance-picklists" style="--alliance-header-lines: ${headerLines}">
             ${
-              loaded.length
-                ? loaded
+              displayColumns.length
+                ? displayColumns
                     .map(
-                      ({ entry, direction, column }) => `
+                      ({ entry, direction, column, finalRankings }) => `
               <section
-                data-loaded-source="${entry}"
-                data-loaded-source-column="${entry}"
+                data-loaded-source="${finalRankings ? "final-rankings" : entry}"
+                data-loaded-source-column="${finalRankings ? "final-rankings" : entry}"
               >
-                <h3 data-loaded-source-handle="${entry}" draggable="true">${column.label} ${sortDirectionGlyph(direction)}</h3>
+                <h3 ${finalRankings ? "" : `data-loaded-source-handle="${entry}" draggable="true"`}>${finalRankings ? "Final Rankings" : column.label} ${finalRankings ? "" : sortDirectionGlyph(direction)}</h3>
                 <div class="alliance-source-list">
                   ${column.teams
                     .map((team, teamIndex) =>
@@ -10242,7 +10261,7 @@ function renderAlliance() {
                         minScore: column.minScore,
                         maxScore: column.maxScore,
                         sortDirection: defaultColumnSortDirection,
-                        captainKind: firstRankedPicklist === entry
+                        captainKind: finalRankings
                           ? confirmedCaptains.has(teamSelectionId(team)) ? "confirmed"
                             : possibleCaptains.has(teamSelectionId(team)) ? "possible" : ""
                           : "",
@@ -10254,7 +10273,7 @@ function renderAlliance() {
             `,
                     )
                     .join("")
-                : `<div class="empty-state">Select one or more sources to load them here.</div>`
+                : `<div class="empty-state">No final rankings are available.</div>`
             }
           </div>
         </div>
@@ -11239,7 +11258,7 @@ function filterAutocompleteState(input) {
 }
 
 function removePicklist(id) {
-  if (state.picklists.length <= 1) return;
+  if (state.picklists.length <= 1 || currentFinalRankingsSource().picklist?.id === id) return;
   const nextPicklists = state.picklists.filter((picklist) => picklist.id !== id);
   state.picklists = nextPicklists;
   state.activePicklist = nextPicklists[Math.min(nextPicklists.length - 1, nextPicklists.findIndex((picklist) => picklist.id === state.activePicklist))]?.id || nextPicklists[0].id;

@@ -62,7 +62,17 @@ assert.ok(helperRevision.startsWith("__DEPLOYMENT_REVISION__"), "alliance captai
 assert.ok(appRevision.startsWith(helperRevision), "alliance captain helper and app must share the same deployment revision prefix");
 assert.ok(indexSource.indexOf(helperScript) < indexSource.indexOf(appScript), "alliance captain helper must load before the app script");
 assert.match(appSource, /const picked = isPicked \? "picked" : captainKind/);
-assert.match(appSource, /captainKind: firstRankedPicklist === entry/);
+assert.match(appSource, /const finalRankingsPicklistId = "pick-first-pick"/);
+assert.match(appSource, /function normalizePicklists\([\s\S]*?source\.find\(\(list\) => list\.isFinalRankings\)[\s\S]*?isFinalRankings: list\.id === finalRankingsPicklistId \|\| list === finalRankingsPicklist/);
+assert.match(appSource, /function currentFinalRankingsSource\(\)[\s\S]*?state\.picklists\.find\(\(item\) => item\.id === finalRankingsPicklistId\)[\s\S]*?state\.picklists\.find\(\(item\) => item\.isFinalRankings\)[\s\S]*?state\.picklists\[0\]/);
+assert.equal((appSource.match(/currentFinalRankingsSource\(\)/g) || []).length, 4);
+assert.match(appSource, /function removePicklist\(id\)[\s\S]*?currentFinalRankingsSource\(\)\.picklist\?\.id === id/);
+assert.match(appSource, /const displayColumns = \[\s*\{ entry: finalRankingsEntry,[\s\S]*?finalRankings: true \},\s*\.\.\.loaded\.map/);
+assert.match(appSource, /\.filter\(\(entry\) => entry !== finalRankingsEntry\)/);
+assert.match(appSource, /captainKind: finalRankings[\s\S]*?confirmedCaptains\.has[\s\S]*?possibleCaptains\.has/);
+assert.match(appSource, /rankings: \(rankedPicklist\?\.teams \|\| \[\]\)\.map\(\(team\) => \(\{ teamNumber: resolveTeamNumber\(team\), state: displayStateForTeam\(team\) \}\)\)/);
+assert.match(appSource, /state: displayStateForTeam\(team, false\)/);
+assert.match(appSource, /data-loaded-source="\$\{finalRankings \? "final-rankings" : entry\}"/);
 assert.match(appSource, /deriveAllianceCaptainStateForBoard\(/);
 assert.equal((appSource.match(/deriveAllianceCaptainStateForBoard\(/g) || []).length, 2);
 assert.match(appSource, /options\.title \? `title=/);
