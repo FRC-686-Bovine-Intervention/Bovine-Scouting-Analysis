@@ -9065,7 +9065,7 @@ function renderSchedule() {
   const matches = currentMatches();
   const qualifications = matches.filter((match) => scheduleMatchGroup(match) === "quals");
   const playoffs = matches.filter((match) => scheduleMatchGroup(match) === "playoffs");
-  const currentMatch = nextScheduleMatch(matches);
+  const currentMatch = nextScheduleMatch(playoffs.length ? playoffs : matches);
   return `
     <div class="section-heading">
       <div>
