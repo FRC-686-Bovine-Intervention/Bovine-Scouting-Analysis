@@ -53,6 +53,14 @@ assert.equal(Array.from(placedPossible.possible).includes("108"), false);
 
 const appSource = fs.readFileSync("src/app.js", "utf8");
 const stylesSource = fs.readFileSync("src/styles.css", "utf8");
+const indexSource = fs.readFileSync("index.html", "utf8");
+const helperScript = indexSource.match(/<script defer src="([^"]*alliance-captain-state\.js[^"]*)"><\/script>/)?.[1] || "";
+const appScript = indexSource.match(/<script defer src="([^"]*app\.js\?revision=[^"]*)"><\/script>/)?.[1] || "";
+const helperRevision = new URL(helperScript, "https://test.invalid").searchParams.get("revision") || "";
+const appRevision = new URL(appScript, "https://test.invalid").searchParams.get("revision") || "";
+assert.ok(helperRevision.startsWith("__DEPLOYMENT_REVISION__"), "alliance captain helper URL must change when the app deployment revision changes");
+assert.ok(appRevision.startsWith(helperRevision), "alliance captain helper and app must share the same deployment revision prefix");
+assert.ok(indexSource.indexOf(helperScript) < indexSource.indexOf(appScript), "alliance captain helper must load before the app script");
 assert.match(appSource, /const picked = isPicked \? "picked" : captainKind/);
 assert.match(appSource, /captainKind: firstRankedPicklist === entry/);
 assert.match(appSource, /deriveAllianceCaptainStateForBoard\(/);
