@@ -73,7 +73,7 @@ A manual production deployment is:
 firebase deploy --only hosting
 ```
 
-Hosting uses the `desktop` and `mobile` targets. The mobile target expects the Firebase-generated site ID `bovine-scouting-analysis-mobile`; a project owner must create that site and grant the repository deployment service account access before its workflow steps can succeed. The mobile URL is `https://bovine-scouting-analysis-mobile.web.app/`.
+Hosting uses the `desktop` and `mobile` targets. The mobile target expects the Firebase-generated site ID `bovine-scouting-mobile`; a project owner must create that site and grant the repository deployment service account access before its workflow steps can succeed. The mobile URL is `https://bovine-scouting-mobile.web.app/`.
 
 Rules and backend functions are deployed separately when they change:
 

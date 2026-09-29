@@ -6,7 +6,7 @@
     "bovine-scouting-analysis": {
       "hosting": {
         "desktop": ["bovine-scouting-analysis"],
-        "mobile": ["bovine-scouting-analysis-mobile"]
+        "mobile": ["bovine-scouting-mobile"]
       }
     }
   }
