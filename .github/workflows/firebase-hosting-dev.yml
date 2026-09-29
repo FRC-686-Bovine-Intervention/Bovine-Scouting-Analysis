@@ -25,6 +25,8 @@ jobs:
           node --check functions/index.js
           node tests/schema-persistence.test.mjs
           node tests/mobile-alliance-display.test.mjs
+      - name: Build mobile Hosting site
+        run: node scripts/build-mobile-site.mjs
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}

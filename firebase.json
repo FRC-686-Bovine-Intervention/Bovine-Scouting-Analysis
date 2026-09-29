@@ -21,9 +21,9 @@
         },
         {
             "target": "mobile",
-            "public": ".",
-            "ignore": ["firebase.json", "index.html", "**/.*", "**/node_modules/**", ".pnpm-store/**"],
-            "rewrites": [{"source": "**", "destination": "/mobile.html"}]
+            "public": ".firebase/mobile-site",
+            "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+            "rewrites": [{"source": "**", "destination": "/index.html"}]
         }
     ],
     "functions":  {

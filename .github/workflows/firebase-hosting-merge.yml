@@ -26,6 +26,8 @@ jobs:
           node --check functions/index.js
           node tests/schema-persistence.test.mjs
           node tests/mobile-alliance-display.test.mjs
+      - name: Build mobile Hosting site
+        run: node scripts/build-mobile-site.mjs
       - name: Deploy Firestore rules
         uses: google-github-actions/auth@v2
         with:
