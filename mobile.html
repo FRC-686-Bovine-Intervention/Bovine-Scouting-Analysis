@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#101820" />
+    <title>Bovine Alliance Selection</title>
+    <link rel="stylesheet" href="src/mobile-alliance.css" />
+    <script src="src/mobile-alliance-display.js" defer></script>
+    <script src="src/mobile-alliance-viewer.js" defer></script>
+    <script type="module" src="src/firebase-mobile-display.js"></script>
+  </head>
+  <body>
+    <main class="mobile-shell">
+      <header class="mobile-header">
+        <div><p class="eyebrow">Bovine Scouting Analysis</p><h1>Alliance Selection</h1><p id="event-name" class="muted">Waiting for the admin display…</p></div>
+        <span id="connection-state" role="status">Connecting</span>
+      </header>
+      <nav class="mobile-tabs" aria-label="Alliance selection views">
+        <button type="button" data-mobile-tab="board" aria-selected="true">Board &amp; rankings</button>
+        <button type="button" data-mobile-tab="picklists" aria-selected="false">Picklists</button>
+      </nav>
+      <section id="board-view" class="mobile-view" aria-label="Selection board and final rankings">
+        <article class="mobile-card"><h2>Selection Board</h2><div id="selection-board" class="mobile-board"></div></article>
+        <article class="mobile-card"><h2>Final Rankings</h2><p class="legend"><span class="confirmed">Confirmed captain</span><span class="possible">Possible captain</span><span class="picked">Picked</span></p><ol id="final-rankings" class="mobile-rankings"></ol></article>
+      </section>
+      <section id="picklists-view" class="mobile-view" hidden aria-label="Displayed picklists"><div id="mobile-picklists" class="mobile-picklists"></div></section>
+      <p id="empty-state" class="empty-state">Waiting for an admin to open Alliance Selection on the desktop app.</p>
+      <footer>Live, read-only view</footer>
+    </main>
+  </body>
+</html>

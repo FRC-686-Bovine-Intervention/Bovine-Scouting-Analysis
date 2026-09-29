@@ -7656,6 +7656,7 @@ function renderNow(reason = "unspecified") {
   let content = "";
   try {
     content = renderView();
+    if (isAdmin()) globalThis.__pendingMobileAllianceSnapshot = buildCurrentMobileAllianceSnapshot();
   } catch (error) {
     console.error("Render failed for view", state.activeView, error);
     if (state.activeView !== "teams") {
@@ -7731,6 +7732,9 @@ function renderNow(reason = "unspecified") {
 
   bindShellEvents();
   restoreRenderInteractionState(interactionState, { preserveControls: reason.startsWith("background.") });
+  if (isAdmin() && globalThis.__pendingMobileAllianceSnapshot) {
+    globalThis.firebaseMobileDisplayApi?.publishMobileAllianceSnapshot(globalThis.__pendingMobileAllianceSnapshot);
+  }
   focusScheduleLastPlayed();
   recordScoutingPerf("render", renderStartedAt, { activeView: state.activeView, reason });
 }
@@ -10077,6 +10081,49 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         dataAttribute: options.navigation ? `data-team="${teamSelectionId(team)}"` : options.allianceTeam ? `data-alliance-team="${teamSelectionId(team)}"` : "",
       });
   return content;
+}
+
+function buildCurrentMobileAllianceSnapshot() {
+  const firstRankedPicklist = state.loadedSources.filter((entry) => entry.startsWith("picklist:"))[0];
+  const rankedPicklist = state.picklists.find((picklist) => `picklist:${picklist.id}` === firstRankedPicklist);
+  const pickedIds = new Set(pickedTeams().map((team) => teamSelectionId(teamByNumber(team)) || team));
+  const pickedNumbers = new Set(Array.from(pickedIds, String));
+  const captainState = globalThis.allianceCaptainState?.deriveAllianceCaptainState(
+    rankedPicklist?.teams?.map((team) => teamSelectionId(teamByNumber(team))).filter((teamId) => teamId !== "") || [],
+    { placedTeamIds: Array.from(pickedIds), completedFirstRoundPicks: globalThis.allianceCaptainState?.completedFirstRoundPickCount(state.allianceBoard) || 0 },
+  ) || { confirmed: [], possible: [] };
+  const confirmed = new Set(captainState.confirmed);
+  const possible = new Set(captainState.possible);
+  const teamNumber = (team) => String(teamSelectionId(teamByNumber(team)) || team || "");
+  const stateFor = (team, includeCaptain = true) => {
+    const id = teamSelectionId(teamByNumber(team));
+    if (pickedNumbers.has(teamNumber(team))) return "picked";
+    if (includeCaptain && confirmed.has(id)) return "confirmed";
+    if (includeCaptain && possible.has(id)) return "possible";
+    return "normal";
+  };
+  const columns = state.loadedSources.map((entry) => {
+    const column = gridColumnModel(entry, {
+      direction: loadedSourceSortDirection(entry),
+      label: entry.startsWith("metric:") ? metricTokenLabel(metricById(entry.slice(7))) : undefined,
+    });
+    return { entry, column };
+  }).filter(({ column }) => column.teams.length);
+  return globalThis.mobileAllianceDisplay?.buildMobileAllianceSnapshot({
+    eventKey: state.activeEventKey,
+    eventName: displayEventName(currentEvent()),
+    board: state.allianceBoard.map((team) => ({ teamNumber: teamNumber(team), teamName: teamByNumber(team)?.name || "" })),
+    rankings: (rankedPicklist?.teams || []).map((team) => ({ teamNumber: teamNumber(team), state: stateFor(team) })),
+    columns: columns.map(({ entry, column }) => ({
+      id: entry,
+      label: column.label,
+      teams: column.teams.map((team, index) => ({
+        teamNumber: teamNumber(team),
+        state: stateFor(team, entry === firstRankedPicklist),
+        score: column.type === "metric" ? column.scores?.[index] : null,
+      })),
+    })),
+  }) || null;
 }
 
 function renderAlliance() {

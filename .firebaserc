@@ -1,5 +1,13 @@
 {
   "projects": {
     "default": "bovine-scouting-analysis"
+  },
+  "targets": {
+    "bovine-scouting-analysis": {
+      "hosting": {
+        "desktop": ["bovine-scouting-analysis"],
+        "mobile": ["bovine-scouting-analysis-mobile"]
+      }
+    }
   }
 }

@@ -120,6 +120,29 @@ service cloud.firestore {
       allow create, update: if isAdmin() && isValidProviderConfiguration();
     }
 
+    // The sole anonymous read is the sanitized, mobile alliance-selection display.
+    // It is never used to proxy workspace, submissions, provider credentials, or event documents.
+    match /publicAllianceSelection/{displayId} {
+      allow get: if displayId == 'current';
+      allow list: if false;
+      allow create, update: if isAdmin()
+        && displayId == 'current'
+        && request.resource.data.keys().hasOnly(['version', 'eventKey', 'eventName', 'board', 'rankings', 'columns', 'publishedAt'])
+        && request.resource.data.version == 1
+        && request.resource.data.eventKey is string
+        && request.resource.data.eventKey.matches('^[a-z0-9]{1,64}$')
+        && request.resource.data.eventName is string
+        && request.resource.data.eventName.size() <= 120
+        && request.resource.data.board is list
+        && request.resource.data.board.size() == 24
+        && request.resource.data.rankings is list
+        && request.resource.data.rankings.size() <= 300
+        && request.resource.data.columns is list
+        && request.resource.data.columns.size() <= 24
+        && request.resource.data.publishedAt is timestamp;
+      allow delete: if false;
+    }
+
     // The official game title is intentionally separate from provider credentials.
     match /seasonMetadata/{season} {
       allow read: if isAllowed();

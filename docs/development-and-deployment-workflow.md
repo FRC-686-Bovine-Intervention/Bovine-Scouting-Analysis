@@ -61,7 +61,7 @@ Preview deployments can still use the Firebase backend resources. A separate Fir
 
 ## Production deployment
 
-The `main` branch is the only branch that should deploy to the live site:
+The `main` branch is the only branch that should deploy to the live desktop and mobile sites:
 
 ```text
 https://bovine-scouting-analysis.web.app/
@@ -72,6 +72,8 @@ A manual production deployment is:
 ```powershell
 firebase deploy --only hosting
 ```
+
+Hosting uses the `desktop` and `mobile` targets. The mobile target expects the Firebase-generated site ID `bovine-scouting-analysis-mobile`; a project owner must create that site and grant the repository deployment service account access before its workflow steps can succeed. The mobile URL is `https://bovine-scouting-analysis-mobile.web.app/`.
 
 Rules and backend functions are deployed separately when they change:
 
@@ -116,6 +118,7 @@ The repository now contains these Hosting workflows:
 - `.github/workflows/firebase-hosting-dev.yml` deploys pushes to `dev` to the `dev` preview channel for 30 days.
 - `.github/workflows/firebase-hosting-merge.yml` deploys pushes to `main` to the live channel.
 - `.github/workflows/firebase-hosting-pull-request.yml` creates optional PR preview deployments.
+- Each Hosting workflow deploys the `desktop` and `mobile` targets to the corresponding channel.
 - `.github/workflows/validate.yml` runs syntax and regression checks on `dev`, `main`, and release pull requests.
 
 The deployment workflows also run the same checks before publishing Hosting content.

@@ -24,3 +24,4 @@ jobs:
           node --check src/firebase-submissions.js
           node --check functions/index.js
           node tests/schema-persistence.test.mjs
+          node tests/mobile-alliance-display.test.mjs
