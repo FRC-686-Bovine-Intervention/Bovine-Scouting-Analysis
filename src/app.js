@@ -279,7 +279,6 @@ const appViews = [...navItems, { view: "teamDetail", label: "Team Detail", icon:
 const picklistColumnCount = 4;
 const picklistCompareLimit = 4;
 const protectedEpaSortId = "sort-epa";
-const finalRankingsPicklistId = "pick-first-pick";
 const defaultColumnSortDirection = "desc";
 const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
 const maskedTbaAuthKeyValue = "............";
@@ -5830,13 +5829,9 @@ function normalizeSortEquations(equations, eventModel = currentEvent()) {
 
 function normalizePicklists(lists, eventModel = currentEvent()) {
   const source = Array.isArray(lists) && lists.length ? lists : eventModel.seedPicklists;
-  const finalRankingsPicklist = source.find((list) => list.id === finalRankingsPicklistId)
-    || source.find((list) => list.isFinalRankings)
-    || source[0];
   return source.map((list) => ({
     id: list.id || createId("pick"),
     name: list.name || "Picklist",
-    isFinalRankings: list.id === finalRankingsPicklistId || list === finalRankingsPicklist,
     teams: normalizePicklistTeams(list.teams, eventModel),
   }));
 }
@@ -8084,18 +8079,7 @@ function renderRankings() {
   const showSecondarySort = rankingTeams.some((team) => rankingSortValueForTeam(team, 1) !== null);
   const primarySortLabel = rankingSortLabel(0);
   const secondarySortLabel = rankingSortLabel(1);
-  const displayedRankedTeams = [...currentTeams()]
-    .sort((a, b) => {
-      const leftRank = rankingRankForTeam(a);
-      const rightRank = rankingRankForTeam(b);
-      const leftRankingScore = rankingSortValueForTeam(a, 0);
-      const rightRankingScore = rankingSortValueForTeam(b, 0);
-      const leftSortScore = Number.isFinite(leftRankingScore) ? leftRankingScore : Number.NEGATIVE_INFINITY;
-      const rightSortScore = Number.isFinite(rightRankingScore) ? rightRankingScore : Number.NEGATIVE_INFINITY;
-      return (leftRank ?? Infinity) - (rightRank ?? Infinity)
-        || rightSortScore - leftSortScore
-        || a.number - b.number;
-    })
+  const displayedRankedTeams = currentTbaRankedTeams()
     .map((team) => ({
       ...team,
       rank: rankingRankForTeam(team),
@@ -8150,6 +8134,10 @@ function rankingRankForTeam(team) {
 
 function rankingSortValueForTeam(team, index = 0) {
   return rankingTbaNumber(team, `sort_orders.${index}`);
+}
+
+function currentTbaRankedTeams() {
+  return globalThis.teamRankModel.orderByTbaRanking(currentTeams(), rankingRankForTeam, rankingSortValueForTeam);
 }
 
 function rankingRecordForTeam(team) {
@@ -10090,35 +10078,30 @@ function renderPicklistTile(number, index, picklist, options = {}) {
   return content;
 }
 
-function currentFinalRankingsSource() {
-  const picklist = state.picklists.find((item) => item.id === finalRankingsPicklistId)
-    || state.picklists.find((item) => item.isFinalRankings)
-    || state.picklists[0]
-    || null;
-  return { picklist, entry: picklist ? `picklist:${picklist.id}` : "" };
-}
-
 function buildCurrentMobileAllianceSnapshot() {
-  const { picklist: rankedPicklist, entry: finalRankingsEntry } = currentFinalRankingsSource();
+  const rankedTeams = currentTbaRankedTeams();
   const pickedIds = new Set(pickedTeams().map((team) => teamSelectionId(teamByNumber(team)) || team));
-  const pickedNumbers = new Set(Array.from(pickedIds, String));
   const captainState = globalThis.allianceCaptainState?.deriveAllianceCaptainStateForBoard(
-    rankedPicklist?.teams?.map((team) => teamSelectionId(teamByNumber(team))).filter((teamId) => teamId !== "") || [],
+    rankedTeams.map(teamSelectionId).filter((teamId) => teamId !== ""),
     state.allianceBoard,
     { placedTeamIds: Array.from(pickedIds) },
   ) || { confirmed: [], possible: [] };
   const confirmed = new Set(captainState.confirmed);
   const possible = new Set(captainState.possible);
-  const resolveTeamNumber = (team) => String(globalThis.mobileAllianceDisplay?.normalizeTeamNumber(team) || "");
+  const resolveTeamNumber = (value) => {
+    const team = value && typeof value === "object" ? value : teamByNumber(value);
+    if (team?.isSuffixed) return String(team.label || teamSelectionId(team) || "");
+    return String(globalThis.mobileAllianceDisplay?.normalizeTeamNumber(team || value) || "");
+  };
   const selectionIdForTeam = (team) => teamSelectionId(team) || teamSelectionId(teamByNumber(resolveTeamNumber(team)));
   const displayStateForTeam = (team, includeCaptain = true) => {
     const id = selectionIdForTeam(team);
-    if (pickedNumbers.has(resolveTeamNumber(team))) return "picked";
+    if (pickedIds.has(id)) return "picked";
     if (includeCaptain && confirmed.has(id)) return "confirmed";
     if (includeCaptain && possible.has(id)) return "possible";
     return "normal";
   };
-  const columns = state.loadedSources.filter((entry) => entry !== finalRankingsEntry).map((entry) => {
+  const columns = state.loadedSources.map((entry) => {
     const column = gridColumnModel(entry, {
       direction: loadedSourceSortDirection(entry),
       label: entry.startsWith("metric:") ? metricTokenLabel(metricById(entry.slice(7))) : undefined,
@@ -10129,7 +10112,7 @@ function buildCurrentMobileAllianceSnapshot() {
     eventKey: state.activeEventKey,
     eventName: displayEventName(currentEvent()),
     board: state.allianceBoard.map((team) => ({ teamNumber: resolveTeamNumber(team), teamName: teamByNumber(team)?.name || "" })),
-    rankings: (rankedPicklist?.teams || []).map((team) => ({ teamNumber: resolveTeamNumber(team), state: displayStateForTeam(team) })),
+    rankings: rankedTeams.map((team) => ({ teamNumber: resolveTeamNumber(team), state: displayStateForTeam(team) })),
     columns: columns.map(({ entry, column }) => ({
       id: entry,
       label: column.label,
@@ -10143,33 +10126,28 @@ function buildCurrentMobileAllianceSnapshot() {
 }
 
 function renderAlliance() {
-  const { picklist: rankedPicklist, entry: finalRankingsEntry } = currentFinalRankingsSource();
+  const rankedTeams = currentTbaRankedTeams();
   const captainState = globalThis.allianceCaptainState?.deriveAllianceCaptainStateForBoard(
-    rankedPicklist?.teams?.map((number) => teamSelectionId(teamByNumber(number))).filter((teamId) => teamId !== "") || [],
+    rankedTeams.map(teamSelectionId).filter((teamId) => teamId !== ""),
     state.allianceBoard,
     { placedTeamIds: pickedTeams() },
   ) || { confirmed: [], possible: [] };
   const confirmedCaptains = new Set(captainState.confirmed);
   const possibleCaptains = new Set(captainState.possible);
-  const loaded = state.loadedSources
-    .filter((entry) => entry !== finalRankingsEntry)
-    .map((entry) => {
+  const loaded = state.loadedSources.map((entry) => {
       const direction = loadedSourceSortDirection(entry);
       const column = gridColumnModel(entry, {
         direction,
         label: entry.startsWith("metric:") ? metricTokenLabel(metricById(entry.slice(7))) : undefined,
       });
       return { entry, direction, column };
-    })
-    .filter((item) => item.column.teams.length);
-  const finalRankingsColumn = finalRankingsEntry
-    ? gridColumnModel(finalRankingsEntry, { direction: loadedSourceSortDirection(finalRankingsEntry) })
-    : { teams: [] };
+    }).filter((item) => item.column.teams.length);
+  const teamRankColumn = { type: "picklist", label: "Team Rank", teams: rankedTeams, minScore: 0, maxScore: 0 };
   const displayColumns = [
-    { entry: finalRankingsEntry, direction: loadedSourceSortDirection(finalRankingsEntry), column: finalRankingsColumn, finalRankings: true },
-    ...loaded.map((item) => ({ ...item, finalRankings: false })),
+    { entry: "team-rank", direction: defaultColumnSortDirection, column: teamRankColumn, teamRank: true },
+    ...loaded.map((item) => ({ ...item, teamRank: false })),
   ];
-  const headerLines = Math.max(1, ...displayColumns.map((item) => Math.ceil((item.finalRankings ? "Final Rankings" : item.column.label).length / 14)));
+  const headerLines = Math.max(1, ...displayColumns.map((item) => Math.ceil((item.teamRank ? "Team Rank" : item.column.label).length / 14)));
   return `
     <div class="grid alliance-layout">
       <article class="card">
@@ -10181,7 +10159,7 @@ function renderAlliance() {
             <button type="button" id="clearAllianceBoardButton">Clear Board</button>
           </div>
         </div>
-        <div class="captain-highlight-legend" aria-label="Final rankings captain status"><span class="captain-legend-confirmed">Confirmed captain</span><span class="captain-legend-possible">Possible captain</span><span class="captain-legend-picked">Placed on selection board</span></div>
+        <div class="captain-highlight-legend" aria-label="Team Rank captain status"><span class="captain-legend-confirmed">Confirmed captain</span><span class="captain-legend-possible">Possible captain</span><span class="captain-legend-picked">Placed on selection board</span></div>
         <div class="board">
           ${state.allianceBoard.map((teamNumber, index) => renderBoardCell(teamNumber, index)).join("")}
         </div>
@@ -10241,12 +10219,9 @@ function renderAlliance() {
               displayColumns.length
                 ? displayColumns
                     .map(
-                      ({ entry, direction, column, finalRankings }) => `
-              <section
-                data-loaded-source="${finalRankings ? "final-rankings" : entry}"
-                data-loaded-source-column="${finalRankings ? "final-rankings" : entry}"
-              >
-                <h3 ${finalRankings ? "" : `data-loaded-source-handle="${entry}" draggable="true"`}>${finalRankings ? "Final Rankings" : column.label} ${finalRankings ? "" : sortDirectionGlyph(direction)}</h3>
+                      ({ entry, direction, column, teamRank }) => `
+              <section ${teamRank ? "data-team-rank-column" : `data-loaded-source="${entry}" data-loaded-source-column="${entry}"`}>
+                <h3 ${teamRank ? "" : `data-loaded-source-handle="${entry}" draggable="true"`}>${teamRank ? "Team Rank" : column.label} ${teamRank ? "" : sortDirectionGlyph(direction)}</h3>
                 <div class="alliance-source-list">
                   ${column.teams
                     .map((team, teamIndex) =>
@@ -10261,7 +10236,7 @@ function renderAlliance() {
                         minScore: column.minScore,
                         maxScore: column.maxScore,
                         sortDirection: defaultColumnSortDirection,
-                        captainKind: finalRankings
+                        captainKind: teamRank
                           ? confirmedCaptains.has(teamSelectionId(team)) ? "confirmed"
                             : possibleCaptains.has(teamSelectionId(team)) ? "possible" : ""
                           : "",
@@ -10273,7 +10248,7 @@ function renderAlliance() {
             `,
                     )
                     .join("")
-                : `<div class="empty-state">No final rankings are available.</div>`
+                : `<div class="empty-state">No teams are available for Team Rank.</div>`
             }
           </div>
         </div>
@@ -11258,7 +11233,7 @@ function filterAutocompleteState(input) {
 }
 
 function removePicklist(id) {
-  if (state.picklists.length <= 1 || currentFinalRankingsSource().picklist?.id === id) return;
+  if (state.picklists.length <= 1) return;
   const nextPicklists = state.picklists.filter((picklist) => picklist.id !== id);
   state.picklists = nextPicklists;
   state.activePicklist = nextPicklists[Math.min(nextPicklists.length - 1, nextPicklists.findIndex((picklist) => picklist.id === state.activePicklist))]?.id || nextPicklists[0].id;

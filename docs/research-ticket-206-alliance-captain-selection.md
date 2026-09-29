@@ -15,7 +15,7 @@ This note translates the 2026 REBUILT Alliance Selection rules into a state mode
 
 Track rankings separately from official board placement. The implementation can reliably observe teams placed on the board and the eight first-pick cells; it has no authoritative per-team accept/decline record. Do not infer a decline from a missing placement.
 
-1. **Confirmed Leads:** use the first eight unplaced teams in final-ranking order. When one is officially placed elsewhere, the next unplaced ranked team moves into the confirmed group.
+1. **Confirmed Leads:** use the first eight unplaced teams in current TBA Team Rank order. When one is officially placed elsewhere, the next unplaced ranked team moves into the confirmed group.
 2. **Possible Leads:** after the confirmed group, highlight the next `max(0, 8 - completed_first_round_picks)` unplaced ranked teams. Count completion only from the eight first-pick cells; second-pick placements do not reduce this band.
 3. **Board precedence:** a placed team keeps the existing gray, struck-through selection style, which overrides either captain highlight.
 
