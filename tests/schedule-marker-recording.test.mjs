@@ -89,6 +89,7 @@ function markerAt(cursor) {
 const at374 = eventAt(374);
 assert.equal(at374.matches.filter((match) => match.compLevel === "qm").length, 38);
 assert.equal(at374.matches.filter((match) => match.compLevel === "qm" && match.hasScore).length, 35);
+assert.equal(at374.matches.filter((match) => match.compLevel === "sf" && !match.hasScore).length, 4);
 assert.deepEqual(markerAt(374), ["2026vaale1_sf1m1"], "when playoffs exist, the visible current marker should start at Semis 1-1");
 assert.deepEqual(markerAt(426), ["2026vaale1_sf2m1"], "after Semis 1-1 is scored, the marker should advance to Semis 2-1");
 assert.deepEqual(markerAt(745), ["2026vaale1_f1m2"], "after Finals 1-1 is scored, the marker should advance to Finals 1-2");
