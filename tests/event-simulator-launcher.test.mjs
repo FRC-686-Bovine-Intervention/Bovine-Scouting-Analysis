@@ -28,8 +28,8 @@ assert.match(appSource, /function bootstrapApp\(\)[\s\S]*refreshSimulatorSources
 assert.match(appSource, /function maybePollExternalSources\(\)[\s\S]*mode === "simulator-first"[\s\S]*refreshSimulatorSources\(\{ trigger: "poll" \}\)/);
 const matchupCss = fs.readFileSync("src/styles.css", "utf8");
 for (const className of ["matchup-team-tone-light", "matchup-team-rank-3"]) assert.match(matchupCss, new RegExp(`matchup-alliance-card\\.blue \\.${className}`));
-assert.match(fs.readFileSync("index.html", "utf8"), /styles\.css\?revision=__DEPLOYMENT_REVISION__-event-simulator-runtime-11/);
-assert.match(fs.readFileSync("index.html", "utf8"), /app\.js\?revision=__DEPLOYMENT_REVISION__-event-simulator-runtime-11/);
+assert.match(fs.readFileSync("index.html", "utf8"), /styles\.css\?revision=__DEPLOYMENT_REVISION__-event-simulator-runtime-12/);
+assert.match(fs.readFileSync("index.html", "utf8"), /app\.js\?revision=__DEPLOYMENT_REVISION__-event-simulator-runtime-12/);
 assert.match(fs.readFileSync("index.html", "utf8"), /meta name="darkreader-lock"/);
 assert.match(fs.readFileSync("index.html", "utf8"), /deployment-revision\.local\.js\?revision=event-simulator-runtime-10/);
 assert.equal(fs.existsSync(".browser-test/verify-event-simulator.mjs"), true);

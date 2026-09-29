@@ -7422,21 +7422,22 @@ function applyAnalysisFilterToEntries(team, entries, eventModel = currentEvent()
   return normalizedEntries.filter((entry) => truthy(includeByMatch.get(Number(entry.key))));
 }
 
-function compareSlotIndexForTeam(teamNumber) {
+function compareSlotIndexForTeam(teamSelectionId) {
   const pairwise = state.pairwisePicklist?.picklistId === activePicklist()?.id ? state.pairwisePicklist.session : null;
   if (pairwise) {
     const selectedTeam = pairwise.mode === "select" ? pairwise.teams[pairwise.cursorIndex] : pairwise.activeTeam;
-    const selectedIndex = pairwise.teams.indexOf(selectedTeam);
-    if (teamNumber === selectedTeam) return 0;
-    if (pairwise.compareAbove && teamNumber === pairwise.teams[selectedIndex - 1]) return 1;
-    if (pairwise.compareBelow && teamNumber === pairwise.teams[selectedIndex + 1]) return 2;
+    const selectedIndex = picklistTeamIndex(pairwise.teams, selectedTeam);
+    const comparisonIndex = picklistTeamIndex(pairwise.teams, teamSelectionId);
+    if (comparisonIndex === selectedIndex) return 0;
+    if (pairwise.compareAbove && comparisonIndex === selectedIndex - 1) return 1;
+    if (pairwise.compareBelow && comparisonIndex === selectedIndex + 1) return 2;
     return -1;
   }
-  return state.picklistCompareTeams.indexOf(teamNumber);
+  return picklistTeamIndex(state.picklistCompareTeams, teamSelectionId);
 }
 
-function compareAccent(teamNumber) {
-  const index = compareSlotIndexForTeam(teamNumber);
+function compareAccent(teamSelectionId) {
+  const index = compareSlotIndexForTeam(teamSelectionId);
   return index < 0 ? null : compareTeamPalette[index];
 }
 
@@ -7448,7 +7449,8 @@ function togglePicklistCompareTeam(teamNumber) {
   }
   const emptyIndex = state.picklistCompareTeams.indexOf(null);
   if (emptyIndex < 0) return false;
-  state.picklistCompareTeams[emptyIndex] = teamNumber;
+  const team = teamByNumber(teamNumber);
+  state.picklistCompareTeams[emptyIndex] = teamSelectionId(team) || teamNumber;
   return true;
 }
 
@@ -9664,7 +9666,7 @@ function renderPicklistCompareChart(selectedTeams, metric) {
   const series = selectedTeams.map((team) => ({
     team,
     entries: analysisSeriesEntriesForMetric(team, metric, { window: currentScoutingWindow() }),
-    color: compareAccent(team.number) || "var(--accent)",
+    color: compareAccent(teamSelectionId(team)) || "var(--accent)",
   }));
   const allEntries = series.flatMap((entry) => entry.entries);
   if (!allEntries.length) {
@@ -9718,12 +9720,13 @@ function renderPicklistCompareChart(selectedTeams, metric) {
       <div class="picklist-compare-legend">
         ${selectedTeams
           .map((team) => {
-            const slot = compareSlotIndexForTeam(team.number);
-            const accent = compareAccent(team.number) || "var(--accent)";
+            const teamId = teamSelectionId(team);
+            const slot = compareSlotIndexForTeam(teamId);
+            const accent = compareAccent(teamId) || "var(--accent)";
             return `
-              <button class="compare-team-chip" data-remove-compare-team="${team.number}" style="--compare-accent: ${accent}">
+              <button class="compare-team-chip" data-remove-compare-team="${teamId}" style="--compare-accent: ${accent}">
                 <span class="compare-team-swatch">${slot + 1}</span>
-                <span>${team.number} ${team.name}</span>
+                <span>${teamDisplayLabel(team)} ${team.name}</span>
               </button>
             `;
           })
@@ -10158,7 +10161,7 @@ function renderAlliance() {
                         static: true,
                         navigation: false,
                         allianceTeam: true,
-                        compareIndex: compareSlotIndexForTeam(team.number),
+                        compareIndex: compareSlotIndexForTeam(teamSelectionId(team)),
                         showScore: column.type === "metric",
                         score: column.scores?.[teamIndex],
                         colorScore: column.scores?.[teamIndex],
