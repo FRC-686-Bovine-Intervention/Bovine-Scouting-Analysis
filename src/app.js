@@ -4484,7 +4484,7 @@ function captureRenderInteractionState() {
       selectedIndex: typeof element.selectedIndex === "number" ? element.selectedIndex : null,
     });
   });
-  app.querySelectorAll("[data-builder-list-scroll], [data-builder-grid-column-scroll], [data-builder-grid-shell], [data-current-picklist]").forEach((element) => {
+  app.querySelectorAll("[data-builder-list-scroll], [data-builder-grid-column-scroll], [data-builder-grid-shell], [data-current-picklist], .picklist-metric-list").forEach((element) => {
     const key = element.dataset.builderListScroll || element.dataset.builderGridColumnScroll || "shell";
     interactionState.scroll.push({
       selector: element.dataset.builderListScroll
@@ -4493,6 +4493,8 @@ function captureRenderInteractionState() {
           ? `[data-builder-grid-column-scroll="${key}"]`
           : element.hasAttribute("data-current-picklist")
             ? "[data-current-picklist]"
+            : element.classList.contains("picklist-metric-list")
+              ? ".picklist-metric-list"
             : "[data-builder-grid-shell]",
       scrollTop: element.scrollTop,
       scrollLeft: element.scrollLeft,
@@ -4504,7 +4506,7 @@ function captureRenderInteractionState() {
 function restoreRenderInteractionState(interactionState, options = {}) {
   if (!interactionState) return;
   const restoreGeneration = ++renderInteractionRestoreGeneration;
-  interactionState.scroll.filter((saved) => saved.selector === "[data-current-picklist]").forEach((saved) => {
+  interactionState.scroll.filter((saved) => ["[data-current-picklist]", ".picklist-metric-list"].includes(saved.selector)).forEach((saved) => {
     const element = document.querySelector(saved.selector);
     if (!element) return;
     element.scrollTop = saved.scrollTop;
@@ -4525,7 +4527,7 @@ function restoreRenderInteractionState(interactionState, options = {}) {
       globalThis.scrollTo(interactionState.windowScroll.x, interactionState.windowScroll.y);
     }
     interactionState.scroll.forEach((saved) => {
-      if (saved.selector === "[data-current-picklist]") return;
+      if (["[data-current-picklist]", ".picklist-metric-list"].includes(saved.selector)) return;
       const element = document.querySelector(saved.selector);
       if (!element) return;
       element.scrollTop = saved.scrollTop;
