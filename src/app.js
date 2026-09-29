@@ -587,7 +587,7 @@ function queueRenderRequest(reason) {
 }
 
 function installRenderInteractionCoordinator() {
-  ["click", "change", "input", "keydown", "pointerup"].forEach((eventName) => {
+  ["click", "change", "input", "keydown", "pointerup", "drop"].forEach((eventName) => {
     document.addEventListener(eventName, () => {
       noteUserInteraction(eventName);
       if (eventName !== "click") flushPendingRender();
