@@ -1765,9 +1765,13 @@ button.pill {
 }
 
 .builder-team-list {
-  max-height: calc(100vh - 330px);
+  max-height: 62vh;
   overflow-y: auto;
   padding-right: 6px;
+}
+
+.current-picklist-list {
+  max-height: calc(100vh - 330px);
 }
 
 .sort-preview-card,
@@ -2634,7 +2638,7 @@ button.pill {
     grid-template-columns: none;
   }
 
-  .builder-team-list {
+  .current-picklist-list {
     max-height: min(70vh, 560px);
   }
 
