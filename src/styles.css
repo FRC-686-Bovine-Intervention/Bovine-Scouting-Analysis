@@ -1765,7 +1765,7 @@ button.pill {
 }
 
 .builder-team-list {
-  max-height: 62vh;
+  max-height: calc(100vh - 330px);
   overflow-y: auto;
   padding-right: 6px;
 }
@@ -1784,7 +1784,7 @@ button.pill {
 }
 
 .picklist-list-offset {
-  min-height: 58px;
+  min-height: 0;
 }
 
 .current-picklist-list:focus {
@@ -2632,6 +2632,10 @@ button.pill {
 
   .alliance-picklists {
     grid-template-columns: none;
+  }
+
+  .builder-team-list {
+    max-height: min(70vh, 560px);
   }
 
   .picklist-compare-chart-shell {
