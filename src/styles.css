@@ -2107,6 +2107,54 @@ button.pill {
   text-decoration-line: line-through;
 }
 
+.captain-highlight-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+}
+
+.captain-highlight-legend span {
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.captain-legend-confirmed,
+.picklist-tile.captain-confirmed {
+  background: #b8e6c5 !important;
+  color: #183b24;
+}
+
+.captain-legend-possible,
+.picklist-tile.captain-possible {
+  background: #ffe0a3 !important;
+  color: #4d3510;
+}
+
+.captain-legend-picked {
+  background: #808080;
+  color: #000;
+  text-decoration: line-through;
+}
+
+.picklist-tile.picked {
+  background: #808080 !important;
+  color: #000;
+}
+
+[data-theme="dark"] .captain-legend-confirmed,
+[data-theme="dark"] .picklist-tile.captain-confirmed {
+  background: #285a39 !important;
+  color: #e5ffeb;
+}
+
+[data-theme="dark"] .captain-legend-possible,
+[data-theme="dark"] .picklist-tile.captain-possible {
+  background: #6b4b16 !important;
+  color: #fff2d6;
+}
+
 .picklist-tile.picked:disabled {
   opacity: 0.5;
 }

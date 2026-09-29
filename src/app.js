@@ -9812,6 +9812,7 @@ function renderTeamTile(team, index, options = {}) {
       class="${classes.join(" ")}"
       ${options.disabled ? "disabled aria-disabled=\"true\"" : ""}
       ${options.dataAttribute || ""}
+      ${options.title ? `title="${escapeAttribute(options.title)}" aria-label="${escapeAttribute(`${teamDisplayLabel(team)}. ${options.title}`)}"` : ""}
       ${options.dragData ? `data-drag-team="${options.dragData}"` : ""}
       ${options.builderTeam ? `data-builder-team="${teamSelectionId(team)}"` : ""}
       ${options.reorderTeam ? `data-reorder-team="${teamSelectionId(team)}"` : ""}
@@ -10034,7 +10035,14 @@ function renderPicklistTile(number, index, picklist, options = {}) {
   const team = teamByNumber(number);
   if (!team) return "";
   const teamId = teamSelectionId(team);
-  const picked = pickedTeams().includes(teamId) ? "picked" : "";
+  const isPicked = pickedTeams().includes(teamId);
+  const captainKind = options.captainKind || "";
+  const picked = isPicked ? "picked" : captainKind ? `captain-${captainKind}` : "";
+  const captainTitle = captainKind === "confirmed"
+    ? "Confirmed captain: currently in an Alliance Lead position"
+    : captainKind === "possible"
+      ? "Possible captain: may become an Alliance Lead if a current Lead accepts another Alliance invitation"
+      : "";
   const content = options.static && !options.showScore
     ? renderTeamTile(team, index, {
         compact: true,
@@ -10046,9 +10054,10 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         sortDirection: options.sortDirection,
         compareIndex: options.compareIndex,
         extraClass: picked,
-        disabled: Boolean(picked),
-        draggable: !picked,
-        dragData: picked ? "" : String(teamSelectionId(team)),
+        title: captainTitle,
+        disabled: isPicked,
+        draggable: !isPicked,
+        dragData: isPicked ? "" : String(teamSelectionId(team)),
         dataAttribute: options.navigation ? `data-team="${teamSelectionId(team)}"` : options.allianceTeam ? `data-alliance-team="${teamSelectionId(team)}"` : "",
       })
     : renderTeamTile(team, index, {
@@ -10061,15 +10070,27 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         maxScore: options.maxScore,
         compareIndex: options.compareIndex,
         extraClass: picked,
-        disabled: Boolean(picked),
-        draggable: !picked,
-        dragData: picked ? "" : String(teamSelectionId(team)),
+        title: captainTitle,
+        disabled: isPicked,
+        draggable: !isPicked,
+        dragData: isPicked ? "" : String(teamSelectionId(team)),
         dataAttribute: options.navigation ? `data-team="${teamSelectionId(team)}"` : options.allianceTeam ? `data-alliance-team="${teamSelectionId(team)}"` : "",
       });
   return content;
 }
 
 function renderAlliance() {
+  const firstRankedPicklist = state.loadedSources.filter((entry) => entry.startsWith("picklist:"))[0];
+  const rankedPicklist = state.picklists.find((picklist) => `picklist:${picklist.id}` === firstRankedPicklist);
+  const captainState = globalThis.allianceCaptainState?.deriveAllianceCaptainState(
+    rankedPicklist?.teams?.map((number) => teamSelectionId(teamByNumber(number))).filter((teamId) => teamId !== "") || [],
+    {
+      placedTeamIds: pickedTeams(),
+      completedFirstRoundPicks: globalThis.allianceCaptainState?.completedFirstRoundPickCount(state.allianceBoard) || 0,
+    },
+  ) || { confirmed: [], possible: [] };
+  const confirmedCaptains = new Set(captainState.confirmed);
+  const possibleCaptains = new Set(captainState.possible);
   const loaded = state.loadedSources
     .map((entry) => {
       const direction = loadedSourceSortDirection(entry);
@@ -10092,6 +10113,7 @@ function renderAlliance() {
             <button type="button" id="clearAllianceBoardButton">Clear Board</button>
           </div>
         </div>
+        ${rankedPicklist ? `<div class="captain-highlight-legend" aria-label="Final rankings captain status"><span class="captain-legend-confirmed">Confirmed captain</span><span class="captain-legend-possible">Possible captain</span><span class="captain-legend-picked">Placed on selection board</span></div>` : ""}
         <div class="board">
           ${state.allianceBoard.map((teamNumber, index) => renderBoardCell(teamNumber, index)).join("")}
         </div>
@@ -10171,6 +10193,10 @@ function renderAlliance() {
                         minScore: column.minScore,
                         maxScore: column.maxScore,
                         sortDirection: defaultColumnSortDirection,
+                        captainKind: firstRankedPicklist === entry
+                          ? confirmedCaptains.has(teamSelectionId(team)) ? "confirmed"
+                            : possibleCaptains.has(teamSelectionId(team)) ? "possible" : ""
+                          : "",
                       }),
                     )
                     .join("")}
