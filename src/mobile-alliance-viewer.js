@@ -10,6 +10,24 @@
     return name ? `Team ${number} · ${name}` : `Team ${number}`;
   }
 
+  function rankedTeamRow(team) {
+    const row = document.createElement("li");
+    row.className = `ranking-row state-${team.state}`;
+    const rank = document.createElement("span");
+    rank.className = "rank-number";
+    rank.textContent = String(team.rank);
+    const label = document.createElement("span");
+    label.textContent = `Team ${team.teamNumber}`;
+    row.append(rank, label);
+    if (Number.isFinite(team.score)) {
+      const score = document.createElement("span");
+      score.className = "team-score";
+      score.textContent = String(team.score);
+      row.append(score);
+    }
+    return row;
+  }
+
   function render(snapshot) {
     const valid = globalThis.mobileAllianceDisplay?.validateMobileAllianceSnapshot(snapshot);
     emptyState.hidden = Boolean(valid);
@@ -44,17 +62,7 @@
     }
 
     rankingsRoot.replaceChildren();
-    snapshot.rankings.forEach((team) => {
-      const row = document.createElement("li");
-      row.className = `ranking-row state-${team.state}`;
-      const rank = document.createElement("span");
-      rank.className = "rank-number";
-      rank.textContent = String(team.rank);
-      const label = document.createElement("span");
-      label.textContent = `Team ${team.teamNumber}`;
-      row.append(rank, label);
-      rankingsRoot.append(row);
-    });
+    snapshot.rankings.forEach((team) => rankingsRoot.append(rankedTeamRow(team)));
 
     picklistsRoot.replaceChildren();
     if (!snapshot.columns.length) {
@@ -70,23 +78,7 @@
       heading.textContent = column.label;
       const list = document.createElement("ol");
       list.className = "mobile-rankings";
-      column.teams.forEach((team) => {
-        const row = document.createElement("li");
-        row.className = `ranking-row state-${team.state}`;
-        const rank = document.createElement("span");
-        rank.className = "rank-number";
-        rank.textContent = String(team.rank);
-        const label = document.createElement("span");
-        label.textContent = `Team ${team.teamNumber}`;
-        row.append(rank, label);
-        if (Number.isFinite(team.score)) {
-          const score = document.createElement("span");
-          score.className = "team-score";
-          score.textContent = String(team.score);
-          row.append(score);
-        }
-        list.append(row);
-      });
+      column.teams.forEach((team) => list.append(rankedTeamRow(team)));
       card.append(heading, list);
       picklistsRoot.append(card);
     });

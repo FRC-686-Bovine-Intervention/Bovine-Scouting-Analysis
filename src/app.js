@@ -7656,7 +7656,9 @@ function renderNow(reason = "unspecified") {
   let content = "";
   try {
     content = renderView();
-    if (isAdmin()) globalThis.__pendingMobileAllianceSnapshot = buildCurrentMobileAllianceSnapshot();
+    if (isAdmin() && ["alliance", "picklistBuilder"].includes(state.activeView)) {
+      globalThis.__pendingMobileAllianceSnapshot = buildCurrentMobileAllianceSnapshot();
+    }
   } catch (error) {
     console.error("Render failed for view", state.activeView, error);
     if (state.activeView !== "teams") {
@@ -10094,10 +10096,10 @@ function buildCurrentMobileAllianceSnapshot() {
   ) || { confirmed: [], possible: [] };
   const confirmed = new Set(captainState.confirmed);
   const possible = new Set(captainState.possible);
-  const teamNumber = (team) => String(teamSelectionId(teamByNumber(team)) || team || "");
-  const stateFor = (team, includeCaptain = true) => {
+  const resolveTeamNumber = (team) => String(teamSelectionId(teamByNumber(team)) || team || "");
+  const displayStateForTeam = (team, includeCaptain = true) => {
     const id = teamSelectionId(teamByNumber(team));
-    if (pickedNumbers.has(teamNumber(team))) return "picked";
+    if (pickedNumbers.has(resolveTeamNumber(team))) return "picked";
     if (includeCaptain && confirmed.has(id)) return "confirmed";
     if (includeCaptain && possible.has(id)) return "possible";
     return "normal";
@@ -10112,14 +10114,14 @@ function buildCurrentMobileAllianceSnapshot() {
   return globalThis.mobileAllianceDisplay?.buildMobileAllianceSnapshot({
     eventKey: state.activeEventKey,
     eventName: displayEventName(currentEvent()),
-    board: state.allianceBoard.map((team) => ({ teamNumber: teamNumber(team), teamName: teamByNumber(team)?.name || "" })),
-    rankings: (rankedPicklist?.teams || []).map((team) => ({ teamNumber: teamNumber(team), state: stateFor(team) })),
+    board: state.allianceBoard.map((team) => ({ teamNumber: resolveTeamNumber(team), teamName: teamByNumber(team)?.name || "" })),
+    rankings: (rankedPicklist?.teams || []).map((team) => ({ teamNumber: resolveTeamNumber(team), state: displayStateForTeam(team) })),
     columns: columns.map(({ entry, column }) => ({
       id: entry,
       label: column.label,
       teams: column.teams.map((team, index) => ({
-        teamNumber: teamNumber(team),
-        state: stateFor(team, entry === firstRankedPicklist),
+        teamNumber: resolveTeamNumber(team),
+        state: displayStateForTeam(team, entry === firstRankedPicklist),
         score: column.type === "metric" ? column.scores?.[index] : null,
       })),
     })),

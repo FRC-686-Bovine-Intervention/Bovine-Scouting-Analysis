@@ -57,7 +57,11 @@
   function validateMobileAllianceSnapshot(snapshot) {
     const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
       && Object.keys(value).length === keys.length && Object.keys(value).every((key) => keys.includes(key));
-    return Boolean(snapshot && exactKeys(snapshot, ["version", "eventKey", "eventName", "board", "rankings", "columns"]) && snapshot.version === 1
+    const allowedSnapshotKeys = ["version", "eventKey", "eventName", "board", "rankings", "columns", "publishedAt"];
+    const snapshotKeysValid = snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)
+      && Object.keys(snapshot).length >= 6 && Object.keys(snapshot).length <= 7
+      && Object.keys(snapshot).every((key) => allowedSnapshotKeys.includes(key));
+    return Boolean(snapshotKeysValid && snapshot.version === 1
       && /^[a-z0-9]{1,64}$/.test(snapshot.eventKey || "")
       && typeof snapshot.eventName === "string" && snapshot.eventName.length <= MAX_LABEL_LENGTH
       && Array.isArray(snapshot.board) && snapshot.board.length === 24

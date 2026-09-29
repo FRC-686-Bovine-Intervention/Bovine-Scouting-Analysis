@@ -25,13 +25,44 @@ assert.equal("submissions" in snapshot, false);
 assert.equal(display.validateMobileAllianceSnapshot({ ...snapshot, privatePayload: { credentials: "x" } }), false);
 assert.throws(() => display.buildMobileAllianceSnapshot({ eventKey: "not/valid" }), /event key/);
 
+const firebaseDisplaySource = fs.readFileSync(new URL("../src/firebase-mobile-display.js", import.meta.url), "utf8")
+  .replace(/^import .*?;\r?\n/gm, "");
+let writtenDocument;
+let snapshotListener;
+const firebaseContext = {
+  globalThis: { firebaseServices: { db: {} }, firebaseUserRole: "admin", mobileAllianceDisplay: display, dispatchEvent: () => {} },
+  doc: () => ({ path: "publicAllianceSelection/current" }),
+  onSnapshot: (_reference, listener) => { snapshotListener = listener; return () => {}; },
+  serverTimestamp: () => "server-timestamp",
+  setDoc: async (_reference, value) => { writtenDocument = value; },
+  Event,
+  setTimeout,
+  clearTimeout,
+  TextEncoder,
+  console,
+};
+firebaseContext.globalThis.globalThis = firebaseContext.globalThis;
+vm.createContext(firebaseContext);
+vm.runInContext(firebaseDisplaySource, firebaseContext);
+assert.equal(firebaseContext.globalThis.firebaseMobileDisplayApi.publishMobileAllianceSnapshot(snapshot), true);
+await new Promise((resolve) => setTimeout(resolve, 400));
+assert.deepEqual(Object.keys(writtenDocument).sort(), ["eventKey", "payload", "publishedAt", "version"]);
+assert.deepEqual(JSON.parse(writtenDocument.payload), JSON.parse(JSON.stringify(snapshot)));
+let deliveredSnapshot;
+firebaseContext.globalThis.firebaseMobileDisplayApi.subscribeMobileAllianceSnapshot((value) => { deliveredSnapshot = value; });
+snapshotListener({ exists: () => true, data: () => writtenDocument });
+assert.deepEqual(JSON.parse(JSON.stringify(deliveredSnapshot)), JSON.parse(JSON.stringify(snapshot)));
+snapshotListener({ exists: () => true, data: () => ({ ...writtenDocument, eventKey: "other-event" }) });
+assert.equal(deliveredSnapshot, null);
+
 const rules = fs.readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
 const publicMatch = rules.match(/match \/publicAllianceSelection\/\{displayId\} \{([\s\S]*?)\n    \}/)?.[1] || "";
 assert.match(publicMatch, /allow get: if displayId == 'current'/);
 assert.match(publicMatch, /allow list: if false/);
 assert.match(publicMatch, /allow create, update: if isAdmin\(\)/);
-assert.match(publicMatch, /keys\(\)\.hasOnly\(\['version', 'eventKey', 'eventName', 'board', 'rankings', 'columns', 'publishedAt'\]\)/);
-assert.match(publicMatch, /request\.resource\.data\.board\.size\(\) == 24/);
+assert.match(publicMatch, /keys\(\)\.hasOnly\(\['version', 'eventKey', 'payload', 'publishedAt'\]\)/);
+assert.match(publicMatch, /request\.resource\.data\.payload is string/);
+assert.match(publicMatch, /request\.resource\.data\.payload\.size\(\) <= 400000/);
 assert.match(publicMatch, /allow delete: if false/);
 assert.match(rules, /match \/events\/\{eventId\}\/submissions\/\{submissionId\}[\s\S]*?allow read: if isAllowed\(\)/);
 assert.match(rules, /match \/events\/\{eventId\}\/workspace\/\{workspaceId\}[\s\S]*?allow read: if isAllowed\(\)/);
@@ -69,4 +100,4 @@ receiveSnapshot(display.buildMobileAllianceSnapshot({ eventKey: "2026chcmp", eve
 assert.equal(selectors.get("#event-name").textContent, "Updated · 2026chcmp");
 assert.match(selectors.get("#selection-board").children[0].children[1].children[0].textContent, /9999/);
 
-console.log("PASS mobile alliance snapshot schema, public rules boundary, and live viewer rendering/update behavior");
+console.log("PASS mobile alliance schema, bounded public document, admin publishing, and live viewer rendering/update behavior");
