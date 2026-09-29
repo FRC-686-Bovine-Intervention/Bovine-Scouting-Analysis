@@ -2101,8 +2101,14 @@ button.pill {
 }
 
 .picked {
+  background: #808080 !important;
+  color: #000;
   opacity: 0.5;
-  text-decoration: line-through;
+  text-decoration-line: line-through;
+}
+
+.picklist-tile.picked:disabled {
+  opacity: 0.5;
 }
 
 .board {

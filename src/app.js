@@ -9810,6 +9810,7 @@ function renderTeamTile(team, index, options = {}) {
   return `
     <button
       class="${classes.join(" ")}"
+      ${options.disabled ? "disabled aria-disabled=\"true\"" : ""}
       ${options.dataAttribute || ""}
       ${options.dragData ? `data-drag-team="${options.dragData}"` : ""}
       ${options.builderTeam ? `data-builder-team="${teamSelectionId(team)}"` : ""}
@@ -10045,6 +10046,7 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         sortDirection: options.sortDirection,
         compareIndex: options.compareIndex,
         extraClass: picked,
+        disabled: Boolean(picked),
         draggable: !picked,
         dragData: picked ? "" : String(teamSelectionId(team)),
         dataAttribute: options.navigation ? `data-team="${teamSelectionId(team)}"` : options.allianceTeam ? `data-alliance-team="${teamSelectionId(team)}"` : "",
@@ -10059,6 +10061,7 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         maxScore: options.maxScore,
         compareIndex: options.compareIndex,
         extraClass: picked,
+        disabled: Boolean(picked),
         draggable: !picked,
         dragData: picked ? "" : String(teamSelectionId(team)),
         dataAttribute: options.navigation ? `data-team="${teamSelectionId(team)}"` : options.allianceTeam ? `data-alliance-team="${teamSelectionId(team)}"` : "",
