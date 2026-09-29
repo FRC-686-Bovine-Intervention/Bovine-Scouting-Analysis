@@ -10188,7 +10188,7 @@ function renderBoardCell(teamNumber, index) {
     const team = teamByNumber(teamNumber);
     const teamLabel = team ? teamDisplayLabel(team) : String(teamNumber);
     return `
-      <div class="board-cell occupied" data-board-cell="${index}" data-board-team="${teamNumber}" title="Right-click to remove ${teamLabel}">
+      <div class="board-cell occupied" data-board-cell="${index}" data-board-team="${teamNumber}" draggable="true" title="Drag to reorder; right-click to remove ${teamLabel}">
         <strong>${teamLabel}</strong>
         <span>${team?.name || ""}</span>
       </div>
@@ -11645,14 +11645,42 @@ function bindViewEvents() {
   });
   document.querySelectorAll("[data-board-cell]").forEach((cell) => {
     const cellIndex = Number(cell.dataset.boardCell);
+    if (state.allianceBoard[cellIndex]) {
+      cell.addEventListener("dragstart", (event) => {
+        event.dataTransfer.setData("application/x-alliance-board-team", String(state.allianceBoard[cellIndex]));
+        event.dataTransfer.effectAllowed = "move";
+      });
+    }
     cell.addEventListener("dragover", (event) => {
-      if (!state.allianceBoard[cellIndex]) {
+      const isBoardReorder = Array.from(event.dataTransfer.types || []).includes("application/x-alliance-board-team");
+      if (isBoardReorder || !state.allianceBoard[cellIndex]) {
         event.preventDefault();
-        event.dataTransfer.dropEffect = "copy";
+        event.dataTransfer.dropEffect = isBoardReorder ? "move" : "copy";
       }
     });
     cell.addEventListener("drop", (event) => {
       event.preventDefault();
+      const draggedTeam = event.dataTransfer.getData("application/x-alliance-board-team");
+      if (draggedTeam) {
+        const sourceIndex = state.allianceBoard.findIndex((team) => String(team) === draggedTeam);
+        if (sourceIndex < 0 || sourceIndex === cellIndex) return;
+        if (state.allianceBoard[cellIndex]) {
+          const occupiedSlots = state.allianceBoard.map((team, index) => team === null ? -1 : index).filter((index) => index >= 0);
+          const orderedTeams = occupiedSlots.map((index) => state.allianceBoard[index]);
+          const sourceOrderIndex = orderedTeams.findIndex((team) => String(team) === draggedTeam);
+          const targetOrderIndex = occupiedSlots.indexOf(cellIndex);
+          const [team] = orderedTeams.splice(sourceOrderIndex, 1);
+          orderedTeams.splice(targetOrderIndex, 0, team);
+          occupiedSlots.forEach((index, orderIndex) => { state.allianceBoard[index] = orderedTeams[orderIndex]; });
+        } else {
+          state.allianceBoard[cellIndex] = state.allianceBoard[sourceIndex];
+          state.allianceBoard[sourceIndex] = null;
+        }
+        state.contextMenu = null;
+        saveState();
+        render();
+        return;
+      }
       placeTeamOnBoard(event.dataTransfer.getData("text/plain"), cellIndex);
     });
     cell.addEventListener("contextmenu", (event) => {
