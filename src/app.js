@@ -10090,9 +10090,10 @@ function buildCurrentMobileAllianceSnapshot() {
   const rankedPicklist = state.picklists.find((picklist) => `picklist:${picklist.id}` === firstRankedPicklist);
   const pickedIds = new Set(pickedTeams().map((team) => teamSelectionId(teamByNumber(team)) || team));
   const pickedNumbers = new Set(Array.from(pickedIds, String));
-  const captainState = globalThis.allianceCaptainState?.deriveAllianceCaptainState(
+  const captainState = globalThis.allianceCaptainState?.deriveAllianceCaptainStateForBoard(
     rankedPicklist?.teams?.map((team) => teamSelectionId(teamByNumber(team))).filter((teamId) => teamId !== "") || [],
-    { placedTeamIds: Array.from(pickedIds), completedFirstRoundPicks: globalThis.allianceCaptainState?.completedFirstRoundPickCount(state.allianceBoard) || 0 },
+    state.allianceBoard,
+    { placedTeamIds: Array.from(pickedIds) },
   ) || { confirmed: [], possible: [] };
   const confirmed = new Set(captainState.confirmed);
   const possible = new Set(captainState.possible);
@@ -10132,12 +10133,10 @@ function buildCurrentMobileAllianceSnapshot() {
 function renderAlliance() {
   const firstRankedPicklist = state.loadedSources.filter((entry) => entry.startsWith("picklist:"))[0];
   const rankedPicklist = state.picklists.find((picklist) => `picklist:${picklist.id}` === firstRankedPicklist);
-  const captainState = globalThis.allianceCaptainState?.deriveAllianceCaptainState(
+  const captainState = globalThis.allianceCaptainState?.deriveAllianceCaptainStateForBoard(
     rankedPicklist?.teams?.map((number) => teamSelectionId(teamByNumber(number))).filter((teamId) => teamId !== "") || [],
-    {
-      placedTeamIds: pickedTeams(),
-      completedFirstRoundPicks: globalThis.allianceCaptainState?.completedFirstRoundPickCount(state.allianceBoard) || 0,
-    },
+    state.allianceBoard,
+    { placedTeamIds: pickedTeams() },
   ) || { confirmed: [], possible: [] };
   const confirmedCaptains = new Set(captainState.confirmed);
   const possibleCaptains = new Set(captainState.possible);

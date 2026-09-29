@@ -4,7 +4,9 @@
     const accepted = new Set(options.acceptedTeamIds || []);
     for (const teamId of options.placedTeamIds || []) accepted.add(teamId);
     const eligible = rankings.filter((teamId) => !accepted.has(teamId));
-    const leadCount = Math.max(0, Number(options.leadCount) || 8);
+    const leadCount = Number.isFinite(Number(options.leadCount))
+      ? Math.max(0, Number(options.leadCount))
+      : 8;
     const possibleCount = Number.isFinite(Number(options.possibleCount))
       ? Math.max(0, Number(options.possibleCount))
       : Math.max(0, 8 - Math.max(0, Number(options.completedFirstRoundPicks) || 0));
@@ -20,5 +22,24 @@
       .length;
   }
 
-  global.allianceCaptainState = Object.freeze({ deriveAllianceCaptainState, completedFirstRoundPickCount });
+  function emptyCaptainSlotCount(allianceBoard) {
+    return (Array.isArray(allianceBoard) ? allianceBoard : [])
+      .filter((teamId, index) => index % 3 === 0 && (teamId === null || teamId === undefined || teamId === ""))
+      .length;
+  }
+
+  function deriveAllianceCaptainStateForBoard(rankedTeamIds, allianceBoard, options = {}) {
+    return deriveAllianceCaptainState(rankedTeamIds, {
+      ...options,
+      leadCount: emptyCaptainSlotCount(allianceBoard),
+      completedFirstRoundPicks: completedFirstRoundPickCount(allianceBoard),
+    });
+  }
+
+  global.allianceCaptainState = Object.freeze({
+    deriveAllianceCaptainState,
+    deriveAllianceCaptainStateForBoard,
+    completedFirstRoundPickCount,
+    emptyCaptainSlotCount,
+  });
 })(globalThis);
