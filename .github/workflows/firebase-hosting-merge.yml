@@ -19,6 +19,7 @@ jobs:
         run: |
           printf 'globalThis.__DEPLOYMENT_REVISION = "%s";\n' "$GITHUB_SHA" > src/deployment-revision.js
           sed -i "s/__DEPLOYMENT_REVISION__/$GITHUB_SHA/g" index.html
+          sed -i "s/__DEPLOYMENT_REVISION__/$GITHUB_SHA/g" mobile.html
       - name: Run project checks
         run: |
           node --check src/app.js

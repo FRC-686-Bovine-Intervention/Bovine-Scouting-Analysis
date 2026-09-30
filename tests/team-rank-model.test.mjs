@@ -102,13 +102,16 @@ const appBehaviorContext = {
     activeEventKey: "2022chcmp",
     allianceBoard: board,
     loadedSources: ["picklist:pick-first-pick"],
+    picklistCompareTeams: [1731, "frc449B", null, null],
     picklists: [{ id: "pick-first-pick", name: "First Pick", teams: manualFirstPickOrder }],
+    pairwisePicklist: { picklistId: "other-picklist", session: {} },
   },
   currentTeams: () => teams,
   rankingRankForTeam: rankForTeam,
   rankingSortValueForTeam: sortForTeam,
   teamSelectionId: selectionId,
-  compareSlotIndexForTeam: () => -1,
+  activePicklist: () => ({ id: "pick-first-pick" }),
+  picklistTeamIndex: (values, value) => values.findIndex((candidate) => String(candidate) === String(value)),
   teamByNumber: (value) => teams.find((team) => team.id === String(value) || team.label === String(value) || team.number === Number(value)),
   pickedTeams: () => board.filter((team) => team !== null),
   loadedSourceSortDirection: () => "desc",
@@ -131,6 +134,7 @@ const appBehaviorContext = {
 vm.createContext(appBehaviorContext);
 vm.runInContext([
   sourceFunction("currentTbaRankedTeams"),
+  sourceFunction("compareSlotIndexForTeam"),
   sourceFunction("buildCurrentMobileAllianceSnapshot", "renderAlliance"),
   sourceFunction("renderAlliance"),
   "globalThis.renderedAlliance = renderAlliance();",
@@ -151,5 +155,12 @@ assert.deepEqual(Array.from(appBehaviorContext.mobileSnapshot.rankings.slice(0, 
 assert.equal(appBehaviorContext.mobileSnapshot.rankings.find((team) => team.teamNumber === "449B").state, "picked", "placed B-team remains picked/gray in mobile Team Rank");
 assert.deepEqual(Array.from(appBehaviorContext.mobileSnapshot.columns[0].teams, (team) => team.teamNumber), ["449", "9072", "1731", "449B"]);
 assert.equal(appBehaviorContext.mobileSnapshot.columns[0].teams.find((team) => team.teamNumber === "449B").state, "picked", "placed B-team remains picked/gray in supplementary mobile columns");
+assert.equal(appBehaviorContext.mobileSnapshot.rankings[0].comparisonSlot, 0, "first admin comparison team carries its palette slot into mobile Team Rank");
+assert.equal(appBehaviorContext.mobileSnapshot.rankings[3].teamNumber, "449B", "comparison selection preserves the B-team identity");
+assert.equal(appBehaviorContext.mobileSnapshot.rankings[3].comparisonSlot, 1, "B-team comparison retains its admin palette slot");
+assert.equal(Object.hasOwn(appBehaviorContext.mobileSnapshot.rankings[1], "comparisonSlot"), false, "unused admin comparison slots do not color unselected teams");
+assert.equal(appBehaviorContext.mobileSnapshot.columns[0].teams[2].comparisonSlot, 0, "supplementary list uses the same comparison color as Team Rank");
+assert.equal(appBehaviorContext.mobileSnapshot.columns[0].teams[3].comparisonSlot, 1, "supplementary list preserves the selected B-team color");
+assert.equal(display.validateMobileAllianceSnapshot(appBehaviorContext.mobileSnapshot), true);
 
 console.log("PASS Team Rank follows current TBA order, drives captain calculation, and stays aligned with mobile IDs/order");

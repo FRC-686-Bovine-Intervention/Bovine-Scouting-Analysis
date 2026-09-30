@@ -280,7 +280,7 @@ const picklistColumnCount = 4;
 const picklistCompareLimit = 4;
 const protectedEpaSortId = "sort-epa";
 const defaultColumnSortDirection = "desc";
-const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
+const compareTeamPalette = globalThis.mobileAllianceDisplay.compareTeamPalette;
 const maskedTbaAuthKeyValue = "............";
 const firstSeasonAttributionUrl = "https://frc-events.firstinspires.org/services/api";
 const defaultStatboticsBaseUrl = "https://api.statbotics.io/v3";
@@ -10101,6 +10101,10 @@ function buildCurrentMobileAllianceSnapshot() {
     if (includeCaptain && possible.has(id)) return "possible";
     return "normal";
   };
+  const comparisonSlotForTeam = (team) => {
+    const slot = compareSlotIndexForTeam(selectionIdForTeam(team));
+    return slot >= 0 ? slot : null;
+  };
   const columns = state.loadedSources.map((entry) => {
     const column = gridColumnModel(entry, {
       direction: loadedSourceSortDirection(entry),
@@ -10112,13 +10116,14 @@ function buildCurrentMobileAllianceSnapshot() {
     eventKey: state.activeEventKey,
     eventName: displayEventName(currentEvent()),
     board: state.allianceBoard.map((team) => ({ teamNumber: resolveTeamNumber(team), teamName: teamByNumber(team)?.name || "" })),
-    rankings: rankedTeams.map((team) => ({ teamNumber: resolveTeamNumber(team), state: displayStateForTeam(team) })),
+    rankings: rankedTeams.map((team) => ({ teamNumber: resolveTeamNumber(team), state: displayStateForTeam(team), comparisonSlot: comparisonSlotForTeam(team) })),
     columns: columns.map(({ entry, column }) => ({
       id: entry,
       label: column.label,
       teams: column.teams.map((team, index) => ({
         teamNumber: resolveTeamNumber(team),
         state: displayStateForTeam(team, false),
+        comparisonSlot: comparisonSlotForTeam(team),
         score: column.type === "metric" ? column.scores?.[index] : null,
       })),
     })),

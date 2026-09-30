@@ -56,6 +56,7 @@ assert.equal(Array.from(placedPossible.possible).includes("108"), false);
 const appSource = fs.readFileSync("src/app.js", "utf8");
 const stylesSource = fs.readFileSync("src/styles.css", "utf8");
 const indexSource = fs.readFileSync("index.html", "utf8");
+const mobileHtmlSource = fs.readFileSync("mobile.html", "utf8");
 const helperScript = indexSource.match(/<script defer src="([^"]*alliance-captain-state\.js[^"]*)"><\/script>/)?.[1] || "";
 const teamRankScript = indexSource.match(/<script defer src="([^"]*team-rank-model\.js[^"]*)"><\/script>/)?.[1] || "";
 const appScript = indexSource.match(/<script defer src="([^"]*app\.js\?revision=[^"]*)"><\/script>/)?.[1] || "";
@@ -67,6 +68,13 @@ assert.ok(teamRankRevision.startsWith("__DEPLOYMENT_REVISION__"), "Team Rank mod
 assert.ok(appRevision.startsWith(helperRevision), "alliance captain helper and app must share the same deployment revision prefix");
 assert.ok(indexSource.indexOf(helperScript) < indexSource.indexOf(appScript), "alliance captain helper must load before the app script");
 assert.ok(indexSource.indexOf(teamRankScript) < indexSource.indexOf(appScript), "Team Rank model must load before the app script");
+assert.match(indexSource, /mobile-alliance-display\.js\?revision=__DEPLOYMENT_REVISION__/);
+assert.match(mobileHtmlSource, /mobile-alliance-display\.js\?revision=__DEPLOYMENT_REVISION__/);
+assert.match(mobileHtmlSource, /mobile-alliance-viewer\.js\?revision=__DEPLOYMENT_REVISION__/);
+assert.match(mobileHtmlSource, /mobile-alliance\.css\?revision=__DEPLOYMENT_REVISION__/);
+for (const workflow of ["dev", "pull-request", "merge"]) {
+  assert.match(fs.readFileSync(`.github/workflows/firebase-hosting-${workflow}.yml`, "utf8"), /sed -i "s\/__DEPLOYMENT_REVISION__\/\$GITHUB_SHA\/g" mobile\.html/);
+}
 assert.match(appSource, /const picked = isPicked \? "picked" : captainKind/);
 assert.match(appSource, /deriveAllianceCaptainStateForBoard\(/);
 assert.equal((appSource.match(/deriveAllianceCaptainStateForBoard\(/g) || []).length, 2);

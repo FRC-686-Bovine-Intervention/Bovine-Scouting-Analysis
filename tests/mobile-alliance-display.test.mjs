@@ -23,6 +23,32 @@ assert.equal(snapshot.rankings[0].state, "confirmed");
 assert.equal(snapshot.columns[0].label, "Supplementary Picklist");
 assert.equal(snapshot.columns[0].teams[0].state, "normal", "supplementary mobile picklists do not carry captain styling");
 assert.equal(snapshot.columns[0].teams[1].score, 87.123);
+const comparisonSnapshot = display.buildMobileAllianceSnapshot({
+  eventKey: "2026vaale1",
+  rankings: [
+    { teamNumber: "1731", state: "confirmed", comparisonSlot: 0 },
+    { teamNumber: "449B", state: "picked", comparisonSlot: 1 },
+    { teamNumber: "9072", comparisonSlot: 2 },
+    { teamNumber: "449", comparisonSlot: 3 },
+    { teamNumber: "686" },
+  ],
+  columns: [{ id: "picklist:first", label: "First Pick", teams: [
+    { teamNumber: "1731", comparisonSlot: 0 },
+    { teamNumber: "449B", comparisonSlot: 1 },
+    { teamNumber: "9072", comparisonSlot: 2 },
+    { teamNumber: "449", comparisonSlot: 3 },
+  ] }],
+});
+assert.equal(display.validateMobileAllianceSnapshot(comparisonSnapshot), true);
+assert.deepEqual(comparisonSnapshot.rankings.slice(0, 4).map((team) => team.comparisonSlot), [0, 1, 2, 3]);
+assert.equal(comparisonSnapshot.rankings[1].teamNumber, "449B", "comparison snapshot keeps suffixed team identity");
+assert.equal(Object.hasOwn(comparisonSnapshot.rankings[4], "comparisonSlot"), false, "unselected team has no comparison highlight slot");
+assert.equal(display.compareColorForSlot(0), "#2563eb");
+assert.equal(display.compareColorForSlot(1), "#ca8a04");
+assert.equal(display.compareColorForSlot(2), "#7c3aed");
+assert.equal(display.compareColorForSlot(3), "#0891b2");
+assert.equal(display.compareColorForSlot(4), null);
+assert.equal(display.validateMobileAllianceSnapshot({ ...comparisonSnapshot, rankings: comparisonSnapshot.rankings.map((team, index) => index === 0 ? { ...team, comparisonSlot: 4 } : team) }), false);
 const teamObjectColumn = display.buildMobileAllianceSnapshot({
   eventKey: "2026vaale1",
   columns: [{ id: "picklist:first", label: "First Pick", teams: [{ number: 2106, label: "2106 · The Junkyard Dogs" }] }],
@@ -104,6 +130,16 @@ assert.equal(selectors.get("#event-name").textContent, "Championship <script> ·
 assert.equal(selectors.get("#selection-board").children.length, 8);
 assert.equal(selectors.get("#final-rankings").children[0].className, "ranking-row state-confirmed");
 assert.equal(selectors.get("#mobile-picklists").children.length, 1);
+receiveSnapshot(comparisonSnapshot);
+const renderedComparisonRows = selectors.get("#final-rankings").children;
+assert.equal(renderedComparisonRows[0].className, "ranking-row state-confirmed compare-selected");
+assert.equal(renderedComparisonRows[0].attributes.style, "--compare-accent: #2563eb");
+assert.equal(renderedComparisonRows[1].className, "ranking-row state-picked compare-selected");
+assert.equal(renderedComparisonRows[1].attributes.style, "--compare-accent: #ca8a04");
+assert.equal(renderedComparisonRows[4].className, "ranking-row state-normal", "unselected teams have no comparison styling when fewer than four slots are filled");
+const renderedComparisonColumnRows = selectors.get("#mobile-picklists").children[0].children[1].children;
+assert.equal(renderedComparisonColumnRows[2].attributes.style, "--compare-accent: #7c3aed");
+assert.equal(renderedComparisonColumnRows[3].attributes.style, "--compare-accent: #0891b2");
 receiveSnapshot(teamObjectColumn);
 assert.equal(selectors.get("#mobile-picklists").children[0].children[1].children[0].children[1].textContent, "Team 2106");
 receiveSnapshot(display.buildMobileAllianceSnapshot({ eventKey: "2026chcmp", eventName: "Updated", board: [{ teamNumber: 9999 }] }));

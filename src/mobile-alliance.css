@@ -29,6 +29,7 @@ body { margin: 0; background: #101820; }
 .ranking-row { min-height: 38px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 8px; border-radius: 6px; padding: 5px 8px; font-size: .9rem; }
 .rank-number { color: #b6c6d0; font-variant-numeric: tabular-nums; text-align: right; }
 .state-confirmed { background: #29553d; }.state-possible { background: #6b5724; }.state-picked { background: #555d63; color: #e0e4e6; }
+.ranking-row.compare-selected { background: var(--compare-accent); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--compare-accent) 86%, black); color: #fff; }
 .team-score { color: #d0dde5; font-variant-numeric: tabular-nums; }
 .mobile-picklists { display: grid; gap: 12px; }
 .empty-state { margin: 0; padding: 20px 8px; color: #c4d0d8; text-align: center; }

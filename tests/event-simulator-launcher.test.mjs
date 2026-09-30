@@ -19,6 +19,7 @@ assert.doesNotMatch(recorderLauncher, /set "EVENT_CODES=/);
 assert.doesNotMatch(fs.readFileSync("scripts/start-event-simulator.ps1", "utf8"), /offsets\s*=/);
 assert.match(fs.readFileSync("eventSimulator/scenario.json", "utf8"), /"offsets": \{\s*"tba": 0,\s*"statbotics": -2,\s*"scouting": -1\s*\}/s);
 assert.match(fs.readFileSync("scripts/local-web-server.mjs", "utf8"), /__DEPLOYMENT_REVISION__/);
+assert.match(fs.readFileSync("scripts/local-web-server.mjs", "utf8"), /\["index\.html", "mobile\.html"\]/);
 assert.match(fs.readFileSync("scripts/local-web-server.mjs", "utf8"), /"\.mjs": "text\/javascript/);
 assert.match(fs.readFileSync("src/app.js", "utf8"), /refreshSimulatorSources/);
 assert.match(fs.readFileSync("src/app.js", "utf8"), /restoreSharedCachedActiveEvent[\s\S]*simulator-first/);

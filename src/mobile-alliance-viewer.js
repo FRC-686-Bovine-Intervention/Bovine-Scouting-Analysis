@@ -13,6 +13,12 @@
   function rankedTeamRow(team) {
     const row = document.createElement("li");
     row.className = `ranking-row state-${team.state}`;
+    const compareColor = globalThis.mobileAllianceDisplay?.compareColorForSlot(team.comparisonSlot);
+    if (compareColor) {
+      row.className += " compare-selected";
+      row.setAttribute("data-comparison-slot", String(team.comparisonSlot));
+      row.setAttribute("style", `--compare-accent: ${compareColor}`);
+    }
     const rank = document.createElement("span");
     rank.className = "rank-number";
     rank.textContent = String(team.rank);
