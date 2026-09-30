@@ -9,7 +9,7 @@
       : 8;
     const possibleCount = Number.isFinite(Number(options.possibleCount))
       ? Math.max(0, Number(options.possibleCount))
-      : Math.max(0, 8 - Math.max(0, Number(options.completedFirstRoundPicks) || 0));
+      : Math.max(0, 7 - Math.max(0, Number(options.completedFirstRoundPicks) || 0));
     const confirmed = eligible.slice(0, leadCount);
     const confirmedSet = new Set(confirmed);
     const possible = eligible.filter((teamId) => !confirmedSet.has(teamId)).slice(0, possibleCount);

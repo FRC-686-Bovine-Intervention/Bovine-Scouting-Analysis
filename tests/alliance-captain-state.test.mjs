@@ -10,14 +10,15 @@ const rankings = Array.from({ length: 24 }, (_, index) => String(100 + index));
 
 const initial = derive(rankings);
 assert.deepEqual(Array.from(initial.confirmed), rankings.slice(0, 8));
-assert.deepEqual(Array.from(initial.possible), rankings.slice(8, 16));
+assert.deepEqual(Array.from(initial.possible), rankings.slice(8, 15));
+assert.equal(initial.possible.includes(rankings[15]), false, "rank 16 can never be a possible captain");
 
 const promoted = derive(rankings, { acceptedTeamIds: ["100"] });
 assert.deepEqual(Array.from(promoted.confirmed), rankings.slice(1, 9));
-assert.deepEqual(Array.from(promoted.possible), rankings.slice(9, 17));
+assert.deepEqual(Array.from(promoted.possible), rankings.slice(9, 16));
 
 const oneFirstPickComplete = derive(rankings, { completedFirstRoundPicks: 1 });
-assert.deepEqual(Array.from(oneFirstPickComplete.possible), rankings.slice(8, 15));
+assert.deepEqual(Array.from(oneFirstPickComplete.possible), rankings.slice(8, 14));
 
 const allFirstPicksComplete = derive(rankings, { completedFirstRoundPicks: 8 });
 assert.deepEqual(Array.from(allFirstPicksComplete.possible), []);
@@ -33,15 +34,16 @@ const captainBoard = (...placed) => {
   for (const [index, teamId] of placed) value[index] = teamId;
   return value;
 };
-const rankIds = Array.from({ length: 12 }, (_, index) => `rank${index + 1}`);
+const rankIds = Array.from({ length: 20 }, (_, index) => `rank${index + 1}`);
 const oneCaptainPlaced = deriveForBoard(rankIds, captainBoard([0, "rank1"]), { placedTeamIds: ["rank1"] });
 assert.deepEqual(Array.from(oneCaptainPlaced.confirmed), rankIds.slice(1, 8));
-assert.deepEqual(Array.from(oneCaptainPlaced.possible), rankIds.slice(8));
+assert.deepEqual(Array.from(oneCaptainPlaced.possible), rankIds.slice(8, 15));
 const captainAndFirstPickPlaced = deriveForBoard(rankIds, captainBoard([0, "rank1"], [1, "rank2"]), { placedTeamIds: ["rank1", "rank2"] });
 assert.deepEqual(Array.from(captainAndFirstPickPlaced.confirmed), rankIds.slice(2, 9));
-assert.deepEqual(Array.from(captainAndFirstPickPlaced.possible), rankIds.slice(9));
+assert.deepEqual(Array.from(captainAndFirstPickPlaced.possible), rankIds.slice(9, 15));
 const twoCaptainsAndFirstPickPlaced = deriveForBoard(rankIds, captainBoard([0, "rank1"], [1, "rank2"], [3, "rank3"]), { placedTeamIds: ["rank1", "rank2", "rank3"] });
 assert.deepEqual(Array.from(twoCaptainsAndFirstPickPlaced.confirmed), rankIds.slice(3, 9));
+assert.deepEqual(Array.from(twoCaptainsAndFirstPickPlaced.possible), rankIds.slice(9, 15));
 assert.equal(context.globalThis.allianceCaptainState.emptyCaptainSlotCount(captainBoard([0, "rank1"], [1, "rank2"], [3, "rank3"])), 6);
 const fullCaptainBoard = Array(24).fill("occupied");
 assert.equal(context.globalThis.allianceCaptainState.emptyCaptainSlotCount(fullCaptainBoard), 0);
