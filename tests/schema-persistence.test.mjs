@@ -120,6 +120,7 @@ function loadAppContext(options = {}) {
     + "\nglobalThis.__activeEventTestApi = { adminDataQualityAlertState, applyAdminEventCodeDraft, applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, currentDataSources, loadArbitraryEventCode, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, refreshDataSource, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
+    "src/mobile-alliance-display.js",
     "src/dynamic-scouting-fields.js",
     "src/metric-engine.js",
     "src/scouting-dependency-diagnostics.js",

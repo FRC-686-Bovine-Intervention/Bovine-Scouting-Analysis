@@ -267,6 +267,7 @@ const navItems = [
   { view: "analysis", label: "Analysis", icon: "analysis" },
   { view: "derivedBuilder", label: "Derived Equation Builder", icon: "derivedBuilder" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
+  { view: "comparisonPlots", label: "Comparison Plots", icon: "analysis" },
   { view: "alliance", label: "Alliance Selection", icon: "alliance" },
   { view: "adminEventControl", label: "Admin Event Control", icon: "admin" },
   { view: "adminDataQuality", label: "Admin Data Quality", icon: "quality" },
@@ -279,7 +280,7 @@ const picklistColumnCount = 4;
 const picklistCompareLimit = 4;
 const protectedEpaSortId = "sort-epa";
 const defaultColumnSortDirection = "desc";
-const compareTeamPalette = ["#2563eb", "#ca8a04", "#7c3aed", "#0891b2"];
+const compareTeamPalette = globalThis.mobileAllianceDisplay.compareTeamPalette;
 const maskedTbaAuthKeyValue = "............";
 const firstSeasonAttributionUrl = "https://frc-events.firstinspires.org/services/api";
 const defaultStatboticsBaseUrl = "https://api.statbotics.io/v3";
@@ -482,6 +483,7 @@ state.recentEventKeys = normalizeRecentEventKeys(readStoredJson(storageKeys.rece
 globalThis.__scoutingAppState = state;
 globalThis.__scoutingActiveEventKey = state.activeEventKey;
 globalThis.__STATBOTICS_BASE_URL = state.statboticsBaseUrl;
+let picklistReorderAnnouncement = "";
 let pendingScoutingAutoloadToken = "";
 let attemptedScoutingAutoloadToken = "";
 const pendingExternalRefreshSourceIds = new Set();
@@ -522,6 +524,7 @@ let scheduleFocusPending = false;
 let renderInProgress = false;
 let pendingRenderRequest = null;
 let renderFlushScheduled = false;
+let renderInteractionRestoreGeneration = 0;
 let recentUserInteractionAt = 0;
 let userRenderPriorityUntil = 0;
 installGlobalRecoveryGuards();
@@ -554,7 +557,7 @@ function interactiveElement(element = document.activeElement) {
 
 function noteUserInteraction(eventName = "") {
   recentUserInteractionAt = perfNow();
-  if (["click", "change", "input", "keydown", "pointerup"].includes(eventName)) {
+  if (["click", "change", "input", "keydown", "pointerup", "drop"].includes(eventName)) {
     userRenderPriorityUntil = recentUserInteractionAt + 1000;
   }
 }
@@ -584,7 +587,7 @@ function queueRenderRequest(reason) {
 }
 
 function installRenderInteractionCoordinator() {
-  ["click", "change", "input", "keydown", "pointerup"].forEach((eventName) => {
+  ["click", "change", "input", "keydown", "pointerup", "drop"].forEach((eventName) => {
     document.addEventListener(eventName, () => {
       noteUserInteraction(eventName);
       if (eventName !== "click") flushPendingRender();
@@ -4481,14 +4484,18 @@ function captureRenderInteractionState() {
       selectedIndex: typeof element.selectedIndex === "number" ? element.selectedIndex : null,
     });
   });
-  app.querySelectorAll("[data-builder-list-scroll], [data-builder-grid-column-scroll], [data-builder-grid-shell]").forEach((element) => {
+  app.querySelectorAll("[data-builder-list-scroll], [data-builder-grid-column-scroll], [data-builder-grid-shell], [data-current-picklist], .picklist-metric-list").forEach((element) => {
     const key = element.dataset.builderListScroll || element.dataset.builderGridColumnScroll || "shell";
     interactionState.scroll.push({
       selector: element.dataset.builderListScroll
         ? `[data-builder-list-scroll="${key}"]`
         : element.dataset.builderGridColumnScroll
           ? `[data-builder-grid-column-scroll="${key}"]`
-          : "[data-builder-grid-shell]",
+          : element.hasAttribute("data-current-picklist")
+            ? "[data-current-picklist]"
+            : element.classList.contains("picklist-metric-list")
+              ? ".picklist-metric-list"
+            : "[data-builder-grid-shell]",
       scrollTop: element.scrollTop,
       scrollLeft: element.scrollLeft,
     });
@@ -4498,7 +4505,15 @@ function captureRenderInteractionState() {
 
 function restoreRenderInteractionState(interactionState, options = {}) {
   if (!interactionState) return;
+  const restoreGeneration = ++renderInteractionRestoreGeneration;
+  interactionState.scroll.filter((saved) => ["[data-current-picklist]", ".picklist-metric-list"].includes(saved.selector)).forEach((saved) => {
+    const element = document.querySelector(saved.selector);
+    if (!element) return;
+    element.scrollTop = saved.scrollTop;
+    element.scrollLeft = saved.scrollLeft;
+  });
   requestAnimationFrame(() => {
+    if (restoreGeneration !== renderInteractionRestoreGeneration) return;
     if (options.preserveControls === true) {
       interactionState.controls.forEach((saved) => {
         const element = document.getElementById(saved.id);
@@ -4512,6 +4527,7 @@ function restoreRenderInteractionState(interactionState, options = {}) {
       globalThis.scrollTo(interactionState.windowScroll.x, interactionState.windowScroll.y);
     }
     interactionState.scroll.forEach((saved) => {
+      if (["[data-current-picklist]", ".picklist-metric-list"].includes(saved.selector)) return;
       const element = document.querySelector(saved.selector);
       if (!element) return;
       element.scrollTop = saved.scrollTop;
@@ -5393,9 +5409,54 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
   render();
   const externalLoadStartedAt = perfNow();
   try {
+    const statboticsSourceCacheApi = globalThis.firebaseEventSourceCacheApi;
+    const loadStatboticsFallback = async (requestedEventKey) => {
+      if (requestedEventKey !== normalizedEventCode) return null;
+      const previousEventModel = eventModelByKey(requestedEventKey);
+      const previousWorkspace = readStoredJson(storageKeys.eventWorkspace, null, requestedEventKey);
+      const previousSource = previousWorkspace?.sources?.statbotics || {};
+      const hasPreviousStatboticsData = (previousEventModel?.teams || []).some((team) =>
+        Object.values(team?.sources?.statbotics?.components || {}).some((value) => value !== null && value !== undefined && value !== ""),
+      );
+      if (
+        previousEventModel?.key === requestedEventKey
+        && ["dynamic-external", "shared-cache"].includes(previousEventModel.catalogSource)
+        && previousSource.lastSuccessfulAt
+        && previousSource.sourceFingerprint
+        && hasPreviousStatboticsData
+      ) {
+        return {
+          eventKey: requestedEventKey,
+          eventModel: previousEventModel,
+          fetchedAt: previousSource.lastSuccessfulAt,
+        };
+      }
+      if (typeof statboticsSourceCacheApi?.loadEventSourceCache !== "function") return null;
+      const [eventSource, teamEventsSource] = await Promise.all([
+        statboticsSourceCacheApi.loadEventSourceCache({ eventKey: requestedEventKey, sourceId: "statbotics-event" }),
+        statboticsSourceCacheApi.loadEventSourceCache({ eventKey: requestedEventKey, sourceId: "statbotics-team-events" }),
+      ]);
+      const sourceManifestMatchesEvent = globalThis.EventSourceCache?.sourceManifestMatchesEvent;
+      if (
+        typeof sourceManifestMatchesEvent !== "function"
+        || !sourceManifestMatchesEvent(eventSource?.manifest, "statbotics-event", requestedEventKey)
+        || !sourceManifestMatchesEvent(teamEventsSource?.manifest, "statbotics-team-events", requestedEventKey)
+      ) return null;
+      const parseSource = (source) => JSON.parse(source.rawText || new TextDecoder().decode(source.rawBytes));
+      const event = parseSource(eventSource);
+      const teamEvents = parseSource(teamEventsSource);
+      if (!event || typeof event !== "object" || !Array.isArray(teamEvents)) return null;
+      return {
+        eventKey: requestedEventKey,
+        event,
+        teamEvents,
+        fetchedAt: [eventSource.manifest.fetchedAt, teamEventsSource.manifest.fetchedAt].filter(Boolean).sort()[0] || "",
+      };
+    };
     const loadResult = await loadExternalEventByCode(normalizedEventCode, {
       tbaAuthKey: state.tbaAuthKey,
       statboticsBaseUrl: state.statboticsBaseUrl,
+      loadStatboticsFallback,
       deferPridgeTrends: options.deferPridgeTrends === true,
       deferPridgeComputation: options.deferPridgeComputation === true,
     });
@@ -7361,21 +7422,22 @@ function applyAnalysisFilterToEntries(team, entries, eventModel = currentEvent()
   return normalizedEntries.filter((entry) => truthy(includeByMatch.get(Number(entry.key))));
 }
 
-function compareSlotIndexForTeam(teamNumber) {
+function compareSlotIndexForTeam(teamSelectionId) {
   const pairwise = state.pairwisePicklist?.picklistId === activePicklist()?.id ? state.pairwisePicklist.session : null;
   if (pairwise) {
     const selectedTeam = pairwise.mode === "select" ? pairwise.teams[pairwise.cursorIndex] : pairwise.activeTeam;
-    const selectedIndex = pairwise.teams.indexOf(selectedTeam);
-    if (teamNumber === selectedTeam) return 0;
-    if (pairwise.compareAbove && teamNumber === pairwise.teams[selectedIndex - 1]) return 1;
-    if (pairwise.compareBelow && teamNumber === pairwise.teams[selectedIndex + 1]) return 2;
+    const selectedIndex = picklistTeamIndex(pairwise.teams, selectedTeam);
+    const comparisonIndex = picklistTeamIndex(pairwise.teams, teamSelectionId);
+    if (comparisonIndex === selectedIndex) return 0;
+    if (pairwise.compareAbove && comparisonIndex === selectedIndex - 1) return 1;
+    if (pairwise.compareBelow && comparisonIndex === selectedIndex + 1) return 2;
     return -1;
   }
-  return state.picklistCompareTeams.indexOf(teamNumber);
+  return picklistTeamIndex(state.picklistCompareTeams, teamSelectionId);
 }
 
-function compareAccent(teamNumber) {
-  const index = compareSlotIndexForTeam(teamNumber);
+function compareAccent(teamSelectionId) {
+  const index = compareSlotIndexForTeam(teamSelectionId);
   return index < 0 ? null : compareTeamPalette[index];
 }
 
@@ -7387,7 +7449,8 @@ function togglePicklistCompareTeam(teamNumber) {
   }
   const emptyIndex = state.picklistCompareTeams.indexOf(null);
   if (emptyIndex < 0) return false;
-  state.picklistCompareTeams[emptyIndex] = teamNumber;
+  const team = teamByNumber(teamNumber);
+  state.picklistCompareTeams[emptyIndex] = teamSelectionId(team) || teamNumber;
   return true;
 }
 
@@ -7593,6 +7656,9 @@ function renderNow(reason = "unspecified") {
   let content = "";
   try {
     content = renderView();
+    if (isAdmin() && ["alliance", "picklistBuilder"].includes(state.activeView)) {
+      globalThis.__pendingMobileAllianceSnapshot = buildCurrentMobileAllianceSnapshot();
+    }
   } catch (error) {
     console.error("Render failed for view", state.activeView, error);
     if (state.activeView !== "teams") {
@@ -7668,6 +7734,9 @@ function renderNow(reason = "unspecified") {
 
   bindShellEvents();
   restoreRenderInteractionState(interactionState, { preserveControls: reason.startsWith("background.") });
+  if (isAdmin() && globalThis.__pendingMobileAllianceSnapshot) {
+    globalThis.firebaseMobileDisplayApi?.publishMobileAllianceSnapshot(globalThis.__pendingMobileAllianceSnapshot);
+  }
   focusScheduleLastPlayed();
   recordScoutingPerf("render", renderStartedAt, { activeView: state.activeView, reason });
 }
@@ -7889,6 +7958,7 @@ function viewTitle(view) {
     matchup: "Matchup",
     bracket: "Playoff Bracket",
     picklistBuilder: "Picklist Builder",
+    comparisonPlots: "Comparison Plots",
     alliance: "Alliance Selection",
     adminEventControl: "Admin Event Control",
     adminDataQuality: "Admin Data Quality",
@@ -7954,6 +8024,7 @@ function renderView() {
     matchup: renderMatchup,
     bracket: renderPlayoffBracket,
     picklistBuilder: renderPicklistBuilder,
+    comparisonPlots: renderComparisonPlots,
     alliance: renderAlliance,
     adminEventControl: renderAdminEventControl,
     adminDataQuality: renderAdminDataQuality,
@@ -8008,18 +8079,7 @@ function renderRankings() {
   const showSecondarySort = rankingTeams.some((team) => rankingSortValueForTeam(team, 1) !== null);
   const primarySortLabel = rankingSortLabel(0);
   const secondarySortLabel = rankingSortLabel(1);
-  const displayedRankedTeams = [...currentTeams()]
-    .sort((a, b) => {
-      const leftRank = rankingRankForTeam(a);
-      const rightRank = rankingRankForTeam(b);
-      const leftRankingScore = rankingSortValueForTeam(a, 0);
-      const rightRankingScore = rankingSortValueForTeam(b, 0);
-      const leftSortScore = Number.isFinite(leftRankingScore) ? leftRankingScore : Number.NEGATIVE_INFINITY;
-      const rightSortScore = Number.isFinite(rightRankingScore) ? rightRankingScore : Number.NEGATIVE_INFINITY;
-      return (leftRank ?? Infinity) - (rightRank ?? Infinity)
-        || rightSortScore - leftSortScore
-        || a.number - b.number;
-    })
+  const displayedRankedTeams = currentTbaRankedTeams()
     .map((team) => ({
       ...team,
       rank: rankingRankForTeam(team),
@@ -8074,6 +8134,10 @@ function rankingRankForTeam(team) {
 
 function rankingSortValueForTeam(team, index = 0) {
   return rankingTbaNumber(team, `sort_orders.${index}`);
+}
+
+function currentTbaRankedTeams() {
+  return globalThis.teamRankModel.orderByTbaRanking(currentTeams(), rankingRankForTeam, rankingSortValueForTeam);
 }
 
 function rankingRecordForTeam(team) {
@@ -9000,7 +9064,7 @@ function renderSchedule() {
   const matches = currentMatches();
   const qualifications = matches.filter((match) => scheduleMatchGroup(match) === "quals");
   const playoffs = matches.filter((match) => scheduleMatchGroup(match) === "playoffs");
-  const currentMatch = nextScheduleMatch(matches);
+  const currentMatch = nextScheduleMatch(playoffs.length ? playoffs : matches);
   return `
     <div class="section-heading">
       <div>
@@ -9518,9 +9582,6 @@ function renderPicklistBuilder() {
   const rankableMetrics = orderedRankableMetrics();
   const pairwise = state.pairwisePicklist?.picklistId === picklist.id ? state.pairwisePicklist.session : null;
   const currentTeams = (pairwise?.teams || picklist.teams).map((number) => teamByNumber(number)).filter(Boolean);
-  const nextPairwiseTeams = new Set(pairwise ? PairwisePicklist.suggestions(pairwise) : []);
-  const compareTeams = state.picklistCompareTeams.map((number) => teamByNumber(number)).filter(Boolean);
-  const comparisonMetric = picklistCompareMetric();
   return `
     <div class="grid picklist-builder-layout">
       <article class="card builder-list-card">
@@ -9539,14 +9600,15 @@ function renderPicklistBuilder() {
         <div class="section-heading">
           <div>
             <h2>${picklist.name}</h2>
-            <p class="muted">${pairwise ? "Pairwise mode<br>&#8593&#8595: change team selection<br>Shift + &#8593&#8595: Compare to team above, move team<br>Ctrl + &#8593&#8595: Compare to team below, move team<br>Gray highlights: suggested teams to revisit" : "Drag: reorder teams<br>&#8593&#8595: change team selection<br>Shift + &#8593&#8595: Move team<br>Right-click: Access Pairwise Mode"}</p>
+            <p class="muted">${pairwise ? "Pairwise mode<br>&#8593&#8595: change team selection<br>Shift + &#8593&#8595: Compare to team above, move team<br>Ctrl + &#8593&#8595: Compare to team below, move team" : "Drag: reorder teams<br>&#8593&#8595: change team selection<br>Shift + &#8593&#8595: Move team<br>Right-click: Access Pairwise Mode"}</p>
           </div>
           ${pairwise ? `<div class="button-row"><button type="button" data-pairwise-save>Save</button><button type="button" data-pairwise-cancel>Cancel</button></div>` : ""}
         </div>
         <div class="picklist-list-offset" aria-hidden="true"></div>
         <div class="builder-team-list current-picklist-list" data-current-picklist tabindex="0">
-          ${currentTeams.map((team, index) => renderBuilderTeamTile(team, index, { draggable: !pairwise, pairwise, pairwiseNext: nextPairwiseTeams.has(team.number) })).join("")}
+          ${currentTeams.map((team, index) => renderBuilderTeamTile(team, index, { draggable: !pairwise, pairwise })).join("")}
         </div>
+        <p id="picklistReorderStatus" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">${escapeHtml(picklistReorderAnnouncement)}</p>
       </article>
       <article class="card">
         <div class="section-heading">
@@ -9559,50 +9621,65 @@ function renderPicklistBuilder() {
           ${state.picklistColumns.map((entry, index) => renderPicklistGridColumn(entry, index, { metricValueCache, rankableMetrics })).join("")}
         </div>
       </article>
-      <article class="card picklist-compare-chart-card">
-        <div class="section-heading">
-          <div>
-            <h2>Team Trend Comparison</h2>
-            <p class="muted">Overlay up to 4 selected teams using the same comparison colors as the picklist.</p>
-          </div>
-          <label class="team-trend-metric">
-            <span class="muted">Metric</span>
-            <select id="picklistCompareMetricSelect" aria-label="Picklist comparison metric">
-              <option value="" ${comparisonMetric ? "" : "selected"}>Select a metric</option>
-              ${orderedMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
-            </select>
-          </label>
-          <label class="team-trend-metric">
-            <span class="muted">Window</span>
-            <select id="picklistScoutingWindowSelect" aria-label="Picklist scouting window">
-              <option value="all" ${currentScoutingWindow() === "all" ? "selected" : ""}>All Matches</option>
-              <option value="recent" ${currentScoutingWindow() === "recent" ? "selected" : ""}>Recent ${currentRecentMatchCount()}</option>
-            </select>
-          </label>
-        </div>
-        ${renderPicklistCompareChart(compareTeams, comparisonMetric)}
-      </article>
     </div>
+  `;
+}
+
+function renderComparisonPlots() {
+  const compareTeams = state.picklistCompareTeams.map((number) => teamByNumber(number)).filter(Boolean);
+  const comparisonMetric = picklistCompareMetric();
+  return `
+    <article class="card picklist-compare-chart-card" data-comparison-plots>
+      <div class="section-heading">
+        <div>
+          <h2>Team Trend Comparison</h2>
+          <p class="muted">Overlay up to four teams selected in Picklist Builder. Team selections are kept when you change pages.</p>
+        </div>
+        <label class="team-trend-metric">
+          <span class="muted">Metric</span>
+          <select id="picklistCompareMetricSelect" aria-label="Comparison metric">
+            <option value="" ${comparisonMetric ? "" : "selected"}>Select a metric</option>
+            ${orderedMetrics().map((item) => `<option value="${item.id}" ${item.id === comparisonMetric?.id ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
+          </select>
+        </label>
+        <label class="team-trend-metric">
+          <span class="muted">Window</span>
+          <select id="picklistScoutingWindowSelect" aria-label="Comparison scouting window">
+            <option value="all" ${currentScoutingWindow() === "all" ? "selected" : ""}>All Matches</option>
+            <option value="recent" ${currentScoutingWindow() === "recent" ? "selected" : ""}>Recent ${currentRecentMatchCount()}</option>
+          </select>
+        </label>
+      </div>
+      ${renderPicklistCompareChart(compareTeams, comparisonMetric)}
+    </article>
   `;
 }
 
 function renderPicklistCompareChart(selectedTeams, metric) {
   if (!selectedTeams.length) {
-    return `<div class="empty-state picklist-compare-empty">Select up to 4 teams in the current picklist to compare their trends here.</div>`;
+    return `<div class="empty-state picklist-compare-empty">Select up to four teams in Picklist Builder to compare their trends here.</div>`;
   }
   if (!metric) {
     return `<div class="empty-state picklist-compare-empty">Choose a metric to compare selected teams.</div>`;
   }
   const series = selectedTeams.map((team) => ({
     team,
-    values: metricTrendValues(team, metric),
-    color: compareAccent(team.number) || "var(--accent)",
+    entries: analysisSeriesEntriesForMetric(team, metric, { window: currentScoutingWindow() }),
+    color: compareAccent(teamSelectionId(team)) || "var(--accent)",
   }));
-  const allValues = series.flatMap((entry) => entry.values);
+  const allEntries = series.flatMap((entry) => entry.entries);
+  if (!allEntries.length) {
+    return `<div class="empty-state picklist-compare-empty">A match-by-match trend is unavailable for this metric and event. Choose a metric with source-backed match data.</div>`;
+  }
+  const allValues = allEntries.map((entry) => Number(entry.value));
+  const matchNumbers = allEntries.map((entry) => Number(entry.key)).filter(Number.isFinite);
   const min = Math.min(...allValues);
   const max = Math.max(...allValues);
   const range = max - min || 1;
-  const scaleX = (index, count) => 16 + (index / Math.max(1, count - 1)) * 196;
+  const minMatch = Math.min(...matchNumbers);
+  const maxMatch = Math.max(...matchNumbers);
+  const matchRange = maxMatch - minMatch || 1;
+  const scaleX = (matchNumber) => 16 + ((matchNumber - minMatch) / matchRange) * 196;
   const scaleY = (value) => 82 - ((value - min) / range) * 64;
   return `
     <div class="picklist-compare-chart-shell">
@@ -9615,23 +9692,25 @@ function renderPicklistCompareChart(selectedTeams, metric) {
             return `<line x1="${x}" y1="18" x2="${x}" y2="82"></line>`;
           }).join("")}
         </g>
-        <text x="114" y="97" text-anchor="middle">Match Number</text>
+        <text x="114" y="97" text-anchor="middle">Match Number (${minMatch}–${maxMatch})</text>
         <text x="4" y="50" text-anchor="middle" transform="rotate(-90 4 50)">${metric.label} (${metric.unit})</text>
         <text x="14" y="20" text-anchor="end">${max.toFixed(metric.unit === "%" ? 0 : 1)}</text>
         <text x="14" y="84" text-anchor="end">${min.toFixed(metric.unit === "%" ? 0 : 1)}</text>
         ${series
           .map((entry) => {
-            const points = entry.values.map((value, index) => `${scaleX(index, entry.values.length)},${scaleY(value)}`).join(" ");
+            const points = entry.entries.map((point) => `${scaleX(Number(point.key))},${scaleY(Number(point.value))}`).join(" ");
             return `<polyline points="${points}" fill="none" stroke="${entry.color}" stroke-width="2.6" vector-effect="non-scaling-stroke"></polyline>`;
           })
           .join("")}
         ${series
           .map((entry) =>
-            entry.values
-              .map((value, index) => {
-                const x = scaleX(index, entry.values.length);
+            entry.entries
+              .map((point) => {
+                const value = Number(point.value);
+                const matchNumber = Number(point.key);
+                const x = scaleX(matchNumber);
                 const y = scaleY(value);
-                return `<circle cx="${x}" cy="${y}" r="2.5" fill="${entry.color}"><title>Team ${entry.team.number}, Match ${index + 1}: ${value.toFixed(metric.unit === "%" ? 0 : 1)} ${metric.unit}</title></circle>`;
+                return `<circle cx="${x}" cy="${y}" r="2.5" fill="${entry.color}"><title>Team ${entry.team.number}, Match ${matchNumber}: ${value.toFixed(metric.unit === "%" ? 0 : 1)} ${metric.unit}</title></circle>`;
               })
               .join(""),
           )
@@ -9640,12 +9719,13 @@ function renderPicklistCompareChart(selectedTeams, metric) {
       <div class="picklist-compare-legend">
         ${selectedTeams
           .map((team) => {
-            const slot = compareSlotIndexForTeam(team.number);
-            const accent = compareAccent(team.number) || "var(--accent)";
+            const teamId = teamSelectionId(team);
+            const slot = compareSlotIndexForTeam(teamId);
+            const accent = compareAccent(teamId) || "var(--accent)";
             return `
-              <button class="compare-team-chip" data-remove-compare-team="${team.number}" style="--compare-accent: ${accent}">
+              <button class="compare-team-chip" data-remove-compare-team="${teamId}" style="--compare-accent: ${accent}">
                 <span class="compare-team-swatch">${slot + 1}</span>
-                <span>${team.number} ${team.name}</span>
+                <span>${teamDisplayLabel(team)} ${team.name}</span>
               </button>
             `;
           })
@@ -9725,17 +9805,20 @@ function renderTeamTile(team, index, options = {}) {
   const compareColor = options.compareIndex >= 0 ? compareTeamPalette[options.compareIndex] : "";
   const style = [`background: ${background}`];
   if (compareColor) style.push(`--compare-accent: ${compareColor}`);
+  const rankMarkup = options.showRank === false ? "" : `<strong class="tile-rank">${index + 1}</strong>`;
   return `
     <button
       class="${classes.join(" ")}"
+      ${options.disabled ? "disabled aria-disabled=\"true\"" : ""}
       ${options.dataAttribute || ""}
+      ${options.title ? `title="${escapeAttribute(options.title)}" aria-label="${escapeAttribute(`${teamDisplayLabel(team)}. ${options.title}`)}"` : ""}
       ${options.dragData ? `data-drag-team="${options.dragData}"` : ""}
       ${options.builderTeam ? `data-builder-team="${teamSelectionId(team)}"` : ""}
       ${options.reorderTeam ? `data-reorder-team="${teamSelectionId(team)}"` : ""}
       draggable="${options.draggable ? "true" : "false"}"
       style="${style.join("; ")}"
     >
-      <strong class="tile-rank">${index + 1}</strong>
+      ${rankMarkup}
       <span class="tile-label">${options.showName === false ? teamDisplayLabel(team) : `${teamDisplayLabel(team)} ${team.name}`}</span>
       ${scoreMarkup}
     </button>
@@ -9748,9 +9831,9 @@ function renderBuilderTeamTile(team, index, options = {}) {
     compact: true,
     showName: false,
     showScore: false,
-    focused: focused || (options.pairwise?.mode === "select" && options.pairwise.teams[options.pairwise.cursorIndex] === team.number),
-    extraClass: options.pairwise?.activeTeam === team.number ? "pairwise-active" : options.pairwise?.comparedTeam === team.number ? "pairwise-compared" : options.pairwiseNext ? "pairwise-next" : "",
-    compareIndex: compareSlotIndexForTeam(team.number),
+    focused: focused || (options.pairwise?.mode === "select" && options.pairwise.teams[options.pairwise.cursorIndex] === teamSelectionId(team)),
+    extraClass: options.pairwise?.activeTeam === teamSelectionId(team) ? "pairwise-active" : options.pairwise?.comparedTeam === teamSelectionId(team) ? "pairwise-compared" : "",
+    compareIndex: compareSlotIndexForTeam(teamSelectionId(team)),
     builderTeam: true,
     reorderTeam: options.draggable,
     draggable: Boolean(options.draggable),
@@ -9764,7 +9847,24 @@ function gridColumnModel(entry, options = {}) {
   if (entry.startsWith("metric:")) {
     const metricId = entry.slice(7);
     const metric = metricById(metricId);
-    if (!metric) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
+    if (!metric) {
+      const normalizedMetricId = normalizeLegacyMetricId(metricId);
+      const statboticsPrefix = "source:statbotics:";
+      if (!normalizedMetricId.startsWith(statboticsPrefix)) return { type: "", label: "---", teams: [], minScore: 0, maxScore: 0 };
+      const componentId = normalizedMetricId.slice(statboticsPrefix.length);
+      const teams = currentTeams();
+      return {
+        type: "metric",
+        id: normalizedMetricId,
+        label: `Statbotics ${componentId}`,
+        direction,
+        teams,
+        scores: teams.map(() => undefined),
+        minScore: 0,
+        maxScore: 0,
+        unavailable: true,
+      };
+    }
     const metricValueCache = options.metricValueCache;
     const scoreForTeam = (team) => {
       const cacheKey = `${metric.id}:${team.number}`;
@@ -9821,15 +9921,21 @@ function gridColumnModel(entry, options = {}) {
 function renderPicklistGridColumn(entry, index, options = {}) {
   const sortDirection = picklistColumnSortDirection(index);
   const column = gridColumnModel(entry, { direction: sortDirection, metricValueCache: options.metricValueCache });
+  const statboticsSourceState = currentEventWorkspace().sources?.statbotics || {};
+  const statboticsStale = !column.unavailable
+    && column.type === "metric"
+    && metricById(column.id)?.sourceId === "statbotics"
+    && (statboticsSourceState.status === "error" || statboticsSourceState.freshness === "stale");
   const minHeight = `calc(${currentTeams().length} * var(--picklist-tile-row-size))`;
   return `
     <section class="grid-column ${column.type ? "" : "empty"}" ${column.type ? `data-grid-column="${index}"` : ""}>
       <label class="grid-column-select">
-        <span>Column ${index + 1} ${sortDirectionGlyph(sortDirection)}</span>
+        <span>Column ${index + 1} ${sortDirectionGlyph(sortDirection)}${column.unavailable ? " · Statbotics unavailable" : statboticsStale ? " · Statbotics stale" : ""}</span>
         <select data-picklist-column="${index}">
           <option value="" ${entry ? "" : "selected"}>---</option>
           <optgroup label="Metrics">
             ${(options.rankableMetrics || orderedRankableMetrics()).map((item) => `<option value="metric:${item.id}" ${entry === `metric:${item.id}` ? "selected" : ""}>${metricTokenLabel(item)}</option>`).join("")}
+            ${column.unavailable ? `<option value="${escapeAttribute(`metric:${column.id}`)}" selected>statbotics.${escapeHtml(column.id.slice("source:statbotics:".length))} (unavailable)</option>` : ""}
           </optgroup>
           <optgroup label="Picklists">
             ${state.picklists.map((item) => `<option value="picklist:${item.id}" ${entry === `picklist:${item.id}` ? "selected" : ""}>${item.name}</option>`).join("")}
@@ -9847,6 +9953,7 @@ function renderPicklistGridColumn(entry, index, options = {}) {
                         compact: true,
                         showName: false,
                         showScore: true,
+                        showRank: !column.unavailable,
                         score: column.scores[teamIndex],
                         minScore: column.minScore,
                         maxScore: column.maxScore,
@@ -9927,7 +10034,14 @@ function renderPicklistTile(number, index, picklist, options = {}) {
   const team = teamByNumber(number);
   if (!team) return "";
   const teamId = teamSelectionId(team);
-  const picked = pickedTeams().includes(teamId) ? "picked" : "";
+  const isPicked = pickedTeams().includes(teamId);
+  const captainKind = options.captainKind || "";
+  const picked = isPicked ? "picked" : captainKind ? `captain-${captainKind}` : "";
+  const captainTitle = captainKind === "confirmed"
+    ? "Confirmed captain: currently in an Alliance Lead position"
+    : captainKind === "possible"
+      ? "Possible captain: may become an Alliance Lead if a current Lead accepts another Alliance invitation"
+      : "";
   const content = options.static && !options.showScore
     ? renderTeamTile(team, index, {
         compact: true,
@@ -9939,8 +10053,10 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         sortDirection: options.sortDirection,
         compareIndex: options.compareIndex,
         extraClass: picked,
-        draggable: !picked,
-        dragData: picked ? "" : String(teamSelectionId(team)),
+        title: captainTitle,
+        disabled: isPicked,
+        draggable: !isPicked,
+        dragData: isPicked ? "" : String(teamSelectionId(team)),
         dataAttribute: options.navigation ? `data-team="${teamSelectionId(team)}"` : options.allianceTeam ? `data-alliance-team="${teamSelectionId(team)}"` : "",
       })
     : renderTeamTile(team, index, {
@@ -9953,25 +10069,90 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         maxScore: options.maxScore,
         compareIndex: options.compareIndex,
         extraClass: picked,
-        draggable: !picked,
-        dragData: picked ? "" : String(teamSelectionId(team)),
+        title: captainTitle,
+        disabled: isPicked,
+        draggable: !isPicked,
+        dragData: isPicked ? "" : String(teamSelectionId(team)),
         dataAttribute: options.navigation ? `data-team="${teamSelectionId(team)}"` : options.allianceTeam ? `data-alliance-team="${teamSelectionId(team)}"` : "",
       });
   return content;
 }
 
+function buildCurrentMobileAllianceSnapshot() {
+  const rankedTeams = currentTbaRankedTeams();
+  const pickedIds = new Set(pickedTeams().map((team) => teamSelectionId(teamByNumber(team)) || team));
+  const captainState = globalThis.allianceCaptainState?.deriveAllianceCaptainStateForBoard(
+    rankedTeams.map(teamSelectionId).filter((teamId) => teamId !== ""),
+    state.allianceBoard,
+    { placedTeamIds: Array.from(pickedIds) },
+  ) || { confirmed: [], possible: [] };
+  const confirmed = new Set(captainState.confirmed);
+  const possible = new Set(captainState.possible);
+  const resolveTeamNumber = (value) => {
+    const team = value && typeof value === "object" ? value : teamByNumber(value);
+    if (team?.isSuffixed) return String(team.label || teamSelectionId(team) || "");
+    return String(globalThis.mobileAllianceDisplay?.normalizeTeamNumber(team || value) || "");
+  };
+  const selectionIdForTeam = (team) => teamSelectionId(team) || teamSelectionId(teamByNumber(resolveTeamNumber(team)));
+  const displayStateForTeam = (team, includeCaptain = true) => {
+    const id = selectionIdForTeam(team);
+    if (pickedIds.has(id)) return "picked";
+    if (includeCaptain && confirmed.has(id)) return "confirmed";
+    if (includeCaptain && possible.has(id)) return "possible";
+    return "normal";
+  };
+  const comparisonSlotForTeam = (team) => {
+    const slot = compareSlotIndexForTeam(selectionIdForTeam(team));
+    return slot >= 0 ? slot : null;
+  };
+  const columns = state.loadedSources.map((entry) => {
+    const column = gridColumnModel(entry, {
+      direction: loadedSourceSortDirection(entry),
+      label: entry.startsWith("metric:") ? metricTokenLabel(metricById(entry.slice(7))) : undefined,
+    });
+    return { entry, column };
+  }).filter(({ column }) => column.teams.length);
+  return globalThis.mobileAllianceDisplay?.buildMobileAllianceSnapshot({
+    eventKey: state.activeEventKey,
+    eventName: displayEventName(currentEvent()),
+    board: state.allianceBoard.map((team) => ({ teamNumber: resolveTeamNumber(team), teamName: teamByNumber(team)?.name || "" })),
+    rankings: rankedTeams.map((team) => ({ teamNumber: resolveTeamNumber(team), state: displayStateForTeam(team), comparisonSlot: comparisonSlotForTeam(team) })),
+    columns: columns.map(({ entry, column }) => ({
+      id: entry,
+      label: column.label,
+      teams: column.teams.map((team, index) => ({
+        teamNumber: resolveTeamNumber(team),
+        state: displayStateForTeam(team, false),
+        comparisonSlot: comparisonSlotForTeam(team),
+        score: column.type === "metric" ? column.scores?.[index] : null,
+      })),
+    })),
+  }) || null;
+}
+
 function renderAlliance() {
-  const loaded = state.loadedSources
-    .map((entry) => {
+  const rankedTeams = currentTbaRankedTeams();
+  const captainState = globalThis.allianceCaptainState?.deriveAllianceCaptainStateForBoard(
+    rankedTeams.map(teamSelectionId).filter((teamId) => teamId !== ""),
+    state.allianceBoard,
+    { placedTeamIds: pickedTeams() },
+  ) || { confirmed: [], possible: [] };
+  const confirmedCaptains = new Set(captainState.confirmed);
+  const possibleCaptains = new Set(captainState.possible);
+  const loaded = state.loadedSources.map((entry) => {
       const direction = loadedSourceSortDirection(entry);
       const column = gridColumnModel(entry, {
         direction,
         label: entry.startsWith("metric:") ? metricTokenLabel(metricById(entry.slice(7))) : undefined,
       });
       return { entry, direction, column };
-    })
-    .filter((item) => item.column.teams.length);
-  const headerLines = Math.max(1, ...loaded.map((item) => Math.ceil(item.column.label.length / 14)));
+    }).filter((item) => item.column.teams.length);
+  const teamRankColumn = { type: "picklist", label: "Team Rank", teams: rankedTeams, minScore: 0, maxScore: 0 };
+  const displayColumns = [
+    { entry: "team-rank", direction: defaultColumnSortDirection, column: teamRankColumn, teamRank: true },
+    ...loaded.map((item) => ({ ...item, teamRank: false })),
+  ];
+  const headerLines = Math.max(1, ...displayColumns.map((item) => Math.ceil((item.teamRank ? "Team Rank" : item.column.label).length / 14)));
   return `
     <div class="grid alliance-layout">
       <article class="card">
@@ -9983,6 +10164,7 @@ function renderAlliance() {
             <button type="button" id="clearAllianceBoardButton">Clear Board</button>
           </div>
         </div>
+        <div class="captain-highlight-legend" aria-label="Team Rank captain status"><span class="captain-legend-confirmed">Confirmed captain</span><span class="captain-legend-possible">Possible captain</span><span class="captain-legend-picked">Placed on selection board</span></div>
         <div class="board">
           ${state.allianceBoard.map((teamNumber, index) => renderBoardCell(teamNumber, index)).join("")}
         </div>
@@ -10039,15 +10221,12 @@ function renderAlliance() {
         <div class="alliance-source-scroll" data-alliance-source-scroll>
           <div class="picklist-columns alliance-picklists" style="--alliance-header-lines: ${headerLines}">
             ${
-              loaded.length
-                ? loaded
+              displayColumns.length
+                ? displayColumns
                     .map(
-                      ({ entry, direction, column }) => `
-              <section
-                data-loaded-source="${entry}"
-                data-loaded-source-column="${entry}"
-              >
-                <h3 data-loaded-source-handle="${entry}" draggable="true">${column.label} ${sortDirectionGlyph(direction)}</h3>
+                      ({ entry, direction, column, teamRank }) => `
+              <section ${teamRank ? "data-team-rank-column" : `data-loaded-source="${entry}" data-loaded-source-column="${entry}"`}>
+                <h3 ${teamRank ? "" : `data-loaded-source-handle="${entry}" draggable="true"`}>${teamRank ? "Team Rank" : column.label} ${teamRank ? "" : sortDirectionGlyph(direction)}</h3>
                 <div class="alliance-source-list">
                   ${column.teams
                     .map((team, teamIndex) =>
@@ -10055,13 +10234,17 @@ function renderAlliance() {
                         static: true,
                         navigation: false,
                         allianceTeam: true,
-                        compareIndex: compareSlotIndexForTeam(team.number),
+                        compareIndex: compareSlotIndexForTeam(teamSelectionId(team)),
                         showScore: column.type === "metric",
                         score: column.scores?.[teamIndex],
                         colorScore: column.scores?.[teamIndex],
                         minScore: column.minScore,
                         maxScore: column.maxScore,
                         sortDirection: defaultColumnSortDirection,
+                        captainKind: teamRank
+                          ? confirmedCaptains.has(teamSelectionId(team)) ? "confirmed"
+                            : possibleCaptains.has(teamSelectionId(team)) ? "possible" : ""
+                          : "",
                       }),
                     )
                     .join("")}
@@ -10070,7 +10253,7 @@ function renderAlliance() {
             `,
                     )
                     .join("")
-                : `<div class="empty-state">Select one or more sources to load them here.</div>`
+                : `<div class="empty-state">No teams are available for Team Rank.</div>`
             }
           </div>
         </div>
@@ -10085,7 +10268,7 @@ function renderBoardCell(teamNumber, index) {
     const team = teamByNumber(teamNumber);
     const teamLabel = team ? teamDisplayLabel(team) : String(teamNumber);
     return `
-      <div class="board-cell occupied" data-board-cell="${index}" data-board-team="${teamNumber}" title="Right-click to remove ${teamLabel}">
+      <div class="board-cell occupied" data-board-cell="${index}" data-board-team="${teamNumber}" draggable="true" title="Drag to reorder; right-click to remove ${teamLabel}">
         <strong>${teamLabel}</strong>
         <span>${team?.name || ""}</span>
       </div>
@@ -10489,14 +10672,35 @@ function moveItemBefore(values, draggedValue, targetValue) {
   return next;
 }
 
-function moveItemByStep(values, value, step) {
-  const index = values.indexOf(value);
+function picklistTeamIndex(values, teamValue) {
+  const value = String(teamValue);
+  return values.findIndex((candidate) => String(candidate) === value);
+}
+
+function picklistTeamValue(values, teamValue) {
+  const index = picklistTeamIndex(values, teamValue);
+  return index < 0 ? teamValue : values[index];
+}
+
+function movePicklistTeamBefore(values, draggedValue, targetValue) {
+  const draggedIndex = picklistTeamIndex(values, draggedValue);
+  if (draggedIndex < 0) return values;
+  const targetIndex = picklistTeamIndex(values, targetValue);
+  const next = [...values];
+  const [draggedTeam] = next.splice(draggedIndex, 1);
+  const insertIndex = targetIndex < 0 ? next.length : targetIndex > draggedIndex ? targetIndex - 1 : targetIndex;
+  next.splice(insertIndex, 0, draggedTeam);
+  return next;
+}
+
+function movePicklistTeamByStep(values, teamValue, step) {
+  const index = picklistTeamIndex(values, teamValue);
   if (index < 0) return values;
   const targetIndex = Math.max(0, Math.min(values.length - 1, index + step));
   if (targetIndex === index) return values;
   const next = [...values];
   next.splice(index, 1);
-  next.splice(targetIndex, 0, value);
+  next.splice(targetIndex, 0, values[index]);
   return next;
 }
 
@@ -11202,7 +11406,15 @@ function handleBuilderKeyboard(event) {
   const currentPicklist = activePicklist();
   if (event.shiftKey && (event.key === "ArrowUp" || event.key === "ArrowDown") && state.picklistSelectedTeam) {
     event.preventDefault();
-    const nextTeams = moveItemByStep(currentPicklist.teams, state.picklistSelectedTeam, event.key === "ArrowUp" ? -1 : 1);
+    const selectedTeam = picklistTeamValue(currentPicklist.teams, state.picklistSelectedTeam);
+    const previousIndex = picklistTeamIndex(currentPicklist.teams, selectedTeam);
+    if (previousIndex < 0) return;
+    const step = event.key === "ArrowUp" ? -1 : 1;
+    const targetIndex = Math.max(0, Math.min(currentPicklist.teams.length - 1, previousIndex + step));
+    if (targetIndex === previousIndex) return;
+    const nextTeams = movePicklistTeamByStep(currentPicklist.teams, selectedTeam, step);
+    state.picklistSelectedTeam = selectedTeam;
+    picklistReorderAnnouncement = `Moved team ${teamDisplayLabel(teamByNumber(selectedTeam))} to position ${targetIndex + 1} of ${currentPicklist.teams.length}.`;
     updatePicklist(currentPicklist.id, (picklist) => ({ ...picklist, teams: nextTeams }));
     return;
   }
@@ -11210,7 +11422,7 @@ function handleBuilderKeyboard(event) {
   if (event.key === "ArrowUp" || event.key === "ArrowDown") {
     event.preventDefault();
     if (state.builderFocus.picklistBuilder === "teams" && state.picklistSelectedTeam) {
-      const index = currentPicklist.teams.indexOf(state.picklistSelectedTeam);
+      const index = picklistTeamIndex(currentPicklist.teams, state.picklistSelectedTeam);
       const nextIndex = Math.max(0, Math.min(currentPicklist.teams.length - 1, index + (event.key === "ArrowUp" ? -1 : 1)));
       state.picklistSelectedTeam = currentPicklist.teams[nextIndex] || null;
       render();
@@ -11513,14 +11725,42 @@ function bindViewEvents() {
   });
   document.querySelectorAll("[data-board-cell]").forEach((cell) => {
     const cellIndex = Number(cell.dataset.boardCell);
+    if (state.allianceBoard[cellIndex]) {
+      cell.addEventListener("dragstart", (event) => {
+        event.dataTransfer.setData("application/x-alliance-board-team", String(state.allianceBoard[cellIndex]));
+        event.dataTransfer.effectAllowed = "move";
+      });
+    }
     cell.addEventListener("dragover", (event) => {
-      if (!state.allianceBoard[cellIndex]) {
+      const isBoardReorder = Array.from(event.dataTransfer.types || []).includes("application/x-alliance-board-team");
+      if (isBoardReorder || !state.allianceBoard[cellIndex]) {
         event.preventDefault();
-        event.dataTransfer.dropEffect = "copy";
+        event.dataTransfer.dropEffect = isBoardReorder ? "move" : "copy";
       }
     });
     cell.addEventListener("drop", (event) => {
       event.preventDefault();
+      const draggedTeam = event.dataTransfer.getData("application/x-alliance-board-team");
+      if (draggedTeam) {
+        const sourceIndex = state.allianceBoard.findIndex((team) => String(team) === draggedTeam);
+        if (sourceIndex < 0 || sourceIndex === cellIndex) return;
+        if (state.allianceBoard[cellIndex]) {
+          const occupiedSlots = state.allianceBoard.map((team, index) => team === null ? -1 : index).filter((index) => index >= 0);
+          const orderedTeams = occupiedSlots.map((index) => state.allianceBoard[index]);
+          const sourceOrderIndex = orderedTeams.findIndex((team) => String(team) === draggedTeam);
+          const targetOrderIndex = occupiedSlots.indexOf(cellIndex);
+          const [team] = orderedTeams.splice(sourceOrderIndex, 1);
+          orderedTeams.splice(targetOrderIndex, 0, team);
+          occupiedSlots.forEach((index, orderIndex) => { state.allianceBoard[index] = orderedTeams[orderIndex]; });
+        } else {
+          state.allianceBoard[cellIndex] = state.allianceBoard[sourceIndex];
+          state.allianceBoard[sourceIndex] = null;
+        }
+        state.contextMenu = null;
+        saveState();
+        render();
+        return;
+      }
       placeTeamOnBoard(event.dataTransfer.getData("text/plain"), cellIndex);
     });
     cell.addEventListener("contextmenu", (event) => {
@@ -11926,7 +12166,10 @@ function bindViewEvents() {
       const teamNumber = tile.dataset.builderTeam;
       if (state.pairwisePicklist?.picklistId === activePicklist().id) {
         const session = state.pairwisePicklist.session;
-        if (session.mode === "select") state.pairwisePicklist.session = PairwisePicklist.choose(session, teamNumber);
+        const team = picklistTeamValue(session.teams, teamNumber);
+        state.pairwisePicklist.session = session.mode === "sort"
+          ? PairwisePicklist.chooseComparisonWinner(session, team)
+          : PairwisePicklist.choose(session, team);
         render();
         return;
       }
@@ -11934,7 +12177,9 @@ function bindViewEvents() {
       const changed = togglePicklistCompareTeam(teamNumber);
       if (!changed) return;
       state.builderFocus.picklistBuilder = "teams";
-      state.picklistSelectedTeam = wasCompared && state.picklistSelectedTeam === teamNumber ? null : teamNumber;
+      state.picklistSelectedTeam = wasCompared && String(state.picklistSelectedTeam) === teamNumber
+        ? null
+        : picklistTeamValue(activePicklist().teams, teamNumber);
       saveState();
       render();
     });
@@ -11993,8 +12238,9 @@ function bindViewEvents() {
       const draggedTeam = event.dataTransfer.getData("application/x-picklist-team");
       const targetTeam = tile.dataset.reorderTeam;
       if (!draggedTeam || draggedTeam === targetTeam) return;
+      noteUserInteraction("drop");
       const picklist = activePicklist();
-      updatePicklist(picklist.id, (current) => ({ ...current, teams: moveItemBefore(current.teams, draggedTeam, targetTeam) }));
+      updatePicklist(picklist.id, (current) => ({ ...current, teams: movePicklistTeamBefore(current.teams, draggedTeam, targetTeam) }));
     });
   });
   document.querySelector("#importSourceUrl")?.addEventListener("input", (event) => {

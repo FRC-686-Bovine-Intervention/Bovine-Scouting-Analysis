@@ -84,6 +84,137 @@ function createFetchStub(routes) {
   };
 }
 
+await runTest("Statbotics timeout uses same-event cached provider values and marks them stale", async () => {
+  const baseUrls = { tba: "https://tba.test/api", statbotics: "https://statbotics.test/api", fallback: "https://statbotics-fallback.test/api" };
+  const context = loadBrowserContext([
+    "src/legacy-scouting-schema-seeds.js",
+    "src/metric-engine.js",
+    "src/season-framework.js",
+    "src/prior-ridge.js",
+    "src/event-model-builder.js",
+    "src/external-source-snapshots.js",
+    "src/external-event-loader.js",
+  ]);
+  const tbaFetch = createFetchStub({
+    [`${baseUrls.tba}/event/2026cached`]: { key: "2026cached", year: 2026 },
+    [`${baseUrls.tba}/event/2026cached/teams`]: [{ team_number: 686 }, { team_number: 111 }],
+    [`${baseUrls.tba}/event/2026cached/matches`]: [],
+    [`${baseUrls.tba}/event/2026cached/alliances`]: [],
+    [`${baseUrls.tba}/event/2026cached/rankings`]: {},
+    [`${baseUrls.tba}/event/2026cached/oprs`]: {},
+  });
+  const fetchImpl = (url, options) => url.startsWith(baseUrls.tba) ? tbaFetch(url, options) : new Promise(() => {});
+  const result = await context.ExternalEventLoader.loadEventByCode("2026cached", {
+    fetchImpl,
+    tbaAuthKey: "test",
+    tbaBaseUrl: baseUrls.tba,
+    statboticsBaseUrl: baseUrls.statbotics,
+    statboticsFallbackBaseUrl: baseUrls.fallback,
+    timeoutMs: 2,
+    loadStatboticsFallback: async (eventKey) => ({
+      eventKey,
+      event: { event: "2026cached", year: 2026 },
+      teamEvents: [{ team: 686, epa: { total_points: 54.3 } }],
+      fetchedAt: "2026-09-20T12:00:00.000Z",
+    }),
+  });
+
+  assert.equal(result.statboticsFallbackUsed, true);
+  assert.equal(result.eventModel.key, "2026cached");
+  assert.equal(result.eventModel.teams.find((team) => team.number === 686).sources.statbotics.components["epa.total_points"], 54.3);
+  assert.equal(result.eventModel.teams.find((team) => team.number === 111).sources.statbotics.components["epa.total_points"], undefined);
+  assert.equal(result.sourceStates.statbotics.status, "error");
+  assert.equal(result.sourceStates.statbotics.freshness, "stale");
+  assert.equal(result.sourceStates.statbotics.lastSuccessfulAt, "2026-09-20T12:00:00.000Z");
+  assert.match(result.sourceStates.statbotics.provenance.notes, /previously cached real Statbotics values/i);
+  assert.ok(result.warnings.some((warning) => /last-known-good data for 2026cached/.test(warning)));
+  assert.equal(result.rawSourceArtifacts.some((source) => source.sourceId.startsWith("statbotics-")), false);
+});
+
+await runTest("Statbotics timeout can reuse a prior same-event model without crossing team identities", async () => {
+  const baseUrl = "https://tba.test/api";
+  const context = loadBrowserContext([
+    "src/legacy-scouting-schema-seeds.js",
+    "src/metric-engine.js",
+    "src/season-framework.js",
+    "src/prior-ridge.js",
+    "src/event-model-builder.js",
+    "src/external-source-snapshots.js",
+    "src/external-event-loader.js",
+  ]);
+  const tbaFetch = createFetchStub({
+    [`${baseUrl}/event/2026prior`]: { key: "2026prior", year: 2026 },
+    [`${baseUrl}/event/2026prior/teams`]: [{ team_number: 686 }, { team_number: 111 }],
+    [`${baseUrl}/event/2026prior/matches`]: [],
+    [`${baseUrl}/event/2026prior/alliances`]: [],
+    [`${baseUrl}/event/2026prior/rankings`]: {},
+    [`${baseUrl}/event/2026prior/oprs`]: {},
+  });
+  const fetchImpl = (url, options) => url.startsWith(baseUrl) ? tbaFetch(url, options) : new Promise(() => {});
+  const priorEventModel = {
+    key: "2026prior",
+    season: 2026,
+    catalogSource: "dynamic-external",
+    teams: [{ id: "frc686", number: 686, sources: { statbotics: { total: 54.3, components: { "epa.total_points": 54.3 }, trend: [53.8], trendEntries: [{ key: 1, value: 53.8 }] } } }],
+  };
+  const result = await context.ExternalEventLoader.loadEventByCode("2026prior", {
+    fetchImpl,
+    tbaAuthKey: "test",
+    tbaBaseUrl: baseUrl,
+    statboticsBaseUrl: "https://statbotics.test/api",
+    statboticsFallbackBaseUrl: "https://statbotics-fallback.test/api",
+    timeoutMs: 2,
+    loadStatboticsFallback: async (eventKey) => ({ eventKey, eventModel: priorEventModel, fetchedAt: "2026-09-20T12:00:00.000Z" }),
+  });
+
+  assert.equal(result.eventModel.teams.find((team) => team.id === "frc686").sources.statbotics.components["epa.total_points"], 54.3);
+  assert.equal(result.eventModel.teams.find((team) => team.number === 111).sources.statbotics.components["epa.total_points"], undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams.find((team) => team.id === "frc686").sources.statbotics.trendEntries)), [{ key: 1, value: 53.8 }]);
+  assert.equal(result.sourceStates.statbotics.freshness, "stale");
+  assert.equal(result.sourceStates.statbotics.lastSuccessfulAt, "2026-09-20T12:00:00.000Z");
+});
+
+await runTest("Statbotics fallback rejects cross-event cache data and preserves unavailability when no cache exists", async () => {
+  const baseUrl = "https://tba.test/api";
+  const context = loadBrowserContext([
+    "src/legacy-scouting-schema-seeds.js",
+    "src/metric-engine.js",
+    "src/season-framework.js",
+    "src/prior-ridge.js",
+    "src/event-model-builder.js",
+    "src/external-source-snapshots.js",
+    "src/external-event-loader.js",
+  ]);
+  const tbaFetch = createFetchStub({
+    [`${baseUrl}/event/2026miss`]: { key: "2026miss", year: 2026 },
+    [`${baseUrl}/event/2026miss/teams`]: [{ team_number: 686 }],
+    [`${baseUrl}/event/2026miss/matches`]: [],
+    [`${baseUrl}/event/2026miss/alliances`]: [],
+    [`${baseUrl}/event/2026miss/rankings`]: {},
+    [`${baseUrl}/event/2026miss/oprs`]: {},
+  });
+  const fetchImpl = (url, options) => url.startsWith(baseUrl) ? tbaFetch(url, options) : new Promise(() => {});
+  for (const loadStatboticsFallback of [
+    async () => ({ eventKey: "2025other", event: {}, teamEvents: [{ team: 686, epa: { total_points: 99 } }] }),
+    async () => null,
+  ]) {
+    const result = await context.ExternalEventLoader.loadEventByCode("2026miss", {
+      fetchImpl,
+      tbaAuthKey: "test",
+      tbaBaseUrl: baseUrl,
+      statboticsBaseUrl: "https://statbotics.test/api",
+      statboticsFallbackBaseUrl: "https://statbotics-fallback.test/api",
+      timeoutMs: 2,
+      loadStatboticsFallback,
+    });
+
+    assert.equal(result.statboticsFallbackUsed, undefined);
+    assert.equal(result.eventModel.teams[0].sources.statbotics.components["epa.total_points"], undefined);
+    assert.equal(result.sourceStates.statbotics.status, "error");
+    assert.equal(result.rawSourceArtifacts.some((source) => source.sourceId.startsWith("statbotics-")), false);
+  }
+});
+
 await runTest("loads per-team Statbotics rows from the singular endpoint", async () => {
   const baseUrls = { tba: "https://tba.test/api", statbotics: "https://statbotics.test/api" };
   let bundle;

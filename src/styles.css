@@ -841,6 +841,18 @@ select {
   justify-items: start;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .stat span,
 .muted,
 .flag-evidence {
@@ -1758,6 +1770,10 @@ button.pill {
   padding-right: 6px;
 }
 
+.current-picklist-list {
+  max-height: calc(100vh - 330px);
+}
+
 .sort-preview-card,
 .sort-builder-editor-card {
   min-width: 0;
@@ -1772,7 +1788,7 @@ button.pill {
 }
 
 .picklist-list-offset {
-  min-height: 58px;
+  min-height: 0;
 }
 
 .current-picklist-list:focus {
@@ -2050,11 +2066,6 @@ button.pill {
   outline-offset: 1px;
 }
 
-.picklist-tile.pairwise-next {
-  background: color-mix(in srgb, var(--muted) 22%, var(--panel)) !important;
-  color: var(--muted);
-}
-
 .picklist-tile.pairwise-active {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -2090,8 +2101,62 @@ button.pill {
 }
 
 .picked {
+  background: #808080 !important;
+  color: #000;
   opacity: 0.5;
+  text-decoration-line: line-through;
+}
+
+.captain-highlight-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+}
+
+.captain-highlight-legend span {
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.captain-legend-confirmed,
+.picklist-tile.captain-confirmed {
+  background: #b8e6c5 !important;
+  color: #183b24;
+}
+
+.captain-legend-possible,
+.picklist-tile.captain-possible {
+  background: #ffe0a3 !important;
+  color: #4d3510;
+}
+
+.captain-legend-picked {
+  background: #808080;
+  color: #000;
   text-decoration: line-through;
+}
+
+.picklist-tile.picked {
+  background: #808080 !important;
+  color: #000;
+}
+
+[data-theme="dark"] .captain-legend-confirmed,
+[data-theme="dark"] .picklist-tile.captain-confirmed {
+  background: #285a39 !important;
+  color: #e5ffeb;
+}
+
+[data-theme="dark"] .captain-legend-possible,
+[data-theme="dark"] .picklist-tile.captain-possible {
+  background: #6b4b16 !important;
+  color: #fff2d6;
+}
+
+.picklist-tile.picked:disabled {
+  opacity: 0.5;
 }
 
 .board {
@@ -2625,6 +2690,10 @@ button.pill {
 
   .alliance-picklists {
     grid-template-columns: none;
+  }
+
+  .current-picklist-list {
+    max-height: min(70vh, 560px);
   }
 
   .picklist-compare-chart-shell {

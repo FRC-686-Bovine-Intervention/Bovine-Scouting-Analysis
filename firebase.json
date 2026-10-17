@@ -2,8 +2,10 @@
     "firestore":  {
                       "rules":  "firestore.rules"
                   },
-    "hosting":  {
-                    "public":  ".",
+    "hosting":  [
+        {
+            "target": "desktop",
+            "public":  ".",
                     "ignore":  [
                                    "firebase.json",
                                    "**/.*",
@@ -14,9 +16,16 @@
                                      {
                                          "source":  "**",
                                          "destination":  "/index.html"
-                                     }
-                                 ]
-                },
+                    }
+                ]
+        },
+        {
+            "target": "mobile",
+            "public": ".firebase/mobile-site",
+            "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+            "rewrites": [{"source": "**", "destination": "/index.html"}]
+        }
+    ],
     "functions":  {
                       "source":  "functions"
                   },

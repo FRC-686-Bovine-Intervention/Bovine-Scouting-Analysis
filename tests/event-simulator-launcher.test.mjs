@@ -19,6 +19,7 @@ assert.doesNotMatch(recorderLauncher, /set "EVENT_CODES=/);
 assert.doesNotMatch(fs.readFileSync("scripts/start-event-simulator.ps1", "utf8"), /offsets\s*=/);
 assert.match(fs.readFileSync("eventSimulator/scenario.json", "utf8"), /"offsets": \{\s*"tba": 0,\s*"statbotics": -2,\s*"scouting": -1\s*\}/s);
 assert.match(fs.readFileSync("scripts/local-web-server.mjs", "utf8"), /__DEPLOYMENT_REVISION__/);
+assert.match(fs.readFileSync("scripts/local-web-server.mjs", "utf8"), /\["index\.html", "mobile\.html"\]/);
 assert.match(fs.readFileSync("scripts/local-web-server.mjs", "utf8"), /"\.mjs": "text\/javascript/);
 assert.match(fs.readFileSync("src/app.js", "utf8"), /refreshSimulatorSources/);
 assert.match(fs.readFileSync("src/app.js", "utf8"), /restoreSharedCachedActiveEvent[\s\S]*simulator-first/);
@@ -28,8 +29,8 @@ assert.match(appSource, /function bootstrapApp\(\)[\s\S]*refreshSimulatorSources
 assert.match(appSource, /function maybePollExternalSources\(\)[\s\S]*mode === "simulator-first"[\s\S]*refreshSimulatorSources\(\{ trigger: "poll" \}\)/);
 const matchupCss = fs.readFileSync("src/styles.css", "utf8");
 for (const className of ["matchup-team-tone-light", "matchup-team-rank-3"]) assert.match(matchupCss, new RegExp(`matchup-alliance-card\\.blue \\.${className}`));
-assert.match(fs.readFileSync("index.html", "utf8"), /styles\.css\?revision=__DEPLOYMENT_REVISION__-event-simulator-runtime-11/);
-assert.match(fs.readFileSync("index.html", "utf8"), /app\.js\?revision=__DEPLOYMENT_REVISION__-event-simulator-runtime-11/);
+assert.match(fs.readFileSync("index.html", "utf8"), /styles\.css\?revision=__DEPLOYMENT_REVISION__-event-simulator-runtime-12/);
+assert.match(fs.readFileSync("index.html", "utf8"), /app\.js\?revision=__DEPLOYMENT_REVISION__-event-simulator-runtime-12/);
 assert.match(fs.readFileSync("index.html", "utf8"), /meta name="darkreader-lock"/);
 assert.match(fs.readFileSync("index.html", "utf8"), /deployment-revision\.local\.js\?revision=event-simulator-runtime-10/);
 assert.equal(fs.existsSync(".browser-test/verify-event-simulator.mjs"), true);

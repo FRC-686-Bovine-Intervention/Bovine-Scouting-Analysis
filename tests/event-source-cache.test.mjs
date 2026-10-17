@@ -3,7 +3,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 
 const source = fs.readFileSync(new URL("../src/event-source-cache.js", import.meta.url), "utf8");
-const context = { globalThis: { btoa: (value) => Buffer.from(value, "binary").toString("base64"), atob: (value) => Buffer.from(value, "base64").toString("binary") }, TextEncoder };
+const context = { globalThis: { btoa: (value) => Buffer.from(value, "binary").toString("base64"), atob: (value) => Buffer.from(value, "base64").toString("binary") }, TextEncoder, URL };
 vm.createContext(context);
 vm.runInContext(source, context);
 const { maxChunkCharacters, createRawSourceArtifact, reconstructRawSourceArtifact } = context.globalThis.EventSourceCache;
@@ -18,6 +18,14 @@ runTest("preserves raw provider text byte-for-byte across safe chunks", () => {
   assert.equal(artifact.manifest.chunkCount, 2);
   assert.ok(artifact.chunks.every((chunk) => chunk.text.length <= maxChunkCharacters));
   assert.equal(reconstructRawSourceArtifact(artifact.manifest, artifact.chunks), rawText);
+});
+
+runTest("validates that cached Statbotics manifests identify the requested event", () => {
+  const matchesEvent = context.globalThis.EventSourceCache.sourceManifestMatchesEvent;
+  assert.equal(matchesEvent({ sourceId: "statbotics-event", sourceUrl: "https://api.statbotics.io/v3/event/2026vaale1" }, "statbotics-event", "2026vaale1"), true);
+  assert.equal(matchesEvent({ sourceId: "statbotics-team-events", sourceUrl: "https://api.statbotics.io/v3/team_events?event=2026vaale1" }, "statbotics-team-events", "2026vaale1"), true);
+  assert.equal(matchesEvent({ sourceId: "statbotics-event", sourceUrl: "https://api.statbotics.io/v3/event/2025other" }, "statbotics-event", "2026vaale1"), false);
+  assert.equal(matchesEvent({ sourceId: "statbotics-event", sourceUrl: "https://api.statbotics.io/v3/event/2026vaale1" }, "statbotics-team-events", "2026vaale1"), false);
 });
 
 runTest("rejects incomplete and corrupted raw artifacts", () => {

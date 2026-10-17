@@ -15,6 +15,22 @@
     return `fnv1a:${(hash >>> 0).toString(16)}:${value.length}`;
   }
 
+  function sourceManifestMatchesEvent(manifest = {}, sourceId, eventKey) {
+    if (normalizeText(manifest.sourceId).trim() !== normalizeText(sourceId).trim() || !normalizeText(eventKey).trim()) return false;
+    try {
+      const url = new URL(normalizeText(manifest.sourceUrl));
+      const key = normalizeText(eventKey).trim();
+      const pathSegments = url.pathname.split("/").filter(Boolean).map((segment) => decodeURIComponent(segment));
+      if (sourceId === "statbotics-team-events" && url.searchParams.get("event") === key) return true;
+      return pathSegments.at(-1) === key && (
+        (sourceId === "statbotics-event" && pathSegments.at(-2) === "event")
+        || (sourceId === "statbotics-team-events" && pathSegments.some((segment) => ["team_event", "team_events"].includes(segment)))
+      );
+    } catch {
+      return false;
+    }
+  }
+
   function utf8ByteLength(text) {
     if (typeof TextEncoder === "function") return new TextEncoder().encode(normalizeText(text)).length;
     return unescape(encodeURIComponent(normalizeText(text))).length;
@@ -80,5 +96,5 @@
     return rawText;
   }
 
-  globalScope.EventSourceCache = { maxChunkCharacters, createRawSourceArtifact, reconstructRawSourceArtifact, fingerprint, utf8ByteLength, bytesToBase64, base64ToBytes };
+  globalScope.EventSourceCache = { maxChunkCharacters, createRawSourceArtifact, reconstructRawSourceArtifact, sourceManifestMatchesEvent, fingerprint, utf8ByteLength, bytesToBase64, base64ToBytes };
 })(globalThis);

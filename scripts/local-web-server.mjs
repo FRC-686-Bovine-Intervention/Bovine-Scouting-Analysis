@@ -33,7 +33,7 @@ const server = http.createServer((request, response) => {
       response.end(error.code === "ENOENT" ? "Not found" : "Server error");
       return;
     }
-    const body = path.basename(filePath) === "index.html"
+    const body = ["index.html", "mobile.html"].includes(path.basename(filePath))
       ? contents.toString("utf8").replaceAll("__DEPLOYMENT_REVISION__", revision)
       : contents;
     response.writeHead(200, {
