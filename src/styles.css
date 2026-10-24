@@ -2061,9 +2061,12 @@ button.pill {
 }
 
 .picklist-tile.picked.compare-selected {
-  background: #808080 !important;
+  background:
+    linear-gradient(rgba(128, 128, 128, 0.58), rgba(128, 128, 128, 0.58)),
+    color-mix(in srgb, var(--compare-accent) 72%, black) !important;
   box-shadow: inset 0 0 0 2px var(--compare-accent);
-  color: #000;
+  color: #ffffff;
+  opacity: 1;
 }
 
 .picklist-tile.team-focused {
@@ -2151,9 +2154,12 @@ button.pill {
 
 .picklist-tile.picked.compare-selected.captain-confirmed,
 .picklist-tile.picked.compare-selected.captain-possible {
-  background: #808080 !important;
+  background:
+    linear-gradient(rgba(128, 128, 128, 0.58), rgba(128, 128, 128, 0.58)),
+    color-mix(in srgb, var(--compare-accent) 72%, black) !important;
   box-shadow: inset 0 0 0 2px var(--compare-accent);
-  color: #000;
+  color: #ffffff;
+  opacity: 1;
 }
 
 .captain-legend-picked {

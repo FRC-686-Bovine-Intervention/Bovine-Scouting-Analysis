@@ -284,10 +284,25 @@ const cssRule = (selector) => {
   return appStyles.slice(selectorStart, ruleEnd);
 };
 assert.match(cssRule(".picklist-tile.compare-selected"), /background:\s*color-mix\(in srgb, var\(--compare-accent\) 72%, black\) !important/);
-assert.match(cssRule(".picklist-tile.picked.compare-selected"), /background:\s*#808080 !important/);
+assert.match(cssRule(".picklist-tile.picked.compare-selected"), /background:\s*linear-gradient\(rgba\(128, 128, 128, 0\.58\), rgba\(128, 128, 128, 0\.58\)\),\s*color-mix\(in srgb, var\(--compare-accent\) 72%, black\) !important/);
+assert.match(cssRule(".picklist-tile.picked.compare-selected"), /opacity:\s*1/);
+assert.match(cssRule(".picklist-tile.picked.compare-selected"), /color:\s*#ffffff/);
+assert.match(cssRule(".picklist-tile.picked"), /background:\s*#808080 !important/);
+assert.match(cssRule(".picked"), /opacity:\s*0\.5/);
+assert.match(cssRule(".picked"), /text-decoration-line:\s*line-through/);
+const relativeLuminance = ([red, green, blue]) => [red, green, blue]
+  .map((channel) => channel / 255)
+  .map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+  .reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
+for (const accent of display.compareTeamPalette) {
+  const accentRgb = accent.slice(1).match(/.{2}/g).map((channel) => parseInt(channel, 16) * 0.72);
+  const grayOverlayResult = accentRgb.map((channel) => 128 * 0.58 + channel * 0.42);
+  const whiteContrast = 1.05 / (relativeLuminance(grayOverlayResult) + 0.05);
+  assert.ok(whiteContrast >= 4.5, `picked comparison text remains readable over ${accent}`);
+}
 assert.match(cssRule(".picklist-tile.captain-confirmed.compare-selected"), /background:\s*#b8e6c5 !important/);
 assert.match(cssRule(".picklist-tile.captain-possible.compare-selected"), /background:\s*#ffe0a3 !important/);
-assert.match(appStyles, /\.picklist-tile\.picked\.compare-selected\.captain-confirmed,\s*\.picklist-tile\.picked\.compare-selected\.captain-possible\s*\{\s*background:\s*#808080 !important/s);
+assert.match(appStyles, /\.picklist-tile\.picked\.compare-selected\.captain-confirmed,\s*\.picklist-tile\.picked\.compare-selected\.captain-possible\s*\{\s*background:\s*linear-gradient\(rgba\(128, 128, 128, 0\.58\), rgba\(128, 128, 128, 0\.58\)\)/s);
 allianceClickHandlers.get("source:click")();
 assert.deepEqual(Array.from(clickContext.state.picklistCompareTeams), ["frc449B", null, null, null]);
 assert.equal(savedAllianceClicks, 1);
