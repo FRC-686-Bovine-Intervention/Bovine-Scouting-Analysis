@@ -24,7 +24,10 @@
         <article class="mobile-card"><h2>Selection Board</h2><div id="selection-board" class="mobile-board"></div></article>
         <article class="mobile-card"><h2>Team Rank</h2><p class="legend"><span class="confirmed">Confirmed captain</span><span class="possible">Possible captain</span><span class="picked">Picked</span></p><ol id="final-rankings" class="mobile-rankings"></ol></article>
       </section>
-      <section id="picklists-view" class="mobile-view" hidden aria-label="Displayed picklists"><div id="mobile-picklists" class="mobile-picklists"></div></section>
+      <section id="picklists-view" class="mobile-view" hidden aria-label="Displayed picklists">
+        <p id="mobile-picklists-hint" class="mobile-picklists-hint" hidden>Swipe horizontally to see more displayed sources.</p>
+        <div id="mobile-picklists" class="mobile-picklists" role="region" tabindex="0" aria-label="Displayed source columns; scroll horizontally to see more"></div>
+      </section>
       <p id="empty-state" class="empty-state">Waiting for an admin to open Alliance Selection on the desktop app.</p>
       <footer>Live, read-only view</footer>
     </main>

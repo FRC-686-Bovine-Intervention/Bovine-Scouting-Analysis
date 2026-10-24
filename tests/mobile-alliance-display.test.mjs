@@ -110,7 +110,7 @@ class FakeNode {
 }
 const selectors = new Map([
   ["#selection-board", new FakeNode()], ["#final-rankings", new FakeNode()], ["#mobile-picklists", new FakeNode()],
-  ["#empty-state", new FakeNode()], ["#event-name", new FakeNode()], ["#connection-state", new FakeNode()],
+  ["#mobile-picklists-hint", new FakeNode()], ["#empty-state", new FakeNode()], ["#event-name", new FakeNode()], ["#connection-state", new FakeNode()],
   ["#board-view", new FakeNode()], ["#picklists-view", new FakeNode()],
 ]);
 const tabs = [new FakeNode({ mobileTab: "board" }), new FakeNode({ mobileTab: "picklists" })];
@@ -130,6 +130,8 @@ assert.equal(selectors.get("#event-name").textContent, "Championship <script> ·
 assert.equal(selectors.get("#selection-board").children.length, 8);
 assert.equal(selectors.get("#final-rankings").children[0].className, "ranking-row state-confirmed");
 assert.equal(selectors.get("#mobile-picklists").children.length, 1);
+assert.equal(selectors.get("#mobile-picklists").dataset.columnCount, "1");
+assert.equal(selectors.get("#mobile-picklists-hint").hidden, true, "a single source does not show a horizontal-swipe hint");
 receiveSnapshot(comparisonSnapshot);
 const renderedComparisonRows = selectors.get("#final-rankings").children;
 assert.equal(renderedComparisonRows[0].className, "ranking-row state-confirmed compare-selected");
@@ -145,5 +147,8 @@ assert.equal(selectors.get("#mobile-picklists").children[0].children[1].children
 receiveSnapshot(display.buildMobileAllianceSnapshot({ eventKey: "2026chcmp", eventName: "Updated", board: [{ teamNumber: 9999 }] }));
 assert.equal(selectors.get("#event-name").textContent, "Updated · 2026chcmp");
 assert.match(selectors.get("#selection-board").children[0].children[1].children[0].textContent, /9999/);
+assert.equal(selectors.get("#mobile-picklists").className, "mobile-picklists is-empty");
+assert.equal(selectors.get("#mobile-picklists").dataset.columnCount, "0");
+assert.equal(selectors.get("#mobile-picklists-hint").hidden, true);
 
 console.log("PASS mobile alliance schema, bounded public document, admin publishing, and live viewer rendering/update behavior");

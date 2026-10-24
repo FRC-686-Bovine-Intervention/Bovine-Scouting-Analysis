@@ -43,7 +43,10 @@
       $("#event-name").textContent = "Waiting for the admin display…";
       boardRoot.replaceChildren();
       rankingsRoot.replaceChildren();
+      picklistsRoot.className = "mobile-picklists is-empty";
+      picklistsRoot.dataset.columnCount = "0";
       picklistsRoot.replaceChildren();
+      $("#mobile-picklists-hint").hidden = true;
       return;
     }
 
@@ -70,6 +73,9 @@
     rankingsRoot.replaceChildren();
     snapshot.rankings.forEach((team) => rankingsRoot.append(rankedTeamRow(team)));
 
+    picklistsRoot.className = `mobile-picklists${snapshot.columns.length ? "" : " is-empty"}`;
+    picklistsRoot.dataset.columnCount = String(snapshot.columns.length);
+    $("#mobile-picklists-hint").hidden = snapshot.columns.length < 2;
     picklistsRoot.replaceChildren();
     if (!snapshot.columns.length) {
       const message = document.createElement("p");

@@ -31,7 +31,24 @@ body { margin: 0; background: #101820; }
 .state-confirmed { background: #29553d; }.state-possible { background: #6b5724; }.state-picked { background: #555d63; color: #e0e4e6; }
 .ranking-row.compare-selected { background: var(--compare-accent); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--compare-accent) 86%, black); color: #fff; }
 .team-score { color: #d0dde5; font-variant-numeric: tabular-nums; }
-.mobile-picklists { display: grid; gap: 12px; }
+.mobile-picklists {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(174px, calc((100% - 36px) / 4));
+  align-items: start;
+  gap: 12px;
+  width: 100%;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+.mobile-picklists[data-column-count="1"] { grid-auto-columns: 100%; }
+.mobile-picklists > .mobile-card { min-width: 0; scroll-snap-align: start; }
+.mobile-picklists.is-empty { display: block; overflow: visible; padding-bottom: 0; }
+.mobile-picklists-hint { margin: 0 2px 8px; color: #9eb0bc; font-size: .75rem; }
+#mobile-picklists:focus-visible { outline: 2px solid #76d6a4; outline-offset: 3px; }
 .empty-state { margin: 0; padding: 20px 8px; color: #c4d0d8; text-align: center; }
 footer { padding: 18px 0 4px; color: #80939f; font-size: .75rem; text-align: center; }
 @media (min-width: 700px) { .mobile-view#board-view { grid-template-columns: minmax(0, 1fr) minmax(280px, .75fr); align-items: start; } }
