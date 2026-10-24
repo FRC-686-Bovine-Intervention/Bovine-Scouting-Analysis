@@ -26,13 +26,19 @@ const teams = [
   { id: "frc1731", number: 1731, label: "1731", isSuffixed: false, sources: { tba: { components: { rank: 1, "sort_orders.0": 8 } }, statbotics: { components: { "epa.total_points": 30.5 } } } },
   { id: "frc9072", number: 9072, label: "9072", isSuffixed: false, sources: { tba: { components: { rank: 2, "sort_orders.0": 5 } }, statbotics: { components: {} } } },
   { id: "frc449B", number: 449, label: "449B", isSuffixed: true, sources: { tba: { components: { rank: 4, "sort_orders.0": 1 } }, statbotics: { components: { "epa.total_points": 7 } } } },
-  ...Array.from({ length: 16 }, (_, index) => ({
-    id: `frc${5000 + index}`,
-    number: 5000 + index,
-    label: String(5000 + index),
-    isSuffixed: false,
-    sources: { tba: { components: { rank: 5 + index, "sort_orders.0": 0 } }, statbotics: { components: index === 0 ? { "epa.total_points": 12.5 } : {} } },
-  })),
+  ...Array.from({ length: 16 }, (_, index) => {
+    const epa = [12.5, 40.25, 5, 20, 10, null, 6][index];
+    return {
+      id: `frc${5000 + index}`,
+      number: 5000 + index,
+      label: String(5000 + index),
+      isSuffixed: false,
+      sources: {
+        tba: { components: { rank: 5 + index, "sort_orders.0": 0 } },
+        statbotics: { components: epa === null ? {} : { "epa.total_points": epa } },
+      },
+    };
+  }),
 ];
 const manualFirstPickOrder = ["frc449", "frc9072", "frc1731", "frc449B"];
 const rankForTeam = (team) => team.sources?.tba?.components?.rank ?? null;
@@ -124,6 +130,7 @@ const appBehaviorContext = {
   statboticsEpaMetric: () => ({ kind: "source", sourceId: "statbotics", componentId: "epa.total_points", unit: "pts" }),
   teamMetricValue: (team) => team.sources.statbotics.components["epa.total_points"],
   formatMetricValueForDisplay: (_metric, value) => Number(value).toFixed(1),
+  normalizeColumnSortDirection: (direction) => direction === "asc" ? "asc" : "desc",
   escapeAttribute: (value) => String(value),
   escapeHtml: (value) => String(value),
   renderBoardContextMenu: () => "",
@@ -140,8 +147,10 @@ vm.createContext(appBehaviorContext);
 vm.runInContext([
   sourceFunction("currentTbaRankedTeams"),
   sourceFunction("compareSlotIndexForTeam"),
-  sourceFunction("buildCurrentMobileAllianceSnapshot", "renderAllianceEpaSummary"),
+  sourceFunction("buildCurrentMobileAllianceSnapshot", "allianceEpaSummaryData"),
+  sourceFunction("allianceEpaSummaryData", "renderAllianceEpaSummary"),
   sourceFunction("renderAllianceEpaSummary", "renderAlliance"),
+  sourceFunction("colorForScore", "sortDirectionGlyph"),
   sourceFunction("renderAlliance"),
   "globalThis.renderedAlliance = renderAlliance();",
   "globalThis.mobileSnapshot = buildCurrentMobileAllianceSnapshot();",
@@ -165,12 +174,37 @@ board[2] = 5000;
 assert.match(appBehaviorContext.renderAlliance(), /data-alliance-epa="50"/);
 assert.match(appBehaviorContext.renderAlliance(), /<strong>50\.0<\/strong><small>3 teams<\/small>/);
 board[3] = 9072;
-assert.match(appBehaviorContext.renderAlliance(), /data-alliance-epa="" aria-label="Alliance EPA —, EPA unavailable · 0 of 1 teams"/);
+assert.match(appBehaviorContext.renderAlliance(), /data-alliance-epa=""[^>]*EPA unavailable · 0 of 1 teams/);
 board[3] = null;
 board[1] = 1731;
 board[0] = 1731;
 board[1] = "frc449B";
 assert.match(appBehaviorContext.renderAlliance(), /data-alliance-epa="50"/, "reordering selected teams keeps the same alliance EPA total and B-team identity");
+
+board.fill(null);
+board[0] = "frc449B";
+board[1] = 1731;
+board[2] = 5000;
+board[3] = 5001;
+board[4] = 5002;
+board[5] = 5003;
+board[6] = 449;
+board[7] = 5004;
+board[8] = 9072;
+board[9] = 9072;
+const coloredAlliances = appBehaviorContext.renderAlliance();
+assert.match(coloredAlliances, /data-alliance-epa="50"[^>]*style="background: rgba\(239, 68, 68, 1\.000\)"/);
+assert.match(coloredAlliances, /data-alliance-epa="65\.25"[^>]*style="background: rgba\(34, 197, 94, 1\.000\)"/);
+assert.match(coloredAlliances, /data-alliance-epa="50\.25"[^>]*data-alliance-epa-complete="false"[^>]*style="background: transparent"/);
+assert.match(coloredAlliances, /data-alliance-epa=""[^>]*EPA unavailable · 0 of 1 teams[^>]*style="background: transparent"/);
+
+board.fill(null);
+board[0] = 449;
+const singleKnownAlliance = appBehaviorContext.renderAlliance();
+assert.match(singleKnownAlliance, /data-alliance-epa="40\.25"[^>]*style="background: transparent"/);
+board[3] = 5001;
+const tiedKnownAlliances = appBehaviorContext.renderAlliance();
+assert.match(tiedKnownAlliances, /data-alliance-epa="40\.25"[^>]*style="background: transparent"/);
 assert.match(renderedAlliance, /<h3 >Team Rank/);
 assert.doesNotMatch(renderedAlliance, /value="team-rank"/, "Team Rank is not a selectable source");
 const finalRankTiles = initialRenderedTiles.slice(0, rankedTeams.length);

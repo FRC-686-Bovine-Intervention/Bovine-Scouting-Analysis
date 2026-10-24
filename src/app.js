@@ -10131,30 +10131,43 @@ function buildCurrentMobileAllianceSnapshot() {
   }) || null;
 }
 
-function renderAllianceEpaSummary(teamNumbers) {
-  const selectedTeams = teamNumbers.map((teamNumber) => teamByNumber(teamNumber)).filter(Boolean);
-  const metric = statboticsEpaMetric();
+function allianceEpaSummaryData(teamNumbers, metric = statboticsEpaMetric()) {
+  const selectedTeamNumbers = teamNumbers.filter((teamNumber) => teamNumber !== null && teamNumber !== undefined && teamNumber !== "");
   const values = metric
-    ? selectedTeams.map((team) => {
+    ? selectedTeamNumbers.map((teamNumber) => {
+        const team = teamByNumber(teamNumber);
+        if (!team) return null;
         const source = team.sources?.[metric.sourceId];
-        const rawValue = metric.componentId === "total"
-          ? source?.total
-          : source?.components?.[metric.componentId];
+        const rawValue = metric.componentId === "total" ? source?.total : source?.components?.[metric.componentId];
         if (rawValue === null || rawValue === undefined || rawValue === "" || !Number.isFinite(Number(rawValue))) return null;
         const value = teamMetricValue(team, metric);
         return Number.isFinite(value) ? value : null;
       }).filter((value) => value !== null)
     : [];
-  const total = values.reduce((sum, value) => sum + value, 0);
-  const formattedTotal = values.length ? formatMetricValueForDisplay(metric, total) : "—";
-  const status = selectedTeams.length === 0
+  return {
+    selectedCount: selectedTeamNumbers.length,
+    knownCount: values.length,
+    complete: selectedTeamNumbers.length > 0 && values.length === selectedTeamNumbers.length,
+    total: values.length ? values.reduce((sum, value) => sum + value, 0) : null,
+  };
+}
+
+function renderAllianceEpaSummary(summary, minTotal, maxTotal, metric = statboticsEpaMetric()) {
+  const total = summary.total;
+  const hasTotal = Number.isFinite(total);
+  const selectedCount = summary.selectedCount;
+  const knownCount = summary.knownCount;
+  const isRankable = summary.complete && Number.isFinite(minTotal) && Number.isFinite(maxTotal);
+  const background = isRankable ? colorForScore(total, minTotal, maxTotal, "desc") : "transparent";
+  const formattedTotal = hasTotal ? formatMetricValueForDisplay(metric, total) : "—";
+  const status = selectedCount === 0
     ? "No teams selected"
-    : values.length === 0
-      ? `EPA unavailable · 0 of ${selectedTeams.length} teams`
-      : values.length < selectedTeams.length
-        ? `Partial · ${values.length} of ${selectedTeams.length} team EPA values`
-        : `${selectedTeams.length} team${selectedTeams.length === 1 ? "" : "s"}`;
-  return `<div class="alliance-epa-summary" data-alliance-epa="${values.length ? escapeAttribute(String(total)) : ""}" aria-label="Alliance EPA ${escapeAttribute(formattedTotal)}, ${escapeAttribute(status)}"><strong>${escapeHtml(formattedTotal)}</strong><small>${escapeHtml(status)}</small></div>`;
+    : knownCount === 0
+      ? `EPA unavailable · 0 of ${selectedCount} teams`
+      : knownCount < selectedCount
+        ? `Partial · ${knownCount} of ${selectedCount} team EPA values`
+        : `${selectedCount} team${selectedCount === 1 ? "" : "s"}`;
+  return `<div class="alliance-epa-summary" data-alliance-epa="${hasTotal ? escapeAttribute(String(total)) : ""}" data-alliance-epa-complete="${summary.complete}" aria-label="Alliance EPA ${escapeAttribute(formattedTotal)}, ${escapeAttribute(status)}" style="background: ${background}"><strong>${escapeHtml(formattedTotal)}</strong><small>${escapeHtml(status)}</small></div>`;
 }
 
 function renderAlliance() {
@@ -10174,6 +10187,14 @@ function renderAlliance() {
       });
       return { entry, direction, column };
     }).filter((item) => item.column.teams.length);
+  const allianceTeamGroups = Array.from({ length: Math.ceil(state.allianceBoard.length / 3) }, (_, allianceIndex) =>
+    state.allianceBoard.slice(allianceIndex * 3, allianceIndex * 3 + 3),
+  );
+  const allianceEpaMetric = statboticsEpaMetric();
+  const allianceEpaSummaries = allianceTeamGroups.map((teamNumbers) => allianceEpaSummaryData(teamNumbers, allianceEpaMetric));
+  const rankableEpaTotals = allianceEpaSummaries.filter((summary) => summary.complete && Number.isFinite(summary.total)).map((summary) => summary.total);
+  const minAllianceEpa = rankableEpaTotals.length ? Math.min(...rankableEpaTotals) : Number.NaN;
+  const maxAllianceEpa = rankableEpaTotals.length ? Math.max(...rankableEpaTotals) : Number.NaN;
   const teamRankColumn = { type: "picklist", label: "Team Rank", teams: rankedTeams, minScore: 0, maxScore: 0 };
   const displayColumns = [
     { entry: "team-rank", direction: defaultColumnSortDirection, column: teamRankColumn, teamRank: true },
@@ -10195,10 +10216,9 @@ function renderAlliance() {
         <div class="board">
           <div class="board-heading-spacer" aria-hidden="true"></div>
           <div class="alliance-epa-heading">Alliance EPA</div>
-          ${Array.from({ length: Math.ceil(state.allianceBoard.length / 3) }, (_, allianceIndex) => {
+          ${allianceTeamGroups.map((teamNumbers, allianceIndex) => {
             const firstSlot = allianceIndex * 3;
-            const teamNumbers = state.allianceBoard.slice(firstSlot, firstSlot + 3);
-            return `${teamNumbers.map((teamNumber, teamIndex) => renderBoardCell(teamNumber, firstSlot + teamIndex)).join("")}${renderAllianceEpaSummary(teamNumbers)}`;
+            return `${teamNumbers.map((teamNumber, teamIndex) => renderBoardCell(teamNumber, firstSlot + teamIndex)).join("")}${renderAllianceEpaSummary(allianceEpaSummaries[allianceIndex], minAllianceEpa, maxAllianceEpa, allianceEpaMetric)}`;
           }).join("")}
         </div>
         ${renderBoardContextMenu()}
