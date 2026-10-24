@@ -5404,6 +5404,7 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
   }
   const selectionToken = options.selectionToken || beginEventSelection(normalizedEventCode, options.source || "user");
   const isCurrentLoad = () => isCurrentEventSelection(selectionToken);
+  if (!isCurrentLoad()) return false;
   state.eventLookupPending = true;
   state.eventLookupResult = { kind: "info", message: `Loading ${normalizedEventCode} from external providers...` };
   render();

@@ -505,13 +505,13 @@ await runTest("an older live event load cannot switch back after a newer load wi
   assert.equal(context.__scoutingAppState.activeEventKey, "2025chcmp");
 });
 
-await runTest("a background refresh cannot switch away from a newer user selection", async () => {
-  const makeEvent = (key) => ({
+await runTest("a stale background refresh cannot overwrite a newer event selection status", async () => {
+  const makeEvent = (key, catalogSource = "") => ({
     key,
     season: Number(key.slice(0, 4)),
     name: key,
     seasonLabel: "",
-    catalogSource: "dynamic-external",
+    ...(catalogSource ? { catalogSource } : {}),
     teams: [{ number: 1, name: "Live Team", flags: [], matches: [], sources: {}, derived: {} }],
     teamNumbers: [1],
     matches: [],
@@ -523,23 +523,37 @@ await runTest("a background refresh cannot switch away from a newer user selecti
     formulaFieldDefinitions: [],
     dataSources: [],
   });
+  const priorEvent = makeEvent("2026mdbob", "dynamic-external");
+  const requestedEvent = makeEvent("2026vagle2");
+  let releaseRequestedLoad;
+  const requestedLoad = new Promise((resolve) => { releaseRequestedLoad = resolve; });
   const context = loadAppContext({
-    eventCatalog: [makeEvent("2026chcmp")],
+    eventCatalog: [priorEvent],
     ExternalEventLoader: {
       loadEventByCode: async (eventCode) => {
-        await new Promise((resolve) => setTimeout(resolve, eventCode === "2026chcmp" ? 25 : 1));
-        return { eventModel: makeEvent(eventCode), sourceStates: {}, warnings: [], rawSourceArtifacts: [] };
+        if (eventCode === requestedEvent.key) await requestedLoad;
+        return { eventModel: eventCode === requestedEvent.key ? requestedEvent : priorEvent, sourceStates: {}, warnings: [], rawSourceArtifacts: [] };
       },
       normalizeEventCode: (value) => String(value || "").trim().toLowerCase(),
     },
   });
-  context.__scoutingAppState.requestedEventKey = "2026chcmp";
-  const refresh = context.__activeEventTestApi.refreshDataSource("tba", { trigger: "poll" });
-  await new Promise((resolve) => setTimeout(resolve, 2));
-  const selection = context.__activeEventTestApi.applyAdminEventCodeDraft("2025chcmp");
+  const state = context.__scoutingAppState;
+  state.requestedEventKey = priorEvent.key;
+
+  const selection = context.__activeEventTestApi.applyAdminEventCodeDraft(requestedEvent.key);
+  assert.equal(state.eventLookupResult.message, `Loading ${requestedEvent.key} from external providers...`);
+
+  const staleRefresh = context.__activeEventTestApi.refreshDataSource("tba", { trigger: "poll" });
+  assert.equal(state.eventLookupPending, true);
+  assert.equal(state.eventLookupResult.message, `Loading ${requestedEvent.key} from external providers...`);
+
+  releaseRequestedLoad();
   assert.equal(await selection, true);
-  assert.equal(await refresh, false);
-  assert.equal(context.__scoutingAppState.activeEventKey, "2025chcmp");
+  assert.equal(await staleRefresh, false);
+  assert.equal(state.activeEventKey, requestedEvent.key);
+  assert.equal(state.eventWorkspace.eventKey, requestedEvent.key);
+  assert.equal(state.adminEventCodeDraft, requestedEvent.key);
+  assert.match(state.eventLookupResult.message, new RegExp(requestedEvent.key));
 });
 
 await runTest("admin event changes are shared and members adopt the shared event without writing it", async () => {
