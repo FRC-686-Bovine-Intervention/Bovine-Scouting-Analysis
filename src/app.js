@@ -5404,6 +5404,7 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
   }
   const selectionToken = options.selectionToken || beginEventSelection(normalizedEventCode, options.source || "user");
   const isCurrentLoad = () => isCurrentEventSelection(selectionToken);
+  if (!isCurrentLoad()) return false;
   state.eventLookupPending = true;
   state.eventLookupResult = { kind: "info", message: `Loading ${normalizedEventCode} from external providers...` };
   render();
@@ -10054,7 +10055,7 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         compareIndex: options.compareIndex,
         extraClass: picked,
         title: captainTitle,
-        disabled: isPicked,
+        disabled: isPicked && !options.allianceTeam,
         draggable: !isPicked,
         dragData: isPicked ? "" : String(teamSelectionId(team)),
         dataAttribute: options.navigation ? `data-team="${teamSelectionId(team)}"` : options.allianceTeam ? `data-alliance-team="${teamSelectionId(team)}"` : "",
@@ -10070,7 +10071,7 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         compareIndex: options.compareIndex,
         extraClass: picked,
         title: captainTitle,
-        disabled: isPicked,
+        disabled: isPicked && !options.allianceTeam,
         draggable: !isPicked,
         dragData: isPicked ? "" : String(teamSelectionId(team)),
         dataAttribute: options.navigation ? `data-team="${teamSelectionId(team)}"` : options.allianceTeam ? `data-alliance-team="${teamSelectionId(team)}"` : "",
@@ -10130,6 +10131,45 @@ function buildCurrentMobileAllianceSnapshot() {
   }) || null;
 }
 
+function allianceEpaSummaryData(teamNumbers, metric = statboticsEpaMetric()) {
+  const selectedTeamNumbers = teamNumbers.filter((teamNumber) => teamNumber !== null && teamNumber !== undefined && teamNumber !== "");
+  const values = metric
+    ? selectedTeamNumbers.map((teamNumber) => {
+        const team = teamByNumber(teamNumber);
+        if (!team) return null;
+        const source = team.sources?.[metric.sourceId];
+        const rawValue = metric.componentId === "total" ? source?.total : source?.components?.[metric.componentId];
+        if (rawValue === null || rawValue === undefined || rawValue === "" || !Number.isFinite(Number(rawValue))) return null;
+        const value = teamMetricValue(team, metric);
+        return Number.isFinite(value) ? value : null;
+      }).filter((value) => value !== null)
+    : [];
+  return {
+    selectedCount: selectedTeamNumbers.length,
+    knownCount: values.length,
+    complete: selectedTeamNumbers.length > 0 && values.length === selectedTeamNumbers.length,
+    total: values.length ? values.reduce((sum, value) => sum + value, 0) : null,
+  };
+}
+
+function renderAllianceEpaSummary(summary, minTotal, maxTotal, metric = statboticsEpaMetric()) {
+  const total = summary.total;
+  const hasTotal = Number.isFinite(total);
+  const selectedCount = summary.selectedCount;
+  const knownCount = summary.knownCount;
+  const isRankable = summary.complete && Number.isFinite(minTotal) && Number.isFinite(maxTotal);
+  const background = isRankable ? colorForScore(total, minTotal, maxTotal, "desc") : "transparent";
+  const formattedTotal = hasTotal ? formatMetricValueForDisplay(metric, total) : "—";
+  const status = selectedCount === 0
+    ? "No teams selected"
+    : knownCount === 0
+      ? `EPA unavailable · 0 of ${selectedCount} teams`
+      : knownCount < selectedCount
+        ? `Partial · ${knownCount} of ${selectedCount} team EPA values`
+        : `${selectedCount} team${selectedCount === 1 ? "" : "s"}`;
+  return `<div class="alliance-epa-summary" data-alliance-epa="${hasTotal ? escapeAttribute(String(total)) : ""}" data-alliance-epa-complete="${summary.complete}" aria-label="Alliance EPA ${escapeAttribute(formattedTotal)}, ${escapeAttribute(status)}" style="background: ${background}"><strong>${escapeHtml(formattedTotal)}</strong><small>${escapeHtml(status)}</small></div>`;
+}
+
 function renderAlliance() {
   const rankedTeams = currentTbaRankedTeams();
   const captainState = globalThis.allianceCaptainState?.deriveAllianceCaptainStateForBoard(
@@ -10147,6 +10187,14 @@ function renderAlliance() {
       });
       return { entry, direction, column };
     }).filter((item) => item.column.teams.length);
+  const allianceTeamGroups = Array.from({ length: Math.ceil(state.allianceBoard.length / 3) }, (_, allianceIndex) =>
+    state.allianceBoard.slice(allianceIndex * 3, allianceIndex * 3 + 3),
+  );
+  const allianceEpaMetric = statboticsEpaMetric();
+  const allianceEpaSummaries = allianceTeamGroups.map((teamNumbers) => allianceEpaSummaryData(teamNumbers, allianceEpaMetric));
+  const rankableEpaTotals = allianceEpaSummaries.filter((summary) => summary.complete && Number.isFinite(summary.total)).map((summary) => summary.total);
+  const minAllianceEpa = rankableEpaTotals.length ? Math.min(...rankableEpaTotals) : Number.NaN;
+  const maxAllianceEpa = rankableEpaTotals.length ? Math.max(...rankableEpaTotals) : Number.NaN;
   const teamRankColumn = { type: "picklist", label: "Team Rank", teams: rankedTeams, minScore: 0, maxScore: 0 };
   const displayColumns = [
     { entry: "team-rank", direction: defaultColumnSortDirection, column: teamRankColumn, teamRank: true },
@@ -10166,7 +10214,12 @@ function renderAlliance() {
         </div>
         <div class="captain-highlight-legend" aria-label="Team Rank captain status"><span class="captain-legend-confirmed">Confirmed captain</span><span class="captain-legend-possible">Possible captain</span><span class="captain-legend-picked">Placed on selection board</span></div>
         <div class="board">
-          ${state.allianceBoard.map((teamNumber, index) => renderBoardCell(teamNumber, index)).join("")}
+          <div class="board-heading-spacer" aria-hidden="true"></div>
+          <div class="alliance-epa-heading">Alliance EPA</div>
+          ${allianceTeamGroups.map((teamNumbers, allianceIndex) => {
+            const firstSlot = allianceIndex * 3;
+            return `${teamNumbers.map((teamNumber, teamIndex) => renderBoardCell(teamNumber, firstSlot + teamIndex)).join("")}${renderAllianceEpaSummary(allianceEpaSummaries[allianceIndex], minAllianceEpa, maxAllianceEpa, allianceEpaMetric)}`;
+          }).join("")}
         </div>
         ${renderBoardContextMenu()}
         <div class="section-heading">
@@ -10267,8 +10320,13 @@ function renderBoardCell(teamNumber, index) {
   if (teamNumber) {
     const team = teamByNumber(teamNumber);
     const teamLabel = team ? teamDisplayLabel(team) : String(teamNumber);
+    const teamId = teamSelectionId(team) || teamNumber;
+    const comparisonIndex = compareSlotIndexForTeam(teamId);
+    const compareColor = comparisonIndex >= 0 ? compareTeamPalette[comparisonIndex] : "";
+    const comparisonStyle = compareColor ? ` style="--compare-accent: ${compareColor}"` : "";
+    const comparisonClass = comparisonIndex >= 0 ? " compare-selected" : "";
     return `
-      <div class="board-cell occupied" data-board-cell="${index}" data-board-team="${teamNumber}" draggable="true" title="Drag to reorder; right-click to remove ${teamLabel}">
+      <div class="board-cell occupied${comparisonClass}" data-board-cell="${index}" data-board-team="${teamNumber}"${comparisonStyle} role="button" aria-pressed="${comparisonIndex >= 0}" aria-label="Toggle comparison highlight for ${teamLabel}" tabindex="0" draggable="true" title="Click to highlight for comparison; drag to reorder; right-click to remove ${teamLabel}">
         <strong>${teamLabel}</strong>
         <span>${team?.name || ""}</span>
       </div>
@@ -10279,6 +10337,30 @@ function renderBoardCell(teamNumber, index) {
       <input class="board-input" data-board-input="${index}" placeholder="Team # or key" aria-label="Alliance slot ${index + 1}" />
     </div>
   `;
+}
+
+function toggleAllianceComparison(teamNumber) {
+  const changed = togglePicklistCompareTeam(teamNumber);
+  if (!changed) return false;
+  saveState();
+  render();
+  return true;
+}
+
+function bindAllianceComparisonClicks() {
+  document.querySelectorAll("[data-board-cell]").forEach((cell) => {
+    if (!cell.dataset.boardTeam) return;
+    const toggle = () => toggleAllianceComparison(cell.dataset.boardTeam);
+    cell.addEventListener("click", toggle);
+    cell.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      toggle();
+    });
+  });
+  document.querySelectorAll("[data-alliance-team]").forEach((tile) => {
+    tile.addEventListener("click", () => toggleAllianceComparison(tile.dataset.allianceTeam));
+  });
 }
 
 function renderBoardContextMenu() {
@@ -11468,6 +11550,7 @@ function bindAllianceSourceScrollbars() {
 }
 
 function bindViewEvents() {
+  bindAllianceComparisonClicks();
   document.querySelector("#loadAdminEventButton")?.addEventListener("click", async () => {
     const input = document.querySelector("#adminEventCodeInput");
     await applyAdminEventCodeDraft(input?.value || "");
@@ -12194,15 +12277,6 @@ function bindViewEvents() {
       const selections = normalizeMatchupMetricSelections().slice(0, -1);
       selections[index] = event.target.value;
       state.matchupMetricSelections = selections.filter(Boolean);
-      render();
-    });
-  });
-  document.querySelectorAll("[data-alliance-team]").forEach((tile) => {
-    tile.addEventListener("click", () => {
-      const teamNumber = tile.dataset.allianceTeam;
-      const changed = togglePicklistCompareTeam(teamNumber);
-      if (!changed) return;
-      saveState();
       render();
     });
   });
