@@ -9,7 +9,7 @@ const loadModel = (path) => {
 };
 
 const model = loadModel("../src/team-rank-model.js");
-const appSource = fs.readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+const appSource = fs.readFileSync(new URL("../src/app.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const captainState = (() => {
   const context = { globalThis: {} };
   vm.runInNewContext(fs.readFileSync(new URL("../src/alliance-captain-state.js", import.meta.url), "utf8"), context);
@@ -22,16 +22,16 @@ const display = (() => {
 })();
 
 const teams = [
-  { id: "frc449", number: 449, label: "449", isSuffixed: false, sources: { tba: { components: { rank: 3, "sort_orders.0": 10 } } } },
-  { id: "frc1731", number: 1731, label: "1731", isSuffixed: false, sources: { tba: { components: { rank: 1, "sort_orders.0": 8 } } } },
-  { id: "frc9072", number: 9072, label: "9072", isSuffixed: false, sources: { tba: { components: { rank: 2, "sort_orders.0": 5 } } } },
-  { id: "frc449B", number: 449, label: "449B", isSuffixed: true, sources: { tba: { components: { rank: 4, "sort_orders.0": 1 } } } },
+  { id: "frc449", number: 449, label: "449", isSuffixed: false, sources: { tba: { components: { rank: 3, "sort_orders.0": 10 } }, statbotics: { components: { "epa.total_points": 40.25 } } } },
+  { id: "frc1731", number: 1731, label: "1731", isSuffixed: false, sources: { tba: { components: { rank: 1, "sort_orders.0": 8 } }, statbotics: { components: { "epa.total_points": 30.5 } } } },
+  { id: "frc9072", number: 9072, label: "9072", isSuffixed: false, sources: { tba: { components: { rank: 2, "sort_orders.0": 5 } }, statbotics: { components: {} } } },
+  { id: "frc449B", number: 449, label: "449B", isSuffixed: true, sources: { tba: { components: { rank: 4, "sort_orders.0": 1 } }, statbotics: { components: { "epa.total_points": 7 } } } },
   ...Array.from({ length: 16 }, (_, index) => ({
     id: `frc${5000 + index}`,
     number: 5000 + index,
     label: String(5000 + index),
     isSuffixed: false,
-    sources: { tba: { components: { rank: 5 + index, "sort_orders.0": 0 } } },
+    sources: { tba: { components: { rank: 5 + index, "sort_orders.0": 0 } }, statbotics: { components: index === 0 ? { "epa.total_points": 12.5 } : {} } },
   })),
 ];
 const manualFirstPickOrder = ["frc449", "frc9072", "frc1731", "frc449B"];
@@ -121,6 +121,11 @@ const appBehaviorContext = {
   displayEventName: () => "2022 Chesapeake",
   currentEvent: () => ({ key: "2022chcmp" }),
   renderBoardCell: () => "",
+  statboticsEpaMetric: () => ({ kind: "source", sourceId: "statbotics", componentId: "epa.total_points", unit: "pts" }),
+  teamMetricValue: (team) => team.sources.statbotics.components["epa.total_points"],
+  formatMetricValueForDisplay: (_metric, value) => Number(value).toFixed(1),
+  escapeAttribute: (value) => String(value),
+  escapeHtml: (value) => String(value),
   renderBoardContextMenu: () => "",
   renderContextMenu: () => "",
   orderedRankableMetrics: () => [],
@@ -135,18 +140,41 @@ vm.createContext(appBehaviorContext);
 vm.runInContext([
   sourceFunction("currentTbaRankedTeams"),
   sourceFunction("compareSlotIndexForTeam"),
-  sourceFunction("buildCurrentMobileAllianceSnapshot", "renderAlliance"),
+  sourceFunction("buildCurrentMobileAllianceSnapshot", "renderAllianceEpaSummary"),
+  sourceFunction("renderAllianceEpaSummary", "renderAlliance"),
   sourceFunction("renderAlliance"),
   "globalThis.renderedAlliance = renderAlliance();",
   "globalThis.mobileSnapshot = buildCurrentMobileAllianceSnapshot();",
 ].join("\n"), appBehaviorContext);
 
 const renderedAlliance = appBehaviorContext.renderedAlliance;
+const initialRenderedTiles = [...renderedTiles];
 assert.ok(renderedAlliance.indexOf("data-team-rank-column") < renderedAlliance.indexOf('data-loaded-source="picklist:pick-first-pick"'), "Team Rank must render left of the selectable First Pick column");
+assert.match(renderedAlliance, /<div class="alliance-epa-heading">Alliance EPA<\/div>/);
+assert.match(renderedAlliance, /class="alliance-epa-summary"[^>]*data-alliance-epa="7"/);
+assert.match(renderedAlliance, /<strong>7\.0<\/strong><small>1 team<\/small>/);
+board[1] = 1731;
+board[2] = 9072;
+const completedAlliance = appBehaviorContext.renderAlliance();
+assert.match(completedAlliance, /data-alliance-epa="37\.5"/);
+assert.match(completedAlliance, /Partial · 2 of 3 team EPA values/);
+board[1] = null;
+assert.match(appBehaviorContext.renderAlliance(), /data-alliance-epa="7"/);
+board[1] = 1731;
+board[2] = 5000;
+assert.match(appBehaviorContext.renderAlliance(), /data-alliance-epa="50"/);
+assert.match(appBehaviorContext.renderAlliance(), /<strong>50\.0<\/strong><small>3 teams<\/small>/);
+board[3] = 9072;
+assert.match(appBehaviorContext.renderAlliance(), /data-alliance-epa="" aria-label="Alliance EPA —, EPA unavailable · 0 of 1 teams"/);
+board[3] = null;
+board[1] = 1731;
+board[0] = 1731;
+board[1] = "frc449B";
+assert.match(appBehaviorContext.renderAlliance(), /data-alliance-epa="50"/, "reordering selected teams keeps the same alliance EPA total and B-team identity");
 assert.match(renderedAlliance, /<h3 >Team Rank/);
 assert.doesNotMatch(renderedAlliance, /value="team-rank"/, "Team Rank is not a selectable source");
-const finalRankTiles = renderedTiles.slice(0, rankedTeams.length);
-const supplementaryTiles = renderedTiles.slice(rankedTeams.length);
+const finalRankTiles = initialRenderedTiles.slice(0, rankedTeams.length);
+const supplementaryTiles = initialRenderedTiles.slice(rankedTeams.length);
 assert.deepEqual(finalRankTiles.map((tile) => tile.id), rankedTeams.map(selectionId));
 assert.ok(finalRankTiles.some((tile) => tile.captainKind === "confirmed"));
 assert.ok(finalRankTiles.some((tile) => tile.captainKind === "possible"));

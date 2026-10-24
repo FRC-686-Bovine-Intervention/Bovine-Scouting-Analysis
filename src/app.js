@@ -10131,6 +10131,32 @@ function buildCurrentMobileAllianceSnapshot() {
   }) || null;
 }
 
+function renderAllianceEpaSummary(teamNumbers) {
+  const selectedTeams = teamNumbers.map((teamNumber) => teamByNumber(teamNumber)).filter(Boolean);
+  const metric = statboticsEpaMetric();
+  const values = metric
+    ? selectedTeams.map((team) => {
+        const source = team.sources?.[metric.sourceId];
+        const rawValue = metric.componentId === "total"
+          ? source?.total
+          : source?.components?.[metric.componentId];
+        if (rawValue === null || rawValue === undefined || rawValue === "" || !Number.isFinite(Number(rawValue))) return null;
+        const value = teamMetricValue(team, metric);
+        return Number.isFinite(value) ? value : null;
+      }).filter((value) => value !== null)
+    : [];
+  const total = values.reduce((sum, value) => sum + value, 0);
+  const formattedTotal = values.length ? formatMetricValueForDisplay(metric, total) : "—";
+  const status = selectedTeams.length === 0
+    ? "No teams selected"
+    : values.length === 0
+      ? `EPA unavailable · 0 of ${selectedTeams.length} teams`
+      : values.length < selectedTeams.length
+        ? `Partial · ${values.length} of ${selectedTeams.length} team EPA values`
+        : `${selectedTeams.length} team${selectedTeams.length === 1 ? "" : "s"}`;
+  return `<div class="alliance-epa-summary" data-alliance-epa="${values.length ? escapeAttribute(String(total)) : ""}" aria-label="Alliance EPA ${escapeAttribute(formattedTotal)}, ${escapeAttribute(status)}"><strong>${escapeHtml(formattedTotal)}</strong><small>${escapeHtml(status)}</small></div>`;
+}
+
 function renderAlliance() {
   const rankedTeams = currentTbaRankedTeams();
   const captainState = globalThis.allianceCaptainState?.deriveAllianceCaptainStateForBoard(
@@ -10167,7 +10193,13 @@ function renderAlliance() {
         </div>
         <div class="captain-highlight-legend" aria-label="Team Rank captain status"><span class="captain-legend-confirmed">Confirmed captain</span><span class="captain-legend-possible">Possible captain</span><span class="captain-legend-picked">Placed on selection board</span></div>
         <div class="board">
-          ${state.allianceBoard.map((teamNumber, index) => renderBoardCell(teamNumber, index)).join("")}
+          <div class="board-heading-spacer" aria-hidden="true"></div>
+          <div class="alliance-epa-heading">Alliance EPA</div>
+          ${Array.from({ length: Math.ceil(state.allianceBoard.length / 3) }, (_, allianceIndex) => {
+            const firstSlot = allianceIndex * 3;
+            const teamNumbers = state.allianceBoard.slice(firstSlot, firstSlot + 3);
+            return `${teamNumbers.map((teamNumber, teamIndex) => renderBoardCell(teamNumber, firstSlot + teamIndex)).join("")}${renderAllianceEpaSummary(teamNumbers)}`;
+          }).join("")}
         </div>
         ${renderBoardContextMenu()}
         <div class="section-heading">
