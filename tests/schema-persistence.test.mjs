@@ -1626,13 +1626,14 @@ await runTest("provider metric catalogs apply default and schema blacklists with
     teams: [{
       number: 111,
       sources: {
-        tba: { components: {} },
+        tba: { components: { "epa.total_points": 18.4 } },
         statbotics: {
           components: {
             team_name: "Example Team",
             "epa.total_points": 42.7,
           },
         },
+        pridge: { components: { "epa.total_points": 39.2 } },
       },
     }],
     teamNumbers: [111],
@@ -1656,6 +1657,14 @@ await runTest("provider metric catalogs apply default and schema blacklists with
     seedPicklists: [],
     seedSortEquations: [],
     formulaFieldDefinitions: [],
+    metrics: [{
+      id: "source:pridge:epa.total_points",
+      kind: "source",
+      sourceId: "pridge",
+      componentId: "epa.total_points",
+      label: "pRidge EPA Total",
+      unit: "pts",
+    }],
     sheet: { recommendedProfileId: "match-current-v2" },
   }];
 
@@ -1705,6 +1714,29 @@ await runTest("provider metric catalogs apply default and schema blacklists with
   assert.equal(context.metricTokenLabel({ kind: "source", sourceId: "pridge", componentId: "epa.breakdown.auto_points" }), "pridge.epa.breakdown.auto_points");
   assert.equal(context.metricTokenLabel({ kind: "source", sourceId: "pridge", componentId: "tbaTotalAutoPoints" }), "pridge.epa.breakdown.auto_points");
   assert.equal(identifiers.includes("pridge.epa.total_points"), true);
+  assert.equal(
+    identifiers.filter((identifier) => identifier === "pridge.epa.total_points").length,
+    1,
+    "the Available Metrics list shows one pRidge EPA total",
+  );
+  assert.equal(identifiers.includes("tba.epa.total_points"), true, "the same component from TBA remains a separate available metric");
+  assert.equal(identifiers.includes("statbotics.epa.total_points"), true, "the same component from Statbotics remains a separate available metric");
+  const sameComponentSourceIds = context.currentMetrics(eventModel)
+    .filter((metric) => metric.kind === "source" && metric.componentId === "epa.total_points")
+    .map((metric) => metric.sourceId)
+    .sort();
+  assert.deepEqual(Array.from(sameComponentSourceIds), ["pridge", "statbotics", "tba"]);
+  const runtimeMetricsForEventModel = context.runtimeMetricsForEventModel;
+  context.runtimeMetricsForEventModel = () => [];
+  try {
+    assert.equal(
+      context.currentDerivedAvailableMetrics(eventModel).some((metric) => metric.id === "pridge.epa.total_points"),
+      false,
+      "pRidge totals are not fabricated in Available Metrics when no pRidge source metric exists",
+    );
+  } finally {
+    context.runtimeMetricsForEventModel = runtimeMetricsForEventModel;
+  }
   assert.equal(
     context.metricTokenLabel({
       kind: "source",

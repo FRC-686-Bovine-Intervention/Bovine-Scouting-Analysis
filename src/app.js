@@ -3384,7 +3384,6 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
     ...currentAvailableScoutingFieldDefinitions(eventModel).map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
     ...currentAvailableTbaFormulaIdentifiers(eventModel).map((id) => ({ id })),
     ...currentAvailableStatboticsFormulaIdentifiers(eventModel).map((id) => ({ id })),
-    { id: "pridge.epa.total_points" },
     ...runtimeMetricsForEventModel(eventModel)
       .filter((metric) => metric.kind === "source" && metric.sourceId === "pridge" && metric.componentId !== "total")
       .map((metric) => ({ id: `pridge.${pridgeFormulaComponentId(metric.componentId)}` })),
