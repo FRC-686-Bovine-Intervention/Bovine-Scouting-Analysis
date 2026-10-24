@@ -10,6 +10,7 @@ const loadModel = (path) => {
 
 const model = loadModel("../src/team-rank-model.js");
 const appSource = fs.readFileSync(new URL("../src/app.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+const appStyles = fs.readFileSync(new URL("../src/styles.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const captainState = (() => {
   const context = { globalThis: {} };
   vm.runInNewContext(fs.readFileSync(new URL("../src/alliance-captain-state.js", import.meta.url), "utf8"), context);
@@ -268,11 +269,25 @@ const pickedSourceContext = {
   state: { ...clickContext.state, picklistCompareTeams: ["frc449B", null, null, null] },
 };
 vm.createContext(pickedSourceContext);
-vm.runInContext([sourceFunction("renderTeamTile"), sourceFunction("renderPicklistTile")].join("\n") + "\nglobalThis.sourceMarkup = renderPicklistTile('frc449B', 0, null, { allianceTeam: true, compareIndex: 0 });", pickedSourceContext);
+vm.runInContext([sourceFunction("renderTeamTile"), sourceFunction("renderPicklistTile")].join("\n") + "\nglobalThis.sourceMarkup = renderPicklistTile('frc449B', 0, null, { allianceTeam: true, compareIndex: 0, captainKind: 'confirmed' });", pickedSourceContext);
 assert.match(pickedSourceContext.sourceMarkup, /picked/);
+assert.doesNotMatch(pickedSourceContext.sourceMarkup, /captain-confirmed/, "picked gray styling takes precedence over captain styling");
 assert.match(pickedSourceContext.sourceMarkup, /compare-selected/);
 assert.doesNotMatch(pickedSourceContext.sourceMarkup, /disabled/);
 assert.match(pickedSourceContext.sourceMarkup, /data-alliance-team="frc449B"/);
+assert.match(pickedSourceContext.sourceMarkup, /--compare-accent: #2563eb/);
+const cssRule = (selector) => {
+  const selectorStart = appStyles.indexOf(`${selector} {`);
+  assert.notEqual(selectorStart, -1, `styles should define ${selector}`);
+  const ruleEnd = appStyles.indexOf("\n}", selectorStart);
+  assert.ok(ruleEnd > selectorStart, `styles should complete ${selector}`);
+  return appStyles.slice(selectorStart, ruleEnd);
+};
+assert.match(cssRule(".picklist-tile.compare-selected"), /background:\s*color-mix\(in srgb, var\(--compare-accent\) 72%, black\) !important/);
+assert.match(cssRule(".picklist-tile.picked.compare-selected"), /background:\s*#808080 !important/);
+assert.match(cssRule(".picklist-tile.captain-confirmed.compare-selected"), /background:\s*#b8e6c5 !important/);
+assert.match(cssRule(".picklist-tile.captain-possible.compare-selected"), /background:\s*#ffe0a3 !important/);
+assert.match(appStyles, /\.picklist-tile\.picked\.compare-selected\.captain-confirmed,\s*\.picklist-tile\.picked\.compare-selected\.captain-possible\s*\{\s*background:\s*#808080 !important/s);
 allianceClickHandlers.get("source:click")();
 assert.deepEqual(Array.from(clickContext.state.picklistCompareTeams), ["frc449B", null, null, null]);
 assert.equal(savedAllianceClicks, 1);
@@ -285,6 +300,8 @@ assert.match(boardMarkupContext.markup, /role="button"/);
 assert.match(boardMarkupContext.markup, /aria-pressed="true"/);
 assert.doesNotMatch(boardMarkupContext.markup, /picked/);
 assert.match(boardMarkupContext.markup, /--compare-accent:/);
+assert.match(cssRule(".board-cell.occupied.compare-selected"), /background:\s*color-mix\(in srgb, var\(--compare-accent\) 72%, black\) !important/);
+assert.match(cssRule(".board-cell.occupied.compare-selected"), /color:\s*#ffffff/);
 allianceClickHandlers.get("board:click")();
 assert.deepEqual(Array.from(clickContext.state.picklistCompareTeams), [null, null, null, null]);
 assert.equal(savedAllianceClicks, 2);

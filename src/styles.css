@@ -2045,9 +2045,8 @@ button.pill {
 }
 
 .picklist-tile.compare-selected {
-  box-shadow:
-    inset 0 0 0 999px color-mix(in srgb, var(--compare-accent) 100%, white),
-    inset 0 0 0 2px color-mix(in srgb, var(--compare-accent) 86%, black);
+  background: color-mix(in srgb, var(--compare-accent) 72%, black) !important;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--compare-accent) 86%, black);
   color: #ffffff;
 }
 
@@ -2132,10 +2131,29 @@ button.pill {
   color: #183b24;
 }
 
+.picklist-tile.captain-confirmed.compare-selected {
+  background: #b8e6c5 !important;
+  box-shadow: inset 0 0 0 2px var(--compare-accent);
+  color: #183b24;
+}
+
 .captain-legend-possible,
 .picklist-tile.captain-possible {
   background: #ffe0a3 !important;
   color: #4d3510;
+}
+
+.picklist-tile.captain-possible.compare-selected {
+  background: #ffe0a3 !important;
+  box-shadow: inset 0 0 0 2px var(--compare-accent);
+  color: #4d3510;
+}
+
+.picklist-tile.picked.compare-selected.captain-confirmed,
+.picklist-tile.picked.compare-selected.captain-possible {
+  background: #808080 !important;
+  box-shadow: inset 0 0 0 2px var(--compare-accent);
+  color: #000;
 }
 
 .captain-legend-picked {
@@ -2233,9 +2251,15 @@ button.pill {
 }
 
 .board-cell.occupied.compare-selected {
+  background: color-mix(in srgb, var(--compare-accent) 72%, black) !important;
   border-color: var(--compare-accent);
   box-shadow: inset 0 0 0 2px var(--compare-accent);
+  color: #ffffff;
   cursor: pointer;
+}
+
+.board-cell.occupied.compare-selected span {
+  color: inherit;
 }
 
 .board-cell.occupied span {
