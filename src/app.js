@@ -10055,7 +10055,7 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         compareIndex: options.compareIndex,
         extraClass: picked,
         title: captainTitle,
-        disabled: isPicked,
+        disabled: isPicked && !options.allianceTeam,
         draggable: !isPicked,
         dragData: isPicked ? "" : String(teamSelectionId(team)),
         dataAttribute: options.navigation ? `data-team="${teamSelectionId(team)}"` : options.allianceTeam ? `data-alliance-team="${teamSelectionId(team)}"` : "",
@@ -10071,7 +10071,7 @@ function renderPicklistTile(number, index, picklist, options = {}) {
         compareIndex: options.compareIndex,
         extraClass: picked,
         title: captainTitle,
-        disabled: isPicked,
+        disabled: isPicked && !options.allianceTeam,
         draggable: !isPicked,
         dragData: isPicked ? "" : String(teamSelectionId(team)),
         dataAttribute: options.navigation ? `data-team="${teamSelectionId(team)}"` : options.allianceTeam ? `data-alliance-team="${teamSelectionId(team)}"` : "",
@@ -10320,8 +10320,13 @@ function renderBoardCell(teamNumber, index) {
   if (teamNumber) {
     const team = teamByNumber(teamNumber);
     const teamLabel = team ? teamDisplayLabel(team) : String(teamNumber);
+    const teamId = teamSelectionId(team) || teamNumber;
+    const comparisonIndex = compareSlotIndexForTeam(teamId);
+    const compareColor = comparisonIndex >= 0 ? compareTeamPalette[comparisonIndex] : "";
+    const comparisonStyle = compareColor ? ` style="--compare-accent: ${compareColor}"` : "";
+    const comparisonClass = comparisonIndex >= 0 ? " compare-selected" : "";
     return `
-      <div class="board-cell occupied" data-board-cell="${index}" data-board-team="${teamNumber}" draggable="true" title="Drag to reorder; right-click to remove ${teamLabel}">
+      <div class="board-cell occupied${comparisonClass}" data-board-cell="${index}" data-board-team="${teamNumber}"${comparisonStyle} role="button" aria-pressed="${comparisonIndex >= 0}" aria-label="Toggle comparison highlight for ${teamLabel}" tabindex="0" draggable="true" title="Click to highlight for comparison; drag to reorder; right-click to remove ${teamLabel}">
         <strong>${teamLabel}</strong>
         <span>${team?.name || ""}</span>
       </div>
@@ -10332,6 +10337,30 @@ function renderBoardCell(teamNumber, index) {
       <input class="board-input" data-board-input="${index}" placeholder="Team # or key" aria-label="Alliance slot ${index + 1}" />
     </div>
   `;
+}
+
+function toggleAllianceComparison(teamNumber) {
+  const changed = togglePicklistCompareTeam(teamNumber);
+  if (!changed) return false;
+  saveState();
+  render();
+  return true;
+}
+
+function bindAllianceComparisonClicks() {
+  document.querySelectorAll("[data-board-cell]").forEach((cell) => {
+    if (!cell.dataset.boardTeam) return;
+    const toggle = () => toggleAllianceComparison(cell.dataset.boardTeam);
+    cell.addEventListener("click", toggle);
+    cell.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      toggle();
+    });
+  });
+  document.querySelectorAll("[data-alliance-team]").forEach((tile) => {
+    tile.addEventListener("click", () => toggleAllianceComparison(tile.dataset.allianceTeam));
+  });
 }
 
 function renderBoardContextMenu() {
@@ -11521,6 +11550,7 @@ function bindAllianceSourceScrollbars() {
 }
 
 function bindViewEvents() {
+  bindAllianceComparisonClicks();
   document.querySelector("#loadAdminEventButton")?.addEventListener("click", async () => {
     const input = document.querySelector("#adminEventCodeInput");
     await applyAdminEventCodeDraft(input?.value || "");
@@ -12247,15 +12277,6 @@ function bindViewEvents() {
       const selections = normalizeMatchupMetricSelections().slice(0, -1);
       selections[index] = event.target.value;
       state.matchupMetricSelections = selections.filter(Boolean);
-      render();
-    });
-  });
-  document.querySelectorAll("[data-alliance-team]").forEach((tile) => {
-    tile.addEventListener("click", () => {
-      const teamNumber = tile.dataset.allianceTeam;
-      const changed = togglePicklistCompareTeam(teamNumber);
-      if (!changed) return;
-      saveState();
       render();
     });
   });

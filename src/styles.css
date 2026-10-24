@@ -2061,6 +2061,12 @@ button.pill {
   color: #ffffff;
 }
 
+.picklist-tile.picked.compare-selected {
+  background: #808080 !important;
+  box-shadow: inset 0 0 0 2px var(--compare-accent);
+  color: #000;
+}
+
 .picklist-tile.team-focused {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -2221,9 +2227,15 @@ button.pill {
 
 .board-cell.occupied {
   border-style: solid;
-  cursor: context-menu;
+  cursor: pointer;
   gap: 2px;
   text-align: center;
+}
+
+.board-cell.occupied.compare-selected {
+  border-color: var(--compare-accent);
+  box-shadow: inset 0 0 0 2px var(--compare-accent);
+  cursor: pointer;
 }
 
 .board-cell.occupied span {

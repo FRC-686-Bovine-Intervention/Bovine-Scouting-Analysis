@@ -225,4 +225,81 @@ assert.equal(appBehaviorContext.mobileSnapshot.columns[0].teams[2].comparisonSlo
 assert.equal(appBehaviorContext.mobileSnapshot.columns[0].teams[3].comparisonSlot, 1, "supplementary list preserves the selected B-team color");
 assert.equal(display.validateMobileAllianceSnapshot(appBehaviorContext.mobileSnapshot), true);
 
+// Exercise the Alliance Selection click seam with real rendered team and board markup.
+const allianceClickHandlers = new Map();
+const clickTargets = {
+  "[data-board-cell]": [{ dataset: { boardCell: "0", boardTeam: "frc449B" }, addEventListener: (type, handler) => allianceClickHandlers.set(`board:${type}`, handler) }],
+  "[data-alliance-team]": [{ dataset: { allianceTeam: "frc449B" }, addEventListener: (type, handler) => allianceClickHandlers.set(`source:${type}`, handler) }],
+};
+let savedAllianceClicks = 0;
+let renderedAllianceClicks = 0;
+const clickContext = {
+  state: { allianceBoard: ["frc449B"], picklistCompareTeams: [null, null, null, null], pairwisePicklist: null },
+  document: { querySelectorAll: (selector) => clickTargets[selector] || [] },
+  currentTeams: () => teams,
+  teamSelectionId: selectionId,
+  teamByNumber: (value) => teams.find((team) => team.id === String(value) || team.label === String(value) || team.number === Number(value)),
+  pickedTeams: () => ["frc449B"],
+  activePicklist: () => ({ id: "first-pick" }),
+  picklistTeamIndex: (values, value) => values.findIndex((candidate) => String(candidate) === String(value)),
+  saveState: () => { savedAllianceClicks += 1; },
+  render: () => { renderedAllianceClicks += 1; },
+};
+vm.createContext(clickContext);
+vm.runInContext([
+  sourceFunction("compareSlotIndexForTeam"),
+  sourceFunction("togglePicklistCompareTeam"),
+  sourceFunction("toggleAllianceComparison"),
+  sourceFunction("bindAllianceComparisonClicks"),
+  "bindAllianceComparisonClicks();",
+].join("\n"), clickContext);
+const teamMarkupContext = {
+  compareTeamPalette: display.compareTeamPalette,
+  teamByNumber: clickContext.teamByNumber,
+  teamSelectionId: selectionId,
+  teamDisplayLabel: (team) => team.label,
+  colorForScore: () => "transparent",
+  escapeAttribute: (value) => String(value),
+  compareSlotIndexForTeam: () => 0,
+};
+const pickedSourceContext = {
+  ...teamMarkupContext,
+  ...clickContext,
+  state: { ...clickContext.state, picklistCompareTeams: ["frc449B", null, null, null] },
+};
+vm.createContext(pickedSourceContext);
+vm.runInContext([sourceFunction("renderTeamTile"), sourceFunction("renderPicklistTile")].join("\n") + "\nglobalThis.sourceMarkup = renderPicklistTile('frc449B', 0, null, { allianceTeam: true, compareIndex: 0 });", pickedSourceContext);
+assert.match(pickedSourceContext.sourceMarkup, /picked/);
+assert.match(pickedSourceContext.sourceMarkup, /compare-selected/);
+assert.doesNotMatch(pickedSourceContext.sourceMarkup, /disabled/);
+assert.match(pickedSourceContext.sourceMarkup, /data-alliance-team="frc449B"/);
+allianceClickHandlers.get("source:click")();
+assert.deepEqual(Array.from(clickContext.state.picklistCompareTeams), ["frc449B", null, null, null]);
+assert.equal(savedAllianceClicks, 1);
+const boardMarkupContext = { ...teamMarkupContext, ...clickContext, state: clickContext.state };
+vm.createContext(boardMarkupContext);
+vm.runInContext(sourceFunction("renderBoardCell") + "\nglobalThis.markup = renderBoardCell('frc449B', 0);", boardMarkupContext);
+assert.match(boardMarkupContext.markup, /class="board-cell occupied compare-selected"/);
+assert.match(boardMarkupContext.markup, /data-board-team="frc449B"/);
+assert.match(boardMarkupContext.markup, /role="button"/);
+assert.match(boardMarkupContext.markup, /aria-pressed="true"/);
+assert.doesNotMatch(boardMarkupContext.markup, /picked/);
+assert.match(boardMarkupContext.markup, /--compare-accent:/);
+allianceClickHandlers.get("board:click")();
+assert.deepEqual(Array.from(clickContext.state.picklistCompareTeams), [null, null, null, null]);
+assert.equal(savedAllianceClicks, 2);
+assert.equal(renderedAllianceClicks, 2);
+allianceClickHandlers.get("board:click")();
+assert.deepEqual(Array.from(clickContext.state.picklistCompareTeams), ["frc449B", null, null, null], "an unhighlighted board team can be added to comparison");
+clickTargets["[data-alliance-team]"][0].dataset.allianceTeam = "frc449B";
+allianceClickHandlers.get("source:click")();
+assert.deepEqual(Array.from(clickContext.state.picklistCompareTeams), [null, null, null, null], "a highlighted B-team can be removed from Displayed Sources");
+assert.equal(savedAllianceClicks, 4);
+assert.equal(renderedAllianceClicks, 4);
+clickContext.state.picklistCompareTeams = [1731, 449, 9072, "frc449B"];
+clickTargets["[data-alliance-team]"][0].dataset.allianceTeam = "5000";
+allianceClickHandlers.get("source:click")();
+assert.deepEqual(Array.from(clickContext.state.picklistCompareTeams), [1731, 449, 9072, "frc449B"], "a fifth comparison team must not replace any of the four selected teams");
+assert.equal(savedAllianceClicks, 4, "a rejected fifth selection does not save or rerender");
+
 console.log("PASS Team Rank follows current TBA order, drives captain calculation, and stays aligned with mobile IDs/order");
