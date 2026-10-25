@@ -137,7 +137,7 @@ assert.match(rules, /match \/events\/\{eventId\}\/submissions\/\{submissionId\}[
 assert.match(rules, /match \/events\/\{eventId\}\/workspace\/\{workspaceId\}[\s\S]*?allow read: if isAllowed\(\)/);
 
 class FakeNode {
-  constructor(dataset = {}) { this.dataset = dataset; this.children = []; this.listeners = {}; this.attributes = {}; this.hidden = false; this.textContent = ""; this.className = ""; }
+  constructor(dataset = {}) { this.dataset = dataset; this.children = []; this.listeners = {}; this.attributes = {}; this.hidden = false; this.textContent = ""; this.className = ""; this.clientWidth = 342; }
   replaceChildren(...children) { this.children = children; }
   append(...children) { this.children.push(...children); }
   addEventListener(name, handler) { this.listeners[name] = handler; }
@@ -150,13 +150,14 @@ const selectors = new Map([
 ]);
 const tabs = [new FakeNode({ mobileTab: "board" }), new FakeNode({ mobileTab: "picklists" })];
 let receiveSnapshot;
+const windowListeners = {};
 const mobileContext = {
   console,
   document: { querySelector: (selector) => selectors.get(selector), querySelectorAll: (selector) => selector === "[data-mobile-tab]" ? tabs : [] , createElement: () => new FakeNode() },
   mobileAllianceDisplay: display,
   ScoreColor: scoreColorContext.globalThis.ScoreColor,
   firebaseMobileDisplayApi: { subscribeMobileAllianceSnapshot: (callback) => { receiveSnapshot = callback; } },
-  addEventListener: () => {},
+  addEventListener: (name, callback) => { windowListeners[name] = callback; },
 };
 mobileContext.globalThis = mobileContext;
 vm.runInNewContext(fs.readFileSync(new URL("../src/mobile-alliance-viewer.js", import.meta.url), "utf8"), mobileContext);
@@ -227,10 +228,21 @@ assert.equal(renderedScoreRows[0].children[0].textContent, "13", "metric rows di
 assert.equal(renderedScoreRows[0].children[1].textContent, "0.0", "metric score remains a separate field");
 assert.equal(renderedScoreRows[0].attributes.style, "--metric-fill: rgba(239, 68, 68, 1.000)", "low metric values use the desktop red score fill on the complete row");
 assert.equal(renderedScoreRows[1].attributes.style, "--metric-fill: rgba(34, 197, 94, 1.000)", "high metric values use the desktop green score fill on the complete row");
+const balancedRankSnapshot = display.buildMobileAllianceSnapshot({
+  eventKey: "2026vagle2",
+  rankings: Array.from({ length: 31 }, (_, index) => ({ teamNumber: String(index + 1) })),
+});
+receiveSnapshot(balancedRankSnapshot);
+assert.equal(selectors.get("#final-rankings").attributes.style, "--mobile-ranking-row-count: 11", "31 ranked teams use 11 rows across the 3 visible mobile columns at 342px");
+selectors.get("#final-rankings").clientWidth = 525;
+windowListeners.resize();
+assert.equal(selectors.get("#final-rankings").attributes.style, "--mobile-ranking-row-count: 7", "resizing to 5 visible columns recalculates a balanced 7-row rank layout");
+receiveSnapshot(worldSnapshot);
 const mobileStyles = fs.readFileSync(new URL("../src/mobile-alliance.css", import.meta.url), "utf8");
 assert.match(mobileStyles, /\.alliance-slots\s*\{[^}]*repeat\(var\(--alliance-slot-count,\s*3\)/s, "alliance rows honor the event-specific three/four slot count");
 assert.match(mobileStyles, /\.alliance-row\s*\{[^}]*grid-template-columns:\s*85px\s+minmax\(0,\s*1fr\)\s+70px/s, "alliance rows reserve a separate EPA cell beside the team slots");
 assert.match(mobileStyles, /@media \(max-width: 699px\)[\s\S]*?\.alliance-row\s*\{[^}]*grid-template-columns:\s*27px\s+minmax\(0,\s*1fr\)\s+49px/s, "mobile alliance EPA cells stay compact while all eight rows fit");
+assert.match(mobileStyles, /#final-rankings\s*\{[^}]*grid-template-rows:\s*repeat\(var\(--mobile-ranking-row-count,\s*12\),\s*minmax\(25px,\s*auto\)\)/s, "mobile Team Rank rows follow the calculated team count and visible column count");
 assert.match(mobileStyles, /@media \(max-width: 699px\)[\s\S]*?\.mobile-picklists\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/s, "four Picklists cards fit side by side on mobile");
 assert.match(mobileStyles, /\.mobile-picklists\[data-column-count="1"\]\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s, "a single mobile Picklist uses the available width");
 assert.match(mobileStyles, /@media \(max-width: 699px\)[\s\S]*?\.mobile-picklists\s*\{[^}]*overflow:\s*visible/s, "the document scrolls all Picklists together rather than independent cards");

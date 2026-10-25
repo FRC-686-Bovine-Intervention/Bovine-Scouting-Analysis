@@ -5,6 +5,14 @@
   const picklistsRoot = $("#mobile-picklists");
   const emptyState = $("#empty-state");
   let activeTab = "board";
+  let rankedTeamCount = 0;
+
+  function updateMobileRankingLayout() {
+    const availableWidth = Number(rankingsRoot.clientWidth) || Number(globalThis.innerWidth) || 0;
+    const visibleColumns = Math.max(1, Math.floor((availableWidth + 3) / 91));
+    const rowCount = Math.max(1, Math.ceil(rankedTeamCount / visibleColumns));
+    rankingsRoot.setAttribute("style", `--mobile-ranking-row-count: ${rowCount}`);
+  }
 
   function metricFill(score, minScore, maxScore) {
     return globalThis.ScoreColor?.colorForScore(score, minScore, maxScore, "desc") || "transparent";
@@ -52,6 +60,8 @@
     if (!valid) {
       boardRoot.replaceChildren();
       rankingsRoot.replaceChildren();
+      rankedTeamCount = 0;
+      updateMobileRankingLayout();
       picklistsRoot.className = "mobile-picklists is-empty";
       picklistsRoot.dataset.columnCount = "0";
       picklistsRoot.replaceChildren();
@@ -97,6 +107,8 @@
 
     rankingsRoot.replaceChildren();
     snapshot.rankings.forEach((team) => rankingsRoot.append(rankedTeamRow(team)));
+    rankedTeamCount = snapshot.rankings.length;
+    updateMobileRankingLayout();
 
     picklistsRoot.className = `mobile-picklists${snapshot.columns.length ? "" : " is-empty"}`;
     picklistsRoot.dataset.columnCount = String(snapshot.columns.length);
@@ -140,7 +152,9 @@
     document.querySelectorAll("[data-mobile-tab]").forEach((tab) => tab.setAttribute("aria-selected", String(tab === button)));
     $("#board-view").hidden = activeTab !== "board" || emptyState.hidden === false;
     $("#picklists-view").hidden = activeTab !== "picklists" || emptyState.hidden === false;
+    updateMobileRankingLayout();
   }));
+  globalThis.addEventListener("resize", updateMobileRankingLayout);
   globalThis.addEventListener("firebase-mobile-display-api-ready", connect);
   connect();
 })();
