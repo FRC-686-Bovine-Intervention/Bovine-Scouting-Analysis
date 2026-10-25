@@ -9015,10 +9015,17 @@ function scheduleRow(match, currentMatch, highlightTeam) {
       : matchHasScore(match)
         ? "schedule-complete"
         : "";
+  const predictedTime = Number(match.predictedTime);
+  const hasPredictedTime = Number.isFinite(predictedTime) && predictedTime > 0;
+  const predictedDate = hasPredictedTime ? new Date(predictedTime * 1000) : null;
+  const predictedTimeMarkup = predictedDate && !Number.isNaN(predictedDate.getTime())
+    ? `<time class="match-estimated-time" datetime="${predictedDate.toISOString()}" aria-label="Estimated match start ${escapeAttribute(predictedDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}">${escapeHtml(predictedDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}</time>`
+    : "";
   return `
-    <article class="match-row ${className}" data-match-row="${escapeAttribute(matchIdentity(match))}"${isCurrent ? ' data-schedule-last-played="true"' : ""} title="Open ${escapeAttribute(matchupMatchLabel(match))} matchup">
+    <article class="match-row${predictedTimeMarkup ? " match-row-has-time" : ""} ${className}" data-match-row="${escapeAttribute(matchIdentity(match))}"${isCurrent ? ' data-schedule-last-played="true"' : ""} title="Open ${escapeAttribute(matchupMatchLabel(match))} matchup">
       <button class="match-link" data-match="${escapeAttribute(matchIdentity(match))}">${escapeHtml(matchupMatchLabel(match))}</button>
       <span class="alliance red">${scheduleAllianceSlots(match.redLabels || match.red).map(scheduleTeamSlot).join("")}</span>
+      ${predictedTimeMarkup}
       <span class="alliance blue">${scheduleAllianceSlots(match.blueLabels || match.blue).map(scheduleTeamSlot).join("")}</span>
     </article>
   `;

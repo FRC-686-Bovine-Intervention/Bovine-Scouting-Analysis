@@ -371,11 +371,15 @@ function normalizeMatches(matches) {
       const blueLabels = blueTeamKeys.map((teamKey) => String(teamKey).replace(/^frc/i, ""));
       const redScore = Number(match.alliances?.red?.score);
       const blueScore = Number(match.alliances?.blue?.score);
+      // TBA's predicted_time is its estimated start as a Unix timestamp (seconds).
+      // Keep it only when TBA supplied a usable value; callers must not infer a time.
+      const predictedTime = Number(match.predicted_time);
       return {
         id: String(match.key || `${match.comp_level || "qm"}-${match.set_number || 0}-${match.match_number || 0}`),
         compLevel: String(match.comp_level || "qm").toLowerCase(),
         setNumber: Number(match.set_number) || 0,
         number: Number(match.match_number),
+        ...(Number.isFinite(predictedTime) && predictedTime > 0 ? { predictedTime } : {}),
         red: redLabels.map(Number).filter(Number.isFinite),
         blue: blueLabels.map(Number).filter(Number.isFinite),
         ...(redLabels.some((label) => !/^\d+$/.test(label)) ? {

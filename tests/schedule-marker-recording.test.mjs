@@ -60,7 +60,7 @@ const builderContext = {
 builderContext.globalThis = builderContext;
 vm.runInNewContext(builderSource, builderContext, { filename: "src/event-model-builder.js" });
 
-function eventAt(cursor) {
+function eventAt(cursor, matchesOverride = null) {
   const recording = JSON.parse(fs.readFileSync(cursorPath(cursor), "utf8"));
   const tba = recording.providers.tba.endpoints;
   const statbotics = recording.providers.statbotics.endpoints;
@@ -69,7 +69,7 @@ function eventAt(cursor) {
     year: 2026,
     tbaEvent: tba.event.payload,
     tbaTeams: tba.teams.payload,
-    tbaMatches: tba.matches.payload,
+    tbaMatches: matchesOverride || tba.matches.payload,
     tbaAlliances: tba.alliances.payload,
     tbaRankings: tba.rankings.payload,
     tbaTeamStats: tba.oprs.payload,
@@ -99,4 +99,23 @@ assert.equal(qualsOnly.matches.some((match) => match.compLevel !== "qm"), false)
 currentModel = qualsOnly;
 assert.deepEqual(markerAt(373), ["2026vaale1_qm36"], "with only qualifications, keep the current marker on the next qualification");
 
-console.log("PASS schedule marker follows the active playoff section and preserves qualification-only behavior");
+const recording = JSON.parse(fs.readFileSync(cursorPath(374), "utf8"));
+const scheduledMatch = structuredClone(recording.providers.tba.endpoints.matches.payload[0]);
+scheduledMatch.predicted_time = 1790425800;
+scheduledMatch.time = null;
+currentModel = eventAt(374, [scheduledMatch]);
+assert.equal(currentModel.matches[0].predictedTime, 1790425800, "preserve TBA's predicted_time Unix seconds in normalized matches");
+const estimatedRow = appContext.scheduleRow(currentModel.matches[0], null, 0);
+assert.match(estimatedRow, /<time class="match-estimated-time" datetime="2026-09-26T[^"]+" aria-label="Estimated match start [^"]+">/);
+assert.match(estimatedRow, /class="match-row match-row-has-time/);
+assert.ok(estimatedRow.indexOf('class="alliance red"') < estimatedRow.indexOf('class="match-estimated-time"'));
+assert.ok(estimatedRow.indexOf('class="match-estimated-time"') < estimatedRow.indexOf('class="alliance blue"'));
+
+const withoutEstimate = { ...scheduledMatch };
+delete withoutEstimate.predicted_time;
+currentModel = eventAt(374, [withoutEstimate]);
+assert.equal("predictedTime" in currentModel.matches[0], false, "do not invent normalized estimates when TBA omits predicted_time");
+const noEstimateRow = appContext.scheduleRow(currentModel.matches[0], null, 0);
+assert.doesNotMatch(noEstimateRow, /match-estimated-time|match-row-has-time|Estimated match start/);
+
+console.log("PASS schedule marker and TBA estimated-time behavior");
