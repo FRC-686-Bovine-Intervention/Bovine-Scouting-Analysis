@@ -88,7 +88,8 @@
       allianceEpa.textContent = Number.isFinite(epaTotal) ? `EPA=${Number(epaTotal).toFixed(1)}` : "---";
       if (Number.isFinite(epaTotal)) {
         const epaRange = snapshot.allianceEpaRange;
-        allianceEpa.setAttribute("style", `--metric-fill: ${metricFill(epaTotal, epaRange?.min ?? Number.NaN, epaRange?.max ?? Number.NaN)}`);
+        const fill = metricFill(epaTotal, epaRange?.min ?? Number.NaN, epaRange?.max ?? Number.NaN);
+        if (fill !== "transparent") allianceEpa.setAttribute("style", `--metric-fill: ${fill}`);
       }
       group.append(allianceEpa);
       boardRoot.append(group);

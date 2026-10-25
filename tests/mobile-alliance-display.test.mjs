@@ -201,6 +201,16 @@ assert.equal(selectors.get("#selection-board").children[0].children[2].attribute
 assert.equal(selectors.get("#selection-board").children[1].children[2].textContent, "EPA=15.3");
 assert.equal(selectors.get("#selection-board").children[1].children[2].attributes.style, "--metric-fill: rgba(34, 197, 94, 1.000)", "highest mobile alliance EPA uses the desktop green score fill");
 assert.equal(selectors.get("#selection-board").children[2].children[2].textContent, "---", "unavailable alliance EPA uses the compact placeholder without explanation prose");
+const midpointEpaSnapshot = display.buildMobileAllianceSnapshot({
+  eventKey: "2026chcmp",
+  allianceEpa: [0, 15, 30, null, null, null, null, null],
+  allianceEpaRange: { min: 0, max: 30 },
+});
+receiveSnapshot(midpointEpaSnapshot);
+assert.equal(selectors.get("#selection-board").children[0].children[2].attributes.style, "--metric-fill: rgba(239, 68, 68, 1.000)", "low EPA cells receive the red score color directly");
+assert.equal(selectors.get("#selection-board").children[1].children[2].attributes.style, undefined, "midpoint EPA cells keep the alternating alliance tint");
+assert.equal(selectors.get("#selection-board").children[2].children[2].attributes.style, "--metric-fill: rgba(34, 197, 94, 1.000)", "high EPA cells receive the green score color directly");
+receiveSnapshot(worldSnapshot);
 assert.equal(selectors.get("#mobile-picklists").children.length, 4, "the Picklists page renders four simultaneous source columns");
 assert.equal(selectors.get("#mobile-picklists").children[0].children[0].textContent, "List 1");
 assert.equal(selectors.get("#mobile-picklists").children[0].children[1].children[0].children.length, 2, "mobile Picklists show a team number and score without a rank ordinal");
@@ -229,7 +239,8 @@ assert.match(mobileStyles, /@media \(max-width: 699px\)[\s\S]*?\.alliance-row:nt
 assert.match(mobileStyles, /\.mobile-picklists \.ranking-row:not\(\.compare-selected\)\s*\{[^}]*background:\s*var\(--metric-fill/s, "Picklists apply metric color to the complete row");
 assert.match(mobileStyles, /\.mobile-picklists \.ranking-row\.state-picked:not\(\.compare-selected\)\s*\{[^}]*linear-gradient\(rgba\(85, 93, 99,/s, "picked Picklists preserve a gray overlay over the full-row metric fill");
 assert.match(mobileStyles, /\.alliance-row \.board-slot\.occupied\.state-picked\.compare-selected\s*\{[^}]*linear-gradient\(rgba\(85, 93, 99,/s, "picked comparison board slots retain the translucent gray overlay above alternating row tints");
-assert.match(mobileStyles, /\.alliance-row \.alliance-epa\[style\]\s*\{[^}]*linear-gradient\(var\(--metric-fill\),\s*var\(--metric-fill\)\)/s, "EPA score fills overlay the alliance tint using the published score color after alternating row colors");
+assert.match(mobileStyles, /\.alliance-row \.alliance-epa\[style\]\s*\{[^}]*background:\s*var\(--metric-fill\)/s, "colored EPA cells use the published red/green score color directly");
+assert.doesNotMatch(mobileStyles, /\.alliance-row \.alliance-epa\[style\]\s*\{[^}]*linear-gradient/s, "EPA score fills are not blended over the alternating alliance tint");
 assert.match(mobileStyles, /\.ranking-row\.state-picked\.compare-selected\s*\{[^}]*linear-gradient\(rgba\(85, 93, 99, \.52\)/s, "picked comparison teams retain the gray overlay over their highlight color");
 assert.match(fs.readFileSync(new URL("../mobile.html", import.meta.url), "utf8"), /data-mobile-tab="board" aria-selected="true">Selection Board<\/button>/, "mobile page selector uses the production Selection Board label");
 receiveSnapshot(display.buildMobileAllianceSnapshot({ eventKey: "2026chcmp", eventName: "Updated", board: [{ teamNumber: 9999 }] }));

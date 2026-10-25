@@ -88,4 +88,4 @@ footer { padding: 18px 0 4px; color: #80939f; font-size: .75rem; text-align: cen
   .mobile-picklists .team-score { min-width: 19px; padding: 2px 1px; font-size: .56rem; }
   .mobile-picklists-hint { display: none; }
 }
-.alliance-row .alliance-epa[style] { background-image: linear-gradient(var(--metric-fill), var(--metric-fill)); }
+.alliance-row .alliance-epa[style] { background: var(--metric-fill); }
