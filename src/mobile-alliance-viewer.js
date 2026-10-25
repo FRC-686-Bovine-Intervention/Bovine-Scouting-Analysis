@@ -12,28 +12,37 @@
     return `hsl(${Math.round(ratio * 120)} 58% 38%)`;
   }
 
-  function rankedTeamRow(team, scoreRange = null) {
+  function rankedTeamRow(team, scoreRange = null, includeRank = true) {
     const row = document.createElement("li");
     row.className = `ranking-row state-${team.state}`;
     const compareColor = globalThis.mobileAllianceDisplay?.compareColorForSlot(team.comparisonSlot);
+    const rowStyles = [];
     if (compareColor) {
       row.className += " compare-selected";
       row.setAttribute("data-comparison-slot", String(team.comparisonSlot));
-      row.setAttribute("style", `--compare-accent: ${compareColor}`);
+      rowStyles.push(`--compare-accent: ${compareColor}`);
     }
-    const rank = document.createElement("span");
-    rank.className = "rank-number";
-    rank.textContent = String(team.rank);
+    if (Number.isFinite(team.score)) {
+      rowStyles.push(`--metric-fill: ${metricFill(Number(team.score), scoreRange?.min ?? Number.NaN, scoreRange?.max ?? Number.NaN)}`);
+    }
+    if (rowStyles.length) row.setAttribute("style", rowStyles.join("; "));
+    const cells = [];
+    if (includeRank) {
+      const rank = document.createElement("span");
+      rank.className = "rank-number";
+      rank.textContent = String(team.rank);
+      cells.push(rank);
+    }
     const label = document.createElement("span");
     label.textContent = team.teamNumber;
-    row.append(rank, label);
+    cells.push(label);
     if (Number.isFinite(team.score)) {
       const score = document.createElement("span");
       score.className = "team-score";
       score.textContent = Number(team.score).toFixed(1);
-      score.setAttribute("style", `--metric-fill: ${metricFill(Number(team.score), scoreRange?.min ?? Number.NaN, scoreRange?.max ?? Number.NaN)}`);
-      row.append(score);
+      cells.push(score);
     }
+    row.append(...cells);
     return row;
   }
 
@@ -67,7 +76,7 @@
       group.setAttribute("style", `--alliance-slot-count: ${allianceSize}`);
       snapshot.board.filter((slot) => slot.alliance === alliance).forEach((slot) => {
         const cell = document.createElement("div");
-        cell.className = `board-slot${slot.teamNumber ? " occupied" : ""}`;
+        cell.className = `board-slot${slot.teamNumber ? " occupied state-picked" : ""}`;
         cell.textContent = slot.teamNumber || "—";
         const compareColor = globalThis.mobileAllianceDisplay?.compareColorForSlot(slot.comparisonSlot);
         if (compareColor) {
@@ -108,7 +117,7 @@
       list.className = "mobile-rankings";
       const scores = column.teams.map((team) => team.score).filter(Number.isFinite);
       const scoreRange = scores.length ? { min: Math.min(...scores), max: Math.max(...scores) } : null;
-      column.teams.forEach((team) => list.append(rankedTeamRow(team, scoreRange)));
+      column.teams.forEach((team) => list.append(rankedTeamRow(team, scoreRange, false)));
       card.append(heading, list);
       picklistsRoot.append(card);
     });

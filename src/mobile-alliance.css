@@ -26,6 +26,7 @@ body { margin: 0; background: #101820; }
 .alliance-row:nth-child(odd) .board-slot.occupied { background: #7b292b; }
 .alliance-row:nth-child(even) .board-slot.occupied { background: #244f85; }
 .board-slot.occupied.compare-selected { background: var(--compare-accent); border-color: color-mix(in srgb, var(--compare-accent) 70%, white); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--compare-accent) 75%, black); }
+.alliance-row .board-slot.occupied.state-picked.compare-selected { background: linear-gradient(rgba(85, 93, 99, .52), rgba(85, 93, 99, .52)), var(--compare-accent); }
 .legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; color: #e5ebef; font-size: .65rem; }
 .legend span { border-radius: 5px; padding: 3px 5px; }
 .confirmed { background: #29553d; }.possible { background: #6b5724; }.picked { background: #555d63; }
@@ -36,7 +37,10 @@ body { margin: 0; background: #101820; }
 .ranking-row.compare-selected { background: var(--compare-accent); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--compare-accent) 86%, black); color: #fff; }
 .ranking-row.state-picked.compare-selected { background: linear-gradient(rgba(85, 93, 99, .52), rgba(85, 93, 99, .52)), var(--compare-accent); }
 .team-score { color: #d0dde5; font-variant-numeric: tabular-nums; }
-.ranking-row .team-score { border-radius: 4px; padding: 2px 4px; background: var(--metric-fill, transparent); color: #fff; text-align: center; }
+.ranking-row .team-score { border-radius: 4px; padding: 2px 4px; background: transparent; color: #fff; text-align: center; }
+.mobile-picklists .ranking-row { grid-template-columns: minmax(0, 1fr) auto; }
+.mobile-picklists .ranking-row:not(.compare-selected) { background: var(--metric-fill, transparent); }
+.mobile-picklists .ranking-row.state-picked:not(.compare-selected) { background: linear-gradient(rgba(85, 93, 99, .52), rgba(85, 93, 99, .52)), var(--metric-fill, #555d63); }
 .mobile-picklists {
   display: grid;
   grid-auto-flow: column;
@@ -80,8 +84,7 @@ footer { padding: 18px 0 4px; color: #80939f; font-size: .75rem; text-align: cen
   .mobile-picklists > .mobile-card { padding: 5px 3px; }
   .mobile-picklists > .mobile-card h2 { min-height: 3em; margin-bottom: 5px; font-size: .68rem; line-height: 1.15; overflow-wrap: anywhere; }
   .mobile-picklists .mobile-rankings { gap: 2px; }
-  .mobile-picklists .ranking-row { grid-template-columns: 14px minmax(0, 1fr) 21px; min-height: 24px; gap: 1px; padding: 2px 1px; font-size: .61rem; }
-  .mobile-picklists .rank-number { font-size: .55rem; }
+  .mobile-picklists .ranking-row { grid-template-columns: minmax(0, 1fr) 21px; min-height: 24px; gap: 1px; padding: 2px 1px; font-size: .61rem; }
   .mobile-picklists .team-score { min-width: 19px; padding: 2px 1px; font-size: .56rem; }
   .mobile-picklists-hint { display: none; }
 }

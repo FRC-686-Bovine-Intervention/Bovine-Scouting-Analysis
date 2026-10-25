@@ -99,12 +99,21 @@ const sourceFunction = (name, nextName) => {
   assert.ok(end > start, `app should expose a complete ${name} function`);
   return appSource.slice(start, end);
 };
+const renderNowSource = sourceFunction("renderNow", "render");
+assert.match(renderNowSource, /if \(isAdmin\(\)\) publishCurrentMobileAllianceSnapshot\(\)/, "every admin render requests a fresh alliance display snapshot");
+assert.doesNotMatch(renderNowSource, /__pendingMobileAllianceSnapshot/, "rendering another page cannot republish an old mobile snapshot");
+const mobilePublishSource = sourceFunction("publishCurrentMobileAllianceSnapshot");
+assert.match(mobilePublishSource, /buildCurrentMobileAllianceSnapshot\(\)/, "the publish helper reads current board and EPA state at call time");
+assert.match(appSource, /addEventListener\("firebase-mobile-display-api-ready", publishCurrentMobileAllianceSnapshot\)/, "initial async Firebase readiness publishes the current EPA snapshot");
 const renderedTiles = [];
+let publishedMobileSnapshot;
 const manualTeams = manualFirstPickOrder.map((id) => teams.find((team) => team.id === id));
 const appBehaviorContext = {
   teamRankModel: model,
   allianceCaptainState: captainState,
   mobileAllianceDisplay: display,
+  isAdmin: () => true,
+  firebaseMobileDisplayApi: { publishMobileAllianceSnapshot: (snapshot) => { publishedMobileSnapshot = snapshot; return true; } },
   state: {
     activeEventKey: "2022chcmp",
     allianceBoard: board,
@@ -150,6 +159,7 @@ vm.runInContext([
   sourceFunction("compareSlotIndexForTeam"),
   sourceFunction("buildCurrentMobileAllianceSnapshot", "allianceEpaSummaryData"),
   sourceFunction("allianceEpaSummaryData", "renderAllianceEpaSummary"),
+  sourceFunction("publishCurrentMobileAllianceSnapshot"),
   sourceFunction("renderAllianceEpaSummary", "renderAlliance"),
   sourceFunction("colorForScore", "sortDirectionGlyph"),
   sourceFunction("renderAlliance"),
@@ -227,6 +237,19 @@ assert.equal(appBehaviorContext.mobileSnapshot.columns[0].teams[3].comparisonSlo
 assert.equal(display.validateMobileAllianceSnapshot(appBehaviorContext.mobileSnapshot), true);
 assert.equal(appBehaviorContext.mobileSnapshot.board.length, 24, "ordinary event snapshots retain three mobile slots per alliance");
 assert.deepEqual(Array.from(appBehaviorContext.mobileSnapshot.allianceEpa), [7, null, null, null, null, null, null, null], "mobile EPA cell uses the complete selected-team total and leaves empty alliances unavailable");
+const savedBoard = [...board];
+const savedComparisonTeams = [...appBehaviorContext.state.picklistCompareTeams];
+board.fill(null);
+board[0] = 1731;
+board[1] = "frc449B";
+board[2] = 9072;
+board[3] = 449;
+appBehaviorContext.state.picklistCompareTeams = [1731, "frc449B", 9072, 449];
+const allBoardComparisons = appBehaviorContext.buildCurrentMobileAllianceSnapshot();
+assert.deepEqual(Array.from(allBoardComparisons.board.slice(0, 4), (slot) => slot.comparisonSlot), [0, 1, 2, 3], "all four active comparison colors propagate to placed board slots");
+board.fill(null);
+savedBoard.forEach((team, index) => { board[index] = team; });
+appBehaviorContext.state.picklistCompareTeams = savedComparisonTeams;
 board.fill(null);
 board[0] = "frc449B";
 board[1] = 1731;
@@ -245,6 +268,9 @@ assert.deepEqual(Array.from(worldMobileSnapshot.board.slice(0, 8), (slot) => [sl
   [2, ""], [2, ""], [2, ""], [2, ""],
 ]);
 assert.equal(worldMobileSnapshot.allianceEpa[0], null, "mobile alliance EPA does not present a partial sum when one selected team's EPA is unavailable");
+assert.equal(appBehaviorContext.publishCurrentMobileAllianceSnapshot(), true, "the current mobile display snapshot publishes successfully");
+assert.equal(publishedMobileSnapshot.eventKey, "2024cmptx");
+assert.equal(publishedMobileSnapshot.allianceEpa[0], null, "the publish helper sends fresh EPA state rather than a prior view's snapshot");
 
 // Exercise the Alliance Selection click seam with real rendered team and board markup.
 const allianceClickHandlers = new Map();

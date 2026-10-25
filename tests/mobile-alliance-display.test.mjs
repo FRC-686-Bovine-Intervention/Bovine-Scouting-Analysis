@@ -57,7 +57,9 @@ const worldSnapshot = display.buildMobileAllianceSnapshot({
   eventKey: "2024cmptx",
   allianceSize: 4,
   allianceEpa: [0, 15.25, null, undefined, 2, null, null, null],
-  board: Array.from({ length: 32 }, (_, index) => index === 0 ? { teamNumber: 686, comparisonSlot: 0 } : null),
+  board: Array.from({ length: 32 }, (_, index) => index < 4
+    ? { teamNumber: [686, 449, 1719, "449B"][index], comparisonSlot: index }
+    : null),
   rankings: [{ teamNumber: 686, state: "picked", comparisonSlot: 0 }],
   columns: Array.from({ length: 4 }, (_, index) => ({
     id: `picklist:${index}`,
@@ -112,6 +114,10 @@ snapshotListener({ exists: () => true, data: () => writtenDocument });
 assert.deepEqual(JSON.parse(JSON.stringify(deliveredSnapshot)), JSON.parse(JSON.stringify(snapshot)));
 snapshotListener({ exists: () => true, data: () => ({ ...writtenDocument, eventKey: "other-event" }) });
 assert.equal(deliveredSnapshot, null);
+assert.equal(firebaseContext.globalThis.firebaseMobileDisplayApi.publishMobileAllianceSnapshot(worldSnapshot), true, "a changed current alliance snapshot supersedes its prior public contents");
+await new Promise((resolve) => setTimeout(resolve, 400));
+snapshotListener({ exists: () => true, data: () => writtenDocument });
+assert.deepEqual(Array.from(deliveredSnapshot.allianceEpa), Array.from(worldSnapshot.allianceEpa), "fresh published EPA totals reach mobile subscribers");
 
 const rules = fs.readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
 const publicMatch = rules.match(/match \/publicAllianceSelection\/\{displayId\} \{([\s\S]*?)\n    \}/)?.[1] || "";
@@ -167,19 +173,28 @@ const renderedComparisonColumnRows = selectors.get("#mobile-picklists").children
 assert.equal(renderedComparisonColumnRows[2].attributes.style, "--compare-accent: #7c3aed");
 assert.equal(renderedComparisonColumnRows[3].attributes.style, "--compare-accent: #0891b2");
 receiveSnapshot(teamObjectColumn);
-assert.equal(selectors.get("#mobile-picklists").children[0].children[1].children[0].children[1].textContent, "2106");
+assert.equal(selectors.get("#mobile-picklists").children[0].children[1].children[0].children[0].textContent, "2106");
 receiveSnapshot(worldSnapshot);
 assert.equal(selectors.get("#selection-board").children.length, 8);
 assert.equal(selectors.get("#selection-board").children[0].children[0].textContent, "A1");
 assert.equal(selectors.get("#selection-board").children[0].children[1].children.length, 4);
 assert.equal(selectors.get("#selection-board").children[0].children[1].children[0].textContent, "686");
+assert.deepEqual(Array.from(selectors.get("#selection-board").children[0].children[1].children, (slot) => slot.className), [
+  "board-slot occupied state-picked compare-selected",
+  "board-slot occupied state-picked compare-selected",
+  "board-slot occupied state-picked compare-selected",
+  "board-slot occupied state-picked compare-selected",
+], "all four highlighted board teams carry picked state for compositional gray treatment");
+assert.deepEqual(Array.from(selectors.get("#selection-board").children[0].children[1].children, (slot) => slot.attributes.style), [
+  "--compare-accent: #2563eb", "--compare-accent: #ca8a04", "--compare-accent: #7c3aed", "--compare-accent: #0891b2",
+], "all four comparison colors reach board slots");
 assert.equal(selectors.get("#selection-board").children[0].children[1].children[0].attributes.style, "--compare-accent: #2563eb");
 assert.equal(selectors.get("#selection-board").children[0].children[2].textContent, "EPA=0.0", "the mobile board formats a usable EPA total as a separate one-decimal cell");
 assert.equal(selectors.get("#selection-board").children[1].children[2].textContent, "EPA=15.3");
 assert.equal(selectors.get("#selection-board").children[2].children[2].textContent, "---", "unavailable alliance EPA uses the compact placeholder without explanation prose");
 assert.equal(selectors.get("#mobile-picklists").children.length, 4, "the Picklists page renders four simultaneous source columns");
 assert.equal(selectors.get("#mobile-picklists").children[0].children[0].textContent, "List 1");
-assert.equal(selectors.get("#mobile-picklists").children[0].children[1].children[0].children.length, 3, "team number, rank, and score remain separate fields");
+assert.equal(selectors.get("#mobile-picklists").children[0].children[1].children[0].children.length, 2, "mobile Picklists show a team number and score without a rank ordinal");
 const scoreSnapshot = display.buildMobileAllianceSnapshot({
   eventKey: "2026chcmp",
   columns: [{ id: "metric:test", label: "Metric", teams: [
@@ -189,10 +204,10 @@ const scoreSnapshot = display.buildMobileAllianceSnapshot({
 });
 receiveSnapshot(scoreSnapshot);
 const renderedScoreRows = selectors.get("#mobile-picklists").children[0].children[1].children;
-assert.equal(renderedScoreRows[0].children[1].textContent, "13", "metric rows display a number-only team field");
-assert.equal(renderedScoreRows[0].children[2].textContent, "0.0", "metric score remains a separate field");
-assert.equal(renderedScoreRows[0].children[2].attributes.style, "--metric-fill: hsl(0 58% 38%)", "low metric values receive red fills");
-assert.equal(renderedScoreRows[1].children[2].attributes.style, "--metric-fill: hsl(120 58% 38%)", "high metric values receive green fills");
+assert.equal(renderedScoreRows[0].children[0].textContent, "13", "metric rows display a number-only team field");
+assert.equal(renderedScoreRows[0].children[1].textContent, "0.0", "metric score remains a separate field");
+assert.equal(renderedScoreRows[0].attributes.style, "--metric-fill: hsl(0 58% 38%)", "low metric values color the complete row red");
+assert.equal(renderedScoreRows[1].attributes.style, "--metric-fill: hsl(120 58% 38%)", "high metric values color the complete row green");
 const mobileStyles = fs.readFileSync(new URL("../src/mobile-alliance.css", import.meta.url), "utf8");
 assert.match(mobileStyles, /\.alliance-slots\s*\{[^}]*repeat\(var\(--alliance-slot-count,\s*3\)/s, "alliance rows honor the event-specific three/four slot count");
 assert.match(mobileStyles, /\.alliance-row\s*\{[^}]*grid-template-columns:\s*85px\s+minmax\(0,\s*1fr\)\s+70px/s, "alliance rows reserve a separate EPA cell beside the team slots");
@@ -202,7 +217,9 @@ assert.match(mobileStyles, /\.mobile-picklists\[data-column-count="1"\]\s*\{[^}]
 assert.match(mobileStyles, /@media \(max-width: 699px\)[\s\S]*?\.mobile-picklists\s*\{[^}]*overflow:\s*visible/s, "the document scrolls all Picklists together rather than independent cards");
 assert.match(mobileStyles, /@media \(max-width: 699px\)[\s\S]*?\.alliance-row:nth-child\(odd\) \.board-slot\s*\{[^}]*background:\s*#[0-9a-f]{6}/i, "odd mobile alliances retain their red row tint, including open slots");
 assert.match(mobileStyles, /@media \(max-width: 699px\)[\s\S]*?\.alliance-row:nth-child\(even\) \.board-slot\s*\{[^}]*background:\s*#[0-9a-f]{6}/i, "even mobile alliances retain their blue row tint, including open slots");
-assert.match(mobileStyles, /\.ranking-row \.team-score\s*\{[^}]*background:\s*var\(--metric-fill/s, "metric color fill is separate from the team-number field");
+assert.match(mobileStyles, /\.mobile-picklists \.ranking-row:not\(\.compare-selected\)\s*\{[^}]*background:\s*var\(--metric-fill/s, "Picklists apply metric color to the complete row");
+assert.match(mobileStyles, /\.mobile-picklists \.ranking-row\.state-picked:not\(\.compare-selected\)\s*\{[^}]*linear-gradient\(rgba\(85, 93, 99,/s, "picked Picklists preserve a gray overlay over the full-row metric fill");
+assert.match(mobileStyles, /\.alliance-row \.board-slot\.occupied\.state-picked\.compare-selected\s*\{[^}]*linear-gradient\(rgba\(85, 93, 99,/s, "picked comparison board slots retain the translucent gray overlay above alternating row tints");
 assert.match(mobileStyles, /\.ranking-row\.state-picked\.compare-selected\s*\{[^}]*linear-gradient\(rgba\(85, 93, 99, \.52\)/s, "picked comparison teams retain the gray overlay over their highlight color");
 assert.match(fs.readFileSync(new URL("../mobile.html", import.meta.url), "utf8"), /data-mobile-tab="board" aria-selected="true">Selection Board<\/button>/, "mobile page selector uses the production Selection Board label");
 receiveSnapshot(display.buildMobileAllianceSnapshot({ eventKey: "2026chcmp", eventName: "Updated", board: [{ teamNumber: 9999 }] }));

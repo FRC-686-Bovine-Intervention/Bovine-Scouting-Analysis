@@ -7656,9 +7656,6 @@ function renderNow(reason = "unspecified") {
   let content = "";
   try {
     content = renderView();
-    if (isAdmin() && ["alliance", "picklistBuilder"].includes(state.activeView)) {
-      globalThis.__pendingMobileAllianceSnapshot = buildCurrentMobileAllianceSnapshot();
-    }
   } catch (error) {
     console.error("Render failed for view", state.activeView, error);
     if (state.activeView !== "teams") {
@@ -7676,7 +7673,6 @@ function renderNow(reason = "unspecified") {
       return;
     }
   }
-
   const shell = app.querySelector(".app-shell");
   const sidebar = shell?.querySelector('[data-render-region="sidebar"]');
   const topbar = shell?.querySelector('[data-render-region="topbar"]');
@@ -7734,9 +7730,7 @@ function renderNow(reason = "unspecified") {
 
   bindShellEvents();
   restoreRenderInteractionState(interactionState, { preserveControls: reason.startsWith("background.") });
-  if (isAdmin() && globalThis.__pendingMobileAllianceSnapshot) {
-    globalThis.firebaseMobileDisplayApi?.publishMobileAllianceSnapshot(globalThis.__pendingMobileAllianceSnapshot);
-  }
+  if (isAdmin()) publishCurrentMobileAllianceSnapshot();
   focusScheduleLastPlayed();
   recordScoutingPerf("render", renderStartedAt, { activeView: state.activeView, reason });
 }
@@ -10331,6 +10325,21 @@ function renderAlliance() {
       </article>
     </div>
   `;
+}
+
+function publishCurrentMobileAllianceSnapshot() {
+  if (!isAdmin()) return false;
+  try {
+    const snapshot = buildCurrentMobileAllianceSnapshot();
+    return Boolean(globalThis.firebaseMobileDisplayApi?.publishMobileAllianceSnapshot(snapshot));
+  } catch (error) {
+    console.warn("Unable to build the current public mobile alliance snapshot.", error);
+    return false;
+  }
+}
+
+if (typeof globalThis.addEventListener === "function") {
+  globalThis.addEventListener("firebase-mobile-display-api-ready", publishCurrentMobileAllianceSnapshot);
 }
 
 function renderBoardCell(teamNumber, index) {
