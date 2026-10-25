@@ -10105,6 +10105,17 @@ function buildCurrentMobileAllianceSnapshot() {
     const slot = compareSlotIndexForTeam(selectionIdForTeam(team));
     return slot >= 0 ? slot : null;
   };
+  const allianceSize = globalThis.mobileAllianceDisplay?.allianceSizeForEvent(currentEvent()) || 3;
+  const mobileBoard = Array.from({ length: 8 * allianceSize }, (_, mobileSlot) => {
+    const allianceIndex = Math.floor(mobileSlot / allianceSize);
+    const slotWithinAlliance = mobileSlot % allianceSize;
+    const team = slotWithinAlliance < 3 ? state.allianceBoard[allianceIndex * 3 + slotWithinAlliance] : null;
+    return {
+      teamNumber: resolveTeamNumber(team),
+      teamName: teamByNumber(team)?.name || "",
+      comparisonSlot: team ? comparisonSlotForTeam(team) : null,
+    };
+  });
   const columns = state.loadedSources.map((entry) => {
     const column = gridColumnModel(entry, {
       direction: loadedSourceSortDirection(entry),
@@ -10115,7 +10126,8 @@ function buildCurrentMobileAllianceSnapshot() {
   return globalThis.mobileAllianceDisplay?.buildMobileAllianceSnapshot({
     eventKey: state.activeEventKey,
     eventName: displayEventName(currentEvent()),
-    board: state.allianceBoard.map((team) => ({ teamNumber: resolveTeamNumber(team), teamName: teamByNumber(team)?.name || "" })),
+    allianceSize,
+    board: mobileBoard,
     rankings: rankedTeams.map((team) => ({ teamNumber: resolveTeamNumber(team), state: displayStateForTeam(team), comparisonSlot: comparisonSlotForTeam(team) })),
     columns: columns.map(({ entry, column }) => ({
       id: entry,

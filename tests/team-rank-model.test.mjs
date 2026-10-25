@@ -126,7 +126,7 @@ const appBehaviorContext = {
   metricTokenLabel: () => "Metric",
   metricById: () => null,
   displayEventName: () => "2022 Chesapeake",
-  currentEvent: () => ({ key: "2022chcmp" }),
+  currentEvent: () => ({ key: "2022chcmp", eventType: 2 }),
   renderBoardCell: () => "",
   statboticsEpaMetric: () => ({ kind: "source", sourceId: "statbotics", componentId: "epa.total_points", unit: "pts" }),
   teamMetricValue: (team) => team.sources.statbotics.components["epa.total_points"],
@@ -225,6 +225,19 @@ assert.equal(Object.hasOwn(appBehaviorContext.mobileSnapshot.rankings[1], "compa
 assert.equal(appBehaviorContext.mobileSnapshot.columns[0].teams[2].comparisonSlot, 0, "supplementary list uses the same comparison color as Team Rank");
 assert.equal(appBehaviorContext.mobileSnapshot.columns[0].teams[3].comparisonSlot, 1, "supplementary list preserves the selected B-team color");
 assert.equal(display.validateMobileAllianceSnapshot(appBehaviorContext.mobileSnapshot), true);
+assert.equal(appBehaviorContext.mobileSnapshot.board.length, 24, "ordinary event snapshots retain three mobile slots per alliance");
+board.fill(null);
+board[0] = "frc449B";
+board[1] = 1731;
+board[2] = 9072;
+appBehaviorContext.state.activeEventKey = "2024cmptx";
+appBehaviorContext.currentEvent = () => ({ key: "2024cmptx", eventType: 3 });
+const worldMobileSnapshot = appBehaviorContext.buildCurrentMobileAllianceSnapshot();
+assert.equal(worldMobileSnapshot.board.length, 32, "championship division snapshots publish four mobile slots per alliance");
+assert.deepEqual(Array.from(worldMobileSnapshot.board.slice(0, 8), (slot) => [slot.alliance, slot.teamNumber]), [
+  [1, "449B"], [1, "1731"], [1, "9072"], [1, ""],
+  [2, ""], [2, ""], [2, ""], [2, ""],
+]);
 
 // Exercise the Alliance Selection click seam with real rendered team and board markup.
 const allianceClickHandlers = new Map();

@@ -6,11 +6,13 @@
   const emptyState = $("#empty-state");
   let activeTab = "board";
 
-  function teamLabel(number, name = "") {
-    return name ? `Team ${number} · ${name}` : `Team ${number}`;
+  function metricFill(score, minScore, maxScore) {
+    if (maxScore <= minScore) return "transparent";
+    const ratio = Math.max(0, Math.min(1, (score - minScore) / (maxScore - minScore)));
+    return `hsl(${Math.round(ratio * 120)} 58% 38%)`;
   }
 
-  function rankedTeamRow(team) {
+  function rankedTeamRow(team, scoreRange = null) {
     const row = document.createElement("li");
     row.className = `ranking-row state-${team.state}`;
     const compareColor = globalThis.mobileAllianceDisplay?.compareColorForSlot(team.comparisonSlot);
@@ -23,12 +25,13 @@
     rank.className = "rank-number";
     rank.textContent = String(team.rank);
     const label = document.createElement("span");
-    label.textContent = `Team ${team.teamNumber}`;
+    label.textContent = team.teamNumber;
     row.append(rank, label);
     if (Number.isFinite(team.score)) {
       const score = document.createElement("span");
       score.className = "team-score";
-      score.textContent = String(team.score);
+      score.textContent = Number(team.score).toFixed(1);
+      score.setAttribute("style", `--metric-fill: ${metricFill(Number(team.score), scoreRange?.min ?? Number.NaN, scoreRange?.max ?? Number.NaN)}`);
       row.append(score);
     }
     return row;
@@ -56,14 +59,21 @@
       const group = document.createElement("section");
       group.className = "alliance-row";
       const heading = document.createElement("h3");
-      heading.textContent = `Alliance ${alliance}`;
+      heading.textContent = `A${alliance}`;
       group.append(heading);
       const slots = document.createElement("div");
       slots.className = "alliance-slots";
+      const allianceSize = snapshot.board.length / 8;
+      group.setAttribute("style", `--alliance-slot-count: ${allianceSize}`);
       snapshot.board.filter((slot) => slot.alliance === alliance).forEach((slot) => {
         const cell = document.createElement("div");
         cell.className = `board-slot${slot.teamNumber ? " occupied" : ""}`;
-        cell.textContent = slot.teamNumber ? teamLabel(slot.teamNumber, slot.teamName) : "—";
+        cell.textContent = slot.teamNumber || "—";
+        const compareColor = globalThis.mobileAllianceDisplay?.compareColorForSlot(slot.comparisonSlot);
+        if (compareColor) {
+          cell.className += " compare-selected";
+          cell.setAttribute("style", `--compare-accent: ${compareColor}`);
+        }
         slots.append(cell);
       });
       group.append(slots);
@@ -75,7 +85,8 @@
 
     picklistsRoot.className = `mobile-picklists${snapshot.columns.length ? "" : " is-empty"}`;
     picklistsRoot.dataset.columnCount = String(snapshot.columns.length);
-    $("#mobile-picklists-hint").hidden = snapshot.columns.length < 2;
+    const narrowScreen = globalThis.matchMedia?.("(max-width: 699px)").matches === true;
+    $("#mobile-picklists-hint").hidden = snapshot.columns.length < 2 || narrowScreen;
     picklistsRoot.replaceChildren();
     if (!snapshot.columns.length) {
       const message = document.createElement("p");
@@ -90,7 +101,9 @@
       heading.textContent = column.label;
       const list = document.createElement("ol");
       list.className = "mobile-rankings";
-      column.teams.forEach((team) => list.append(rankedTeamRow(team)));
+      const scores = column.teams.map((team) => team.score).filter(Number.isFinite);
+      const scoreRange = scores.length ? { min: Math.min(...scores), max: Math.max(...scores) } : null;
+      column.teams.forEach((team) => list.append(rankedTeamRow(team, scoreRange)));
       card.append(heading, list);
       picklistsRoot.append(card);
     });

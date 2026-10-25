@@ -10,6 +10,11 @@
       : null;
   }
 
+  function allianceSizeForEvent(event) {
+    const eventType = Number(event?.eventType);
+    return eventType === 3 || eventType === 4 ? 4 : 3;
+  }
+
   function addComparisonSlot(row, team) {
     if (compareColorForSlot(team?.comparisonSlot)) row.comparisonSlot = team.comparisonSlot;
     return row;
@@ -27,6 +32,7 @@
   }
 
   function cleanScore(value) {
+    if (value === null || value === undefined || value === "") return null;
     const number = Number(value);
     return Number.isFinite(number) ? Math.round(number * 1000) / 1000 : null;
   }
@@ -34,13 +40,15 @@
   function buildMobileAllianceSnapshot(input = {}) {
     const eventKey = cleanText(input.eventKey, 64).toLowerCase();
     if (!/^[a-z0-9]{1,64}$/.test(eventKey)) throw new Error("A valid event key is required for the mobile alliance snapshot.");
-    const board = (Array.isArray(input.board) ? input.board : []).slice(0, 24).map((slot, index) => ({
+    const allianceSize = Number(input.allianceSize) === 4 ? 4 : 3;
+    const boardSize = 8 * allianceSize;
+    const board = (Array.isArray(input.board) ? input.board : []).slice(0, boardSize).map((slot, index) => addComparisonSlot({
       slot: index,
       teamNumber: normalizeTeamNumber(slot?.teamNumber ?? slot),
       teamName: cleanText(slot?.teamName, 80),
-      alliance: Math.floor(index / 3) + 1,
-    }));
-    while (board.length < 24) board.push({ slot: board.length, teamNumber: "", teamName: "", alliance: Math.floor(board.length / 3) + 1 });
+      alliance: Math.floor(index / allianceSize) + 1,
+    }, slot));
+    while (board.length < boardSize) board.push({ slot: board.length, teamNumber: "", teamName: "", alliance: Math.floor(board.length / allianceSize) + 1 });
 
     const rankings = (Array.isArray(input.rankings) ? input.rankings : []).slice(0, MAX_TEAMS).map((team, index) => addComparisonSlot({
       rank: index + 1,
@@ -83,11 +91,15 @@
     return Boolean(snapshotKeysValid && snapshot.version === 1
       && /^[a-z0-9]{1,64}$/.test(snapshot.eventKey || "")
       && typeof snapshot.eventName === "string" && snapshot.eventName.length <= MAX_LABEL_LENGTH
-      && Array.isArray(snapshot.board) && snapshot.board.length === 24
+      && Array.isArray(snapshot.board) && (snapshot.board.length === 24 || snapshot.board.length === 32)
       && Array.isArray(snapshot.rankings) && snapshot.rankings.length <= MAX_TEAMS
-      && snapshot.board.every((slot, index) => exactKeys(slot, ["slot", "teamNumber", "teamName", "alliance"])
+      && snapshot.board.every((slot, index) => exactKeys(slot, Object.hasOwn(slot, "comparisonSlot")
+        ? ["slot", "teamNumber", "teamName", "alliance", "comparisonSlot"]
+        : ["slot", "teamNumber", "teamName", "alliance"])
         && slot.slot === index && typeof slot.teamNumber === "string" && slot.teamNumber.length <= 12
-        && typeof slot.teamName === "string" && slot.teamName.length <= 80 && slot.alliance === Math.floor(index / 3) + 1)
+        && typeof slot.teamName === "string" && slot.teamName.length <= 80
+        && slot.alliance === Math.floor(index / (snapshot.board.length / 8)) + 1
+        && (!Object.hasOwn(slot, "comparisonSlot") || compareColorForSlot(slot.comparisonSlot) !== null))
       && snapshot.rankings.every((team, index) => exactKeys(team, Object.hasOwn(team, "comparisonSlot") ? ["rank", "teamNumber", "state", "comparisonSlot"] : ["rank", "teamNumber", "state"])
         && team.rank === index + 1 && typeof team.teamNumber === "string" && team.teamNumber.length <= 12
         && ["normal", "picked", "confirmed", "possible"].includes(team.state)
@@ -108,5 +120,5 @@
           && (!Object.hasOwn(team, "score") || (typeof team.score === "number" && Number.isFinite(team.score))))));
   }
 
-  global.mobileAllianceDisplay = Object.freeze({ buildMobileAllianceSnapshot, normalizeTeamNumber, validateMobileAllianceSnapshot, compareTeamPalette, compareColorForSlot });
+  global.mobileAllianceDisplay = Object.freeze({ buildMobileAllianceSnapshot, normalizeTeamNumber, validateMobileAllianceSnapshot, compareTeamPalette, compareColorForSlot, allianceSizeForEvent });
 })(globalThis);

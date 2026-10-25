@@ -643,6 +643,9 @@ function buildEventModelFromPayloads(payload) {
     pridgeComputationDeferred: deferPridgeComputation,
     key: payload.key,
     name: payload.tbaEvent?.name || payload.statboticsEvent?.name || payload.key,
+    eventType: payload.tbaEvent?.event_type !== null && payload.tbaEvent?.event_type !== ""
+      && Number.isInteger(Number(payload.tbaEvent.event_type)) ? Number(payload.tbaEvent.event_type) : null,
+    eventTypeString: String(payload.tbaEvent?.event_type_string || ""),
     season: payload.year,
     seasonLabel: "",
     matchesComplete: matches.length,

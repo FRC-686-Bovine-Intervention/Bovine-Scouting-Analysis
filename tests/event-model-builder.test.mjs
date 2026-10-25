@@ -67,7 +67,7 @@ const matches = Array.from({ length: 80 }, (_, index) => ({
 const bundle = {
   key: "2019chcmp",
   year: 2019,
-  tbaEvent: { name: "Championship" },
+  tbaEvent: { name: "Championship", event_type: 3, event_type_string: "Championship Division" },
   tbaTeams: [1, 2, 3, 4, 5, 6].map((team_number) => ({ team_number, nickname: `Team ${team_number}` })),
   tbaMatches: matches,
   statboticsTeamEvents: [1, 2, 3, 4, 5, 6].map((team) => ({ team })),
@@ -89,6 +89,8 @@ const partiallyAssignedEvent = context.EventModelBuilder.buildEventModelFromProv
   }],
   deferPridgeComputation: true,
 });
+assert.equal(partiallyAssignedEvent.eventType, 3, "event model keeps The Blue Alliance's championship event type for slot semantics");
+assert.equal(partiallyAssignedEvent.eventTypeString, "Championship Division");
 assert.equal(partiallyAssignedEvent.matches.length, 1, "Scheduled matches remain visible while TBA fills alliance assignments.");
 assert.deepEqual(partiallyAssignedEvent.matches[0].red, [1, 3]);
 assert.deepEqual(partiallyAssignedEvent.matches[0].blue, [2, 4, 6]);
