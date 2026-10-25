@@ -226,6 +226,12 @@ assert.equal(appBehaviorContext.mobileSnapshot.columns[0].teams[2].comparisonSlo
 assert.equal(appBehaviorContext.mobileSnapshot.columns[0].teams[3].comparisonSlot, 1, "supplementary list preserves the selected B-team color");
 assert.equal(display.validateMobileAllianceSnapshot(appBehaviorContext.mobileSnapshot), true);
 assert.equal(appBehaviorContext.mobileSnapshot.board.length, 24, "ordinary event snapshots retain three mobile slots per alliance");
+assert.deepEqual(Array.from(appBehaviorContext.mobileSnapshot.allianceEpa), [7, null, null, null, null, null, null, null], "mobile EPA cell uses the complete selected-team total and leaves empty alliances unavailable");
+board.fill(null);
+board[0] = "frc449B";
+board[1] = 1731;
+board[2] = 5000;
+assert.equal(appBehaviorContext.buildCurrentMobileAllianceSnapshot().allianceEpa[0], 50, "mobile alliance EPA sums selected Statbotics totals, preserving B-team identity");
 board.fill(null);
 board[0] = "frc449B";
 board[1] = 1731;
@@ -238,6 +244,7 @@ assert.deepEqual(Array.from(worldMobileSnapshot.board.slice(0, 8), (slot) => [sl
   [1, "449B"], [1, "1731"], [1, "9072"], [1, ""],
   [2, ""], [2, ""], [2, ""], [2, ""],
 ]);
+assert.equal(worldMobileSnapshot.allianceEpa[0], null, "mobile alliance EPA does not present a partial sum when one selected team's EPA is unavailable");
 
 // Exercise the Alliance Selection click seam with real rendered team and board markup.
 const allianceClickHandlers = new Map();

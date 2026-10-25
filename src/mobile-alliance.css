@@ -15,9 +15,12 @@ body { margin: 0; background: #101820; }
 .mobile-card { min-width: 0; border: 1px solid #344550; border-radius: 12px; padding: 12px; background: #17242d; }
 .mobile-card h2 { margin: 0 0 10px; font-size: 1.05rem; }
 .mobile-board { display: grid; gap: 8px; }
-.alliance-row { display: grid; grid-template-columns: 85px minmax(0, 1fr); align-items: center; gap: 8px; }
+.alliance-row { display: grid; grid-template-columns: 85px minmax(0, 1fr) 70px; align-items: center; gap: 8px; }
 .alliance-row h3 { margin: 0; color: #c1d1db; font-size: .78rem; }
 .alliance-slots { display: grid; grid-template-columns: repeat(var(--alliance-slot-count, 3), minmax(0, 1fr)); gap: 5px; }
+.alliance-epa { min-width: 0; min-height: 38px; display: grid; place-items: center; border-radius: 7px; color: #fff; font-size: .68rem; font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.alliance-row:nth-child(odd) .alliance-epa { background: #7b292b; }
+.alliance-row:nth-child(even) .alliance-epa { background: #244f85; }
 .board-slot { overflow: hidden; min-height: 38px; display: grid; place-items: center; border: 1px dashed #52616a; border-radius: 7px; color: #8c9aa2; font-size: .72rem; text-align: center; }
 .board-slot.occupied { border-style: solid; color: #fff; font-weight: 750; }
 .alliance-row:nth-child(odd) .board-slot.occupied { background: #7b292b; }
@@ -61,9 +64,10 @@ footer { padding: 18px 0 4px; color: #80939f; font-size: .75rem; text-align: cen
   .mobile-view#board-view > .mobile-card { padding: 9px; }
   .mobile-view#board-view > .mobile-card h2 { margin-bottom: 7px; font-size: .95rem; }
   .mobile-board { gap: 4px; }
-  .alliance-row { grid-template-columns: 27px minmax(0, 1fr); gap: 4px; }
+  .alliance-row { grid-template-columns: 27px minmax(0, 1fr) 49px; gap: 4px; }
   .alliance-row h3 { font-size: .7rem; }
   .alliance-slots { gap: 3px; }
+  .alliance-epa { min-height: 19px; border-radius: 4px; font-size: .52rem; letter-spacing: -.2px; }
   .alliance-row:nth-child(odd) .board-slot { background: #3b2026; }
   .alliance-row:nth-child(even) .board-slot { background: #1d3045; }
   .board-slot { min-height: 27px; border-radius: 5px; font-size: .68rem; }

@@ -10116,6 +10116,11 @@ function buildCurrentMobileAllianceSnapshot() {
       comparisonSlot: team ? comparisonSlotForTeam(team) : null,
     };
   });
+  const allianceEpa = Array.from({ length: 8 }, (_, allianceIndex) => {
+    const teams = state.allianceBoard.slice(allianceIndex * 3, allianceIndex * 3 + 3);
+    const summary = allianceEpaSummaryData(teams);
+    return summary.complete ? summary.total : null;
+  });
   const columns = state.loadedSources.map((entry) => {
     const column = gridColumnModel(entry, {
       direction: loadedSourceSortDirection(entry),
@@ -10128,6 +10133,7 @@ function buildCurrentMobileAllianceSnapshot() {
     eventName: displayEventName(currentEvent()),
     allianceSize,
     board: mobileBoard,
+    allianceEpa,
     rankings: rankedTeams.map((team) => ({ teamNumber: resolveTeamNumber(team), state: displayStateForTeam(team), comparisonSlot: comparisonSlotForTeam(team) })),
     columns: columns.map(({ entry, column }) => ({
       id: entry,

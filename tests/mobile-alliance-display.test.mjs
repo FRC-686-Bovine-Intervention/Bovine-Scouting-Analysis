@@ -56,6 +56,7 @@ assert.equal(display.allianceSizeForEvent({}), 3, "unknown event semantics prese
 const worldSnapshot = display.buildMobileAllianceSnapshot({
   eventKey: "2024cmptx",
   allianceSize: 4,
+  allianceEpa: [0, 15.25, null, undefined, 2, null, null, null],
   board: Array.from({ length: 32 }, (_, index) => index === 0 ? { teamNumber: 686, comparisonSlot: 0 } : null),
   rankings: [{ teamNumber: 686, state: "picked", comparisonSlot: 0 }],
   columns: Array.from({ length: 4 }, (_, index) => ({
@@ -67,8 +68,10 @@ const worldSnapshot = display.buildMobileAllianceSnapshot({
 assert.equal(worldSnapshot.board.length, 32, "World Championship snapshots contain four slots for all eight alliances");
 assert.deepEqual(worldSnapshot.board.slice(0, 8).map((slot) => slot.alliance), [1, 1, 1, 1, 2, 2, 2, 2]);
 assert.equal(worldSnapshot.board[0].comparisonSlot, 0);
+assert.deepEqual(Array.from(worldSnapshot.allianceEpa), [0, 15.25, null, null, 2, null, null, null], "mobile alliance EPA keeps finite totals including zero and uses null for unavailable totals");
 assert.equal(display.validateMobileAllianceSnapshot(worldSnapshot), true);
 assert.equal(display.validateMobileAllianceSnapshot({ ...worldSnapshot, board: worldSnapshot.board.slice(0, 31) }), false);
+assert.equal(display.validateMobileAllianceSnapshot({ ...worldSnapshot, allianceEpa: [0] }), false, "public snapshots require exactly one EPA value per alliance when the field is present");
 assert.equal(display.validateMobileAllianceSnapshot({ ...comparisonSnapshot, rankings: comparisonSnapshot.rankings.map((team, index) => index === 0 ? { ...team, comparisonSlot: 4 } : team) }), false);
 const teamObjectColumn = display.buildMobileAllianceSnapshot({
   eventKey: "2026vaale1",
@@ -171,6 +174,9 @@ assert.equal(selectors.get("#selection-board").children[0].children[0].textConte
 assert.equal(selectors.get("#selection-board").children[0].children[1].children.length, 4);
 assert.equal(selectors.get("#selection-board").children[0].children[1].children[0].textContent, "686");
 assert.equal(selectors.get("#selection-board").children[0].children[1].children[0].attributes.style, "--compare-accent: #2563eb");
+assert.equal(selectors.get("#selection-board").children[0].children[2].textContent, "EPA=0.0", "the mobile board formats a usable EPA total as a separate one-decimal cell");
+assert.equal(selectors.get("#selection-board").children[1].children[2].textContent, "EPA=15.3");
+assert.equal(selectors.get("#selection-board").children[2].children[2].textContent, "---", "unavailable alliance EPA uses the compact placeholder without explanation prose");
 assert.equal(selectors.get("#mobile-picklists").children.length, 4, "the Picklists page renders four simultaneous source columns");
 assert.equal(selectors.get("#mobile-picklists").children[0].children[0].textContent, "List 1");
 assert.equal(selectors.get("#mobile-picklists").children[0].children[1].children[0].children.length, 3, "team number, rank, and score remain separate fields");
@@ -189,6 +195,8 @@ assert.equal(renderedScoreRows[0].children[2].attributes.style, "--metric-fill: 
 assert.equal(renderedScoreRows[1].children[2].attributes.style, "--metric-fill: hsl(120 58% 38%)", "high metric values receive green fills");
 const mobileStyles = fs.readFileSync(new URL("../src/mobile-alliance.css", import.meta.url), "utf8");
 assert.match(mobileStyles, /\.alliance-slots\s*\{[^}]*repeat\(var\(--alliance-slot-count,\s*3\)/s, "alliance rows honor the event-specific three/four slot count");
+assert.match(mobileStyles, /\.alliance-row\s*\{[^}]*grid-template-columns:\s*85px\s+minmax\(0,\s*1fr\)\s+70px/s, "alliance rows reserve a separate EPA cell beside the team slots");
+assert.match(mobileStyles, /@media \(max-width: 699px\)[\s\S]*?\.alliance-row\s*\{[^}]*grid-template-columns:\s*27px\s+minmax\(0,\s*1fr\)\s+49px/s, "mobile alliance EPA cells stay compact while all eight rows fit");
 assert.match(mobileStyles, /@media \(max-width: 699px\)[\s\S]*?\.mobile-picklists\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/s, "four Picklists cards fit side by side on mobile");
 assert.match(mobileStyles, /\.mobile-picklists\[data-column-count="1"\]\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s, "a single mobile Picklist uses the available width");
 assert.match(mobileStyles, /@media \(max-width: 699px\)[\s\S]*?\.mobile-picklists\s*\{[^}]*overflow:\s*visible/s, "the document scrolls all Picklists together rather than independent cards");

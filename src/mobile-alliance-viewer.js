@@ -77,6 +77,11 @@
         slots.append(cell);
       });
       group.append(slots);
+      const allianceEpa = document.createElement("div");
+      allianceEpa.className = "alliance-epa";
+      const epaTotal = snapshot.allianceEpa?.[alliance - 1];
+      allianceEpa.textContent = Number.isFinite(epaTotal) ? `EPA=${Number(epaTotal).toFixed(1)}` : "---";
+      group.append(allianceEpa);
       boardRoot.append(group);
     }
 
