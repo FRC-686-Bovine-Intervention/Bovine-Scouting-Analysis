@@ -240,5 +240,7 @@ assert.equal(selectors.get("#mobile-picklists-hint").hidden, true);
 const mobileHtml = fs.readFileSync(new URL("../mobile.html", import.meta.url), "utf8");
 assert.match(mobileHtml, /<h1>Alliance Selection<\/h1>/);
 assert.doesNotMatch(mobileHtml, /Bovine|event-name|connection-state/);
+const mobileBuildScript = fs.readFileSync(new URL("../scripts/build-mobile-site.mjs", import.meta.url), "utf8");
+assert.match(mobileBuildScript, /\["src\/score-color\.js",\s*"src\/score-color\.js"\]/, "mobile Hosting copies the shared score-color runtime referenced by mobile.html");
 
 console.log("PASS mobile alliance schema, bounded public document, admin publishing, and live viewer rendering/update behavior");

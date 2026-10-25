@@ -6,6 +6,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outputRoot = resolve(repositoryRoot, ".firebase", "mobile-site");
 const requiredFiles = [
   ["mobile.html", "index.html"],
+  ["src/score-color.js", "src/score-color.js"],
   ["src/mobile-alliance.css", "src/mobile-alliance.css"],
   ["src/mobile-alliance-display.js", "src/mobile-alliance-display.js"],
   ["src/mobile-alliance-viewer.js", "src/mobile-alliance-viewer.js"],
