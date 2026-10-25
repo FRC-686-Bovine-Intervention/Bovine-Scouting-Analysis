@@ -7,9 +7,7 @@
   let activeTab = "board";
 
   function metricFill(score, minScore, maxScore) {
-    if (maxScore <= minScore) return "transparent";
-    const ratio = Math.max(0, Math.min(1, (score - minScore) / (maxScore - minScore)));
-    return `hsl(${Math.round(ratio * 120)} 58% 38%)`;
+    return globalThis.ScoreColor?.colorForScore(score, minScore, maxScore, "desc") || "transparent";
   }
 
   function rankedTeamRow(team, scoreRange = null, includeRank = true) {
@@ -52,7 +50,6 @@
     $("#board-view").hidden = !valid || activeTab !== "board";
     $("#picklists-view").hidden = !valid || activeTab !== "picklists";
     if (!valid) {
-      $("#event-name").textContent = "Waiting for the admin display…";
       boardRoot.replaceChildren();
       rankingsRoot.replaceChildren();
       picklistsRoot.className = "mobile-picklists is-empty";
@@ -62,7 +59,6 @@
       return;
     }
 
-    $("#event-name").textContent = `${snapshot.eventName || snapshot.eventKey} · ${snapshot.eventKey}`;
     boardRoot.replaceChildren();
     for (let alliance = 1; alliance <= 8; alliance += 1) {
       const group = document.createElement("section");
@@ -90,6 +86,10 @@
       allianceEpa.className = "alliance-epa";
       const epaTotal = snapshot.allianceEpa?.[alliance - 1];
       allianceEpa.textContent = Number.isFinite(epaTotal) ? `EPA=${Number(epaTotal).toFixed(1)}` : "---";
+      if (Number.isFinite(epaTotal)) {
+        const epaRange = snapshot.allianceEpaRange;
+        allianceEpa.setAttribute("style", `--metric-fill: ${metricFill(epaTotal, epaRange?.min ?? Number.NaN, epaRange?.max ?? Number.NaN)}`);
+      }
       group.append(allianceEpa);
       boardRoot.append(group);
     }
@@ -128,11 +128,9 @@
     if (!api || globalThis.__mobileAllianceSubscriptionStarted) return;
     globalThis.__mobileAllianceSubscriptionStarted = true;
     api.subscribeMobileAllianceSnapshot((snapshot) => {
-      $("#connection-state").textContent = "Live";
       render(snapshot);
     }, (error) => {
       console.warn("Unable to subscribe to the public alliance selection display.", error);
-      $("#connection-state").textContent = "Connection error";
     });
   }
 

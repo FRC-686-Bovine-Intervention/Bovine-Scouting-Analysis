@@ -50,6 +50,11 @@
     }, slot));
     while (board.length < boardSize) board.push({ slot: board.length, teamNumber: "", teamName: "", alliance: Math.floor(board.length / allianceSize) + 1 });
     const allianceEpa = Array.from({ length: 8 }, (_, index) => cleanScore(input.allianceEpa?.[index]));
+    const knownEpaTotals = allianceEpa.filter(Number.isFinite);
+    const allianceEpaRange = {
+      min: knownEpaTotals.length ? Math.min(...knownEpaTotals) : null,
+      max: knownEpaTotals.length ? Math.max(...knownEpaTotals) : null,
+    };
 
     const rankings = (Array.isArray(input.rankings) ? input.rankings : []).slice(0, MAX_TEAMS).map((team, index) => addComparisonSlot({
       rank: index + 1,
@@ -78,6 +83,7 @@
       eventName: cleanText(input.eventName),
       board,
       allianceEpa,
+      allianceEpaRange,
       rankings,
       columns,
     };
@@ -86,9 +92,9 @@
   function validateMobileAllianceSnapshot(snapshot) {
     const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value)
       && Object.keys(value).length === keys.length && Object.keys(value).every((key) => keys.includes(key));
-    const allowedSnapshotKeys = ["version", "eventKey", "eventName", "board", "allianceEpa", "rankings", "columns", "publishedAt"];
+    const allowedSnapshotKeys = ["version", "eventKey", "eventName", "board", "allianceEpa", "allianceEpaRange", "rankings", "columns", "publishedAt"];
     const snapshotKeysValid = snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)
-      && Object.keys(snapshot).length >= 6 && Object.keys(snapshot).length <= 8
+      && Object.keys(snapshot).length >= 6 && Object.keys(snapshot).length <= 9
       && Object.keys(snapshot).every((key) => allowedSnapshotKeys.includes(key));
     return Boolean(snapshotKeysValid && snapshot.version === 1
       && /^[a-z0-9]{1,64}$/.test(snapshot.eventKey || "")
@@ -96,6 +102,11 @@
       && Array.isArray(snapshot.board) && (snapshot.board.length === 24 || snapshot.board.length === 32)
       && (!Object.hasOwn(snapshot, "allianceEpa") || (Array.isArray(snapshot.allianceEpa) && snapshot.allianceEpa.length === 8
         && snapshot.allianceEpa.every((total) => total === null || (typeof total === "number" && Number.isFinite(total)))))
+      && (!Object.hasOwn(snapshot, "allianceEpaRange") || (exactKeys(snapshot.allianceEpaRange, ["min", "max"])
+        && (snapshot.allianceEpaRange.min === null || (typeof snapshot.allianceEpaRange.min === "number" && Number.isFinite(snapshot.allianceEpaRange.min)))
+        && (snapshot.allianceEpaRange.max === null || (typeof snapshot.allianceEpaRange.max === "number" && Number.isFinite(snapshot.allianceEpaRange.max)))
+        && ((snapshot.allianceEpaRange.min === null && snapshot.allianceEpaRange.max === null)
+          || (snapshot.allianceEpaRange.min !== null && snapshot.allianceEpaRange.max !== null && snapshot.allianceEpaRange.min <= snapshot.allianceEpaRange.max))))
       && Array.isArray(snapshot.rankings) && snapshot.rankings.length <= MAX_TEAMS
       && snapshot.board.every((slot, index) => exactKeys(slot, Object.hasOwn(slot, "comparisonSlot")
         ? ["slot", "teamNumber", "teamName", "alliance", "comparisonSlot"]

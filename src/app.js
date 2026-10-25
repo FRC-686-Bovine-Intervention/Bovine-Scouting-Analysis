@@ -6114,19 +6114,7 @@ function rankTeamsByEquation(equation) {
 }
 
 function colorForScore(score, min, max, direction = defaultColumnSortDirection) {
-  if (max === min) return "transparent";
-  const normalizedDirection = normalizeColumnSortDirection(direction);
-  const baseRatio = (score - min) / (max - min);
-  const ratio = normalizedDirection === "asc" ? 1 - baseRatio : baseRatio;
-  if (ratio >= 2 / 3) {
-    const strength = (ratio - 2 / 3) * 3;
-    return `rgba(34, 197, 94, ${strength.toFixed(3)})`;
-  }
-  if (ratio <= 1 / 3) {
-    const strength = (1 / 3 - ratio) * 3;
-    return `rgba(239, 68, 68, ${strength.toFixed(3)})`;
-  }
-  return "transparent";
+  return globalThis.ScoreColor?.colorForScore(score, min, max, normalizeColumnSortDirection(direction)) || "transparent";
 }
 
 function sortDirectionGlyph(direction) {
@@ -10113,7 +10101,7 @@ function buildCurrentMobileAllianceSnapshot() {
   const allianceEpa = Array.from({ length: 8 }, (_, allianceIndex) => {
     const teams = state.allianceBoard.slice(allianceIndex * 3, allianceIndex * 3 + 3);
     const summary = allianceEpaSummaryData(teams);
-    return summary.complete ? summary.total : null;
+    return summary.knownCount > 0 ? summary.total : null;
   });
   const columns = state.loadedSources.map((entry) => {
     const column = gridColumnModel(entry, {
@@ -10168,7 +10156,7 @@ function renderAllianceEpaSummary(summary, minTotal, maxTotal, metric = statboti
   const hasTotal = Number.isFinite(total);
   const selectedCount = summary.selectedCount;
   const knownCount = summary.knownCount;
-  const isRankable = summary.complete && Number.isFinite(minTotal) && Number.isFinite(maxTotal);
+  const isRankable = hasTotal && Number.isFinite(minTotal) && Number.isFinite(maxTotal);
   const background = isRankable ? colorForScore(total, minTotal, maxTotal, "desc") : "transparent";
   const formattedTotal = hasTotal ? formatMetricValueForDisplay(metric, total) : "—";
   const status = selectedCount === 0
@@ -10203,7 +10191,7 @@ function renderAlliance() {
   );
   const allianceEpaMetric = statboticsEpaMetric();
   const allianceEpaSummaries = allianceTeamGroups.map((teamNumbers) => allianceEpaSummaryData(teamNumbers, allianceEpaMetric));
-  const rankableEpaTotals = allianceEpaSummaries.filter((summary) => summary.complete && Number.isFinite(summary.total)).map((summary) => summary.total);
+  const rankableEpaTotals = allianceEpaSummaries.filter((summary) => Number.isFinite(summary.total)).map((summary) => summary.total);
   const minAllianceEpa = rankableEpaTotals.length ? Math.min(...rankableEpaTotals) : Number.NaN;
   const maxAllianceEpa = rankableEpaTotals.length ? Math.max(...rankableEpaTotals) : Number.NaN;
   const teamRankColumn = { type: "picklist", label: "Team Rank", teams: rankedTeams, minScore: 0, maxScore: 0 };

@@ -21,6 +21,11 @@ const display = (() => {
   vm.runInNewContext(fs.readFileSync(new URL("../src/mobile-alliance-display.js", import.meta.url), "utf8"), context);
   return context.globalThis.mobileAllianceDisplay;
 })();
+const scoreColor = (() => {
+  const context = { globalThis: {} };
+  vm.runInNewContext(fs.readFileSync(new URL("../src/score-color.js", import.meta.url), "utf8"), context);
+  return context.globalThis.ScoreColor;
+})();
 
 const teams = [
   { id: "frc449", number: 449, label: "449", isSuffixed: false, sources: { tba: { components: { rank: 3, "sort_orders.0": 10 } }, statbotics: { components: { "epa.total_points": 40.25 } } } },
@@ -112,6 +117,7 @@ const appBehaviorContext = {
   teamRankModel: model,
   allianceCaptainState: captainState,
   mobileAllianceDisplay: display,
+  ScoreColor: scoreColor,
   isAdmin: () => true,
   firebaseMobileDisplayApi: { publishMobileAllianceSnapshot: (snapshot) => { publishedMobileSnapshot = snapshot; return true; } },
   state: {
@@ -206,7 +212,7 @@ board[9] = 9072;
 const coloredAlliances = appBehaviorContext.renderAlliance();
 assert.match(coloredAlliances, /data-alliance-epa="50"[^>]*style="background: rgba\(239, 68, 68, 1\.000\)"/);
 assert.match(coloredAlliances, /data-alliance-epa="65\.25"[^>]*style="background: rgba\(34, 197, 94, 1\.000\)"/);
-assert.match(coloredAlliances, /data-alliance-epa="50\.25"[^>]*data-alliance-epa-complete="false"[^>]*style="background: transparent"/);
+assert.match(coloredAlliances, /data-alliance-epa="50\.25"[^>]*data-alliance-epa-complete="false"[^>]*style="background: rgba\(239, 68, 68, 0\.951\)"/, "partial known EPA totals use the same score range and fill as the desktop Alliance EPA column");
 assert.match(coloredAlliances, /data-alliance-epa=""[^>]*EPA unavailable · 0 of 1 teams[^>]*style="background: transparent"/);
 
 board.fill(null);
@@ -236,7 +242,8 @@ assert.equal(appBehaviorContext.mobileSnapshot.columns[0].teams[2].comparisonSlo
 assert.equal(appBehaviorContext.mobileSnapshot.columns[0].teams[3].comparisonSlot, 1, "supplementary list preserves the selected B-team color");
 assert.equal(display.validateMobileAllianceSnapshot(appBehaviorContext.mobileSnapshot), true);
 assert.equal(appBehaviorContext.mobileSnapshot.board.length, 24, "ordinary event snapshots retain three mobile slots per alliance");
-assert.deepEqual(Array.from(appBehaviorContext.mobileSnapshot.allianceEpa), [7, null, null, null, null, null, null, null], "mobile EPA cell uses the complete selected-team total and leaves empty alliances unavailable");
+assert.deepEqual(Array.from(appBehaviorContext.mobileSnapshot.allianceEpa), [7, null, null, null, null, null, null, null], "mobile EPA cell uses the known selected-team sum and leaves empty alliances unavailable");
+assert.equal(appBehaviorContext.mobileSnapshot.allianceEpaRange.min, 7, "mobile EPA range includes the lowest known alliance total");
 const savedBoard = [...board];
 const savedComparisonTeams = [...appBehaviorContext.state.picklistCompareTeams];
 board.fill(null);
@@ -267,10 +274,10 @@ assert.deepEqual(Array.from(worldMobileSnapshot.board.slice(0, 8), (slot) => [sl
   [1, "449B"], [1, "1731"], [1, "9072"], [1, ""],
   [2, ""], [2, ""], [2, ""], [2, ""],
 ]);
-assert.equal(worldMobileSnapshot.allianceEpa[0], null, "mobile alliance EPA does not present a partial sum when one selected team's EPA is unavailable");
+assert.equal(worldMobileSnapshot.allianceEpa[0], 37.5, "mobile alliance EPA presents the sum of available selected-team values when one team is unavailable");
 assert.equal(appBehaviorContext.publishCurrentMobileAllianceSnapshot(), true, "the current mobile display snapshot publishes successfully");
 assert.equal(publishedMobileSnapshot.eventKey, "2024cmptx");
-assert.equal(publishedMobileSnapshot.allianceEpa[0], null, "the publish helper sends fresh EPA state rather than a prior view's snapshot");
+assert.equal(publishedMobileSnapshot.allianceEpa[0], 37.5, "the publish helper sends fresh partial EPA state rather than a prior view's snapshot");
 
 // Exercise the Alliance Selection click seam with real rendered team and board markup.
 const allianceClickHandlers = new Map();

@@ -6,6 +6,8 @@ const displaySource = fs.readFileSync(new URL("../src/mobile-alliance-display.js
 const displayContext = { globalThis: {} };
 vm.runInNewContext(displaySource, displayContext);
 const display = displayContext.globalThis.mobileAllianceDisplay;
+const scoreColorContext = { globalThis: {} };
+vm.runInNewContext(fs.readFileSync(new URL("../src/score-color.js", import.meta.url), "utf8"), scoreColorContext);
 
 const snapshot = display.buildMobileAllianceSnapshot({
   eventKey: "2026chcmp",
@@ -57,6 +59,7 @@ const worldSnapshot = display.buildMobileAllianceSnapshot({
   eventKey: "2024cmptx",
   allianceSize: 4,
   allianceEpa: [0, 15.25, null, undefined, 2, null, null, null],
+  allianceEpaRange: { min: 0, max: 15.25 },
   board: Array.from({ length: 32 }, (_, index) => index < 4
     ? { teamNumber: [686, 449, 1719, "449B"][index], comparisonSlot: index }
     : null),
@@ -71,6 +74,8 @@ assert.equal(worldSnapshot.board.length, 32, "World Championship snapshots conta
 assert.deepEqual(worldSnapshot.board.slice(0, 8).map((slot) => slot.alliance), [1, 1, 1, 1, 2, 2, 2, 2]);
 assert.equal(worldSnapshot.board[0].comparisonSlot, 0);
 assert.deepEqual(Array.from(worldSnapshot.allianceEpa), [0, 15.25, null, null, 2, null, null, null], "mobile alliance EPA keeps finite totals including zero and uses null for unavailable totals");
+assert.equal(worldSnapshot.allianceEpaRange?.min, 0, "mobile publishes the minimum known alliance EPA for score coloring");
+assert.equal(worldSnapshot.allianceEpaRange?.max, 15.25, "mobile publishes the maximum known alliance EPA for score coloring");
 assert.equal(display.validateMobileAllianceSnapshot(worldSnapshot), true);
 assert.equal(display.validateMobileAllianceSnapshot({ ...worldSnapshot, board: worldSnapshot.board.slice(0, 31) }), false);
 assert.equal(display.validateMobileAllianceSnapshot({ ...worldSnapshot, allianceEpa: [0] }), false, "public snapshots require exactly one EPA value per alliance when the field is present");
@@ -140,7 +145,7 @@ class FakeNode {
 }
 const selectors = new Map([
   ["#selection-board", new FakeNode()], ["#final-rankings", new FakeNode()], ["#mobile-picklists", new FakeNode()],
-  ["#mobile-picklists-hint", new FakeNode()], ["#empty-state", new FakeNode()], ["#event-name", new FakeNode()], ["#connection-state", new FakeNode()],
+  ["#mobile-picklists-hint", new FakeNode()], ["#empty-state", new FakeNode()],
   ["#board-view", new FakeNode()], ["#picklists-view", new FakeNode()],
 ]);
 const tabs = [new FakeNode({ mobileTab: "board" }), new FakeNode({ mobileTab: "picklists" })];
@@ -149,14 +154,16 @@ const mobileContext = {
   console,
   document: { querySelector: (selector) => selectors.get(selector), querySelectorAll: (selector) => selector === "[data-mobile-tab]" ? tabs : [] , createElement: () => new FakeNode() },
   mobileAllianceDisplay: display,
+  ScoreColor: scoreColorContext.globalThis.ScoreColor,
   firebaseMobileDisplayApi: { subscribeMobileAllianceSnapshot: (callback) => { receiveSnapshot = callback; } },
   addEventListener: () => {},
 };
 mobileContext.globalThis = mobileContext;
 vm.runInNewContext(fs.readFileSync(new URL("../src/mobile-alliance-viewer.js", import.meta.url), "utf8"), mobileContext);
+receiveSnapshot(null);
+assert.equal(selectors.get("#empty-state").hidden, false, "the simplified viewer shows its waiting state when no valid public snapshot exists");
+assert.equal(selectors.get("#selection-board").children.length, 0, "an unavailable snapshot clears stale alliance rows without touching removed header elements");
 receiveSnapshot(snapshot);
-assert.equal(selectors.get("#connection-state").textContent, "Live");
-assert.equal(selectors.get("#event-name").textContent, "Championship <script> · 2026chcmp");
 assert.equal(selectors.get("#selection-board").children.length, 8);
 assert.equal(selectors.get("#final-rankings").children[0].className, "ranking-row state-confirmed");
 assert.equal(selectors.get("#mobile-picklists").children.length, 1);
@@ -190,7 +197,9 @@ assert.deepEqual(Array.from(selectors.get("#selection-board").children[0].childr
 ], "all four comparison colors reach board slots");
 assert.equal(selectors.get("#selection-board").children[0].children[1].children[0].attributes.style, "--compare-accent: #2563eb");
 assert.equal(selectors.get("#selection-board").children[0].children[2].textContent, "EPA=0.0", "the mobile board formats a usable EPA total as a separate one-decimal cell");
+assert.equal(selectors.get("#selection-board").children[0].children[2].attributes.style, "--metric-fill: rgba(239, 68, 68, 1.000)", "lowest mobile alliance EPA uses the desktop red score fill");
 assert.equal(selectors.get("#selection-board").children[1].children[2].textContent, "EPA=15.3");
+assert.equal(selectors.get("#selection-board").children[1].children[2].attributes.style, "--metric-fill: rgba(34, 197, 94, 1.000)", "highest mobile alliance EPA uses the desktop green score fill");
 assert.equal(selectors.get("#selection-board").children[2].children[2].textContent, "---", "unavailable alliance EPA uses the compact placeholder without explanation prose");
 assert.equal(selectors.get("#mobile-picklists").children.length, 4, "the Picklists page renders four simultaneous source columns");
 assert.equal(selectors.get("#mobile-picklists").children[0].children[0].textContent, "List 1");
@@ -206,8 +215,8 @@ receiveSnapshot(scoreSnapshot);
 const renderedScoreRows = selectors.get("#mobile-picklists").children[0].children[1].children;
 assert.equal(renderedScoreRows[0].children[0].textContent, "13", "metric rows display a number-only team field");
 assert.equal(renderedScoreRows[0].children[1].textContent, "0.0", "metric score remains a separate field");
-assert.equal(renderedScoreRows[0].attributes.style, "--metric-fill: hsl(0 58% 38%)", "low metric values color the complete row red");
-assert.equal(renderedScoreRows[1].attributes.style, "--metric-fill: hsl(120 58% 38%)", "high metric values color the complete row green");
+assert.equal(renderedScoreRows[0].attributes.style, "--metric-fill: rgba(239, 68, 68, 1.000)", "low metric values use the desktop red score fill on the complete row");
+assert.equal(renderedScoreRows[1].attributes.style, "--metric-fill: rgba(34, 197, 94, 1.000)", "high metric values use the desktop green score fill on the complete row");
 const mobileStyles = fs.readFileSync(new URL("../src/mobile-alliance.css", import.meta.url), "utf8");
 assert.match(mobileStyles, /\.alliance-slots\s*\{[^}]*repeat\(var\(--alliance-slot-count,\s*3\)/s, "alliance rows honor the event-specific three/four slot count");
 assert.match(mobileStyles, /\.alliance-row\s*\{[^}]*grid-template-columns:\s*85px\s+minmax\(0,\s*1fr\)\s+70px/s, "alliance rows reserve a separate EPA cell beside the team slots");
@@ -220,13 +229,16 @@ assert.match(mobileStyles, /@media \(max-width: 699px\)[\s\S]*?\.alliance-row:nt
 assert.match(mobileStyles, /\.mobile-picklists \.ranking-row:not\(\.compare-selected\)\s*\{[^}]*background:\s*var\(--metric-fill/s, "Picklists apply metric color to the complete row");
 assert.match(mobileStyles, /\.mobile-picklists \.ranking-row\.state-picked:not\(\.compare-selected\)\s*\{[^}]*linear-gradient\(rgba\(85, 93, 99,/s, "picked Picklists preserve a gray overlay over the full-row metric fill");
 assert.match(mobileStyles, /\.alliance-row \.board-slot\.occupied\.state-picked\.compare-selected\s*\{[^}]*linear-gradient\(rgba\(85, 93, 99,/s, "picked comparison board slots retain the translucent gray overlay above alternating row tints");
+assert.match(mobileStyles, /\.alliance-row \.alliance-epa\[style\]\s*\{[^}]*linear-gradient\(var\(--metric-fill\),\s*var\(--metric-fill\)\)/s, "EPA score fills overlay the alliance tint using the published score color after alternating row colors");
 assert.match(mobileStyles, /\.ranking-row\.state-picked\.compare-selected\s*\{[^}]*linear-gradient\(rgba\(85, 93, 99, \.52\)/s, "picked comparison teams retain the gray overlay over their highlight color");
 assert.match(fs.readFileSync(new URL("../mobile.html", import.meta.url), "utf8"), /data-mobile-tab="board" aria-selected="true">Selection Board<\/button>/, "mobile page selector uses the production Selection Board label");
 receiveSnapshot(display.buildMobileAllianceSnapshot({ eventKey: "2026chcmp", eventName: "Updated", board: [{ teamNumber: 9999 }] }));
-assert.equal(selectors.get("#event-name").textContent, "Updated · 2026chcmp");
 assert.match(selectors.get("#selection-board").children[0].children[1].children[0].textContent, /9999/);
 assert.equal(selectors.get("#mobile-picklists").className, "mobile-picklists is-empty");
 assert.equal(selectors.get("#mobile-picklists").dataset.columnCount, "0");
 assert.equal(selectors.get("#mobile-picklists-hint").hidden, true);
+const mobileHtml = fs.readFileSync(new URL("../mobile.html", import.meta.url), "utf8");
+assert.match(mobileHtml, /<h1>Alliance Selection<\/h1>/);
+assert.doesNotMatch(mobileHtml, /Bovine|event-name|connection-state/);
 
 console.log("PASS mobile alliance schema, bounded public document, admin publishing, and live viewer rendering/update behavior");
