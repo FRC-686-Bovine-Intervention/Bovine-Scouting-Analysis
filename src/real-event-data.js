@@ -43,6 +43,9 @@ function minimalEventModelFromSnapshot(snapshot) {
     ...snapshot,
     key: snapshot?.key || "",
     name: tbaEvent?.name || snapshot?.key || "",
+    eventType: tbaEvent?.event_type !== null && tbaEvent?.event_type !== ""
+      && Number.isInteger(Number(tbaEvent.event_type)) ? Number(tbaEvent.event_type) : null,
+    eventTypeString: String(tbaEvent?.event_type_string || ""),
     season,
     seasonLabel: "",
     scoringComponents: [],

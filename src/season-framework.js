@@ -186,7 +186,7 @@ function buildMetrics(season) {
   }
   const scouterMetrics = scouterMetricDefinitions(season);
   const pridgeResponseDefinitions = Array.isArray(season?.pridgeResponseDefinitions) ? season.pridgeResponseDefinitions : [];
-  return [
+  const metrics = [
     ...scouterMetrics.map((component) => ({
       id: `source:scouter:${component.id}`,
       kind: "source",
@@ -246,6 +246,13 @@ function buildMetrics(season) {
       definition: metricDefinition,
     })),
   ];
+  const seenMetricIds = new Set();
+  return metrics.filter((metric) => {
+    const id = normalizeText(metric?.id);
+    if (!id || seenMetricIds.has(id)) return false;
+    seenMetricIds.add(id);
+    return true;
+  });
 }
 
 function buildCriteriaSources(season) {

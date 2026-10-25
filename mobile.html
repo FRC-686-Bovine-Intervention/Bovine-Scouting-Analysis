@@ -4,29 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#101820" />
-    <title>Bovine Alliance Selection</title>
+    <title>Alliance Selection</title>
     <link rel="stylesheet" href="src/mobile-alliance.css?revision=__DEPLOYMENT_REVISION__" />
+    <script src="src/score-color.js?revision=__DEPLOYMENT_REVISION__" defer></script>
     <script src="src/mobile-alliance-display.js?revision=__DEPLOYMENT_REVISION__" defer></script>
     <script src="src/mobile-alliance-viewer.js?revision=__DEPLOYMENT_REVISION__" defer></script>
     <script type="module" src="src/firebase-mobile-display.js"></script>
   </head>
   <body>
     <main class="mobile-shell">
-      <header class="mobile-header">
-        <div><p class="eyebrow">Bovine Scouting Analysis</p><h1>Alliance Selection</h1><p id="event-name" class="muted">Waiting for the admin display…</p></div>
-        <span id="connection-state" role="status">Connecting</span>
-      </header>
+      <header class="mobile-header"><h1>Alliance Selection</h1></header>
       <nav class="mobile-tabs" aria-label="Alliance selection views">
-        <button type="button" data-mobile-tab="board" aria-selected="true">Board &amp; rankings</button>
+        <button type="button" data-mobile-tab="board" aria-selected="true">Selection Board</button>
         <button type="button" data-mobile-tab="picklists" aria-selected="false">Picklists</button>
       </nav>
       <section id="board-view" class="mobile-view" aria-label="Selection board and team rank">
         <article class="mobile-card"><h2>Selection Board</h2><div id="selection-board" class="mobile-board"></div></article>
         <article class="mobile-card"><h2>Team Rank</h2><p class="legend"><span class="confirmed">Confirmed captain</span><span class="possible">Possible captain</span><span class="picked">Picked</span></p><ol id="final-rankings" class="mobile-rankings"></ol></article>
       </section>
-      <section id="picklists-view" class="mobile-view" hidden aria-label="Displayed picklists"><div id="mobile-picklists" class="mobile-picklists"></div></section>
+      <section id="picklists-view" class="mobile-view" hidden aria-label="Displayed picklists">
+        <p id="mobile-picklists-hint" class="mobile-picklists-hint" hidden>Swipe horizontally to see more displayed sources.</p>
+        <div id="mobile-picklists" class="mobile-picklists" role="region" tabindex="0" aria-label="Displayed source columns"></div>
+      </section>
       <p id="empty-state" class="empty-state">Waiting for an admin to open Alliance Selection on the desktop app.</p>
-      <footer>Live, read-only view</footer>
     </main>
   </body>
 </html>

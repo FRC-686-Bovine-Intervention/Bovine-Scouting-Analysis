@@ -1209,6 +1209,18 @@ select {
   align-items: center;
 }
 
+.match-row.match-row-has-time {
+  grid-template-columns: 140px 1fr auto 1fr;
+}
+
+.match-estimated-time {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .match-row.schedule-current {
   background: #FFFF66;
 }
@@ -1793,6 +1805,24 @@ button.pill {
 
 .current-picklist-list:focus {
   outline: none;
+}
+
+@media (min-width: 861px) {
+  .current-picklist-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .current-picklist-card > .section-heading {
+    flex: 0 0 auto;
+  }
+
+  .current-picklist-list {
+    flex: 1 1 0;
+    min-height: 0;
+    max-height: none;
+  }
 }
 
 .read-only-source-card {

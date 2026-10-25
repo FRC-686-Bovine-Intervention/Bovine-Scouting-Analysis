@@ -263,12 +263,12 @@ const navItems = [
   { view: "rankings", label: "Rankings", icon: "rankings" },
   { view: "schedule", label: "Match Schedule", icon: "schedule" },
   { view: "matchup", label: "Matchup", icon: "matchup" },
-  { view: "bracket", label: "Playoff Bracket", icon: "bracket" },
   { view: "analysis", label: "Analysis", icon: "analysis" },
   { view: "derivedBuilder", label: "Derived Equation Builder", icon: "derivedBuilder" },
   { view: "picklistBuilder", label: "Picklist Builder", icon: "picklists" },
   { view: "comparisonPlots", label: "Comparison Plots", icon: "analysis" },
   { view: "alliance", label: "Alliance Selection", icon: "alliance" },
+  { view: "bracket", label: "Playoff Bracket", icon: "bracket" },
   { view: "adminEventControl", label: "Admin Event Control", icon: "admin" },
   { view: "adminDataQuality", label: "Admin Data Quality", icon: "quality" },
   { view: "adminUserControl", label: "Admin User Control", icon: "debug" },
@@ -842,8 +842,12 @@ function applyLoadedExternalSourceState(loadResult, options = {}) {
     nextSources[sourceId] = mergeProviderSourceState(nextSources[sourceId], sourceState);
   });
   const currentModel = currentEvent();
-  const hasComputedPridge = (currentModel?.teams || []).some((team) => Number.isFinite(Number(team?.sources?.pridge?.total)));
-  if (hasComputedPridge && nextSources.pridge?.status === "error") {
+  const hasComputedPridge = (currentModel?.teams || []).some((team) => {
+    const total = team?.sources?.pridge?.total;
+    return (typeof total === "number" || (typeof total === "string" && total.trim() !== ""))
+      && Number.isFinite(Number(total));
+  });
+  if (hasComputedPridge && nextSources.pridge?.status === "error" && nextSources.pridge?.provenance?.mode !== "shared-cache-fallback") {
     nextSources.pridge = {
       ...nextSources.pridge,
       status: "ready",
@@ -3384,7 +3388,6 @@ function currentDerivedAvailableMetrics(eventModel = currentEvent()) {
     ...currentAvailableScoutingFieldDefinitions(eventModel).map((metricDefinition) => ({ id: `scouting.${metricDefinition.id}` })),
     ...currentAvailableTbaFormulaIdentifiers(eventModel).map((id) => ({ id })),
     ...currentAvailableStatboticsFormulaIdentifiers(eventModel).map((id) => ({ id })),
-    { id: "pridge.epa.total_points" },
     ...runtimeMetricsForEventModel(eventModel)
       .filter((metric) => metric.kind === "source" && metric.sourceId === "pridge" && metric.componentId !== "total")
       .map((metric) => ({ id: `pridge.${pridgeFormulaComponentId(metric.componentId)}` })),
@@ -5430,6 +5433,7 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
           eventKey: requestedEventKey,
           eventModel: previousEventModel,
           fetchedAt: previousSource.lastSuccessfulAt,
+          pridgeLastSuccessfulAt: normalizeText(previousWorkspace?.sources?.pridge?.lastSuccessfulAt),
         };
       }
       if (typeof statboticsSourceCacheApi?.loadEventSourceCache !== "function") return null;
@@ -6115,19 +6119,7 @@ function rankTeamsByEquation(equation) {
 }
 
 function colorForScore(score, min, max, direction = defaultColumnSortDirection) {
-  if (max === min) return "transparent";
-  const normalizedDirection = normalizeColumnSortDirection(direction);
-  const baseRatio = (score - min) / (max - min);
-  const ratio = normalizedDirection === "asc" ? 1 - baseRatio : baseRatio;
-  if (ratio >= 2 / 3) {
-    const strength = (ratio - 2 / 3) * 3;
-    return `rgba(34, 197, 94, ${strength.toFixed(3)})`;
-  }
-  if (ratio <= 1 / 3) {
-    const strength = (1 / 3 - ratio) * 3;
-    return `rgba(239, 68, 68, ${strength.toFixed(3)})`;
-  }
-  return "transparent";
+  return globalThis.ScoreColor?.colorForScore(score, min, max, normalizeColumnSortDirection(direction)) || "transparent";
 }
 
 function sortDirectionGlyph(direction) {
@@ -7657,9 +7649,6 @@ function renderNow(reason = "unspecified") {
   let content = "";
   try {
     content = renderView();
-    if (isAdmin() && ["alliance", "picklistBuilder"].includes(state.activeView)) {
-      globalThis.__pendingMobileAllianceSnapshot = buildCurrentMobileAllianceSnapshot();
-    }
   } catch (error) {
     console.error("Render failed for view", state.activeView, error);
     if (state.activeView !== "teams") {
@@ -7677,7 +7666,6 @@ function renderNow(reason = "unspecified") {
       return;
     }
   }
-
   const shell = app.querySelector(".app-shell");
   const sidebar = shell?.querySelector('[data-render-region="sidebar"]');
   const topbar = shell?.querySelector('[data-render-region="topbar"]');
@@ -7735,9 +7723,7 @@ function renderNow(reason = "unspecified") {
 
   bindShellEvents();
   restoreRenderInteractionState(interactionState, { preserveControls: reason.startsWith("background.") });
-  if (isAdmin() && globalThis.__pendingMobileAllianceSnapshot) {
-    globalThis.firebaseMobileDisplayApi?.publishMobileAllianceSnapshot(globalThis.__pendingMobileAllianceSnapshot);
-  }
+  if (isAdmin()) publishCurrentMobileAllianceSnapshot();
   focusScheduleLastPlayed();
   recordScoutingPerf("render", renderStartedAt, { activeView: state.activeView, reason });
 }
@@ -9029,10 +9015,17 @@ function scheduleRow(match, currentMatch, highlightTeam) {
       : matchHasScore(match)
         ? "schedule-complete"
         : "";
+  const predictedTime = Number(match.predictedTime);
+  const hasPredictedTime = Number.isFinite(predictedTime) && predictedTime > 0;
+  const predictedDate = hasPredictedTime ? new Date(predictedTime * 1000) : null;
+  const predictedTimeMarkup = predictedDate && !Number.isNaN(predictedDate.getTime())
+    ? `<time class="match-estimated-time" datetime="${predictedDate.toISOString()}" aria-label="Estimated match start ${escapeAttribute(predictedDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}">${escapeHtml(predictedDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}</time>`
+    : "";
   return `
-    <article class="match-row ${className}" data-match-row="${escapeAttribute(matchIdentity(match))}"${isCurrent ? ' data-schedule-last-played="true"' : ""} title="Open ${escapeAttribute(matchupMatchLabel(match))} matchup">
+    <article class="match-row${predictedTimeMarkup ? " match-row-has-time" : ""} ${className}" data-match-row="${escapeAttribute(matchIdentity(match))}"${isCurrent ? ' data-schedule-last-played="true"' : ""} title="Open ${escapeAttribute(matchupMatchLabel(match))} matchup">
       <button class="match-link" data-match="${escapeAttribute(matchIdentity(match))}">${escapeHtml(matchupMatchLabel(match))}</button>
       <span class="alliance red">${scheduleAllianceSlots(match.redLabels || match.red).map(scheduleTeamSlot).join("")}</span>
+      ${predictedTimeMarkup}
       <span class="alliance blue">${scheduleAllianceSlots(match.blueLabels || match.blue).map(scheduleTeamSlot).join("")}</span>
     </article>
   `;
@@ -10106,6 +10099,22 @@ function buildCurrentMobileAllianceSnapshot() {
     const slot = compareSlotIndexForTeam(selectionIdForTeam(team));
     return slot >= 0 ? slot : null;
   };
+  const allianceSize = globalThis.mobileAllianceDisplay?.allianceSizeForEvent(currentEvent()) || 3;
+  const mobileBoard = Array.from({ length: 8 * allianceSize }, (_, mobileSlot) => {
+    const allianceIndex = Math.floor(mobileSlot / allianceSize);
+    const slotWithinAlliance = mobileSlot % allianceSize;
+    const team = slotWithinAlliance < 3 ? state.allianceBoard[allianceIndex * 3 + slotWithinAlliance] : null;
+    return {
+      teamNumber: resolveTeamNumber(team),
+      teamName: teamByNumber(team)?.name || "",
+      comparisonSlot: team ? comparisonSlotForTeam(team) : null,
+    };
+  });
+  const allianceEpa = Array.from({ length: 8 }, (_, allianceIndex) => {
+    const teams = state.allianceBoard.slice(allianceIndex * 3, allianceIndex * 3 + 3);
+    const summary = allianceEpaSummaryData(teams);
+    return summary.knownCount > 0 ? summary.total : null;
+  });
   const columns = state.loadedSources.map((entry) => {
     const column = gridColumnModel(entry, {
       direction: loadedSourceSortDirection(entry),
@@ -10116,7 +10125,9 @@ function buildCurrentMobileAllianceSnapshot() {
   return globalThis.mobileAllianceDisplay?.buildMobileAllianceSnapshot({
     eventKey: state.activeEventKey,
     eventName: displayEventName(currentEvent()),
-    board: state.allianceBoard.map((team) => ({ teamNumber: resolveTeamNumber(team), teamName: teamByNumber(team)?.name || "" })),
+    allianceSize,
+    board: mobileBoard,
+    allianceEpa,
     rankings: rankedTeams.map((team) => ({ teamNumber: resolveTeamNumber(team), state: displayStateForTeam(team), comparisonSlot: comparisonSlotForTeam(team) })),
     columns: columns.map(({ entry, column }) => ({
       id: entry,
@@ -10157,7 +10168,7 @@ function renderAllianceEpaSummary(summary, minTotal, maxTotal, metric = statboti
   const hasTotal = Number.isFinite(total);
   const selectedCount = summary.selectedCount;
   const knownCount = summary.knownCount;
-  const isRankable = summary.complete && Number.isFinite(minTotal) && Number.isFinite(maxTotal);
+  const isRankable = hasTotal && Number.isFinite(minTotal) && Number.isFinite(maxTotal);
   const background = isRankable ? colorForScore(total, minTotal, maxTotal, "desc") : "transparent";
   const formattedTotal = hasTotal ? formatMetricValueForDisplay(metric, total) : "—";
   const status = selectedCount === 0
@@ -10192,7 +10203,7 @@ function renderAlliance() {
   );
   const allianceEpaMetric = statboticsEpaMetric();
   const allianceEpaSummaries = allianceTeamGroups.map((teamNumbers) => allianceEpaSummaryData(teamNumbers, allianceEpaMetric));
-  const rankableEpaTotals = allianceEpaSummaries.filter((summary) => summary.complete && Number.isFinite(summary.total)).map((summary) => summary.total);
+  const rankableEpaTotals = allianceEpaSummaries.filter((summary) => Number.isFinite(summary.total)).map((summary) => summary.total);
   const minAllianceEpa = rankableEpaTotals.length ? Math.min(...rankableEpaTotals) : Number.NaN;
   const maxAllianceEpa = rankableEpaTotals.length ? Math.max(...rankableEpaTotals) : Number.NaN;
   const teamRankColumn = { type: "picklist", label: "Team Rank", teams: rankedTeams, minScore: 0, maxScore: 0 };
@@ -10314,6 +10325,21 @@ function renderAlliance() {
       </article>
     </div>
   `;
+}
+
+function publishCurrentMobileAllianceSnapshot() {
+  if (!isAdmin()) return false;
+  try {
+    const snapshot = buildCurrentMobileAllianceSnapshot();
+    return Boolean(globalThis.firebaseMobileDisplayApi?.publishMobileAllianceSnapshot(snapshot));
+  } catch (error) {
+    console.warn("Unable to build the current public mobile alliance snapshot.", error);
+    return false;
+  }
+}
+
+if (typeof globalThis.addEventListener === "function") {
+  globalThis.addEventListener("firebase-mobile-display-api-ready", publishCurrentMobileAllianceSnapshot);
 }
 
 function renderBoardCell(teamNumber, index) {

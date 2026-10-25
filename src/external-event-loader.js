@@ -372,10 +372,41 @@ function buildPridgeUnavailableState(eventModel, timestamp, options = {}) {
 }
 
 function eventHasComputedPridge(eventModel) {
-  return Boolean((eventModel?.teams || []).some((team) => {
-    const total = team?.sources?.pridge?.total;
-    return total !== null && total !== undefined && Number.isFinite(Number(total));
-  }));
+  return Boolean((eventModel?.teams || []).some((team) => isKnownPridgeValue(team?.sources?.pridge?.total)));
+}
+
+function isKnownPridgeValue(value) {
+  return (typeof value === "number" || (typeof value === "string" && value.trim() !== ""))
+    && Number.isFinite(Number(value));
+}
+
+function hasKnownPridgeValue(pridge = {}) {
+  return isKnownPridgeValue(pridge.total)
+    || Object.values(pridge.components || {}).some(isKnownPridgeValue)
+    || (pridge.trendEntries || []).some((entry) => isKnownPridgeValue(entry?.value))
+    || (pridge.trend || []).some(isKnownPridgeValue);
+}
+
+function retainLastKnownPridge(currentPridge = {}, previousPridge = {}) {
+  if (isKnownPridgeValue(currentPridge.total) || !hasKnownPridgeValue(previousPridge)) return currentPridge;
+  const components = { ...(previousPridge.components || {}) };
+  Object.entries(currentPridge.components || {}).forEach(([id, value]) => {
+    if (isKnownPridgeValue(value) || !Object.hasOwn(components, id)) components[id] = value;
+  });
+  const trendEntries = currentPridge.trendEntries?.length ? currentPridge.trendEntries : previousPridge.trendEntries || [];
+  const trend = currentPridge.trend?.length
+    ? currentPridge.trend
+    : previousPridge.trend?.length
+      ? previousPridge.trend
+      : trendEntries.map((entry) => Number(entry.value)).filter(Number.isFinite);
+  return {
+    ...previousPridge,
+    ...currentPridge,
+    total: isKnownPridgeValue(previousPridge.total) ? previousPridge.total : currentPridge.total ?? null,
+    components,
+    trendEntries,
+    trend,
+  };
 }
 
 async function loadEventByCode(eventCode, options = {}) {
@@ -481,15 +512,27 @@ async function loadEventByCode(eventCode, options = {}) {
     catalogSource: "dynamic-external",
   });
 
+  let retainedLastKnownPridge = false;
   if (lastKnownGoodStatbotics?.eventModel?.key === normalizedEventCode) {
     const previousTeams = new Map((lastKnownGoodStatbotics.eventModel.teams || [])
-      .filter((team) => team?.sources?.statbotics && Number.isFinite(Number(team.number)))
+      .filter((team) => (team?.sources?.statbotics || hasKnownPridgeValue(team?.sources?.pridge))
+        && Number.isFinite(Number(team.number)))
       .map((team) => [String(team.id || `${team.number}${team.isSuffixed ? `-${team.suffix || ""}` : ""}`), team]));
     eventModel.teams = eventModel.teams.map((team) => {
       const identity = String(team.id || `${team.number}${team.isSuffixed ? `-${team.suffix || ""}` : ""}`);
       const previousTeam = previousTeams.get(identity);
       if (!previousTeam || Number(previousTeam.number) !== Number(team.number)) return team;
-      return { ...team, sources: { ...team.sources, statbotics: previousTeam.sources.statbotics } };
+      const currentPridge = team.sources?.pridge || {};
+      const previousPridge = previousTeam.sources?.pridge || {};
+      if (!isKnownPridgeValue(currentPridge.total) && hasKnownPridgeValue(previousPridge)) retainedLastKnownPridge = true;
+      return {
+        ...team,
+        sources: {
+          ...team.sources,
+          ...(previousTeam.sources?.statbotics ? { statbotics: previousTeam.sources.statbotics } : {}),
+          pridge: retainLastKnownPridge(currentPridge, previousPridge),
+        },
+      };
     });
   }
 
@@ -546,7 +589,20 @@ async function loadEventByCode(eventCode, options = {}) {
     });
   }
 
-  if (eventHasComputedPridge(eventModel)) {
+  if (retainedLastKnownPridge) {
+    const fetchedAt = normalizeText(lastKnownGoodStatbotics.pridgeLastSuccessfulAt) || normalizeText(lastKnownGoodStatbotics.fetchedAt);
+    const message = `Statbotics timed out or failed; retaining last-known-good pRidge values for ${normalizedEventCode}${fetchedAt ? ` fetched ${fetchedAt}` : ""}.`;
+    warnings.push(message);
+    sourceStates.pridge = buildFailedSourceState("pridge", timestamp, {
+      error: message,
+      lastSuccessfulAt: fetchedAt,
+      sourceFingerprint: buildSnapshotFingerprint(buildExternalSourceSnapshot("pridge", eventModel)),
+      notes: `Showing previously computed pRidge values because Statbotics was unavailable${fetchedAt ? `; the cached provider data was fetched ${fetchedAt}` : ""}.`,
+      mode: "shared-cache-fallback",
+      eventKey: normalizedEventCode,
+      generatedAt: fetchedAt || timestamp,
+    });
+  } else if (eventHasComputedPridge(eventModel)) {
     const inputFingerprints = buildPridgeInputFingerprints(eventModel);
     sourceStates.pridge = buildReadySourceState("pridge", eventModel, timestamp, {
       mode: "native-compute",

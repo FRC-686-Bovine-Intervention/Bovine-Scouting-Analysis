@@ -117,7 +117,7 @@ function loadAppContext(options = {}) {
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
     .replace(/\nbootstrapApp\(\);\s*/, "\n")
-    + "\nglobalThis.__activeEventTestApi = { adminDataQualityAlertState, applyAdminEventCodeDraft, applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, currentDataSources, loadArbitraryEventCode, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, refreshDataSource, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
+    + "\nglobalThis.__activeEventTestApi = { adminDataQualityAlertState, applyAdminEventCodeDraft, applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, currentDataSources, currentMetrics, currentDerivedAvailableMetrics, orderedMetrics, orderedRankableMetrics, renderAlliance, renderAnalysis, renderDerivedBuilder, loadArbitraryEventCode, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, refreshDataSource, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/mobile-alliance-display.js",
@@ -127,9 +127,11 @@ function loadAppContext(options = {}) {
     "src/scouting-diagnostics-state.js",
     "src/scouting-source-utils.js",
     "src/scouting-json-schema.js",
+    "src/scouting-schema-runtime.js",
     "src/scouting-json-import.js",
     "src/scouting-profiles.js",
     "src/event-workspace.js",
+    "src/team-rank-model.js",
     "src/frc-season-metadata.js",
   ].forEach((relativePath) => {
     const source = fs.readFileSync(path.join(workspaceRoot, relativePath), "utf8");
@@ -554,6 +556,47 @@ await runTest("a stale background refresh cannot overwrite a newer event selecti
   assert.equal(state.eventWorkspace.eventKey, requestedEvent.key);
   assert.equal(state.adminEventCodeDraft, requestedEvent.key);
   assert.match(state.eventLookupResult.message, new RegExp(requestedEvent.key));
+});
+
+await runTest("an unavailable pRidge result is not promoted to a computed zero while a real zero remains ready", async () => {
+  async function loadWithPridgeTotal(eventKey, total, provenanceMode = "native-compute") {
+    const eventModel = {
+      key: eventKey,
+      season: 2026,
+      name: eventKey,
+      seasonLabel: "2026",
+      catalogSource: "dynamic-external",
+      teams: [{ id: "frc1", number: 1, sources: { pridge: { total } } }],
+      teamNumbers: [1],
+      matches: [],
+      matchesComplete: 0,
+      scoringComponents: [],
+      metrics: [],
+      seedPicklists: [],
+      seedSortEquations: [],
+      formulaFieldDefinitions: [],
+      dataSources: [],
+    };
+    const context = loadAppContext({
+      eventCatalog: [],
+      ExternalEventLoader: {
+        loadEventByCode: async () => ({
+          eventModel,
+          sourceStates: { pridge: { status: "error", freshness: "stale", error: "pRidge unavailable", provenance: { mode: provenanceMode } } },
+          warnings: [],
+          rawSourceArtifacts: [],
+        }),
+        normalizeEventCode: (value) => String(value || "").trim().toLowerCase(),
+      },
+    });
+    context.__scoutingAppState.tbaAuthKey = "configured";
+    await context.__activeEventTestApi.applyAdminEventCodeDraft(eventKey);
+    return context.__scoutingAppState.eventWorkspace.sources.pridge.status;
+  }
+
+  assert.equal(await loadWithPridgeTotal("2026missing", null), "error", "null pRidge is unavailable, not numeric zero");
+  assert.equal(await loadWithPridgeTotal("2026zero", 0), "ready", "a real pRidge zero remains valid data");
+  assert.equal(await loadWithPridgeTotal("2026stale", 39.2, "shared-cache-fallback"), "error", "preserved pRidge values remain marked stale during a Statbotics outage");
 });
 
 await runTest("admin event changes are shared and members adopt the shared event without writing it", async () => {
@@ -1626,13 +1669,14 @@ await runTest("provider metric catalogs apply default and schema blacklists with
     teams: [{
       number: 111,
       sources: {
-        tba: { components: {} },
+        tba: { components: { "epa.total_points": 18.4 } },
         statbotics: {
           components: {
             team_name: "Example Team",
             "epa.total_points": 42.7,
           },
         },
+        pridge: { components: { "epa.total_points": 39.2 } },
       },
     }],
     teamNumbers: [111],
@@ -1656,6 +1700,14 @@ await runTest("provider metric catalogs apply default and schema blacklists with
     seedPicklists: [],
     seedSortEquations: [],
     formulaFieldDefinitions: [],
+    metrics: [{
+      id: "source:pridge:epa.total_points",
+      kind: "source",
+      sourceId: "pridge",
+      componentId: "epa.total_points",
+      label: "pRidge EPA Total",
+      unit: "pts",
+    }],
     sheet: { recommendedProfileId: "match-current-v2" },
   }];
 
@@ -1706,6 +1758,29 @@ await runTest("provider metric catalogs apply default and schema blacklists with
   assert.equal(context.metricTokenLabel({ kind: "source", sourceId: "pridge", componentId: "tbaTotalAutoPoints" }), "pridge.epa.breakdown.auto_points");
   assert.equal(identifiers.includes("pridge.epa.total_points"), true);
   assert.equal(
+    identifiers.filter((identifier) => identifier === "pridge.epa.total_points").length,
+    1,
+    "the Available Metrics list shows one pRidge EPA total",
+  );
+  assert.equal(identifiers.includes("tba.epa.total_points"), true, "the same component from TBA remains a separate available metric");
+  assert.equal(identifiers.includes("statbotics.epa.total_points"), true, "the same component from Statbotics remains a separate available metric");
+  const sameComponentSourceIds = context.currentMetrics(eventModel)
+    .filter((metric) => metric.kind === "source" && metric.componentId === "epa.total_points")
+    .map((metric) => metric.sourceId)
+    .sort();
+  assert.deepEqual(Array.from(sameComponentSourceIds), ["pridge", "statbotics", "tba"]);
+  const runtimeMetricsForEventModel = context.runtimeMetricsForEventModel;
+  context.runtimeMetricsForEventModel = () => [];
+  try {
+    assert.equal(
+      context.currentDerivedAvailableMetrics(eventModel).some((metric) => metric.id === "pridge.epa.total_points"),
+      false,
+      "pRidge totals are not fabricated in Available Metrics when no pRidge source metric exists",
+    );
+  } finally {
+    context.runtimeMetricsForEventModel = runtimeMetricsForEventModel;
+  }
+  assert.equal(
     context.metricTokenLabel({
       kind: "source",
       sourceId: "scouter",
@@ -1714,6 +1789,78 @@ await runTest("provider metric catalogs apply default and schema blacklists with
     }),
     "scouting.autoL4Made",
   );
+});
+
+await runTest("Alliance Selection and metric selectors expose one live pRidge EPA total", async () => {
+  const eventModel = {
+    key: "2026epa-duplicate",
+    season: 2026,
+    name: "EPA duplicate regression",
+    seasonLabel: "2026",
+    teams: [{
+      number: 111,
+      sources: {
+        tba: { components: { "epa.total_points": 18.4 } },
+        statbotics: { components: { "epa.total_points": 42.7 } },
+        pridge: { total: 39.2, components: { "epa.total_points": 39.2 } },
+      },
+    }],
+    teamNumbers: [111],
+    matches: [],
+    scoringComponents: [],
+    formulaFieldDefinitions: [],
+    derivedMetricDefinitions: [],
+    pridgeResponseDefinitions: [
+      { id: "epa.total_points", label: "pRidge EPA total points", unit: "pts", formula: "tba.totalPoints" },
+    ],
+    metrics: [],
+    dataSources: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+  };
+  const context = loadAppContext({ eventCatalog: [eventModel] });
+  context.__scoutingAppState.activeEventKey = eventModel.key;
+  context.__scoutingAppState.picklists = [{ id: "alliance-epa-test", name: "EPA Test", teams: [111] }];
+  context.__scoutingAppState.activePicklist = "alliance-epa-test";
+
+  const selectorMetrics = {
+    runtimeCatalog: { ids: context.__activeEventTestApi.currentMetrics().map((metric) => metric.id), target: "source:pridge:epa.total_points" },
+    generalMetricSelectors: { ids: context.__activeEventTestApi.orderedMetrics(eventModel).map((metric) => metric.id), target: "source:pridge:epa.total_points" },
+    allianceSelectionAndPicklistBuilder: { ids: context.__activeEventTestApi.orderedRankableMetrics(eventModel).map((metric) => metric.id), target: "source:pridge:epa.total_points" },
+    analysisAndDerivedAvailable: { ids: context.__activeEventTestApi.currentDerivedAvailableMetrics(eventModel).map((metric) => metric.id), target: "pridge.epa.total_points" },
+  };
+  for (const [selectorName, { ids, target }] of Object.entries(selectorMetrics)) {
+    assert.equal(new Set(ids).size, ids.length, `${selectorName} exposes each metric ID once`);
+    assert.equal(
+      ids.filter((id) => id === target).length,
+      1,
+      `${selectorName} exposes one pRidge EPA total`,
+    );
+  }
+  const allianceMarkup = context.__activeEventTestApi.renderAlliance();
+  assert.equal(
+    [...allianceMarkup.matchAll(/value="metric:source:pridge:epa\.total_points"/g)].length,
+    1,
+    "Alliance Selection renders one pRidge EPA checkbox",
+  );
+  const analysisMarkup = context.__activeEventTestApi.renderAnalysis();
+  assert.equal(
+    [...analysisMarkup.matchAll(/value="source:pridge:epa\.total_points"/g)].length,
+    1,
+    "Analysis renders one pRidge EPA option",
+  );
+  const derivedMarkup = context.__activeEventTestApi.renderDerivedBuilder();
+  assert.equal(
+    [...derivedMarkup.matchAll(/data-derived-preview-metric="pridge\.epa\.total_points"/g)].length,
+    1,
+    "Derived Builder renders one pRidge EPA metric",
+  );
+
+  const sameComponentSources = context.__activeEventTestApi.currentMetrics()
+    .filter((metric) => metric.componentId === "epa.total_points")
+    .map((metric) => metric.sourceId)
+    .sort();
+  assert.deepEqual(Array.from(sameComponentSources), ["pridge", "statbotics", "tba"]);
 });
 
 await runTest("available metrics preview resolves metrics that are not already referenced by the active equation", async () => {

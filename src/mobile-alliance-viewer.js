@@ -5,32 +5,50 @@
   const picklistsRoot = $("#mobile-picklists");
   const emptyState = $("#empty-state");
   let activeTab = "board";
+  let rankedTeamCount = 0;
 
-  function teamLabel(number, name = "") {
-    return name ? `Team ${number} · ${name}` : `Team ${number}`;
+  function updateMobileRankingLayout() {
+    const availableWidth = Number(rankingsRoot.clientWidth) || Number(globalThis.innerWidth) || 0;
+    const visibleColumns = Math.max(1, Math.floor((availableWidth + 3) / 91));
+    const rowCount = Math.max(1, Math.ceil(rankedTeamCount / visibleColumns));
+    rankingsRoot.setAttribute("style", `--mobile-ranking-row-count: ${rowCount}`);
   }
 
-  function rankedTeamRow(team) {
+  function metricFill(score, minScore, maxScore) {
+    return globalThis.ScoreColor?.colorForScore(score, minScore, maxScore, "desc") || "transparent";
+  }
+
+  function rankedTeamRow(team, scoreRange = null, includeRank = true) {
     const row = document.createElement("li");
     row.className = `ranking-row state-${team.state}`;
     const compareColor = globalThis.mobileAllianceDisplay?.compareColorForSlot(team.comparisonSlot);
+    const rowStyles = [];
     if (compareColor) {
       row.className += " compare-selected";
       row.setAttribute("data-comparison-slot", String(team.comparisonSlot));
-      row.setAttribute("style", `--compare-accent: ${compareColor}`);
+      rowStyles.push(`--compare-accent: ${compareColor}`);
     }
-    const rank = document.createElement("span");
-    rank.className = "rank-number";
-    rank.textContent = String(team.rank);
+    if (Number.isFinite(team.score)) {
+      rowStyles.push(`--metric-fill: ${metricFill(Number(team.score), scoreRange?.min ?? Number.NaN, scoreRange?.max ?? Number.NaN)}`);
+    }
+    if (rowStyles.length) row.setAttribute("style", rowStyles.join("; "));
+    const cells = [];
+    if (includeRank) {
+      const rank = document.createElement("span");
+      rank.className = "rank-number";
+      rank.textContent = String(team.rank);
+      cells.push(rank);
+    }
     const label = document.createElement("span");
-    label.textContent = `Team ${team.teamNumber}`;
-    row.append(rank, label);
+    label.textContent = team.teamNumber;
+    cells.push(label);
     if (Number.isFinite(team.score)) {
       const score = document.createElement("span");
       score.className = "team-score";
-      score.textContent = String(team.score);
-      row.append(score);
+      score.textContent = Number(team.score).toFixed(1);
+      cells.push(score);
     }
+    row.append(...cells);
     return row;
   }
 
@@ -40,36 +58,62 @@
     $("#board-view").hidden = !valid || activeTab !== "board";
     $("#picklists-view").hidden = !valid || activeTab !== "picklists";
     if (!valid) {
-      $("#event-name").textContent = "Waiting for the admin display…";
       boardRoot.replaceChildren();
       rankingsRoot.replaceChildren();
+      rankedTeamCount = 0;
+      updateMobileRankingLayout();
+      picklistsRoot.className = "mobile-picklists is-empty";
+      picklistsRoot.dataset.columnCount = "0";
       picklistsRoot.replaceChildren();
+      $("#mobile-picklists-hint").hidden = true;
       return;
     }
 
-    $("#event-name").textContent = `${snapshot.eventName || snapshot.eventKey} · ${snapshot.eventKey}`;
     boardRoot.replaceChildren();
     for (let alliance = 1; alliance <= 8; alliance += 1) {
       const group = document.createElement("section");
       group.className = "alliance-row";
       const heading = document.createElement("h3");
-      heading.textContent = `Alliance ${alliance}`;
+      heading.textContent = `A${alliance}`;
       group.append(heading);
       const slots = document.createElement("div");
       slots.className = "alliance-slots";
+      const allianceSize = snapshot.board.length / 8;
+      group.setAttribute("style", `--alliance-slot-count: ${allianceSize}`);
       snapshot.board.filter((slot) => slot.alliance === alliance).forEach((slot) => {
         const cell = document.createElement("div");
-        cell.className = `board-slot${slot.teamNumber ? " occupied" : ""}`;
-        cell.textContent = slot.teamNumber ? teamLabel(slot.teamNumber, slot.teamName) : "—";
+        cell.className = `board-slot${slot.teamNumber ? " occupied state-picked" : ""}`;
+        cell.textContent = slot.teamNumber || "—";
+        const compareColor = globalThis.mobileAllianceDisplay?.compareColorForSlot(slot.comparisonSlot);
+        if (compareColor) {
+          cell.className += " compare-selected";
+          cell.setAttribute("style", `--compare-accent: ${compareColor}`);
+        }
         slots.append(cell);
       });
       group.append(slots);
+      const allianceEpa = document.createElement("div");
+      allianceEpa.className = "alliance-epa";
+      const epaTotal = snapshot.allianceEpa?.[alliance - 1];
+      allianceEpa.textContent = Number.isFinite(epaTotal) ? `EPA=${Number(epaTotal).toFixed(1)}` : "---";
+      if (Number.isFinite(epaTotal)) {
+        const epaRange = snapshot.allianceEpaRange;
+        const fill = metricFill(epaTotal, epaRange?.min ?? Number.NaN, epaRange?.max ?? Number.NaN);
+        if (fill !== "transparent") allianceEpa.setAttribute("style", `--metric-fill: ${fill}`);
+      }
+      group.append(allianceEpa);
       boardRoot.append(group);
     }
 
     rankingsRoot.replaceChildren();
     snapshot.rankings.forEach((team) => rankingsRoot.append(rankedTeamRow(team)));
+    rankedTeamCount = snapshot.rankings.length;
+    updateMobileRankingLayout();
 
+    picklistsRoot.className = `mobile-picklists${snapshot.columns.length ? "" : " is-empty"}`;
+    picklistsRoot.dataset.columnCount = String(snapshot.columns.length);
+    const narrowScreen = globalThis.matchMedia?.("(max-width: 699px)").matches === true;
+    $("#mobile-picklists-hint").hidden = snapshot.columns.length < 2 || narrowScreen;
     picklistsRoot.replaceChildren();
     if (!snapshot.columns.length) {
       const message = document.createElement("p");
@@ -84,7 +128,9 @@
       heading.textContent = column.label;
       const list = document.createElement("ol");
       list.className = "mobile-rankings";
-      column.teams.forEach((team) => list.append(rankedTeamRow(team)));
+      const scores = column.teams.map((team) => team.score).filter(Number.isFinite);
+      const scoreRange = scores.length ? { min: Math.min(...scores), max: Math.max(...scores) } : null;
+      column.teams.forEach((team) => list.append(rankedTeamRow(team, scoreRange, false)));
       card.append(heading, list);
       picklistsRoot.append(card);
     });
@@ -95,11 +141,9 @@
     if (!api || globalThis.__mobileAllianceSubscriptionStarted) return;
     globalThis.__mobileAllianceSubscriptionStarted = true;
     api.subscribeMobileAllianceSnapshot((snapshot) => {
-      $("#connection-state").textContent = "Live";
       render(snapshot);
     }, (error) => {
       console.warn("Unable to subscribe to the public alliance selection display.", error);
-      $("#connection-state").textContent = "Connection error";
     });
   }
 
@@ -108,7 +152,9 @@
     document.querySelectorAll("[data-mobile-tab]").forEach((tab) => tab.setAttribute("aria-selected", String(tab === button)));
     $("#board-view").hidden = activeTab !== "board" || emptyState.hidden === false;
     $("#picklists-view").hidden = activeTab !== "picklists" || emptyState.hidden === false;
+    updateMobileRankingLayout();
   }));
+  globalThis.addEventListener("resize", updateMobileRankingLayout);
   globalThis.addEventListener("firebase-mobile-display-api-ready", connect);
   connect();
 })();
