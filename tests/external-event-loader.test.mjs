@@ -434,6 +434,11 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.eventModel.teams[0].sources.statbotics.components["epa.post"], 41.75);
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[1].sources.statbotics.trend)), []);
   assert.equal(result.eventModel.teams[0].sources.pridge.trendEntries.length, 1);
+  assert.equal(
+    result.eventModel.pridgeResponseDefinitions.some((definition) => definition.id === "epa.total_points"),
+    true,
+    "the live loader generates the total response from TBA data when pRidge definitions are absent",
+  );
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams[0].derived || {})), {});
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.seedSortEquations || [])), []);
   assert.equal(result.eventModel.seedPicklists[1].name, "Backup / Live Sources");
@@ -462,6 +467,11 @@ await runTest("loadEventByCode builds an event model and ready provider states f
   assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:epa.breakdown.auto_points"), true);
   assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:epa.breakdown.endgame_points"), true);
   assert.equal(result.eventModel.metrics.some((metric) => metric.id === "source:pridge:epa.total_points"), true);
+  assert.equal(
+    result.eventModel.metrics.filter((metric) => metric.id === "source:pridge:epa.total_points").length,
+    1,
+    "live event metrics include the generated pRidge total only once",
+  );
   assert.equal(result.warnings.length, 0);
 
   const reapplied = context.EventModelBuilder.applyPridgeResponseDefinitions(result.eventModel, [

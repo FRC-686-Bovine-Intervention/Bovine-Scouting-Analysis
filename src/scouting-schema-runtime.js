@@ -149,7 +149,7 @@ function buildMetricCatalog(schemaOrEventModel = {}) {
   const pridgeResponseDefinitions = Array.isArray(schemaOrEventModel.pridgeResponseDefinitions)
     ? schemaOrEventModel.pridgeResponseDefinitions
     : [];
-  return [
+  const metrics = [
     ...scouterMetricDefinitions(schemaOrEventModel).map((component) => ({
       id: `source:scouter:${component.id}`,
       kind: "source",
@@ -209,6 +209,13 @@ function buildMetricCatalog(schemaOrEventModel = {}) {
       definition: metricDefinition,
     })),
   ];
+  const seenMetricIds = new Set();
+  return metrics.filter((metric) => {
+    const id = normalizeText(metric?.id);
+    if (!id || seenMetricIds.has(id)) return false;
+    seenMetricIds.add(id);
+    return true;
+  });
 }
 
 globalThis.ScoutingSchemaRuntime = {

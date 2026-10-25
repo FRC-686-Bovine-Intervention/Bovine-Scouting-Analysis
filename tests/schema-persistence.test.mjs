@@ -117,7 +117,7 @@ function loadAppContext(options = {}) {
   const appSource = fs.readFileSync(path.join(workspaceRoot, "src/app.js"), "utf8")
     .replace(/installGlobalRecoveryGuards\(\);/, "")
     .replace(/\nbootstrapApp\(\);\s*/, "\n")
-    + "\nglobalThis.__activeEventTestApi = { adminDataQualityAlertState, applyAdminEventCodeDraft, applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, currentDataSources, loadArbitraryEventCode, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, refreshDataSource, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
+    + "\nglobalThis.__activeEventTestApi = { adminDataQualityAlertState, applyAdminEventCodeDraft, applyScoutingSchemaSourceInputChange, clearCurrentEventScoutingData, createSchemaBaselineFile, currentDataSources, currentMetrics, currentDerivedAvailableMetrics, orderedMetrics, orderedRankableMetrics, renderAlliance, renderAnalysis, renderDerivedBuilder, loadArbitraryEventCode, loadAttachedSchemaForDiagnostics, openSharedCachedEvent, persistScoutingSubmissions, refreshDataSource, restoreSharedCachedActiveEvent, setCurrentScoutingSchemaSourceUrl, setCurrentScoutingSourceUrl, startSharedActiveEventSync, switchActiveEvent, syncSharedSubmissionsForEvent };\n";
 
   [
     "src/mobile-alliance-display.js",
@@ -127,9 +127,11 @@ function loadAppContext(options = {}) {
     "src/scouting-diagnostics-state.js",
     "src/scouting-source-utils.js",
     "src/scouting-json-schema.js",
+    "src/scouting-schema-runtime.js",
     "src/scouting-json-import.js",
     "src/scouting-profiles.js",
     "src/event-workspace.js",
+    "src/team-rank-model.js",
     "src/frc-season-metadata.js",
   ].forEach((relativePath) => {
     const source = fs.readFileSync(path.join(workspaceRoot, relativePath), "utf8");
@@ -1746,6 +1748,78 @@ await runTest("provider metric catalogs apply default and schema blacklists with
     }),
     "scouting.autoL4Made",
   );
+});
+
+await runTest("Alliance Selection and metric selectors expose one live pRidge EPA total", async () => {
+  const eventModel = {
+    key: "2026epa-duplicate",
+    season: 2026,
+    name: "EPA duplicate regression",
+    seasonLabel: "2026",
+    teams: [{
+      number: 111,
+      sources: {
+        tba: { components: { "epa.total_points": 18.4 } },
+        statbotics: { components: { "epa.total_points": 42.7 } },
+        pridge: { total: 39.2, components: { "epa.total_points": 39.2 } },
+      },
+    }],
+    teamNumbers: [111],
+    matches: [],
+    scoringComponents: [],
+    formulaFieldDefinitions: [],
+    derivedMetricDefinitions: [],
+    pridgeResponseDefinitions: [
+      { id: "epa.total_points", label: "pRidge EPA total points", unit: "pts", formula: "tba.totalPoints" },
+    ],
+    metrics: [],
+    dataSources: [],
+    seedPicklists: [],
+    seedSortEquations: [],
+  };
+  const context = loadAppContext({ eventCatalog: [eventModel] });
+  context.__scoutingAppState.activeEventKey = eventModel.key;
+  context.__scoutingAppState.picklists = [{ id: "alliance-epa-test", name: "EPA Test", teams: [111] }];
+  context.__scoutingAppState.activePicklist = "alliance-epa-test";
+
+  const selectorMetrics = {
+    runtimeCatalog: { ids: context.__activeEventTestApi.currentMetrics().map((metric) => metric.id), target: "source:pridge:epa.total_points" },
+    generalMetricSelectors: { ids: context.__activeEventTestApi.orderedMetrics(eventModel).map((metric) => metric.id), target: "source:pridge:epa.total_points" },
+    allianceSelectionAndPicklistBuilder: { ids: context.__activeEventTestApi.orderedRankableMetrics(eventModel).map((metric) => metric.id), target: "source:pridge:epa.total_points" },
+    analysisAndDerivedAvailable: { ids: context.__activeEventTestApi.currentDerivedAvailableMetrics(eventModel).map((metric) => metric.id), target: "pridge.epa.total_points" },
+  };
+  for (const [selectorName, { ids, target }] of Object.entries(selectorMetrics)) {
+    assert.equal(new Set(ids).size, ids.length, `${selectorName} exposes each metric ID once`);
+    assert.equal(
+      ids.filter((id) => id === target).length,
+      1,
+      `${selectorName} exposes one pRidge EPA total`,
+    );
+  }
+  const allianceMarkup = context.__activeEventTestApi.renderAlliance();
+  assert.equal(
+    [...allianceMarkup.matchAll(/value="metric:source:pridge:epa\.total_points"/g)].length,
+    1,
+    "Alliance Selection renders one pRidge EPA checkbox",
+  );
+  const analysisMarkup = context.__activeEventTestApi.renderAnalysis();
+  assert.equal(
+    [...analysisMarkup.matchAll(/value="source:pridge:epa\.total_points"/g)].length,
+    1,
+    "Analysis renders one pRidge EPA option",
+  );
+  const derivedMarkup = context.__activeEventTestApi.renderDerivedBuilder();
+  assert.equal(
+    [...derivedMarkup.matchAll(/data-derived-preview-metric="pridge\.epa\.total_points"/g)].length,
+    1,
+    "Derived Builder renders one pRidge EPA metric",
+  );
+
+  const sameComponentSources = context.__activeEventTestApi.currentMetrics()
+    .filter((metric) => metric.componentId === "epa.total_points")
+    .map((metric) => metric.sourceId)
+    .sort();
+  assert.deepEqual(Array.from(sameComponentSources), ["pridge", "statbotics", "tba"]);
 });
 
 await runTest("available metrics preview resolves metrics that are not already referenced by the active equation", async () => {

@@ -62,6 +62,21 @@ runTest("generic metric catalog exposes provider totals and schema-driven scouti
   assert.equal(derivedMetric.unit, "%");
 });
 
+runTest("runtime metric catalog keeps generated pRidge totals unique by ID and source", () => {
+  const metrics = scoutingSchemaRuntime.buildMetricCatalog({
+    pridgeResponseDefinitions: [
+      { id: "epa.total_points", label: "Generated live pRidge total", unit: "pts" },
+      { id: "epa.total_points", label: "Repeated live pRidge total", unit: "pts" },
+      { id: "tbaTotalAutoPoints", label: "TBA total auto points", unit: "pts" },
+    ],
+  });
+  const pRidgeTotals = metrics.filter((metric) => metric.id === "source:pridge:epa.total_points");
+  assert.equal(pRidgeTotals.length, 1);
+  assert.equal(pRidgeTotals[0].sourceId, "pridge");
+  assert.equal(metrics.filter((metric) => metric.id === "source:pridge:tbaTotalAutoPoints").length, 1);
+  assert.equal(metrics.filter((metric) => metric.id === "source:statbotics:epa.total_points").length, 0);
+});
+
 runTest("formula field definitions remain schema-driven when explicit formula fields are absent", () => {
   const definitions = scoutingSchemaRuntime.formulaFieldDefinitions({
     scoringComponents: [{ id: "auto", label: "Auto", unit: "pts" }],
