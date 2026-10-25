@@ -842,8 +842,12 @@ function applyLoadedExternalSourceState(loadResult, options = {}) {
     nextSources[sourceId] = mergeProviderSourceState(nextSources[sourceId], sourceState);
   });
   const currentModel = currentEvent();
-  const hasComputedPridge = (currentModel?.teams || []).some((team) => Number.isFinite(Number(team?.sources?.pridge?.total)));
-  if (hasComputedPridge && nextSources.pridge?.status === "error") {
+  const hasComputedPridge = (currentModel?.teams || []).some((team) => {
+    const total = team?.sources?.pridge?.total;
+    return (typeof total === "number" || (typeof total === "string" && total.trim() !== ""))
+      && Number.isFinite(Number(total));
+  });
+  if (hasComputedPridge && nextSources.pridge?.status === "error" && nextSources.pridge?.provenance?.mode !== "shared-cache-fallback") {
     nextSources.pridge = {
       ...nextSources.pridge,
       status: "ready",
@@ -5429,6 +5433,7 @@ async function loadArbitraryEventCode(eventCode, options = {}) {
           eventKey: requestedEventKey,
           eventModel: previousEventModel,
           fetchedAt: previousSource.lastSuccessfulAt,
+          pridgeLastSuccessfulAt: normalizeText(previousWorkspace?.sources?.pridge?.lastSuccessfulAt),
         };
       }
       if (typeof statboticsSourceCacheApi?.loadEventSourceCache !== "function") return null;

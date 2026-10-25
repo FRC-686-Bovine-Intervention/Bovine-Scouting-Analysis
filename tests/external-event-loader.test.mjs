@@ -125,6 +125,7 @@ await runTest("Statbotics timeout uses same-event cached provider values and mar
   assert.equal(result.eventModel.teams.find((team) => team.number === 111).sources.statbotics.components["epa.total_points"], undefined);
   assert.equal(result.sourceStates.statbotics.status, "error");
   assert.equal(result.sourceStates.statbotics.freshness, "stale");
+  assert.equal(result.sourceStates.pridge.status, "error", "pRidge remains unavailable when its required inputs did not produce a result");
   assert.equal(result.sourceStates.statbotics.lastSuccessfulAt, "2026-09-20T12:00:00.000Z");
   assert.match(result.sourceStates.statbotics.provenance.notes, /previously cached real Statbotics values/i);
   assert.ok(result.warnings.some((warning) => /last-known-good data for 2026cached/.test(warning)));
@@ -155,7 +156,15 @@ await runTest("Statbotics timeout can reuse a prior same-event model without cro
     key: "2026prior",
     season: 2026,
     catalogSource: "dynamic-external",
-    teams: [{ id: "frc686", number: 686, sources: { statbotics: { total: 54.3, components: { "epa.total_points": 54.3 }, trend: [53.8], trendEntries: [{ key: 1, value: 53.8 }] } } }],
+    teams: [
+      { id: "frc686", number: 686, sources: {
+        statbotics: { total: 54.3, components: { "epa.total_points": 54.3 }, trend: [53.8], trendEntries: [{ key: 1, value: 53.8 }] },
+        pridge: { total: 0, components: { "epa.total_points": 0 }, trend: [0], trendEntries: [{ key: 1, value: 0 }] },
+      } },
+      { id: "frc111", number: 111, sources: {
+        pridge: { total: 39.2, components: { "epa.total_points": 39.2 }, trend: [38.7, 39.2], trendEntries: [{ key: 1, value: 38.7 }, { key: 2, value: 39.2 }] },
+      } },
+    ],
   };
   const result = await context.ExternalEventLoader.loadEventByCode("2026prior", {
     fetchImpl,
@@ -168,6 +177,14 @@ await runTest("Statbotics timeout can reuse a prior same-event model without cro
   });
 
   assert.equal(result.eventModel.teams.find((team) => team.id === "frc686").sources.statbotics.components["epa.total_points"], 54.3);
+  assert.equal(result.eventModel.teams.find((team) => team.id === "frc686").sources.pridge.total, 0, "a genuine previously computed pRidge zero survives a temporary Statbotics outage");
+  assert.equal(result.eventModel.teams.find((team) => team.id === "frc686").sources.pridge.components["epa.total_points"], 0);
+  assert.equal(result.eventModel.teams.find((team) => team.id === "frc111").sources.pridge.total, 39.2, "last known pRidge totals survive when recomputation is unavailable");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams.find((team) => team.id === "frc111").sources.pridge.trendEntries)), [{ key: 1, value: 38.7 }, { key: 2, value: 39.2 }]);
+  assert.equal(result.sourceStates.pridge.status, "error", "retained pRidge values remain marked stale during the Statbotics outage");
+  assert.equal(result.sourceStates.pridge.freshness, "stale");
+  assert.equal(result.sourceStates.pridge.lastSuccessfulAt, "2026-09-20T12:00:00.000Z");
+  assert.equal(result.sourceStates.pridge.provenance.mode, "shared-cache-fallback");
   assert.equal(result.eventModel.teams.find((team) => team.number === 111).sources.statbotics.components["epa.total_points"], undefined);
   assert.deepEqual(JSON.parse(JSON.stringify(result.eventModel.teams.find((team) => team.id === "frc686").sources.statbotics.trendEntries)), [{ key: 1, value: 53.8 }]);
   assert.equal(result.sourceStates.statbotics.freshness, "stale");

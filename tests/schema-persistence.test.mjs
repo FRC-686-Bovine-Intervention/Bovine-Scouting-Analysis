@@ -558,6 +558,47 @@ await runTest("a stale background refresh cannot overwrite a newer event selecti
   assert.match(state.eventLookupResult.message, new RegExp(requestedEvent.key));
 });
 
+await runTest("an unavailable pRidge result is not promoted to a computed zero while a real zero remains ready", async () => {
+  async function loadWithPridgeTotal(eventKey, total, provenanceMode = "native-compute") {
+    const eventModel = {
+      key: eventKey,
+      season: 2026,
+      name: eventKey,
+      seasonLabel: "2026",
+      catalogSource: "dynamic-external",
+      teams: [{ id: "frc1", number: 1, sources: { pridge: { total } } }],
+      teamNumbers: [1],
+      matches: [],
+      matchesComplete: 0,
+      scoringComponents: [],
+      metrics: [],
+      seedPicklists: [],
+      seedSortEquations: [],
+      formulaFieldDefinitions: [],
+      dataSources: [],
+    };
+    const context = loadAppContext({
+      eventCatalog: [],
+      ExternalEventLoader: {
+        loadEventByCode: async () => ({
+          eventModel,
+          sourceStates: { pridge: { status: "error", freshness: "stale", error: "pRidge unavailable", provenance: { mode: provenanceMode } } },
+          warnings: [],
+          rawSourceArtifacts: [],
+        }),
+        normalizeEventCode: (value) => String(value || "").trim().toLowerCase(),
+      },
+    });
+    context.__scoutingAppState.tbaAuthKey = "configured";
+    await context.__activeEventTestApi.applyAdminEventCodeDraft(eventKey);
+    return context.__scoutingAppState.eventWorkspace.sources.pridge.status;
+  }
+
+  assert.equal(await loadWithPridgeTotal("2026missing", null), "error", "null pRidge is unavailable, not numeric zero");
+  assert.equal(await loadWithPridgeTotal("2026zero", 0), "ready", "a real pRidge zero remains valid data");
+  assert.equal(await loadWithPridgeTotal("2026stale", 39.2, "shared-cache-fallback"), "error", "preserved pRidge values remain marked stale during a Statbotics outage");
+});
+
 await runTest("admin event changes are shared and members adopt the shared event without writing it", async () => {
   let sharedEventListener = null;
   const savedEventKeys = [];
