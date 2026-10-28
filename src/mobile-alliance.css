@@ -34,13 +34,14 @@ body { margin: 0; background: #101820; }
 .ranking-row { min-height: 38px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 8px; border-radius: 6px; padding: 5px 8px; font-size: .9rem; }
 .rank-number { color: #b6c6d0; font-variant-numeric: tabular-nums; text-align: right; }
 .state-confirmed { background: #29553d; }.state-possible { background: #6b5724; }.state-picked { background: #555d63; color: #e0e4e6; }
+.mobile-picklists .ranking-row.state-picked:not(.compare-selected) { background: #808080; color: #000; opacity: .5; text-decoration-line: line-through; }
 .ranking-row.compare-selected { background: var(--compare-accent); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--compare-accent) 86%, black); color: #fff; }
 .ranking-row.state-picked.compare-selected { background: linear-gradient(rgba(85, 93, 99, .52), rgba(85, 93, 99, .52)), var(--compare-accent); }
+.mobile-picklists .ranking-row.state-picked.compare-selected { opacity: 1; text-decoration-line: line-through; }
 .team-score { color: #d0dde5; font-variant-numeric: tabular-nums; }
 .ranking-row .team-score { border-radius: 4px; padding: 2px 4px; background: transparent; color: #fff; text-align: center; }
 .mobile-picklists .ranking-row { grid-template-columns: minmax(0, 1fr) auto; }
 .mobile-picklists .ranking-row:not(.compare-selected) { background: var(--metric-fill, transparent); }
-.mobile-picklists .ranking-row.state-picked:not(.compare-selected) { background: linear-gradient(rgba(85, 93, 99, .52), rgba(85, 93, 99, .52)), var(--metric-fill, #555d63); }
 .mobile-picklists {
   display: grid;
   grid-auto-flow: column;
